@@ -589,12 +589,18 @@ class PDFTranslatorEngine:
 
         # Décalage de la 1re baseline par rapport au haut du conteneur.
         first_off = max(0.0, _base(grp[0]) - y0)
+        # Retrait de 1re ligne : le paragraphe peut être en « L » (1re ligne
+        # commençant APRÈS un libellé en ligne — ex. « (À partir d'un jeu de
+        # données) » en italique). Le flux démarre au x d'origine du premier
+        # fragment ; les lignes suivantes reviennent au bord du conteneur.
+        # Sans ça, le texte du groupe s'écrivait PAR-DESSUS le libellé.
+        first_indent = max(0.0, grp[0]["bbox"][0] - x0)
 
         def layout(scale):
             """Positionne les mots à l'échelle donnée (tailles et interligne
             multipliés par `scale`). Retourne (placements, dernière_baseline)."""
             placements = []
-            cx = x0
+            cx = x0 + first_indent
             cy = y0 + first_off * scale
             lh = line_h * scale
             for w, (fm, fraw, size, color, underline) in words:
