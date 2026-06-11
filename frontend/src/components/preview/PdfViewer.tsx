@@ -29,9 +29,8 @@ export default function PdfViewer({
 
   useEffect(() => {
     let active = true;
-    let originalUrl: string | null = null;
-    let translatedUrl: string | null = null;
     const renderTasks: any[] = [];
+    const loadingTasks: any[] = [];
 
     const loadPDFs = async () => {
       const pdfjsLib = (window as any).pdfjsLib;
@@ -48,14 +47,21 @@ export default function PdfViewer({
         let pdfSourceTrad: any;
 
         if (translatedBlob && sourceFile) {
-          translatedUrl = URL.createObjectURL(translatedBlob);
-          originalUrl = URL.createObjectURL(sourceFile);
-          pdfSourceOrig = pdfjsLib.getDocument(originalUrl);
-          pdfSourceTrad = pdfjsLib.getDocument(translatedUrl);
+          // Données passées directement à pdf.js (PAS d'URL blob : l'effet se
+          // relance à chaque changement de page/zoom et le cleanup révoquait
+          // l'URL pendant que le worker la chargeait encore → blob introuvable).
+          const [origBuf, tradBuf] = await Promise.all([
+            sourceFile.arrayBuffer(),
+            translatedBlob.arrayBuffer(),
+          ]);
+          if (!active) return;
+          pdfSourceOrig = pdfjsLib.getDocument({ data: origBuf });
+          pdfSourceTrad = pdfjsLib.getDocument({ data: tradBuf });
         } else {
           pdfSourceOrig = pdfjsLib.getDocument(demoSource);
           pdfSourceTrad = pdfjsLib.getDocument(demoTarget);
         }
+        loadingTasks.push(pdfSourceOrig, pdfSourceTrad);
 
         const pdfOrig = await pdfSourceOrig.promise;
         if (!active) return;
@@ -65,7 +71,10 @@ export default function PdfViewer({
         if (!active) return;
 
         const renderPage = async (pdf: any, canvasId: string, pageNum: number) => {
-          const page = await pdf.getPage(pageNum);
+          // Borne la page demandée : un document mono-page recevait encore le
+          // numéro de page de l'état précédent → « Invalid page request ».
+          const safePage = Math.min(Math.max(1, pageNum), pdf.numPages);
+          const page = await pdf.getPage(safePage);
           if (!active) return;
           const canvas = document.getElementById(canvasId) as HTMLCanvasElement;
           if (!canvas) return;
@@ -110,11 +119,16 @@ export default function PdfViewer({
 
     return () => {
       active = false;
-      if (originalUrl) URL.revokeObjectURL(originalUrl);
-      if (translatedUrl) URL.revokeObjectURL(translatedUrl);
       renderTasks.forEach((task) => {
         try {
           task.cancel();
+        } catch (e) {
+          // ignore
+        }
+      });
+      loadingTasks.forEach((task) => {
+        try {
+          task.destroy();
         } catch (e) {
           // ignore
         }
