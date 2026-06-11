@@ -376,9 +376,55 @@ class PDFTranslatorEngine:
                     tw = self._text_length(t, fitted, fm, b.get("font", ""))
                     solo_extents.append((sx, sx + tw, sy, sz))
 
-                # Passe 3 — rendu des groupes, informés des voisins rendus.
+                # Passe 2b — largeur réelle de colonne. Les paragraphes
+                # alignés sur la même verticale gauche (±3 pt) appartiennent
+                # au même flux de colonne : le bord droit MAXIMAL observé
+                # parmi les paragraphes multi-lignes de même x0 révèle la
+                # vraie largeur de colonne. Un conteneur étroit (paragraphe
+                # court) peut s'y étendre — borné par le premier élément
+                # rendu à sa droite (encart, autre colonne, libellé…).
+                run_geoms = []
                 for run in runs_to_render:
-                    self._render_paragraph_group(new_page, run, solo_extents)
+                    def _rb(b):
+                        o = b.get("origin")
+                        return o[1] if o and len(o) >= 2 else b["bbox"][3]
+                    run_geoms.append([
+                        min(b["bbox"][0] for b in run),
+                        min(b["bbox"][1] for b in run),
+                        max(b["bbox"][2] for b in run),
+                        max(b["bbox"][3] for b in run),
+                        len({round(_rb(b), 1) for b in run}),   # nb de lignes
+                    ])
+
+                ext_x1s = []
+                for i, (rx0, ry0, rx1, ry1, _nl) in enumerate(run_geoms):
+                    # Bord droit max des paragraphes multi-lignes de même x0
+                    # (leurs lignes pleines épousent la marge de colonne ; les
+                    # mono-lignes, titres…, ne sont pas une référence fiable).
+                    col_x1 = rx1
+                    for ox0, _oy0, ox1, _oy1, onl in run_geoms:
+                        if onl >= 2 and abs(ox0 - rx0) <= 3.0:
+                            col_x1 = max(col_x1, ox1)
+                    # Borne : premier élément rendu à droite dans la bande
+                    # verticale du paragraphe (jamais d'empiètement).
+                    limit = col_x1
+                    for sx0, _sx1, sy, ssize in solo_extents:
+                        if sy - ssize >= ry1 or sy <= ry0:
+                            continue          # hors de la bande verticale
+                        if rx1 - 1.0 <= sx0 < limit:
+                            limit = sx0 - 4.0
+                    for j, (ox0, oy0, _ox1, oy1, _onl) in enumerate(run_geoms):
+                        if j == i or oy0 >= ry1 or oy1 <= ry0:
+                            continue
+                        if rx1 - 1.0 <= ox0 < limit:
+                            limit = ox0 - 4.0
+                    ext_x1s.append(max(rx1, limit))
+
+                # Passe 3 — rendu des groupes, informés des voisins rendus
+                # et de la largeur de colonne disponible.
+                for run, ext_x1 in zip(runs_to_render, ext_x1s):
+                    self._render_paragraph_group(new_page, run, solo_extents,
+                                                 ext_x1=ext_x1)
 
                 for block in blocks:
                     if id(block) in merged_ids:
@@ -549,7 +595,7 @@ class PDFTranslatorEngine:
                 runs.append([b])
         return runs
 
-    def _render_paragraph_group(self, page, grp, solo_extents=None):
+    def _render_paragraph_group(self, page, grp, solo_extents=None, ext_x1=None):
         """Rend un groupe de blocs partageant la même paragraph_key (clé
         attribuée par l'IA à la traduction) dans un conteneur UNIQUE :
 
@@ -577,6 +623,11 @@ class PDFTranslatorEngine:
         y0 = min(b["bbox"][1] for b in grp)
         x1 = max(b["bbox"][2] for b in grp)
         y1 = max(b["bbox"][3] for b in grp)
+        # Largeur de colonne : le conteneur peut s'étendre à droite jusqu'au
+        # bord max observé parmi les paragraphes alignés sur le même x0
+        # (calculé par l'appelant, déjà borné par les obstacles à droite).
+        if ext_x1 is not None and ext_x1 > x1:
+            x1 = ext_x1
 
         # Interligne d'origine : écart médian entre baselines distinctes du
         # groupe ; à défaut (fragments sur une seule ligne), 1.2 × la plus
