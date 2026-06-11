@@ -1,0 +1,22 @@
+# Secrets — ne jamais committer les clés API
+.env
+backend/.env
+frontend/.env
+
+# Python
+backend/venv/
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+frontend/dist/
+
+# Données générées à l'exécution
+backend/translations/
+backend/fonts/*.ttf
+backend/fonts/*.otf
+backend/fonts/*.ttc
+
+# Outils locaux
+.claude/

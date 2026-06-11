@@ -1,0 +1,7 @@
+# Translation cache (original files, JSON extractions, translated outputs)
+translations/
+
+# Python
+__pycache__/
+*.pyc
+.env
