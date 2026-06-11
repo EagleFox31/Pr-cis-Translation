@@ -336,20 +336,49 @@ class PDFTranslatorEngine:
                     if k:
                         by_key.setdefault(k, []).append(block)
 
+                # Passe 1 — déterminer les groupes à fusionner (validation
+                # géométrique des clés IA : un paragraphe réel a une taille
+                # homogène et des baselines consécutives ; les éléments
+                # regroupés à tort — numéro de page, titre… — sont détachés).
+                runs_to_render = []
                 merged_ids = set()
                 for grp in by_key.values():
                     if len(grp) < 2:
                         continue
                     if any(abs(b.get("rotation", 0.0)) > 1.0 for b in grp):
                         continue   # texte pivoté → rendu individuel
-                    # Validation géométrique des clés IA : un paragraphe réel a
-                    # une taille homogène et des baselines consécutives. Les
-                    # éléments regroupés à tort (numéro de page, titre…) sont
-                    # détachés et rendus individuellement à leur position.
                     for run in self._split_group_runs(grp):
                         if len(run) >= 2:
-                            self._render_paragraph_group(new_page, run)
+                            runs_to_render.append(run)
                             merged_ids.update(id(b) for b in run)
+
+                # Passe 2 — étendue horizontale RÉELLEMENT rendue des blocs
+                # individuels (libellés, numéros…) : leur traduction peut être
+                # plus large que leur boîte d'origine même après réduction au
+                # plancher. Les groupes en tiennent compte pour démarrer leur
+                # 1re ligne APRÈS le voisin rendu (anti-chevauchement).
+                solo_extents = []
+                for b in blocks:
+                    if id(b) in merged_ids or abs(b.get("rotation", 0.0)) > 1.0:
+                        continue
+                    t = (b.get("translated_text") or "").strip() \
+                        or (b.get("text") or "").strip()
+                    bb = b.get("bbox")
+                    if not t or not bb or len(bb) < 4:
+                        continue
+                    o = b.get("origin")
+                    sx = o[0] if o and len(o) >= 2 else bb[0]
+                    sy = o[1] if o and len(o) >= 2 else bb[3]
+                    fm = b.get("font_mapped", "helv")
+                    sz = b.get("size", 12)
+                    fitted = self._fit_fontsize(t, fm, max(2.0, bb[2] - bb[0]),
+                                                sz, min_size=min_font_size)
+                    tw = self._text_length(t, fitted, fm, b.get("font", ""))
+                    solo_extents.append((sx, sx + tw, sy, sz))
+
+                # Passe 3 — rendu des groupes, informés des voisins rendus.
+                for run in runs_to_render:
+                    self._render_paragraph_group(new_page, run, solo_extents)
 
                 for block in blocks:
                     if id(block) in merged_ids:
@@ -520,7 +549,7 @@ class PDFTranslatorEngine:
                 runs.append([b])
         return runs
 
-    def _render_paragraph_group(self, page, grp):
+    def _render_paragraph_group(self, page, grp, solo_extents=None):
         """Rend un groupe de blocs partageant la même paragraph_key (clé
         attribuée par l'IA à la traduction) dans un conteneur UNIQUE :
 
@@ -595,6 +624,22 @@ class PDFTranslatorEngine:
         # fragment ; les lignes suivantes reviennent au bord du conteneur.
         # Sans ça, le texte du groupe s'écrivait PAR-DESSUS le libellé.
         first_indent = max(0.0, grp[0]["bbox"][0] - x0)
+
+        # Anti-chevauchement : si un bloc individuel sur la MÊME baseline
+        # (libellé, numéro…) se termine, une fois RENDU, au-delà du début
+        # prévu de la 1re ligne (traduction plus large que sa boîte malgré la
+        # réduction), le flux démarre après sa fin réelle. Règle générale :
+        # vaut pour tout voisin de gauche, quel que soit le document.
+        if solo_extents:
+            fb = _base(grp[0])
+            fsize = grp[0].get("size", 12)
+            start_x = x0 + first_indent
+            for sx0, sx1, sy, ssize in solo_extents:
+                if abs(sy - fb) > 0.5 * max(fsize, ssize):
+                    continue          # pas sur la 1re ligne du groupe
+                if sx0 <= start_x and sx1 > start_x - 1.0:
+                    first_indent = max(first_indent,
+                                       sx1 + 0.3 * fsize - x0)
 
         def layout(scale):
             """Positionne les mots à l'échelle donnée (tailles et interligne
