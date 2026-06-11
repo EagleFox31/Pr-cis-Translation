@@ -352,37 +352,7 @@ class PDFTranslatorEngine:
                             runs_to_render.append(run)
                             merged_ids.update(id(b) for b in run)
 
-                # Passe 2 — étendue horizontale RÉELLEMENT rendue des blocs
-                # individuels (libellés, numéros…) : leur traduction peut être
-                # plus large que leur boîte d'origine même après réduction au
-                # plancher. Les groupes en tiennent compte pour démarrer leur
-                # 1re ligne APRÈS le voisin rendu (anti-chevauchement).
-                solo_extents = []
-                for b in blocks:
-                    if id(b) in merged_ids or abs(b.get("rotation", 0.0)) > 1.0:
-                        continue
-                    t = (b.get("translated_text") or "").strip() \
-                        or (b.get("text") or "").strip()
-                    bb = b.get("bbox")
-                    if not t or not bb or len(bb) < 4:
-                        continue
-                    o = b.get("origin")
-                    sx = o[0] if o and len(o) >= 2 else bb[0]
-                    sy = o[1] if o and len(o) >= 2 else bb[3]
-                    fm = b.get("font_mapped", "helv")
-                    sz = b.get("size", 12)
-                    fitted = self._fit_fontsize(t, fm, max(2.0, bb[2] - bb[0]),
-                                                sz, min_size=min_font_size)
-                    tw = self._text_length(t, fitted, fm, b.get("font", ""))
-                    solo_extents.append((sx, sx + tw, sy, sz))
-
-                # Passe 2b — largeur réelle de colonne. Les paragraphes
-                # alignés sur la même verticale gauche (±3 pt) appartiennent
-                # au même flux de colonne : le bord droit MAXIMAL observé
-                # parmi les paragraphes multi-lignes de même x0 révèle la
-                # vraie largeur de colonne. Un conteneur étroit (paragraphe
-                # court) peut s'y étendre — borné par le premier élément
-                # rendu à sa droite (encart, autre colonne, libellé…).
+                # Passe 2 — géométries d'origine des unités de rendu.
                 run_geoms = []
                 for run in runs_to_render:
                     def _rb(b):
@@ -395,6 +365,71 @@ class PDFTranslatorEngine:
                         max(b["bbox"][3] for b in run),
                         len({round(_rb(b), 1) for b in run}),   # nb de lignes
                     ])
+
+                solos = []
+                for b in blocks:
+                    if id(b) in merged_ids or abs(b.get("rotation", 0.0)) > 1.0:
+                        continue
+                    t = (b.get("translated_text") or "").strip() \
+                        or (b.get("text") or "").strip()
+                    bb = b.get("bbox")
+                    if not t or not bb or len(bb) < 4:
+                        continue
+                    solos.append((b, t))
+
+                # Toutes les boîtes d'ORIGINE (groupes + individuels) : servent
+                # de références d'alignement et d'obstacles.
+                all_geoms = [(g[0], g[1], g[2], g[3]) for g in run_geoms]
+                all_geoms += [tuple(b["bbox"][:4]) for b, _t in solos]
+
+                # Passe 2a — largeur étendue des blocs INDIVIDUELS (même règle
+                # de colonne que les groupes) : un bloc mono-ligne aligné à
+                # gauche avec d'autres (entrées de sommaire, titres de même
+                # niveau…) peut s'étendre jusqu'au bord droit max observé
+                # parmi les blocs de même x0 (±3 pt), borné par le premier
+                # bloc d'origine à sa droite dans sa bande verticale. La
+                # réduction de police ne s'applique qu'APRÈS cet étirement.
+                ext_widths = {}
+                for b, _t in solos:
+                    bx0, by0, bx1, by1 = b["bbox"][:4]
+                    col_x1 = bx1
+                    for ox0, _oy0, ox1, _oy1 in all_geoms:
+                        if abs(ox0 - bx0) <= 3.0:
+                            col_x1 = max(col_x1, ox1)
+                    limit = col_x1
+                    for ox0, oy0, _ox1, oy1 in all_geoms:
+                        if oy0 >= by1 or oy1 <= by0:
+                            continue          # hors de la bande verticale
+                        if (ox0, oy0) == (bx0, by0):
+                            continue          # lui-même
+                        if bx1 - 1.0 <= ox0 < limit:
+                            limit = ox0 - 4.0
+                    ext_widths[id(b)] = max(bx1, limit) - bx0
+
+                # Passe 2b — étendue horizontale RÉELLEMENT rendue des blocs
+                # individuels (avec leur largeur étendue) : sert aux groupes
+                # pour l'anti-chevauchement de 1re ligne.
+                solo_extents = []
+                for b, t in solos:
+                    bb = b["bbox"]
+                    o = b.get("origin")
+                    sx = o[0] if o and len(o) >= 2 else bb[0]
+                    sy = o[1] if o and len(o) >= 2 else bb[3]
+                    fm = b.get("font_mapped", "helv")
+                    sz = b.get("size", 12)
+                    fitted = self._fit_fontsize(
+                        t, fm, max(2.0, ext_widths.get(id(b), bb[2] - bb[0])),
+                        sz, min_size=min_font_size)
+                    tw = self._text_length(t, fitted, fm, b.get("font", ""))
+                    solo_extents.append((sx, sx + tw, sy, sz))
+
+                # Passe 2c — largeur réelle de colonne des GROUPES. Les
+                # paragraphes alignés sur la même verticale gauche (±3 pt)
+                # appartiennent au même flux de colonne : le bord droit MAXIMAL
+                # observé parmi les paragraphes multi-lignes de même x0 révèle
+                # la vraie largeur de colonne. Un conteneur étroit (paragraphe
+                # court) peut s'y étendre — borné par le premier élément
+                # rendu à sa droite (encart, autre colonne, libellé…).
 
                 ext_x1s = []
                 for i, (rx0, ry0, rx1, ry1, _nl) in enumerate(run_geoms):
@@ -484,12 +519,12 @@ class PDFTranslatorEngine:
                             )
                             continue
 
-                    # Conteneur STRICT : largeur de la bbox d'ORIGINE du bloc.
-                    # La police est ajustée pour y tenir (plancher : plus petite
-                    # taille de la page) au lieu de laisser le texte s'étendre
-                    # dans l'espace libre à droite — un titre ou un libellé ne
-                    # déborde plus de son emplacement d'origine.
-                    max_width = abs(bbox[2] - bbox[0])
+                    # Largeur du conteneur : bbox d'origine, étendue à la
+                    # largeur de colonne si des blocs alignés (même x0) plus
+                    # larges existent — bornée par le premier bloc à droite
+                    # (passe 2a). La réduction de police ne s'applique
+                    # qu'ensuite, si même cette largeur ne suffit pas.
+                    max_width = ext_widths.get(id(block), abs(bbox[2] - bbox[0]))
                     if max_width < 2:
                         max_width = block.get("avail_width",
                                               page_data.get("width", 595) - x)
