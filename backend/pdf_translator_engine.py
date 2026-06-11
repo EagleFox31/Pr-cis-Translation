@@ -382,6 +382,18 @@ class PDFTranslatorEngine:
                 all_geoms = [(g[0], g[1], g[2], g[3]) for g in run_geoms]
                 all_geoms += [tuple(b["bbox"][:4]) for b, _t in solos]
 
+                # Garde-fou de légitimité : un alignement gauche ne définit une
+                # « colonne » (et n'autorise l'étirement) que s'il est porté
+                # par au moins MIN_ALIGNED unités de rendu de la page. Deux
+                # blocs alignés peuvent être une coïncidence ; trois ou plus
+                # révèlent une structure voulue par le maquettiste. En dessous
+                # du seuil, comportement antérieur inchangé (bbox stricte).
+                MIN_ALIGNED = 3
+
+                def _aligned_count(v):
+                    return sum(1 for ox0, _oy0, _ox1, _oy1 in all_geoms
+                               if abs(ox0 - v) <= 3.0)
+
                 # Passe 2a — largeur étendue des blocs INDIVIDUELS (même règle
                 # de colonne que les groupes) : un bloc mono-ligne aligné à
                 # gauche avec d'autres (entrées de sommaire, titres de même
@@ -392,6 +404,9 @@ class PDFTranslatorEngine:
                 ext_widths = {}
                 for b, _t in solos:
                     bx0, by0, bx1, by1 = b["bbox"][:4]
+                    if _aligned_count(bx0) < MIN_ALIGNED:
+                        ext_widths[id(b)] = bx1 - bx0   # alignement non prouvé
+                        continue
                     col_x1 = bx1
                     for ox0, _oy0, ox1, _oy1 in all_geoms:
                         if abs(ox0 - bx0) <= 3.0:
@@ -433,6 +448,9 @@ class PDFTranslatorEngine:
 
                 ext_x1s = []
                 for i, (rx0, ry0, rx1, ry1, _nl) in enumerate(run_geoms):
+                    if _aligned_count(rx0) < MIN_ALIGNED:
+                        ext_x1s.append(rx1)             # alignement non prouvé
+                        continue
                     # Bord droit max des paragraphes multi-lignes de même x0
                     # (leurs lignes pleines épousent la marge de colonne ; les
                     # mono-lignes, titres…, ne sont pas une référence fiable).
