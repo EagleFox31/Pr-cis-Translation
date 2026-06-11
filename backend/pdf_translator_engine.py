@@ -409,11 +409,15 @@ class PDFTranslatorEngine:
                             )
                             continue
 
-                    # Largeur disponible : bbox propre du bloc, étendue à
-                    # avail_width si de l'espace libre existe à droite.
-                    max_width = block.get("avail_width", abs(bbox[2] - bbox[0]))
+                    # Conteneur STRICT : largeur de la bbox d'ORIGINE du bloc.
+                    # La police est ajustée pour y tenir (plancher : plus petite
+                    # taille de la page) au lieu de laisser le texte s'étendre
+                    # dans l'espace libre à droite — un titre ou un libellé ne
+                    # déborde plus de son emplacement d'origine.
+                    max_width = abs(bbox[2] - bbox[0])
                     if max_width < 2:
-                        max_width = page_data.get("width", 595) - x
+                        max_width = block.get("avail_width",
+                                              page_data.get("width", 595) - x)
 
                     fontsize = self._fit_fontsize(translated, font_name, max_width, orig_size,
                                                   min_size=min_font_size)
@@ -526,7 +530,13 @@ class PDFTranslatorEngine:
             AVEC SA PROPRE mise en forme extraite (police, taille, couleur,
             soulignement) — aucune fusion de styles ;
           • le flux est recalculé mot à mot : retour à la ligne au bord droit
-            du conteneur, interligne dérivé des baselines d'origine du groupe.
+            du conteneur, interligne dérivé des baselines d'origine du groupe ;
+          • le paragraphe ne sort JAMAIS de l'empreinte d'origine : si le texte
+            traduit dépasse le bas du conteneur, la police de TOUS les fragments
+            est réduite du même facteur (recherche binaire, plancher 60 %) —
+            jamais de débordement ni de superposition avec les blocs voisins ;
+          • les césures de fin de ligne sont recollées entre fragments
+            (« mo- » + « dèle » → « modèle » — règle typographique générale).
         """
         # Ordre de lecture des fragments : baseline puis x.
         def _base(b):
@@ -548,7 +558,10 @@ class PDFTranslatorEngine:
         line_h = sorted(gaps)[len(gaps) // 2] if gaps else 1.2 * max_size
 
         # Mots stylés, dans l'ordre de lecture. Chaque mot porte le style de
-        # SON fragment d'origine.
+        # SON fragment d'origine. Les césures de fin de ligne sont recollées
+        # à la frontière entre fragments : un fragment finissant par « xxx- »
+        # suivi d'un fragment commençant par une minuscule = mot coupé par la
+        # justification d'origine, reconstitué (« mo- » + « dèle » → « modèle »).
         words = []
         for b in grp:
             t = (b.get("translated_text") or "").strip() or (b.get("text") or "").strip()
@@ -562,23 +575,59 @@ class PDFTranslatorEngine:
                               (b.get("font_mapped", "helv"),
                                b.get("bullet_font") or b.get("font", ""),
                                b.get("size", 12), style[3], False)))
-            for w in t.split():
+            frag_words = t.split()
+            if (words and frag_words
+                    and len(words[-1][0]) > 1 and words[-1][0].endswith("-")
+                    and frag_words[0][:1].islower()):
+                prev_w, prev_st = words[-1]
+                words[-1] = (prev_w[:-1] + frag_words[0], prev_st)
+                frag_words = frag_words[1:]
+            for w in frag_words:
                 words.append((w, style))
         if not words:
             return
 
-        # Première baseline : celle du premier fragment (fidélité verticale).
-        cx, cy = x0, _base(grp[0])
-        for w, (fm, fraw, size, color, underline) in words:
-            ww = self._text_length(w, size, fm, fraw)
-            sw = self._text_length(" ", size, fm, fraw) or 0.25 * size
-            if cx > x0 and cx + ww > x1 + 0.5:
-                cx = x0
-                cy += line_h
-            if self._insert_text_smart(page, (cx, cy), w, size, fm, fraw, color, 0.0) \
+        # Décalage de la 1re baseline par rapport au haut du conteneur.
+        first_off = max(0.0, _base(grp[0]) - y0)
+
+        def layout(scale):
+            """Positionne les mots à l'échelle donnée (tailles et interligne
+            multipliés par `scale`). Retourne (placements, dernière_baseline)."""
+            placements = []
+            cx = x0
+            cy = y0 + first_off * scale
+            lh = line_h * scale
+            for w, (fm, fraw, size, color, underline) in words:
+                s = size * scale
+                ww = self._text_length(w, s, fm, fraw)
+                sw = self._text_length(" ", s, fm, fraw) or 0.25 * s
+                if cx > x0 and cx + ww > x1 + 0.5:
+                    cx = x0
+                    cy += lh
+                placements.append((w, cx, cy, s, fm, fraw, color, underline))
+                cx += ww + sw
+            return placements, cy
+
+        # Le paragraphe doit tenir dans son empreinte d'ORIGINE (le conteneur
+        # englobant) : à l'échelle 1 d'abord ; s'il déborde en bas, recherche
+        # binaire de la plus grande échelle qui tient. Plancher 0.6 (lisibilité) :
+        # au-delà, on accepte le résidu plutôt que de rendre le texte illisible.
+        placements, last_base = layout(1.0)
+        if last_base > y1 + 0.5:
+            lo, hi, best = 0.6, 1.0, None
+            for _ in range(8):
+                mid = (lo + hi) / 2
+                pl, lb = layout(mid)
+                if lb <= y1 + 0.5:
+                    best, lo = pl, mid
+                else:
+                    hi = mid
+            placements = best if best is not None else layout(0.6)[0]
+
+        for w, cx, cy, s, fm, fraw, color, underline in placements:
+            if self._insert_text_smart(page, (cx, cy), w, s, fm, fraw, color, 0.0) \
                     and underline:
-                self._draw_underline(page, (cx, cy), w, fm, size, color, 0.0)
-            cx += ww + sw
+                self._draw_underline(page, (cx, cy), w, fm, s, color, 0.0)
 
     def _insert_rotated_text(self, page, point, text, fontsize,
                               font_name, color, angle_deg, fontfile=None):

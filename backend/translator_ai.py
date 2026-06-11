@@ -44,6 +44,13 @@ class TranslatorAI:
         NE fusionne PAS les textes : chaque "id" garde sa propre "translated_text"
         (sa part exacte du paragraphe, ni plus ni moins) — la clé sert uniquement
         à identifier l'appartenance.
+        7. CÉSURES : un fragment peut se terminer par un mot coupé avec un trait
+        d'union de fin de ligne (ex. « mo- » puis « dèle » au début du fragment
+        suivant). Dans la traduction, reconstitue TOUJOURS les mots entiers : le
+        fragment contenant le début du mot reçoit le mot complet (« modèle »), et
+        le fragment suivant ne répète pas la fin du mot. N'écris JAMAIS de césure
+        (trait d'union de coupure de ligne) dans "translated_text" — seuls les
+        traits d'union lexicaux (« peut-être », « c'est-à-dire ») sont permis.
         5. LONGUEUR : la traduction remplace le texte dans une mise en page figée,
         elle doit donc occuper un espace aussi proche que possible de l'original.
         Par ordre de préférence : (1) même longueur ; (2) légèrement plus courte ;
