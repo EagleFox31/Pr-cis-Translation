@@ -341,9 +341,10 @@ async def translate_endpoint(
 
 
 @app.get("/api/translate/events/{job_id}")
-async def translation_events(job_id: str, x_api_key: str = Header(None)):
-    """SSE endpoint : émet les events de progression jusqu'à done/error."""
-    verify_api_key(x_api_key)
+async def translation_events(job_id: str):
+    """SSE endpoint : émet les events de progression jusqu'à done/error.
+    Pas de vérification API key : EventSource (navigateur) ne supporte pas
+    les headers custom. Le job_id UUID sert de token d'accès."""
 
     with _jobs_lock:
         job = _jobs.get(job_id)
