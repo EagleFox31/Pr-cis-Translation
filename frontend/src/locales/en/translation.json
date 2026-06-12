@@ -108,7 +108,20 @@
     "success_done": "Translation complete!",
     "drop_ready": "Drop your file here",
     "swap_langs": "Swap languages",
-    "remove_file": "Remove file"
+    "remove_file": "Remove file",
+    "saved_to_library": "Document saved to your library."
+  },
+  "library": {
+    "title": "My documents",
+    "count_suffix": "translated document(s)",
+    "empty": "Your translated documents will appear here after each translation.",
+    "preview": "Preview",
+    "download": "Download",
+    "delete": "Delete",
+    "clear_all": "Clear all",
+    "confirm_clear": "Confirm",
+    "cancel": "Cancel",
+    "view_action": "View in library"
   },
   "pricing": {
     "tag": "Our Transparent Pricing",
@@ -119,13 +132,13 @@
     "plan_1_name": "Freemium",
     "plan_1_price": "0",
     "plan_1_period": "/month",
-    "plan_1_desc": "Ideal for: Testing, students, job seekers",
+    "plan_1_desc": "Ideal for: Discovery, students, individuals",
     "plan_1_words": "500 words / month",
     "plan_2_name": "Starter",
     "plan_2_price_monthly": "9.90",
     "plan_2_price_annual": "7.92",
     "plan_2_period": "/month",
-    "plan_2_desc": "Ideal for: Employees, small budgets",
+    "plan_2_desc": "Ideal for: Freelancers, independent professionals",
     "plan_2_words": "10,000 words / month",
     "plan_3_name": "Pro",
     "plan_3_price_monthly": "29.90",

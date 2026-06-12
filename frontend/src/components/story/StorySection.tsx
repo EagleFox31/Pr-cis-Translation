@@ -16,6 +16,7 @@ interface StorySectionProps {
   zoom: number;
   formattingOption: string;
   isTrialMode: boolean;
+  targetLang?: string;
   onTranslateComplete: (result: { blob: Blob; filename: string; file: File; targetLang: string }) => void;
   onBack: () => void;
   onZoomChange: (z: number) => void;
@@ -23,6 +24,7 @@ interface StorySectionProps {
   onFormattingChange: (opt: string) => void;
   onDownload: () => void;
   onPagesLoaded: (n: number) => void;
+  onLibraryOpen?: () => void;
 }
 
 export default function StorySection({
@@ -35,6 +37,7 @@ export default function StorySection({
   zoom,
   formattingOption,
   isTrialMode,
+  targetLang,
   onTranslateComplete,
   onBack,
   onZoomChange,
@@ -42,6 +45,7 @@ export default function StorySection({
   onFormattingChange,
   onDownload,
   onPagesLoaded,
+  onLibraryOpen,
 }: StorySectionProps) {
   const { t } = useTranslation();
   const storyRef = useRef<HTMLElement>(null);
@@ -193,7 +197,7 @@ export default function StorySection({
                   flexDirection: 'column',
                 }}
               >
-                <TranslationSection onTranslationComplete={onTranslateComplete} />
+                <TranslationSection onTranslationComplete={onTranslateComplete} onLibraryOpen={onLibraryOpen} />
               </div>
             </motion.div>
           </div>
@@ -240,6 +244,9 @@ export default function StorySection({
                     numPages={numPages}
                     isTrialMode={isTrialMode}
                     formattingOption={formattingOption}
+                    sourceFilename={selectedFile?.name}
+                    translatedFilename={translatedFilename}
+                    targetLang={targetLang}
                     onZoomChange={onZoomChange}
                     onPageChange={onPageChange}
                     onFormattingChange={onFormattingChange}

@@ -1,6 +1,8 @@
 import os
 import json
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -517,17 +519,43 @@ class TranslatorAI:
         if progress_callback:
             progress_callback(f"Début de la traduction ({total_batches} lots structurels)...")
 
-        batches_processed = 0
-        for batch in batches:
+        # Parallélisation des lots : plusieurs pages traduits simultanément.
+        # MAX_WORKERS limité à 4 pour respecter les rate-limits DeepSeek et
+        # éviter les collisions mémoire sur les gros documents. Le progress_callback
+        # est thread-safe (GIL + appel simple sans état partagé).
+        MAX_WORKERS = min(4, total_batches)
+        failed_batch = None
+        failed_lock = threading.Lock()
+        batches_done = [0]
+        done_lock = threading.Lock()
+
+        def _run(idx_batch):
+            idx, batch = idx_batch
+            # Arrêt anticipé si un lot précédent a déjà échoué.
+            with failed_lock:
+                if failed_batch[0] is not None:
+                    return idx, False
             success = self._translate_batch(batch, target_lang, progress_callback)
-            if not success:
-                return False, f"Échec lors de la traduction du lot {batches_processed+1}."
-            
-            batches_processed += 1
+            with done_lock:
+                batches_done[0] += 1
+                n = batches_done[0]
             if progress_callback:
-                progress_callback(f"Progression : {batches_processed}/{total_batches} lots traités.")
-            
-            time.sleep(0.5)
+                progress_callback(f"Progression : {n}/{total_batches} lots traités.")
+            return idx, success
+
+        failed_batch = [None]
+
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = {executor.submit(_run, (i, b)): i for i, b in enumerate(batches)}
+            for future in as_completed(futures):
+                idx, success = future.result()
+                if not success:
+                    with failed_lock:
+                        if failed_batch[0] is None:
+                            failed_batch[0] = idx + 1
+
+        if failed_batch[0] is not None:
+            return False, f"Échec lors de la traduction du lot {failed_batch[0]}."
 
         output_path = json_path.replace(".json", "_translated.json")
         with open(output_path, "w", encoding="utf-8") as f:

@@ -3,17 +3,25 @@ import { motion, AnimatePresence } from 'motion/react';
 
 type ToastType = 'success' | 'error' | 'info' | 'warning';
 
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface ToastMessage {
   id: string;
   type: ToastType;
   title: string;
   message?: string;
+  action?: ToastAction;
+  duration: number;
 }
 
 let toastListeners: Array<(t: ToastMessage) => void> = [];
 
-export function showToast(type: ToastType, title: string, message?: string) {
-  const toast: ToastMessage = { id: Date.now().toString(), type, title, message };
+export function showToast(type: ToastType, title: string, message?: string, action?: ToastAction) {
+  const duration = type === 'error' ? 6000 : 4000;
+  const toast: ToastMessage = { id: Date.now().toString(), type, title, message, action, duration };
   toastListeners.forEach((fn) => fn(toast));
 }
 
@@ -35,9 +43,9 @@ function ToastItem({ toast, onDone }: { toast: ToastMessage; onDone: (id: string
   const c = colors[toast.type];
 
   useEffect(() => {
-    const timer = setTimeout(() => onDone(toast.id), 4000);
+    const timer = setTimeout(() => onDone(toast.id), toast.duration);
     return () => clearTimeout(timer);
-  }, [toast.id, onDone]);
+  }, [toast.id, toast.duration, onDone]);
 
   return (
     <motion.div
@@ -83,6 +91,25 @@ function ToastItem({ toast, onDone }: { toast: ToastMessage; onDone: (id: string
           <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px', lineHeight: 1.4 }}>
             {toast.message}
           </div>
+        )}
+        {toast.action && (
+          <button
+            onClick={() => { toast.action!.onClick(); onDone(toast.id); }}
+            style={{
+              marginTop: '8px',
+              background: 'none',
+              border: `1px solid ${c.icon}`,
+              color: c.icon,
+              borderRadius: '6px',
+              padding: '4px 10px',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >
+            {toast.action.label}
+          </button>
         )}
       </div>
       <button

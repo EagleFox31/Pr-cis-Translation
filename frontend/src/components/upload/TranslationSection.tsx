@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useTranslation as useI18n } from 'react-i18next';
-import { useTranslation } from '../../hooks/useTranslation';
-import { motion } from 'motion/react';
+import { useTranslationProgress } from '../../hooks/useTranslationProgress';
+import { motion, AnimatePresence } from 'motion/react';
 import FileUploader from './FileUploader';
 import LanguageSelector from './LanguageSelector';
 import FormatSelector from './FormatSelector';
+import TranslationProgress from './TranslationProgress';
 import type { FormatOption } from './FormatSelector';
 import { showToast } from '../ui/Toast';
 
@@ -17,6 +18,7 @@ export interface FormatOptions {
 
 interface TranslationSectionProps {
   onTranslationComplete?: (result: { blob: Blob; filename: string; file: File; targetLang: string }) => void;
+  onLibraryOpen?: () => void;
 }
 
 function useFormatOptions(t: (key: string) => string): FormatOption[] {
@@ -25,9 +27,10 @@ function useFormatOptions(t: (key: string) => string): FormatOption[] {
   ];
 }
 
-export default function TranslationSection({ onTranslationComplete }: TranslationSectionProps) {
-  const { t } = useI18n();
-  const { translateFile, isTranslating, error } = useTranslation();
+export default function TranslationSection({ onTranslationComplete, onLibraryOpen }: TranslationSectionProps) {
+  const { t, i18n } = useI18n();
+  const { translateFile, isTranslating, progress, error } = useTranslationProgress();
+  const lang = i18n.language?.startsWith('fr') ? 'fr' : 'en';
 
   const formatOptions = useFormatOptions(t);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -35,6 +38,12 @@ export default function TranslationSection({ onTranslationComplete }: Translatio
   const [targetLang, setTargetLang] = useState('en-US');
   const [formatMode, setFormatMode] = useState('preserve');
   const [result, setResult] = useState<{ blob: Blob; filename: string } | null>(null);
+  const [justReset, setJustReset] = useState(false);
+
+  const handleFileSelect = (file: File | null) => {
+    setSelectedFile(file);
+    if (file) setJustReset(false);
+  };
 
   const handleTranslate = async () => {
     if (!selectedFile) return;
@@ -49,15 +58,29 @@ export default function TranslationSection({ onTranslationComplete }: Translatio
       const res = await translateFile(selectedFile, targetLang, formatOpts);
       setResult(res);
       onTranslationComplete?.({ ...res, file: selectedFile, targetLang });
-      showToast('success', t('story.success_done'), `${res.filename}`);
+      showToast(
+        'success',
+        t('story.success_done'),
+        res.filename,
+        onLibraryOpen ? { label: t('library.view_action', 'Voir dans la bibliothèque'), onClick: onLibraryOpen } : undefined,
+      );
     } catch (err) {
-      showToast('error', 'Erreur de traduction', err instanceof Error ? err.message : t('story.error_default'));
+      const msg = err instanceof Error ? err.message : '';
+      const isLarge = msg.includes('413') || msg.toLowerCase().includes('too large') || (!!selectedFile && selectedFile.size > 10 * 1024 * 1024);
+      const isNetwork = msg.toLowerCase().includes('network') || msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('failed to fetch');
+      const hint = isLarge
+        ? (lang === 'fr' ? 'Essayez de compresser votre PDF avant de réessayer.' : 'Try compressing your PDF before retrying.')
+        : isNetwork
+          ? (lang === 'fr' ? 'Vérifiez votre connexion internet et réessayez.' : 'Check your internet connection and try again.')
+          : (msg || t('story.error_default'));
+      showToast('error', t('story.error_default'), hint);
     }
   };
 
   const handleReset = () => {
     setSelectedFile(null);
     setResult(null);
+    setJustReset(true);
   };
 
   const isReady = !!selectedFile && !isTranslating;
@@ -66,8 +89,46 @@ export default function TranslationSection({ onTranslationComplete }: Translatio
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', flex: 1, width: '560px', margin: '0 auto' }}>
       {/* Form inputs */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {/* Empty state after reset */}
+        <AnimatePresence>
+          {justReset && !selectedFile && (
+            <motion.div
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              style={{
+                padding: '10px 14px',
+                borderRadius: '8px',
+                background: '#f0fdf4',
+                border: '1px solid #86efac',
+                color: '#166534',
+                fontSize: '13px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px',
+              }}
+            >
+              <span>✓ {t('story.saved_to_library', 'Document sauvegardé dans votre bibliothèque.')}</span>
+              {onLibraryOpen && (
+                <button
+                  onClick={onLibraryOpen}
+                  style={{
+                    background: 'none', border: 'none', color: '#16a34a',
+                    cursor: 'pointer', fontSize: '12px', fontWeight: 600,
+                    padding: 0, fontFamily: 'inherit', whiteSpace: 'nowrap',
+                    textDecoration: 'underline',
+                  }}
+                >
+                  {t('library.view_action', 'Voir mes documents')} →
+                </button>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* File Upload */}
-        <FileUploader selectedFile={selectedFile} onFileSelect={setSelectedFile} />
+        <FileUploader selectedFile={selectedFile} onFileSelect={handleFileSelect} />
 
         {/* Language Selection */}
         <LanguageSelector
@@ -99,6 +160,16 @@ export default function TranslationSection({ onTranslationComplete }: Translatio
 
       {/* Bottom actions — pinned */}
       <div style={{ position: 'sticky', bottom: 0, background: 'inherit', paddingTop: '8px' }}>
+
+        {/* Progression temps réel */}
+        <AnimatePresence>
+          {isTranslating && (
+            <div style={{ marginBottom: '12px' }}>
+              <TranslationProgress progress={progress} lang={lang} />
+            </div>
+          )}
+        </AnimatePresence>
+
         {/* Translate Button */}
         <motion.button
         whileHover={isReady ? { scale: 1.01 } : {}}

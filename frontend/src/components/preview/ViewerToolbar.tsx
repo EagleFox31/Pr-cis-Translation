@@ -1,11 +1,22 @@
 import { useTranslation } from 'react-i18next';
 
+const LANG_LABELS: Record<string, string> = {
+  'fr-FR': 'FR', 'fr': 'FR',
+  'en-US': 'EN', 'en': 'EN',
+  'es': 'ES', 'de': 'DE', 'it': 'IT',
+  'pt-BR': 'PT', 'pt': 'PT',
+  'ar': 'AR', 'zh': 'ZH', 'ja': 'JA',
+};
+
 interface ViewerToolbarProps {
   zoom: number;
   currentPage: number;
   numPages: number;
   isTrialMode: boolean;
   formattingOption: string;
+  sourceFilename?: string;
+  translatedFilename?: string;
+  targetLang?: string;
   onZoomChange: (zoom: number) => void;
   onPageChange: (page: number) => void;
   onFormattingChange: (opt: string) => void;
@@ -19,6 +30,9 @@ export default function ViewerToolbar({
   numPages,
   isTrialMode,
   formattingOption,
+  sourceFilename,
+  translatedFilename,
+  targetLang,
   onZoomChange,
   onPageChange,
   onFormattingChange,
@@ -92,7 +106,47 @@ export default function ViewerToolbar({
         </select>
       </div>
 
-      <div className="spacer" />
+      {/* Doc info strip */}
+      {(sourceFilename || translatedFilename) ? (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '6px',
+          borderLeft: '1px solid var(--color-border-secondary)', paddingLeft: '12px', marginLeft: '6px',
+          flex: 1, overflow: 'hidden', minWidth: 0,
+        }}>
+          {sourceFilename && (
+            <span style={{
+              fontSize: '12px', color: 'var(--color-text-secondary)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '130px',
+            }} title={sourceFilename}>
+              {sourceFilename}
+            </span>
+          )}
+          {sourceFilename && translatedFilename && (
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.45 }}>
+              <path d="M5 12h14M12 5l7 7-7 7" />
+            </svg>
+          )}
+          {translatedFilename && (
+            <span style={{
+              fontSize: '12px', fontWeight: 600, color: 'var(--color-text-primary)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '150px',
+            }} title={translatedFilename}>
+              {translatedFilename}
+            </span>
+          )}
+          {targetLang && (
+            <span style={{
+              fontSize: '10px', fontWeight: 700,
+              background: 'var(--blue-light, #eff6ff)', color: 'var(--blue)',
+              padding: '1px 7px', borderRadius: '999px', flexShrink: 0,
+            }}>
+              {LANG_LABELS[targetLang] ?? targetLang.toUpperCase()}
+            </span>
+          )}
+        </div>
+      ) : (
+        <div className="spacer" />
+      )}
 
       {/* Page controls */}
       <div className="pg-ctrl">

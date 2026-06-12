@@ -6,7 +6,8 @@ import StorySection from '../components/story/StorySection';
 import PricingSection from '../components/pricing/PricingSection';
 import AboutSection from '../components/about/AboutSection';
 import ToastContainer from '../components/ui/Toast';
-import { useTranslation } from '../hooks/useTranslation';
+import DocumentLibrary from '../components/library/DocumentLibrary';
+import { useDocumentLibrary } from '../hooks/useDocumentLibrary';
 
 export default function Home() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -21,10 +22,11 @@ export default function Home() {
   const [translatedBlob, setTranslatedBlob] = useState<Blob | null>(null);
   const [translatedFilename, setTranslatedFilename] = useState<string>('');
   const [isTrialMode, setIsTrialMode] = useState(true);
-
-  // ---- Translation ----
-  const { translateFile } = useTranslation();
+  const [showLibrary, setShowLibrary] = useState(false);
   const [targetLang, setTargetLang] = useState('en');
+
+  // ---- Document library ----
+  const { documents, saveDocument, getBlob, deleteDocument, clearAll } = useDocumentLibrary();
 
   // ---- Scroll spy ----
   useEffect(() => {
@@ -70,8 +72,27 @@ export default function Home() {
       setSelectedFile(result.file);
       setTargetLang(result.targetLang);
       setShowPreview(true);
+      // Sauvegarde automatique dans la bibliothèque
+      const ext = result.filename.split('.').pop()?.toLowerCase() ?? 'pdf';
+      saveDocument(result.blob, result.filename, {
+        originalName: result.file.name,
+        targetLang: result.targetLang,
+        ext,
+      });
     },
-    []
+    [saveDocument],
+  );
+
+  // ---- Library preview ----
+  const handleLibraryPreview = useCallback(
+    (blob: Blob, filename: string, _ext: string) => {
+      setTranslatedBlob(blob);
+      setTranslatedFilename(filename);
+      setSelectedFile(null);
+      setShowLibrary(false);
+      setShowPreview(true);
+    },
+    [],
   );
 
   // ---- Download ----
@@ -97,7 +118,12 @@ export default function Home() {
     <div className="min-h-screen bg-white text-gray-900 font-body">
       <ToastContainer />
 
-      <Navbar activeSection={activeSection} onNavClick={handleNavClick} />
+      <Navbar
+        activeSection={activeSection}
+        onNavClick={handleNavClick}
+        docCount={documents.length}
+        onLibraryOpen={() => setShowLibrary(true)}
+      />
 
       {/* Fixed lang lines overlay — stays in viewport across all sections */}
       <div className="page-bg-lang-lines">
@@ -171,6 +197,16 @@ export default function Home() {
         </div>
       </div>
 
+      <DocumentLibrary
+        isOpen={showLibrary}
+        onClose={() => setShowLibrary(false)}
+        documents={documents}
+        onPreview={handleLibraryPreview}
+        onDelete={deleteDocument}
+        onClearAll={clearAll}
+        getBlob={getBlob}
+      />
+
       <main>
         <HeroSection />
 
@@ -186,6 +222,7 @@ export default function Home() {
           zoom={zoom}
           formattingOption={formattingOption}
           isTrialMode={isTrialMode}
+          targetLang={targetLang}
           onTranslateComplete={handleTranslateComplete}
           onBack={handleBack}
           onZoomChange={setZoom}
@@ -193,6 +230,7 @@ export default function Home() {
           onFormattingChange={setFormattingOption}
           onDownload={handleDownload}
           onPagesLoaded={setNumPages}
+          onLibraryOpen={() => setShowLibrary(true)}
         />
 
         <PricingSection isAnnual={isAnnual} onAnnualChange={setIsAnnual} />

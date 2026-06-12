@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import Badge from '../ui/Badge';
 import ComparisonContent from '../comparison/ComparisonTable';
 
@@ -57,6 +58,7 @@ const features = [
 
 export default function FeaturesGrid() {
   const { t } = useTranslation();
+  const [showComparison, setShowComparison] = useState(false);
 
   return (
     <section className="features-section" id="features">
@@ -102,7 +104,7 @@ export default function FeaturesGrid() {
           ))}
         </div>
 
-        {/* Comparatif intégré */}
+        {/* Comparatif intégré — toggle */}
         <motion.div
           style={{ paddingBottom: '40px' }}
           initial={{ opacity: 0, y: 30 }}
@@ -110,7 +112,53 @@ export default function FeaturesGrid() {
           viewport={{ once: true, amount: 0.1 }}
           transition={{ duration: 0.7, ease: [0.4, 0, 0.2, 1] }}
         >
-          <ComparisonContent />
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: '40px' }}>
+            <button
+              onClick={() => setShowComparison((v) => !v)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '10px 22px',
+                borderRadius: '999px',
+                border: '1.5px solid var(--blue)',
+                background: showComparison ? 'var(--blue)' : 'transparent',
+                color: showComparison ? 'white' : 'var(--blue)',
+                fontWeight: 600,
+                fontSize: '14px',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                fontFamily: 'inherit',
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18M3 12h18M3 18h18" />
+              </svg>
+              {t('comparison.label')}
+              <svg
+                width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                strokeLinecap="round" strokeLinejoin="round"
+                style={{ transform: showComparison ? 'rotate(180deg)' : 'none', transition: 'transform 0.3s ease' }}
+              >
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
+          </div>
+
+          <AnimatePresence>
+            {showComparison && (
+              <motion.div
+                key="comparison"
+                initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                animate={{ opacity: 1, height: 'auto', marginTop: 0 }}
+                exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                transition={{ duration: 0.45, ease: [0.4, 0, 0.2, 1] }}
+                style={{ overflow: 'hidden' }}
+              >
+                <ComparisonContent />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.div>
       </div>
     </section>
