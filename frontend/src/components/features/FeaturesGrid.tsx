@@ -1,17 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
 import Badge from '../ui/Badge';
-
-function getFeatureTitle(t: (key: string) => string, key: string, index: number) {
-  // OCR card has no i18n key; use hardcoded value like original
-  if (key === 'ocr') return 'Multi-formats & OCR';
-  return t(`features.card_${key}_title`);
-}
-
-function getFeatureDesc(t: (key: string) => string, key: string, index: number) {
-  if (key === 'ocr') return 'Support natif de tous les formats Office et PDF. La traduction de texte dans les images via OCR arrive bientôt.';
-  return t(`features.card_${key}_desc`);
-}
+import ComparisonContent from '../comparison/ComparisonTable';
 
 const features = [
   {
@@ -37,7 +27,7 @@ const features = [
         <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25v2.25A2.25 2.25 0 0118 20.25h-2.25a2.25 2.25 0 01-2.25-2.25v-2.25z" />
       </svg>
     ),
-    badge: <Badge variant="soon">À venir</Badge>,
+    badge: true,
   },
   {
     key: 'security',
@@ -100,13 +90,28 @@ export default function FeaturesGrid() {
             >
               <div className="feat-icon">{feat.icon}</div>
               <div className="feat-title">
-                {getFeatureTitle(t, feat.key, index)}
-                {feat.badge && <span style={{ marginLeft: '6px' }}>{feat.badge}</span>}
+                {t(`features.card_${feat.key}_title`)}
+                {feat.badge && (
+                  <span style={{ marginLeft: '6px' }}>
+                    <Badge variant="soon">{t('features.soon_badge')}</Badge>
+                  </span>
+                )}
               </div>
-              <p className="feat-desc">{getFeatureDesc(t, feat.key, index)}</p>
+              <p className="feat-desc">{t(`features.card_${feat.key}_desc`)}</p>
             </motion.div>
           ))}
         </div>
+
+        {/* Comparatif intégré */}
+        <motion.div
+          style={{ paddingBottom: '40px' }}
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.1 }}
+          transition={{ duration: 0.7, ease: [0.4, 0, 0.2, 1] }}
+        >
+          <ComparisonContent />
+        </motion.div>
       </div>
     </section>
   );

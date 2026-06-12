@@ -13,82 +13,11 @@ export default function HeroSection() {
     target: heroRef,
     offset: ['start start', 'end start'],
   });
-  const heroBgY = useTransform(heroScrollProgress, [0, 1], [0, 120]);
   const heroGridY = useTransform(heroScrollProgress, [0, 1], [0, 80]);
 
   return (
     <section className="hero" id="hero" ref={heroRef}>
-      {/* Parallax Background */}
-      <motion.div className="hero-parallax-bg" style={{ y: heroBgY }}>
-        <div className="hero-lang-lines">
-          <div className="lang-line lang-line-left">
-            {[1, 2, 3].map((i) => (
-              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
-                <span>Translation</span><span>•</span>
-                <span>Traduction</span><span>•</span>
-                <span>Traducción</span><span>•</span>
-                <span>Übersetzung</span><span>•</span>
-                <span>Traduzione</span><span>•</span>
-                <span>Overzetting</span><span>•</span>
-                <span>翻訳</span><span>•</span>
-                <span>번역</span><span>•</span>
-                <span>翻译</span><span>•</span>
-                <span>ترجمة</span><span>•</span>
-                <span>Перевод</span><span>•</span>
-              </span>
-            ))}
-          </div>
-          <div className="lang-line lang-line-right">
-            {[1, 2, 3].map((i) => (
-              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
-                <span>Documents</span><span>•</span>
-                <span>Actes</span><span>•</span>
-                <span>Certificats</span><span>•</span>
-                <span>Contrats</span><span>•</span>
-                <span>Diplômes</span><span>•</span>
-                <span>書類</span><span>•</span>
-                <span>문서</span><span>•</span>
-                <span>文档</span><span>•</span>
-                <span>عقود</span><span>•</span>
-                <span>Справки</span><span>•</span>
-              </span>
-            ))}
-          </div>
-          <div className="lang-line lang-line-left">
-            {[1, 2, 3].map((i) => (
-              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
-                <span>Precision</span><span>•</span>
-                <span>Précision</span><span>•</span>
-                <span>Precisión</span><span>•</span>
-                <span>Präzision</span><span>•</span>
-                <span>Precisione</span><span>•</span>
-                <span>Precisie</span><span>•</span>
-                <span>精度</span><span>•</span>
-                <span>정밀도</span><span>•</span>
-                <span>精确</span><span>•</span>
-                <span>دقة</span><span>•</span>
-                <span>Точность</span><span>•</span>
-              </span>
-            ))}
-          </div>
-          <div className="lang-line lang-line-right">
-            {[1, 2, 3].map((i) => (
-              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
-                <span>AI &amp; Human</span><span>•</span>
-                <span>IA &amp; Humain</span><span>•</span>
-                <span>IA y Humano</span><span>•</span>
-                <span>KI &amp; Mensch</span><span>•</span>
-                <span>IA &amp; Umano</span><span>•</span>
-                <span>AI &amp; Mens</span><span>•</span>
-                <span>AI &amp; 人間</span><span>•</span>
-                <span>AI &amp; 인간</span><span>•</span>
-                <span>AI &amp; 人类</span><span>•</span>
-                <span>ذكاء بشري واصطناعي</span><span>•</span>
-              </span>
-            ))}
-          </div>
-        </div>
-      </motion.div>
+      {/* Grid parallax background */}
       <motion.div className="hero-grid" style={{ y: heroGridY }} />
       <div className="hero-particles">
         <div className="particle" style={{ left: '10%', animationDelay: '0s', animationDuration: '8s' }} />
@@ -135,14 +64,13 @@ export default function HeroSection() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.45, ease: [0.16, 1, 0.3, 1] }}
           >
-            {/* CTA principal → l'outil de traduction (section suivante, RF-1) */}
-            <a href="#story" className="btn-primary">
-              {t('hero.btn_start')}
+            <a href="#pricing" className="btn-primary">
+              {t('hero.btn_discover')}
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
               </svg>
             </a>
-            <a href="#pricing" className="btn-outline">{t('hero.btn_discover')}</a>
+            <a href="#story" className="btn-outline">{t('hero.btn_start')}</a>
           </motion.div>
 
           <motion.div
@@ -161,13 +89,13 @@ export default function HeroSection() {
               <div className="hero-stat-num">
                 <AnimatedCounter value="24/7" duration={1500} />
               </div>
-              <div className="hero-stat-label">Disponibilité</div>
+              <div className="hero-stat-label">{t('hero.stat_availability')}</div>
             </div>
             <div>
               <div className="hero-stat-num">
                 <AnimatedCounter value="50+" />
               </div>
-              <div className="hero-stat-label">Langues</div>
+              <div className="hero-stat-label">{t('hero.stat_languages')}</div>
             </div>
           </motion.div>
         </div>
@@ -205,15 +133,15 @@ export default function HeroSection() {
             <div className="floating-label tl">
               <div className="fl-icon blue">A</div>
               <div className="fl-text">
-                <strong>Traduction IA</strong>
-                <span>Optimisée</span>
+                <strong>{t('hero.ai_translation')}</strong>
+                <span>{t('hero.optimized')}</span>
               </div>
             </div>
             <div className="floating-label br">
               <div className="fl-icon gold">✓</div>
               <div className="fl-text">
-                <strong>Relecture Humaine</strong>
-                <span>Certifiée</span>
+                <strong>{t('hero.human_review')}</strong>
+                <span>{t('hero.certified')}</span>
               </div>
             </div>
           </div>
@@ -239,21 +167,21 @@ export default function HeroSection() {
             >
               <img src={mascot} alt="Mascotte Précis" style={{ width: '180px', height: 'auto', marginBottom: '20px' }} />
               <div style={{ fontSize: '12px', color: 'var(--blue)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em' }}>
-                Intelligence Artificielle
+                {t('hero.mascot_subtitle')}
               </div>
               <div style={{ fontSize: '20px', color: 'var(--navy)', fontWeight: 700, marginTop: '5px' }}>
-                L'intelligence au service du sens
+                {t('hero.intelligence_service_meaning')}
               </div>
               <p style={{ fontSize: '14px', color: 'var(--gray-500)', marginTop: '10px', lineHeight: 1.6, maxWidth: '400px' }}>
-                Une compréhension contextuelle profonde qui surpasse les traducteurs classiques.
+                {t('hero.deep_contextual_understanding')}
               </p>
               <div className="floating-label tl">
                 <div className="fl-icon blue" style={{ color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
                   AI
                 </div>
                 <div className="fl-text">
-                  <strong>IA Avancée</strong>
-                  <span>Haute Précision</span>
+                  <strong>{t('hero.ai_advanced')}</strong>
+                  <span>{t('hero.high_precision')}</span>
                 </div>
               </div>
               <div className="floating-label br">
@@ -261,17 +189,14 @@ export default function HeroSection() {
                   ✓
                 </div>
                 <div className="fl-text">
-                  <strong>Sécurité</strong>
-                  <span>RGPD Garanti</span>
+                  <strong>{t('hero.security')}</strong>
+                  <span>{t('hero.rgpd_guaranteed')}</span>
                 </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-
-      {/* RF-2.2 : fond de transition douce vers la section claire suivante */}
-      <div className="hero-bottom-fade" />
     </section>
   );
 }

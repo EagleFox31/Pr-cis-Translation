@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'motion/react';
 
 export interface FormatOption {
@@ -15,6 +16,7 @@ interface FormatSelectorProps {
 }
 
 export default function FormatSelector({ options, current, onChange }: FormatSelectorProps) {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
 
   const currentOption = options.find((o) => o.key === current) || options[0];
@@ -31,7 +33,7 @@ export default function FormatSelector({ options, current, onChange }: FormatSel
           letterSpacing: '0.03em',
         }}
       >
-        Mode de traduction
+        {t('story.translation_mode')}
       </label>
       <button
         onClick={() => setIsOpen(!isOpen)}

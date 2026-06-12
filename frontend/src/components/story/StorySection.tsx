@@ -1,11 +1,10 @@
 import { useTranslation } from 'react-i18next';
-import { motion, AnimatePresence, useScroll, useTransform } from 'motion/react';
+import { motion, useScroll, useTransform } from 'motion/react';
 import { useRef } from 'react';
 import TranslationSection from '../upload/TranslationSection';
 import ViewerToolbar from '../preview/ViewerToolbar';
 import PdfViewer from '../preview/PdfViewer';
-import LayoutStrategyBar from '../preview/LayoutStrategyBar';
-import type { LayoutMode, ShrinkScope } from '../preview/LayoutStrategyBar';
+
 
 interface StorySectionProps {
   showPreview: boolean;
@@ -17,27 +16,13 @@ interface StorySectionProps {
   zoom: number;
   formattingOption: string;
   isTrialMode: boolean;
-  sourceLang: string;
-  targetLang: string;
-  onTranslateComplete: (result: {
-    blob: Blob; filename: string; file: File;
-    targetLang: string; sourceLang: string;
-  }) => void;
+  onTranslateComplete: (result: { blob: Blob; filename: string; file: File; targetLang: string }) => void;
   onBack: () => void;
   onZoomChange: (z: number) => void;
   onPageChange: (p: number) => void;
   onFormattingChange: (opt: string) => void;
   onDownload: () => void;
   onPagesLoaded: (n: number) => void;
-  // Per-page layout strategy
-  pageMode: LayoutMode;
-  shrinkScope: ShrinkScope;
-  shrinkUsed: boolean;
-  layoutDirty: boolean;
-  isRegenerating: boolean;
-  onPageModeChange: (mode: LayoutMode) => void;
-  onScopeChange: (scope: ShrinkScope) => void;
-  onApplyLayout: () => void;
 }
 
 export default function StorySection({
@@ -50,8 +35,6 @@ export default function StorySection({
   zoom,
   formattingOption,
   isTrialMode,
-  sourceLang,
-  targetLang,
   onTranslateComplete,
   onBack,
   onZoomChange,
@@ -59,14 +42,6 @@ export default function StorySection({
   onFormattingChange,
   onDownload,
   onPagesLoaded,
-  pageMode,
-  shrinkScope,
-  shrinkUsed,
-  layoutDirty,
-  isRegenerating,
-  onPageModeChange,
-  onScopeChange,
-  onApplyLayout,
 }: StorySectionProps) {
   const { t } = useTranslation();
   const storyRef = useRef<HTMLElement>(null);
@@ -172,15 +147,7 @@ export default function StorySection({
           flexDirection: showPreview ? 'column' : 'unset',
         }}
       >
-        <AnimatePresence mode="wait" initial={false}>
         {!showPreview ? (
-          <motion.div
-            key="form"
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -16 }}
-            transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
-          >
           <div className="story-grid">
             {/* Left: Steps */}
             <div>
@@ -230,17 +197,7 @@ export default function StorySection({
               </div>
             </motion.div>
           </div>
-          </motion.div>
         ) : (
-          <motion.div
-            key="viewer"
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -16 }}
-            transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
-            className="w-full flex-1"
-            style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}
-          >
           <div className="content-viewer w-full flex-1 pr-[8px]">
             <h2 className="sr-only">
               Interface de prévisualisation de traduction de document côte-à-côte
@@ -290,19 +247,7 @@ export default function StorySection({
                     onDownload={onDownload}
                   />
 
-                  <div style={{ padding: '8px 0' }}>
-                    <LayoutStrategyBar
-                      currentPage={currentPage}
-                      pageMode={pageMode}
-                      onPageModeChange={onPageModeChange}
-                      shrinkScope={shrinkScope}
-                      onScopeChange={onScopeChange}
-                      shrinkUsed={shrinkUsed}
-                      dirty={layoutDirty}
-                      isRegenerating={isRegenerating}
-                      onApply={onApplyLayout}
-                    />
-                  </div>
+
 
                   <div className="scroll" id="scroll">
                     <PdfViewer
@@ -311,8 +256,6 @@ export default function StorySection({
                       currentPage={currentPage}
                       zoom={zoom}
                       isTrialMode={isTrialMode}
-                      sourceLang={sourceLang}
-                      targetLang={targetLang}
                       onPagesLoaded={onPagesLoaded}
                     />
                   </div>
@@ -320,9 +263,7 @@ export default function StorySection({
               </div>
             </div>
           </div>
-          </motion.div>
         )}
-        </AnimatePresence>
       </div>
     </section>
   );

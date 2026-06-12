@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
 
 interface FileUploaderProps {
@@ -9,17 +10,18 @@ interface FileUploaderProps {
 const SUPPORTED_FORMATS = ['PDF', 'DOCX', 'TXT'];
 
 export default function FileUploader({ selectedFile, onFileSelect }: FileUploaderProps) {
+  const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
   const handleFileSelect = (file: File) => {
     if (file.size > 5 * 1024 * 1024) {
-      alert('Fichier trop volumineux. Maximum 5 Mo.');
+      alert(t('story.error_too_large'));
       return;
     }
     const ext = file.name.split('.').pop()?.toLowerCase();
     if (!['txt', 'pdf', 'docx'].includes(ext || '')) {
-      alert('Format non supporté. Utilisez .txt, .pdf ou .docx.');
+      alert(t('story.error_unsupported'));
       return;
     }
     onFileSelect(file);
@@ -102,7 +104,7 @@ export default function FileUploader({ selectedFile, onFileSelect }: FileUploade
             }}
             onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#475569'; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#94a3b8'; }}
-            aria-label="Retirer le fichier"
+            aria-label={t('story.remove_file')}
           >
             ✕
           </button>
@@ -160,11 +162,11 @@ export default function FileUploader({ selectedFile, onFileSelect }: FileUploade
           </motion.div>
 
           <p style={{ fontSize: '14px', color: isDragging ? 'var(--blue)' : 'var(--navy)', fontWeight: 600 }}>
-            {isDragging ? 'Déposez votre fichier ici' : 'Glissez-déposez votre document'}
+            {isDragging ? t('story.drop_ready') : t('story.drop_text')}
           </p>
-          <p style={{ fontSize: '13px', color: 'var(--gray-500)', marginTop: '5px' }}>
-            ou <span style={{ color: 'var(--blue)', fontWeight: 600 }}>parcourez</span> vos fichiers
-          </p>
+          <p style={{ fontSize: '13px', color: 'var(--gray-500)', marginTop: '5px' }}
+            dangerouslySetInnerHTML={{ __html: t('story.browse_text') }}
+          />
           <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', marginTop: '12px' }}>
             {SUPPORTED_FORMATS.map((fmt) => (
               <span

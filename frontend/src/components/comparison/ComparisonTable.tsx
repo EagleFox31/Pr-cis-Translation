@@ -1,24 +1,26 @@
 import { useTranslation } from 'react-i18next';
-import { motion } from 'motion/react';
+
+export const criteriaIcons: Record<string, string> = {
+  visual: '🎨',
+  meaning: '🧠',
+  boxes: '📦',
+  style: '🎚️',
+  ocr: '🖼️',
+  data: '🔒',
+};
 
 const criteria = [
   'visual', 'meaning', 'boxes', 'style', 'ocr', 'data',
 ];
 
-export default function ComparisonTable() {
+/** Contenu brut du comparatif (sans enveloppe <section>) — utilisé dans FeaturesGrid */
+export default function ComparisonContent() {
   const { t } = useTranslation();
 
   return (
-    <section className="comparison-section" id="comparison">
-      <div className="section-inner">
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, ease: [0.4, 0, 0.2, 1] }}
-          viewport={{ once: true, amount: 0.1 }}
-        >
-          <div className="comp-section-label">{t('comparison.label')}</div>
-          <div className="comp-box">
+    <>
+      <div className="comp-section-label" style={{ marginTop: '48px' }}>{t('comparison.label')}</div>
+      <div className="comp-box">
             <div className="comp-box-header">
               <h3>{t('comparison.title')}</h3>
               <div className="comp-header-badges">
@@ -41,11 +43,22 @@ export default function ComparisonTable() {
                 <tbody>
                   {criteria.map((c) => (
                     <tr key={c}>
-                      <td>{t(`comparison.row_${c}`)}</td>
+                      <td>
+                        <span className="comp-criterion-name">
+                          <span className="comp-criterion-icon">{criteriaIcons[c]}</span>
+                          {t(`comparison.row_${c}`)}
+                        </span>
+                      </td>
                       <td className="td-precis">
                         <div className="comp-val">
-                          <span className="comp-chk yes">✓</span>
-                          <span className="comp-text yes">{t(`comparison.row_${c}_precis`)}</span>
+                          {c === 'ocr' ? (
+                            <span className="comp-badge-pill">{t(`comparison.row_${c}_precis`)}</span>
+                          ) : (
+                            <>
+                              <span className="comp-chk yes">✓</span>
+                              <span className="comp-text yes">{t(`comparison.row_${c}_precis`)}</span>
+                            </>
+                          )}
                         </div>
                       </td>
                       <td className="td-other">
@@ -64,11 +77,20 @@ export default function ComparisonTable() {
             <div className="comp-mobile-cards">
               {criteria.map((c) => (
                 <div key={c} className="comp-mobile-item">
-                  <div className="comp-mobile-criterion">{t(`comparison.row_${c}`)}</div>
+                  <div className="comp-mobile-criterion">
+                    <span className="comp-criterion-icon">{criteriaIcons[c]}</span>
+                    {t(`comparison.row_${c}`)}
+                  </div>
                   <div className="comp-mobile-cols">
                     <div className="comp-mobile-col p">
                       <div className="comp-mobile-col-name p">{t('comparison.header_precis')}</div>
-                      <div className="comp-mobile-col-val p">{t(`comparison.row_${c}_precis`)}</div>
+                      <div className="comp-mobile-col-val p">
+                        {c === 'ocr' ? (
+                          <span className="comp-badge-pill">{t(`comparison.row_${c}_precis`)}</span>
+                        ) : (
+                          t(`comparison.row_${c}_precis`)
+                        )}
+                      </div>
                     </div>
                     <div className="comp-mobile-col o">
                       <div className="comp-mobile-col-name o">{t('comparison.header_other')}</div>
@@ -78,9 +100,7 @@ export default function ComparisonTable() {
                 </div>
               ))}
             </div>
-          </div>
-        </motion.div>
       </div>
-    </section>
+    </>
   );
 }

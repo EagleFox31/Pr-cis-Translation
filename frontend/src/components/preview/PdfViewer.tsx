@@ -9,8 +9,6 @@ interface PdfViewerProps {
   currentPage: number;
   zoom: number;
   isTrialMode: boolean;
-  sourceLang?: string;
-  targetLang?: string;
   onPagesLoaded?: (numPages: number) => void;
   className?: string;
 }
@@ -23,17 +21,11 @@ export default function PdfViewer({
   currentPage,
   zoom,
   isTrialMode,
-  sourceLang,
-  targetLang,
   onPagesLoaded,
   className,
 }: PdfViewerProps) {
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  const srcLabel = (sourceLang || 'FR').toUpperCase();
-  const tgtLabel = (targetLang || 'EN').toUpperCase();
 
   useEffect(() => {
     let active = true;
@@ -117,15 +109,12 @@ export default function PdfViewer({
         if (isTrialMode) {
           await renderPage(pdfTrad, 'pdf-canvas-translated-clear', currentPage);
         }
-        if (active) setIsLoading(false);
       } catch (error) {
         if (error instanceof Error && error.name === 'RenderingCancelledException') return;
         console.error('Error loading PDF:', error);
-        if (active) setIsLoading(false);
       }
     };
 
-    setIsLoading(true);
     loadPDFs();
 
     return () => {
@@ -162,15 +151,8 @@ export default function PdfViewer({
     >
       {/* Original Panel */}
       <div className="cv-wrap" style={{ flexShrink: 0 }}>
-        <span className="cv-lang-badge fr">{srcLabel} — Original</span>
-        <div className="cv" id="cv-fr" style={{ position: 'relative' }}>
-          {isLoading && (
-            <div
-              className="skeleton"
-              style={{ position: 'absolute', inset: 0, zIndex: 2 }}
-              aria-hidden="true"
-            />
-          )}
+        <span className="cv-lang-badge fr">FR — Original</span>
+        <div className="cv" id="cv-fr">
           <canvas
             id="pdf-canvas-original"
             style={{ display: 'block', height: 'auto', margin: '0 auto' }}
@@ -194,7 +176,7 @@ export default function PdfViewer({
           className="cv-lang-badge en"
           style={{ background: '#f0fdf4', color: '#15803d' }}
         >
-          {tgtLabel} — Traduction
+          EN — Traduction
         </span>
         <div
           className="cv trial-viewer"
@@ -217,13 +199,6 @@ export default function PdfViewer({
             setIsHovering(false);
           }}
         >
-          {isLoading && (
-            <div
-              className="skeleton"
-              style={{ position: 'absolute', inset: 0, zIndex: 2 }}
-              aria-hidden="true"
-            />
-          )}
           {/* Blurred canvas */}
           <canvas
             id="pdf-canvas-translated"

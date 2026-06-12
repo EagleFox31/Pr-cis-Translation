@@ -4,23 +4,6 @@
    CSS CUSTOM PROPERTIES
    ============================ */
 :root {
-  /* ── Tokens sémantiques (design system — SRS RF-3.1) ─────────────────── */
-  --background: hsl(210 40% 98%);
-  --foreground: hsl(222 47% 11%);
-  --card: hsl(0 0% 100%);
-  --card-foreground: hsl(222 47% 11%);
-  --muted: hsl(210 40% 96.1%);
-  --muted-foreground: hsl(215.4 16.3% 46.9%);
-  --primary: hsl(222 65% 15%);             /* navy Précis */
-  --primary-foreground: hsl(210 40% 98%);
-  --accent: hsl(43 51% 54%);               /* or Précis — touches premium */
-  --accent-foreground: hsl(222 47% 11%);
-  --destructive: hsl(0 84.2% 60.2%);
-  --border: hsl(214.3 31.8% 91.4%);
-  --input: hsl(214.3 31.8% 91.4%);
-  --ring: hsl(221 83% 53%);
-
-  /* ── Alias héritage (composants existants) ───────────────────────────── */
   --color-background-primary: #ffffff;
   --color-background-secondary: #f8fafc;
   --color-background-tertiary: #f1f5f9;
@@ -31,7 +14,7 @@
   --color-text-secondary: #64748b;
   --border-radius-lg: 12px;
   --border-radius-md: 6px;
-  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Plus Jakarta Sans', sans-serif;
   --navy: #0d1b3e;
   --navy-mid: #162248;
   --blue: #1a4dc7;
@@ -48,10 +31,9 @@
   --gray-500: #64748b;
   --gray-700: #334155;
   --gray-900: #0f172a;
-  /* Une seule famille UI (RF-3.3) : Inter partout */
-  --font-display: 'Inter', ui-sans-serif, system-ui, sans-serif;
-  --font-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  --font-display: 'Cormorant Garamond', Georgia, serif;
+  --font-body: 'DM Sans', system-ui, sans-serif;
+  --font-mono: 'DM Mono', monospace;
   --shadow-sm: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
   --shadow-md: 0 4px 16px rgba(13,27,62,.10);
   --shadow-lg: 0 10px 40px rgba(13,27,62,.14);
@@ -264,17 +246,19 @@ button { font-family: inherit; cursor: pointer; border: none; }
   display: flex;
   align-items: center;
   overflow: hidden;
-  background: var(--navy);
   scroll-margin-top: 0;
-}
-.hero-parallax-bg {
-  position: absolute;
-  inset: -20% 0; /* Expanded height for parallax scroll range */
-  will-change: transform;
   background:
     radial-gradient(ellipse 80% 60% at 70% 40%, rgba(37,99,235,.18) 0%, transparent 70%),
     radial-gradient(ellipse 50% 50% at 20% 70%, rgba(201,168,76,.10) 0%, transparent 60%),
     linear-gradient(145deg, #0d1b3e 0%, #162248 45%, #0d2060 100%);
+}
+
+/* Fixed lang lines overlay — visible across all sections */
+.page-bg-lang-lines {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -286,7 +270,7 @@ button { font-family: inherit; cursor: pointer; border: none; }
   flex-direction: column;
   justify-content: center;
   gap: clamp(24px, 4vw, 48px);
-  opacity: 0.12;
+  opacity: 1;
   transform: rotate(-10deg) scale(1.15);
   user-select: none;
   pointer-events: none;
@@ -296,7 +280,7 @@ button { font-family: inherit; cursor: pointer; border: none; }
   font-family: var(--font-display);
   font-size: clamp(1.8rem, 4vw, 3.6rem);
   font-weight: 300;
-  color: rgba(255, 255, 255, 0.25);
+  color: rgba(13, 27, 62, 0.12);
   white-space: nowrap;
   display: flex;
   gap: clamp(16px, 3vw, 40px);
@@ -775,12 +759,13 @@ button { font-family: inherit; cursor: pointer; border: none; }
    ============================ */
 section {
   position: relative;
+  z-index: 1;
   scroll-margin-top: 72px;
   height: auto;
   overflow: visible;
 }
 .about-section {
-  background: var(--ivory);
+  background: rgba(249,247,243,0.75);
   padding: 40px 24px;
 }
 .section-inner {
@@ -832,7 +817,7 @@ section {
    STORYTELLING BAND
    ============================ */
 .story-band {
-  background: var(--ivory);
+  background: rgba(249,247,243,0.75);
   padding: 40px 0;
   overflow: hidden;
 }
@@ -1114,13 +1099,8 @@ section {
 }
 
 /* ============================
-   COMPARISON PARALLAX
+   COMPARISON
    ============================ */
-.comparison-section {
-  padding: 110px 0;
-  background: linear-gradient(180deg, var(--ivory) 0%, #e8f0ff 100%);
-  overflow: hidden;
-}
 .comparison-header { text-align: center; margin-bottom: 60px; }
 .comparison-wrapper {
   position: relative;
@@ -1163,7 +1143,7 @@ section {
    ============================ */
 .pricing-section {
   padding: 40px 0;
-  background: var(--white);
+  background: rgba(255,255,255,0.75);
 }
 .pricing-header { text-align: left; margin-bottom: 64px; }
 .pricing-toggle {
@@ -1729,10 +1709,6 @@ footer {
 }
 
 @media (max-width: 768px) {
-  .comparison-section {
-    padding: 40px 0;
-    height: auto;
-  }
   .comparison-table-wrapper {
     display: none !important;
   }
@@ -1824,21 +1800,21 @@ footer {
   background: var(--white);
   border: 1px solid var(--gray-100);
   border-radius: 16px;
-  padding: 16px 16px;
+  padding: 20px 18px;
   position: relative;
   overflow: hidden;
-  transition: border-color .25s, transform .25s, box-shadow .25s;
+  transition: border-color .3s cubic-bezier(.4,0,.2,1), transform .3s cubic-bezier(.4,0,.2,1), box-shadow .3s cubic-bezier(.4,0,.2,1);
 }
 .feat-card::before {
   content: '';
   position: absolute;
   top: 0; left: 0; right: 0;
   height: 3px;
-  background: linear-gradient(90deg, var(--blue), #2563eb);
+  background: linear-gradient(90deg, var(--blue), #7c3aed);
   opacity: 0;
-  transition: opacity .25s;
+  transition: opacity .3s;
 }
-.feat-card:hover { border-color: rgba(26,77,199,.25); transform: translateY(-4px); box-shadow: var(--shadow-md); }
+.feat-card:hover { border-color: rgba(26,77,199,.3); transform: translateY(-6px); box-shadow: 0 12px 40px rgba(13,27,62,.12); }
 .feat-card:hover::before { opacity: 1; }
 .feat-icon {
   width: 46px; height: 46px;
@@ -1922,6 +1898,31 @@ footer {
 .comp-chk.no { background: var(--gray-100); color: var(--gray-400); font-size: 14px; }
 .comp-text.yes { color: var(--blue); font-weight: 600; font-size: 13.5px; }
 .comp-text.no { color: var(--gray-500); font-size: 13.5px; }
+.comp-criterion-name {
+  font-weight: 500;
+  color: var(--navy);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.comp-criterion-icon {
+  font-size: 15px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.comp-badge-pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 12px;
+  border-radius: 100px;
+  background: rgba(37,99,235,.10);
+  color: var(--blue);
+  border: 1px solid rgba(37,99,235,.20);
+  white-space: nowrap;
+}
 
 /* Mobile cards — always hidden on desktop */
 .comp-mobile-cards { display: none; }
@@ -2025,12 +2026,11 @@ footer {
   }
   
   .hero,
-  .features-section,
-  .comparison-section,
   .story-band,
   .pricing-section,
   .about-section {
     position: relative;
+    z-index: 1;
     height: 100vh;
     box-sizing: border-box;
     display: flex;
@@ -2043,33 +2043,29 @@ footer {
     padding-bottom: 24px !important;
   }
 
-  /* Échelle de fonds (SRS RF-2.3) : le hero sombre se fond vers le clair via
-     .hero-bottom-fade ; ensuite, alternance douce background ↔ blanc — jamais
-     deux luminosités fortement contrastées juxtaposées. */
   .hero {
-    background:
-      radial-gradient(900px 500px at 80% -10%, rgba(37, 99, 235, 0.25), transparent 60%),
-      linear-gradient(165deg, var(--navy) 0%, #101f4a 55%, #16265a 100%);
+    background: var(--navy);
   }
-
-  .story-band {
-    background: linear-gradient(180deg, hsl(222 40% 96%) 0%, var(--background) 30%, var(--background) 100%);
-  }
-
+  
   .features-section {
-    background: var(--card);
+    background: rgba(255,255,255,0.75);
+    height: auto;
+    overflow: visible;
+    scroll-snap-align: start;
+    padding-top: 72px !important;
+    padding-bottom: 24px !important;
   }
-
-  .comparison-section {
-    background: linear-gradient(180deg, var(--background) 0%, hsl(218 45% 95%) 100%);
+  
+  .story-band {
+    background: linear-gradient(135deg, rgba(201, 168, 76, 0.02) 0%, rgba(26, 77, 199, 0.02) 100%);
   }
-
+  
   .pricing-section {
-    background: var(--card);
+    background: rgba(255,255,255,0.75);
   }
-
+  
   .about-section {
-    background: linear-gradient(180deg, var(--background) 0%, hsl(222 40% 94%) 100%);
+    background: rgba(249,247,243,0.75);
   }
 
   .section-inner {
@@ -2190,180 +2186,5 @@ footer {
     flex-direction: column;
     gap: 12px;
     align-items: stretch;
-  }
-}
-
-/* ════════════════════════════════════════════════════════════════════════
-   REFONTE UI (SRS) — transitions de jonction, densité des fonds,
-   progression temps réel, accessibilité motion
-   ════════════════════════════════════════════════════════════════════════ */
-
-/* ── RF-2.2 : bande de transition hero (sombre → clair) ─────────────────── */
-.hero-bottom-fade {
-  position: absolute;
-  left: 0; right: 0; bottom: 0;
-  height: 160px;
-  pointer-events: none;
-  z-index: 5;
-  background: linear-gradient(180deg,
-    rgba(248, 250, 252, 0) 0%,
-    rgba(241, 245, 251, 0.35) 55%,
-    hsl(222 40% 96%) 100%);
-}
-
-/* ── RF-2.6 : densité des fonds (grille de points + halos discrets) ─────── */
-.story-band::before,
-.features-section::before,
-.comparison-section::before,
-.pricing-section::before,
-.about-section::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background-image: radial-gradient(rgba(13, 27, 62, 0.055) 1px, transparent 1.5px);
-  background-size: 26px 26px;
-  -webkit-mask-image: radial-gradient(ellipse 90% 80% at 50% 45%, black 30%, transparent 100%);
-  mask-image: radial-gradient(ellipse 90% 80% at 50% 45%, black 30%, transparent 100%);
-}
-
-.story-band::after,
-.features-section::after,
-.comparison-section::after,
-.pricing-section::after,
-.about-section::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background:
-    radial-gradient(560px 360px at 88% 12%, rgba(37, 99, 235, 0.07), transparent 70%),
-    radial-gradient(480px 320px at 8% 88%, rgba(201, 168, 76, 0.06), transparent 70%);
-}
-
-/* variation : halos inversés une section sur deux pour le rythme visuel */
-.features-section::after,
-.pricing-section::after {
-  background:
-    radial-gradient(560px 360px at 10% 15%, rgba(37, 99, 235, 0.06), transparent 70%),
-    radial-gradient(480px 320px at 92% 85%, rgba(201, 168, 76, 0.05), transparent 70%);
-}
-
-/* le contenu des sections doit rester au-dessus des couches de fond */
-.story-band > *, .features-section > *, .comparison-section > *,
-.pricing-section > *, .about-section > * {
-  position: relative;
-  z-index: 1;
-}
-
-/* ── RF-4.4 : barre de progression de traduction ────────────────────────── */
-.tprogress {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--card);
-  box-shadow: var(--shadow-sm);
-}
-.tprogress-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.tprogress-stage {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--foreground);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.tprogress-dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: var(--blue-bright);
-  animation: tprogress-pulse 1.4s ease-in-out infinite;
-}
-.tprogress-pct {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--blue-bright);
-  font-variant-numeric: tabular-nums;
-}
-.tprogress-track {
-  height: 8px;
-  border-radius: 999px;
-  background: var(--muted);
-  overflow: hidden;
-}
-.tprogress-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--blue) 0%, var(--blue-bright) 100%);
-  transition: width 0.45s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-}
-.tprogress-fill::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
-  animation: tprogress-shine 1.6s linear infinite;
-}
-.tprogress-msg {
-  font-size: 12px;
-  color: var(--muted-foreground);
-  min-height: 16px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tprogress-steps {
-  display: flex;
-  gap: 6px;
-}
-.tprogress-step {
-  flex: 1;
-  height: 3px;
-  border-radius: 999px;
-  background: var(--muted);
-  transition: background 0.3s ease;
-}
-.tprogress-step.active { background: var(--blue-bright); }
-.tprogress-step.done   { background: var(--blue); }
-
-@keyframes tprogress-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%      { opacity: 0.45; transform: scale(0.8); }
-}
-@keyframes tprogress-shine {
-  from { transform: translateX(-100%); }
-  to   { transform: translateX(100%); }
-}
-
-/* ── Skeleton (RF-5.5) ──────────────────────────────────────────────────── */
-.skeleton {
-  background: linear-gradient(90deg, var(--muted) 25%, hsl(210 40% 93%) 50%, var(--muted) 75%);
-  background-size: 200% 100%;
-  animation: skeleton-wave 1.4s ease-in-out infinite;
-  border-radius: var(--border-radius-md);
-}
-@keyframes skeleton-wave {
-  from { background-position: 200% 0; }
-  to   { background-position: -200% 0; }
-}
-
-/* ── RNF-2 : respect de prefers-reduced-motion ──────────────────────────── */
-@media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
   }
 }
