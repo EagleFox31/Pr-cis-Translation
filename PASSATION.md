@@ -51,13 +51,27 @@ Pipeline : **extraction** (PyMuPDF → `extraction.json`) → **traduction**
    propriétés géométriques/typographiques universelles. (Mémoire :
    `no-document-specific-rules.md`.)
 2. Traduction **par page**, on n'envoie que `{id, text}` par élément.
+   **Réponse PAR PARAGRAPHE** depuis `605bb92` : l'IA regroupe les fragments
+   et traduit chaque paragraphe d'un seul tenant
+   (`{"paragraphs": [{ids, translated_text}]}`) ; le CODE distribue ensuite la
+   traduction entre fragments (`_distribute_paragraph` : ancres verbatim pour
+   les tokens non traduits, proportionnel sinon, marqueur inline non ancré →
+   vide). Validation stricte (`_apply_paragraphs` : couverture des ids,
+   traduction non vide, `_unit_geometry_ok`) → rejet = retry **informé de la
+   faute**, puis scission. Ne JAMAIS revenir à une redistribution par l'IA :
+   c'était la cause des décalages id↔texte (titre détruit page 6).
 3. **Pas de regroupement de blocs à l'extraction** (`_group_paragraphs` et
    `_group_rotated_paragraphs` sont volontairement triviaux : 1 span = 1 bloc).
-   Le regroupement se fait UNIQUEMENT à l'injection, via les clés IA.
+   Le regroupement se fait UNIQUEMENT à l'injection, via les clés de
+   paragraphe (posées par le code, `prefix:uN`, sur décision d'appartenance IA).
 4. Traductions **jamais abrégées**, jamais de substitution de symbole
    (« & » pour « et », etc.). Longueur : même taille (idéal) > plus court
    (acceptable) > plus long (pire cas).
-5. Limite temporaire : **5 pages** (`if page_num >= 5: break` dans `extract_text`).
+5. ~~Limite temporaire 5 pages~~ **supprimée** (`605bb92`) : tout le document
+   est traité. Les fragments issus d'une distribution portent le flag
+   `unit_member` : le moteur ne leur applique ni fallback texte original ni
+   `_strip_fragment_overlap` (les caches antérieurs, sans flag, gardent le
+   comportement d'origine).
 
 ### Réinjection — les passes (méthode `inject_translation`, ~ligne 252)
 Pour chaque page :
