@@ -135,13 +135,14 @@ export default function HeroSection() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.45, ease: [0.16, 1, 0.3, 1] }}
           >
-            <a href="#pricing" className="btn-primary">
-              {t('hero.btn_discover')}
+            {/* CTA principal → l'outil de traduction (section suivante, RF-1) */}
+            <a href="#story" className="btn-primary">
+              {t('hero.btn_start')}
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
               </svg>
             </a>
-            <a href="#story" className="btn-outline">{t('hero.btn_start')}</a>
+            <a href="#pricing" className="btn-outline">{t('hero.btn_discover')}</a>
           </motion.div>
 
           <motion.div
@@ -268,6 +269,9 @@ export default function HeroSection() {
           </div>
         </div>
       </div>
+
+      {/* RF-2.2 : fond de transition douce vers la section claire suivante */}
+      <div className="hero-bottom-fade" />
     </section>
   );
 }

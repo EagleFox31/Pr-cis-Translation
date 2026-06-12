@@ -36,6 +36,7 @@ export default function Home() {
   // ---- Per-page layout strategy (chosen after the first conversion) ----
   const { translateFile } = useTranslation();
   const [targetLang, setTargetLang] = useState('en');
+  const [sourceLang, setSourceLang] = useState('fr');
   const [perPageMode, setPerPageMode] = useState<Record<number, LayoutMode>>({});
   const [shrinkScope, setShrinkScope] = useState<ShrinkScope>('page');
   const [appliedSig, setAppliedSig] = useState('');
@@ -90,11 +91,12 @@ export default function Home() {
 
   // ---- Translation complete ----
   const handleTranslateComplete = useCallback(
-    (result: { blob: Blob; filename: string; file: File; targetLang: string }) => {
+    (result: { blob: Blob; filename: string; file: File; targetLang: string; sourceLang: string }) => {
       setTranslatedBlob(result.blob);
       setTranslatedFilename(result.filename);
       setSelectedFile(result.file);
       setTargetLang(result.targetLang);
+      setSourceLang(result.sourceLang);
       // First render uses the default "auto" layout everywhere → reset per-page
       // choices and mark the current (empty) layout as the applied one.
       setPerPageMode({});
@@ -161,13 +163,8 @@ export default function Home() {
       <Navbar activeSection={activeSection} onNavClick={handleNavClick} />
 
       <main>
+        {/* Ordre SRS RF-1 : le produit (traduction) juste après le hero */}
         <HeroSection />
-
-        <FeaturesGrid />
-
-        <ComparisonTable />
-
-        <PricingSection isAnnual={isAnnual} onAnnualChange={setIsAnnual} />
 
         <StorySection
           showPreview={showPreview}
@@ -179,6 +176,8 @@ export default function Home() {
           zoom={zoom}
           formattingOption={formattingOption}
           isTrialMode={isTrialMode}
+          sourceLang={sourceLang}
+          targetLang={targetLang}
           onTranslateComplete={handleTranslateComplete}
           onBack={handleBack}
           onZoomChange={setZoom}
@@ -195,6 +194,12 @@ export default function Home() {
           onScopeChange={setShrinkScope}
           onApplyLayout={handleApplyLayout}
         />
+
+        <FeaturesGrid />
+
+        <ComparisonTable />
+
+        <PricingSection isAnnual={isAnnual} onAnnualChange={setIsAnnual} />
 
         <AboutSection />
       </main>

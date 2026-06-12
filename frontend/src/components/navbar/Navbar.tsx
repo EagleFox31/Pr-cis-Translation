@@ -16,10 +16,11 @@ export default function Navbar({ activeSection, onNavClick }: NavbarProps) {
   const { t, i18n } = useTranslation();
   const navbarRef = useRef<HTMLElement>(null);
 
+  // Ordre aligné sur les sections de la page (SRS RF-1)
   const navLinks = [
     { id: 'hero', label: t('nav.home') },
-    { id: 'features', label: t('nav.features') },
     { id: 'story', label: t('nav.howItWorks') },
+    { id: 'features', label: t('nav.features') },
     { id: 'pricing', label: t('nav.pricing') },
     { id: 'about', label: t('nav.about') },
   ];

@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { useTranslation as useI18n } from 'react-i18next';
-import { useTranslation } from '../../hooks/useTranslation';
-import { motion } from 'motion/react';
+import { useTranslation, stageLabel } from '../../hooks/useTranslation';
+import { motion, AnimatePresence } from 'motion/react';
 import FileUploader from './FileUploader';
 import LanguageSelector from './LanguageSelector';
 import FormatSelector from './FormatSelector';
 import type { FormatOption } from './FormatSelector';
 import { showToast } from '../ui/Toast';
+
+const PIPELINE_STAGES = ['upload', 'extraction', 'translation', 'injection'] as const;
 
 export interface FormatOptions {
   mode: 'auto_fit' | 'preserve' | 'optimize' | 'adjust_margins' | 'compact';
@@ -16,7 +18,10 @@ export interface FormatOptions {
 }
 
 interface TranslationSectionProps {
-  onTranslationComplete?: (result: { blob: Blob; filename: string; file: File; targetLang: string }) => void;
+  onTranslationComplete?: (result: {
+    blob: Blob; filename: string; file: File;
+    targetLang: string; sourceLang: string;
+  }) => void;
 }
 
 const formatOptions: FormatOption[] = [
@@ -29,7 +34,7 @@ const formatOptions: FormatOption[] = [
 
 export default function TranslationSection({ onTranslationComplete }: TranslationSectionProps) {
   const { t } = useI18n();
-  const { translateFile, isTranslating, error } = useTranslation();
+  const { translateFile, isTranslating, progress, error } = useTranslation();
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [sourceLang, setSourceLang] = useState('auto');
@@ -49,7 +54,7 @@ export default function TranslationSection({ onTranslationComplete }: Translatio
       };
       const res = await translateFile(selectedFile, targetLang, formatOpts);
       setResult(res);
-      onTranslationComplete?.({ ...res, file: selectedFile, targetLang });
+      onTranslationComplete?.({ ...res, file: selectedFile, targetLang, sourceLang });
       showToast('success', 'Traduction terminée !', `Fichier prêt : ${res.filename}`);
     } catch (err) {
       showToast('error', 'Erreur de traduction', err instanceof Error ? err.message : 'Une erreur est survenue');
@@ -90,56 +95,79 @@ export default function TranslationSection({ onTranslationComplete }: Translatio
         onChange={setFormatMode}
       />
 
-      {/* Translate Button */}
-      <motion.button
-        whileHover={isReady ? { scale: 1.01 } : {}}
-        whileTap={isReady ? { scale: 0.99 } : {}}
-        onClick={handleTranslate}
-        disabled={!isReady}
-        style={{
-          width: '100%',
-          padding: '13px',
-          borderRadius: '10px',
-          border: 'none',
-          background: isReady
-            ? 'linear-gradient(135deg, var(--blue) 0%, #1d4ed8 100%)'
-            : 'var(--gray-300)',
-          color: 'white',
-          fontWeight: 600,
-          fontSize: '14px',
-          cursor: isReady ? 'pointer' : 'not-allowed',
-          transition: 'all 0.2s ease',
-          boxShadow: isReady ? '0 4px 16px rgba(37,99,235,0.3)' : 'none',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '8px',
-          fontFamily: 'inherit',
-        }}
-      >
-        {isTranslating ? (
-          <>
-            <motion.span
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-              style={{ display: 'inline-flex' }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <circle cx="12" cy="12" r="10" opacity="0.25" />
-                <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
-              </svg>
-            </motion.span>
-            Traduction en cours...
-          </>
-        ) : (
-          <>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M5 8l6 6" /><path d="M11 8v8" /><path d="M4 16h8" /><path d="M13 8h3a3 3 0 0 1 3 3v0a3 3 0 0 1-3 3h-3" />
-            </svg>
-            Traduire
-          </>
+      {/* Translate Button — masqué pendant la traduction (panneau de
+          progression à la place, SRS RF-4.4) */}
+      {!isTranslating && (
+        <motion.button
+          whileHover={isReady ? { scale: 1.01 } : {}}
+          whileTap={isReady ? { scale: 0.99 } : {}}
+          onClick={handleTranslate}
+          disabled={!isReady}
+          style={{
+            width: '100%',
+            padding: '13px',
+            borderRadius: '10px',
+            border: 'none',
+            background: isReady
+              ? 'linear-gradient(135deg, var(--blue) 0%, #1d4ed8 100%)'
+              : 'var(--gray-300)',
+            color: 'white',
+            fontWeight: 600,
+            fontSize: '14px',
+            cursor: isReady ? 'pointer' : 'not-allowed',
+            transition: 'all 0.2s ease',
+            boxShadow: isReady ? '0 4px 16px rgba(37,99,235,0.3)' : 'none',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            fontFamily: 'inherit',
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 8l6 6" /><path d="M11 8v8" /><path d="M4 16h8" /><path d="M13 8h3a3 3 0 0 1 3 3v0a3 3 0 0 1-3 3h-3" />
+          </svg>
+          Traduire
+        </motion.button>
+      )}
+
+      {/* Barre de progression temps réel (RF-4) */}
+      <AnimatePresence>
+        {isTranslating && progress && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="tprogress"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="tprogress-head">
+              <span className="tprogress-stage">
+                <span className="tprogress-dot" />
+                {stageLabel(progress.stage)}
+              </span>
+              <span className="tprogress-pct">{Math.round(progress.percent)}%</span>
+            </div>
+            <div className="tprogress-track">
+              <div
+                className="tprogress-fill"
+                style={{ width: `${Math.max(2, progress.percent)}%` }}
+              />
+            </div>
+            <div className="tprogress-steps" aria-hidden="true">
+              {PIPELINE_STAGES.map((s) => {
+                const order = PIPELINE_STAGES.indexOf(s);
+                const cur = PIPELINE_STAGES.indexOf(progress.stage as any);
+                const cls = cur > order || progress.stage === 'done'
+                  ? 'done' : cur === order ? 'active' : '';
+                return <span key={s} className={`tprogress-step ${cls}`} />;
+              })}
+            </div>
+            <div className="tprogress-msg">{progress.message}</div>
+          </motion.div>
         )}
-      </motion.button>
+      </AnimatePresence>
 
       {error && (
         <motion.div

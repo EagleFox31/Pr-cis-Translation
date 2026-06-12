@@ -62,6 +62,7 @@ La navbar reflète cet ordre ; le scroll-spy met en évidence la section active.
 - **RF-2.3** Les sections suivantes alternent des fonds de même famille (`background` ↔ `muted`, jamais sombre↔clair sans transition).
 - **RF-2.4** Apparition des contenus au scroll : fade-in + translation Y (≤ 24 px, 0.5–0.7 s, `ease-out`), déclenchée par IntersectionObserver, une seule fois par section.
 - **RF-2.5** Le snap-scrolling est **conservé** (desktop), avec `scroll-behavior: smooth` ; sur mobile, défilement libre.
+- **RF-2.6** **Densité visuelle des fonds** : aucune section ne doit paraître « vide ». Chaque fond reçoit une texture discrète apportant de la profondeur — grille de points/lignes en très faible opacité, halos de dégradés (orbs) flous positionnés hors des zones de contenu, ou motifs géométriques subtils — sans jamais surcharger : opacité ≤ 6 % pour les motifs, ≤ 20 % pour les halos, et le contenu reste la seule zone de contraste fort.
 
 ### RF-3 — Design system unifié (correctifs C5)
 - **RF-3.1** Tokens sémantiques Tailwind v4 `@theme` calqués sur les références :
