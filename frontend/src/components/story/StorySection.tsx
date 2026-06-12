@@ -210,7 +210,7 @@ export default function StorySection({
             <div className="app">
               <div className="body">
                 <div className="sidebar">
-                  {Array.from({ length: Math.min(numPages, 8) }).map((_, i) => (
+                  {Array.from({ length: numPages }).map((_, i) => (
                     <div
                       key={i}
                       className="thumb"
