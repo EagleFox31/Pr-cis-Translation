@@ -43,7 +43,13 @@ class TranslatorAI:
         texte dans le document final ; une séparation à tort est sans gravité).
         NE fusionne PAS les textes : chaque "id" garde sa propre "translated_text"
         (sa part exacte du paragraphe, ni plus ni moins) — la clé sert uniquement
-        à identifier l'appartenance.
+        à identifier l'appartenance. JAMAIS DE RÉPÉTITION entre fragments d'une
+        même clé : la concaténation des "translated_text" des fragments doit
+        donner EXACTEMENT la traduction de la phrase complète, sans qu'aucun mot
+        ne soit traduit deux fois ni déplacé d'un fragment à l'autre. Exemple :
+        « …en posant des questions » / « ouvertes ? » → « …by asking open-ended » /
+        « questions? » (et NON la phrase complète dans le premier fragment puis
+        « open-ended questions? » répété dans le second).
         7. CÉSURES : un fragment peut se terminer par un mot coupé avec un trait
         d'union de fin de ligne (ex. « mo- » puis « dèle » au début du fragment
         suivant). Dans la traduction, reconstitue TOUJOURS les mots entiers : le

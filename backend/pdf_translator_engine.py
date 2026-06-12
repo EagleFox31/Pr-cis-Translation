@@ -329,7 +329,8 @@ class PDFTranslatorEngine:
                 # gauche/droite). Chaque fragment conserve sa mise en forme
                 # extraite (police, taille, couleur, soulignement) ; seul le
                 # flux du texte (retours à la ligne) est recalculé dans le
-                # conteneur. Les blocs pivotés ne sont jamais fusionnés.
+                # conteneur. Les blocs pivotés (90°/270°) sont fusionnés par
+                # un chemin dédié, le long de leur axe de lecture.
                 by_key = {}
                 for block in blocks:
                     k = block.get("paragraph_key")
@@ -341,16 +342,31 @@ class PDFTranslatorEngine:
                 # homogène et des baselines consécutives ; les éléments
                 # regroupés à tort — numéro de page, titre… — sont détachés).
                 runs_to_render = []
+                rotated_runs = []      # groupes de fragments pivotés (90/270)
                 merged_ids = set()
                 for grp in by_key.values():
                     if len(grp) < 2:
                         continue
-                    if any(abs(b.get("rotation", 0.0)) > 1.0 for b in grp):
-                        continue   # texte pivoté → rendu individuel
-                    for run in self._split_group_runs(grp):
-                        if len(run) >= 2:
-                            runs_to_render.append(run)
-                            merged_ids.update(id(b) for b in run)
+                    # Fragments horizontaux et pivotés validés séparément :
+                    # un paragraphe ne mélange jamais les deux orientations.
+                    horiz = [b for b in grp if abs(b.get("rotation", 0.0)) <= 1.0]
+                    by_rot = {}
+                    for b in grp:
+                        if abs(b.get("rotation", 0.0)) > 1.0:
+                            rn = int(round(b.get("rotation", 0.0) / 90.0)) * 90 % 360
+                            by_rot.setdefault(rn, []).append(b)
+                    if len(horiz) >= 2:
+                        for run in self._split_group_runs(horiz):
+                            if len(run) >= 2:
+                                runs_to_render.append(run)
+                                merged_ids.update(id(b) for b in run)
+                    for rn, rgrp in by_rot.items():
+                        if rn not in (90, 270) or len(rgrp) < 2:
+                            continue
+                        for run in self._split_rotated_group_runs(rgrp, rn):
+                            if len(run) >= 2:
+                                rotated_runs.append((run, rn))
+                                merged_ids.update(id(b) for b in run)
 
                 # Passe 2 — géométries d'origine des unités de rendu.
                 run_geoms = []
@@ -382,6 +398,19 @@ class PDFTranslatorEngine:
                 all_geoms = [(g[0], g[1], g[2], g[3]) for g in run_geoms]
                 all_geoms += [tuple(b["bbox"][:4]) for b, _t in solos]
 
+                # Boîtes des blocs PIVOTÉS : obstacles uniquement (un texte
+                # horizontal ne s'étire jamais par-dessus une cellule
+                # verticale) — jamais références d'alignement ni candidats
+                # à l'étirement.
+                rot_geoms = [tuple(b["bbox"][:4]) for b in blocks
+                             if abs(b.get("rotation", 0.0)) > 1.0
+                             and b.get("bbox") and len(b["bbox"]) >= 4]
+
+                # Filets VERTICAUX vectoriels (bordures de cellules de
+                # tableau) : un étirement de colonne ne traverse jamais une
+                # bordure dessinée.
+                v_rules = self._vertical_rules(new_page)
+
                 # Garde-fou de légitimité : un alignement gauche ne définit une
                 # « colonne » (et n'autorise l'étirement) que s'il est porté
                 # par au moins MIN_ALIGNED unités de rendu de la page. Deux
@@ -412,13 +441,18 @@ class PDFTranslatorEngine:
                         if abs(ox0 - bx0) <= 3.0:
                             col_x1 = max(col_x1, ox1)
                     limit = col_x1
-                    for ox0, oy0, _ox1, oy1 in all_geoms:
+                    for ox0, oy0, _ox1, oy1 in all_geoms + rot_geoms:
                         if oy0 >= by1 or oy1 <= by0:
                             continue          # hors de la bande verticale
                         if (ox0, oy0) == (bx0, by0):
                             continue          # lui-même
                         if bx1 - 1.0 <= ox0 < limit:
                             limit = ox0 - 4.0
+                    for vx, vy0, vy1 in v_rules:
+                        if vy0 >= by1 or vy1 <= by0:
+                            continue          # hors de la bande verticale
+                        if bx1 - 1.0 <= vx < limit:
+                            limit = vx - 4.0
                     ext_widths[id(b)] = max(bx1, limit) - bx0
 
                 # Passe 2b — étendue horizontale RÉELLEMENT rendue des blocs
@@ -434,7 +468,7 @@ class PDFTranslatorEngine:
                     sz = b.get("size", 12)
                     fitted = self._fit_fontsize(
                         t, fm, max(2.0, ext_widths.get(id(b), bb[2] - bb[0])),
-                        sz, min_size=min_font_size)
+                        sz, min_size=min(min_font_size, 0.75 * sz))
                     tw = self._text_length(t, fitted, fm, b.get("font", ""))
                     solo_extents.append((sx, sx + tw, sy, sz))
 
@@ -471,6 +505,16 @@ class PDFTranslatorEngine:
                             continue
                         if rx1 - 1.0 <= ox0 < limit:
                             limit = ox0 - 4.0
+                    for ox0, oy0, _ox1, oy1 in rot_geoms:
+                        if oy0 >= ry1 or oy1 <= ry0:
+                            continue
+                        if rx1 - 1.0 <= ox0 < limit:
+                            limit = ox0 - 4.0
+                    for vx, vy0, vy1 in v_rules:
+                        if vy0 >= ry1 or vy1 <= ry0:
+                            continue
+                        if rx1 - 1.0 <= vx < limit:
+                            limit = vx - 4.0
                     ext_x1s.append(max(rx1, limit))
 
                 # Passe 3 — rendu des groupes, informés des voisins rendus
@@ -478,6 +522,15 @@ class PDFTranslatorEngine:
                 for run, ext_x1 in zip(runs_to_render, ext_x1s):
                     self._render_paragraph_group(new_page, run, solo_extents,
                                                  ext_x1=ext_x1)
+
+                # Groupes PIVOTÉS : conteneur englobant + flux le long de
+                # l'axe de lecture (90°/270°). Aucune interaction avec les
+                # règles d'étirement horizontales ci-dessus.
+                for run, rn in rotated_runs:
+                    rmin = min(b.get("size", 12) for b in run)
+                    self._render_rotated_group(
+                        new_page, run, rn,
+                        min_size=min(min_font_size, 0.75 * rmin))
 
                 for block in blocks:
                     if id(block) in merged_ids:
@@ -514,27 +567,34 @@ class PDFTranslatorEngine:
 
                     # Paragraphe multi-lignes : rendu via boîte à retour à la
                     # ligne automatique, avec ajustement de taille au paragraphe.
-                    if block.get("multiline") and translated:
-                        if abs(rotation) <= 1.0:
-                            self._insert_paragraph(
-                                new_page, bbox, origin, translated, font_name,
-                                font_raw, orig_size, color, is_list,
-                                bullet_char, bullet_font or font_raw,
-                                align=block.get("align", 0),
-                                first_x=block.get("first_x"),
-                                bullet_origin=bullet_origin,
-                                min_size=min_font_size
-                            )
-                            continue
-                        # Cellule verticale (texte pivoté ≈ 90°/270°)
+                    if block.get("multiline") and translated and abs(rotation) <= 1.0:
+                        self._insert_paragraph(
+                            new_page, bbox, origin, translated, font_name,
+                            font_raw, orig_size, color, is_list,
+                            bullet_char, bullet_font or font_raw,
+                            align=block.get("align", 0),
+                            first_x=block.get("first_x"),
+                            bullet_origin=bullet_origin,
+                            min_size=min_font_size
+                        )
+                        continue
+
+                    # Bloc mono-ligne PIVOTÉ (90°/270°) : l'ajustement de
+                    # taille doit suivre l'axe de LECTURE — la hauteur de la
+                    # bbox — et non sa largeur horizontale (épaisseur d'une
+                    # ligne), sinon une traduction plus longue déborde de la
+                    # cellule. L'insertion reste à la baseline d'origine.
+                    if translated and abs(rotation) > 1.0:
                         rot_norm = int(round(rotation / 90.0)) * 90 % 360
                         if rot_norm in (90, 270):
-                            self._insert_rotated_paragraph(
-                                new_page, bbox, translated, font_name,
-                                font_raw, orig_size, color,
-                                block.get("align", 0), rot_norm,
-                                min_size=min_font_size
-                            )
+                            avail = abs(bbox[3] - bbox[1])
+                            fontsize = self._fit_fontsize(
+                                translated, font_name, max(2.0, avail),
+                                orig_size,
+                                min_size=min(min_font_size, 0.75 * orig_size))
+                            self._insert_text_smart(
+                                new_page, (x, y), translated, fontsize,
+                                font_name, font_raw, color, rotation)
                             continue
 
                     # Largeur du conteneur : bbox d'origine, étendue à la
@@ -547,8 +607,13 @@ class PDFTranslatorEngine:
                         max_width = block.get("avail_width",
                                               page_data.get("width", 595) - x)
 
+                    # Plancher : jamais sous le plus petit texte de la page —
+                    # sauf si le bloc EST ce plus petit texte, qui garde alors
+                    # une marge de réduction (75 %) plutôt qu'un débordement
+                    # garanti.
                     fontsize = self._fit_fontsize(translated, font_name, max_width, orig_size,
-                                                  min_size=min_font_size)
+                                                  min_size=min(min_font_size,
+                                                               0.75 * orig_size))
 
                     text_x   = x
                     if is_list and bullet_char:
@@ -648,6 +713,93 @@ class PDFTranslatorEngine:
                 runs.append([b])
         return runs
 
+    @staticmethod
+    def _split_rotated_group_runs(grp, rot):
+        """Variante PIVOTÉE de _split_group_runs : pour du texte à 90°/270°,
+        les « lignes » successives d'un paragraphe avancent le long de l'axe
+        X (gauche→droite à 90°, droite→gauche à 270°). Mêmes propriétés
+        universelles : taille homogène (15 %) et lignes consécutives
+        (écart ≤ 2.5 × taille)."""
+        def base(b):
+            o = b.get("origin")
+            return o[0] if o and len(o) >= 1 else b["bbox"][0]
+        ordered = sorted(grp, key=base, reverse=(rot == 270))
+        runs = [[ordered[0]]]
+        for b in ordered[1:]:
+            prev = runs[-1][-1]
+            s1, s2 = prev.get("size", 12), b.get("size", 12)
+            same_size = min(s1, s2) / max(1e-6, max(s1, s2)) >= 0.85
+            gap = abs(base(b) - base(prev))
+            near = gap <= 2.5 * max(s1, s2) + 0.5
+            if same_size and near:
+                runs[-1].append(b)
+            else:
+                runs.append([b])
+        return runs
+
+    @staticmethod
+    def _strip_fragment_overlap(prev, frag):
+        """Retire d'un fragment la redondance avec le texte déjà accumulé du
+        même paragraphe. Artefact de la traduction par fragments (universel,
+        indépendant du document) : l'IA traduit parfois chaque fragment d'une
+        phrase coupée comme une phrase autosuffisante — le premier fragment
+        absorbe la fin de la phrase et les suivants répètent du contenu déjà
+        traduit (« …open-ended questions? » + « open-ended questions? »).
+          • fragment entièrement déjà présent (sous-suite de mots contiguë,
+            insensible à la casse) → supprimé ;
+          • début du fragment == fin de l'accumulé (≥ 2 mots) → tronqué.
+        Un fragment correctement réparti (continuation sans répétition) passe
+        inchangé."""
+        fw = frag.split()
+        pw = prev.lower().split()
+        if not fw or not pw:
+            return frag
+        fl = [w.lower() for w in fw]
+        n, m = len(pw), len(fl)
+        if m <= n and any(pw[i:i + m] == fl for i in range(n - m + 1)):
+            return ""
+        k = min(n, m - 1)          # chevauchement partiel : ≥ 1 mot restant
+        while k >= 2:
+            if pw[n - k:] == fl[:k]:
+                return " ".join(fw[k:])
+            k -= 1
+        return frag
+
+    def _render_rotated_group(self, page, grp, rot, min_size=None):
+        """Rend un groupe de fragments PIVOTÉS partageant la même
+        paragraph_key dans un conteneur UNIQUE : rectangle englobant des bbox
+        d'origine, texte joint dans l'ordre de lecture (90° : lignes
+        verticales de gauche à droite ; 270° : de droite à gauche), redondances
+        de traduction entre fragments supprimées, puis insertion via
+        _insert_rotated_paragraph (retour à la ligne + ajustement de taille
+        le long de l'axe de lecture — le texte ne sort pas de l'empreinte)."""
+        grp = sorted(grp, key=lambda b: b["bbox"][0], reverse=(rot == 270))
+        x0 = min(b["bbox"][0] for b in grp)
+        y0 = min(b["bbox"][1] for b in grp)
+        x1 = max(b["bbox"][2] for b in grp)
+        y1 = max(b["bbox"][3] for b in grp)
+
+        parts = []
+        for b in grp:
+            t = (b.get("translated_text") or "").strip() \
+                or (b.get("text") or "").strip()
+            if not t:
+                continue
+            t = self._strip_fragment_overlap(" ".join(parts), t)
+            if t:
+                parts.append(t)
+        text = " ".join(parts)
+        if not text:
+            return
+
+        b0 = grp[0]
+        self._insert_rotated_paragraph(
+            page, (x0, y0, x1, y1), text,
+            b0.get("font_mapped", "helv"), b0.get("font", ""),
+            b0.get("size", 12), tuple(b0.get("color", [0, 0, 0])),
+            self._detect_alignment(grp, rotated=True), rot,
+            min_size=min_size)
+
     def _render_paragraph_group(self, page, grp, solo_extents=None, ext_x1=None):
         """Rend un groupe de blocs partageant la même paragraph_key (clé
         attribuée par l'IA à la traduction) dans un conteneur UNIQUE :
@@ -698,6 +850,12 @@ class PDFTranslatorEngine:
         words = []
         for b in grp:
             t = (b.get("translated_text") or "").strip() or (b.get("text") or "").strip()
+            if not t:
+                continue
+            # Redondance de traduction entre fragments (l'IA traduit parfois
+            # chaque fragment comme une phrase autosuffisante) : la part du
+            # fragment déjà écrite par les précédents est retirée du flux.
+            t = self._strip_fragment_overlap(" ".join(w for w, _ in words), t)
             if not t:
                 continue
             style = (b.get("font_mapped", "helv"), b.get("font", ""),
@@ -2153,13 +2311,20 @@ class PDFTranslatorEngine:
                         hi2 = mid
 
                 if best_size is not None:
-                    r = _try(base_rect, best_size)
-                    if r is not None and r >= 0:
-                        return True
+                    # Le modèle d'estimation (interligne 1.25) peut être
+                    # optimiste face aux métriques réelles de la police :
+                    # paliers descendants de 5 % jusqu'à min_size.
+                    s = best_size
+                    while s >= min_size * 0.999:
+                        r = _try(base_rect, s)
+                        if r is not None and r >= 0:
+                            return True
+                        s *= 0.95
 
-        # Priorité 3 : cellule élargie dans le sens du wrap.
+        # Priorité 3 (dernier recours) : cellule élargie dans le sens du
+        # wrap, à la taille MINIMALE — le résidu éventuel reste petit.
         wide = fitz.Rect(x0, y0, x1 + max(orig_size * 12, 80), y1)
-        rv = _try(wide, orig_size)
+        rv = _try(wide, min_size if min_size else orig_size)
         if rv is not None and rv >= 0:
             return True
         return False
@@ -2203,6 +2368,33 @@ class PDFTranslatorEngine:
                 lines += 1
                 cur = ww
         return lines
+
+    @staticmethod
+    def _vertical_rules(page):
+        """Segments VERTICAUX vectoriels de la page (filets de tableau,
+        bordures de cellules) : liste de (x, y0, y1). Mêmes critères que
+        _table_regions — trait fin (< 3 pt) d'au moins 20 pt de long, dessiné
+        comme ligne ou rectangle filiforme. Sert d'obstacle à l'étirement de
+        colonne : un texte ne s'étire jamais à travers une bordure dessinée."""
+        vs = []
+        try:
+            drawings = page.get_cdrawings()
+        except Exception:
+            return vs
+        for d in drawings:
+            for it in d.get("items", []):
+                if it[0] == "re":
+                    r = it[1]
+                    w, h = abs(r[2] - r[0]), abs(r[3] - r[1])
+                    if w < 3 and h >= 20:
+                        vs.append(((r[0] + r[2]) / 2,
+                                   min(r[1], r[3]), max(r[1], r[3])))
+                elif it[0] == "l":
+                    p1, p2 = it[1], it[2]
+                    if abs(p1[0] - p2[0]) < 1 and abs(p2[1] - p1[1]) >= 20:
+                        vs.append(((p1[0] + p2[0]) / 2,
+                                   min(p1[1], p2[1]), max(p1[1], p2[1])))
+        return vs
 
     def _table_regions(self, src_page):
         """Régions quadrillées (tableaux), détectées par une vraie GRILLE :
