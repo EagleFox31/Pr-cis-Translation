@@ -91,8 +91,6 @@ class PDFTranslatorEngine:
             total = len(doc)
 
             for page_num, page in enumerate(doc):
-                if page_num >= 5:
-                    break
                 if progress_callback:
                     progress_callback(f"Extraction page {page_num + 1}/{total}...")
 
@@ -386,8 +384,9 @@ class PDFTranslatorEngine:
                 for b in blocks:
                     if id(b) in merged_ids or abs(b.get("rotation", 0.0)) > 1.0:
                         continue
-                    t = (b.get("translated_text") or "").strip() \
-                        or (b.get("text") or "").strip()
+                    t = (b.get("translated_text") or "").strip()
+                    if not t and not b.get("unit_member"):
+                        t = (b.get("text") or "").strip()
                     bb = b.get("bbox")
                     if not t or not bb or len(bb) < 4:
                         continue
@@ -536,7 +535,10 @@ class PDFTranslatorEngine:
                     if id(block) in merged_ids:
                         continue   # déjà rendu via son groupe de paragraphe
                     translated = block.get("translated_text", "").strip()
-                    if not translated:
+                    # Fragment d'unité distribuée resté vide : sa part de la
+                    # traduction vit dans un fragment voisin — retomber sur le
+                    # texte original réintroduirait la langue source.
+                    if not translated and not block.get("unit_member"):
                         translated = block.get("text", "").strip()
 
                     is_list    = block.get("is_list_item", False)
@@ -781,11 +783,16 @@ class PDFTranslatorEngine:
 
         parts = []
         for b in grp:
-            t = (b.get("translated_text") or "").strip() \
-                or (b.get("text") or "").strip()
+            t = (b.get("translated_text") or "").strip()
+            if not t and not b.get("unit_member"):
+                t = (b.get("text") or "").strip()
             if not t:
                 continue
-            t = self._strip_fragment_overlap(" ".join(parts), t)
+            # Distribution déterministe côté traducteur (unit_member) : exacte
+            # par construction, la dé-duplication ne pourrait que mutiler une
+            # répétition légitime du texte.
+            if not b.get("unit_member"):
+                t = self._strip_fragment_overlap(" ".join(parts), t)
             if t:
                 parts.append(t)
         text = " ".join(parts)
@@ -849,13 +856,19 @@ class PDFTranslatorEngine:
         # justification d'origine, reconstitué (« mo- » + « dèle » → « modèle »).
         words = []
         for b in grp:
-            t = (b.get("translated_text") or "").strip() or (b.get("text") or "").strip()
+            t = (b.get("translated_text") or "").strip()
+            if not t and not b.get("unit_member"):
+                t = (b.get("text") or "").strip()
             if not t:
                 continue
             # Redondance de traduction entre fragments (l'IA traduit parfois
             # chaque fragment comme une phrase autosuffisante) : la part du
             # fragment déjà écrite par les précédents est retirée du flux.
-            t = self._strip_fragment_overlap(" ".join(w for w, _ in words), t)
+            # Sauf distribution déterministe côté traducteur (unit_member) :
+            # exacte par construction, la dé-duplication ne pourrait que
+            # mutiler une répétition légitime du texte.
+            if not b.get("unit_member"):
+                t = self._strip_fragment_overlap(" ".join(w for w, _ in words), t)
             if not t:
                 continue
             style = (b.get("font_mapped", "helv"), b.get("font", ""),
