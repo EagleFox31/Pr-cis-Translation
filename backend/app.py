@@ -108,6 +108,21 @@ except Exception as e:
     ai_active = False
     logger.warning(f"AI not initialized: {e}")
 
+# Deux modes de traduction, choisis par requête via le paramètre `quality` :
+#  • "fast"    → modèle non-raisonnant, ~secondes/page, version stable (défaut) ;
+#  • "precise" → modèle à raisonnement, alignement id↔texte fiable sur les pages
+#                complexes (numéros + formules), mais ~1-2 min/page.
+# Noms surchargeables via .env si DeepSeek renomme ses modèles.
+FAST_MODEL = os.getenv("DEEPSEEK_MODEL_FAST", "deepseek-chat")
+PRECISE_MODEL = os.getenv("DEEPSEEK_MODEL_PRECISE", "deepseek-v4-flash")
+
+def _resolve_quality(quality: str):
+    """(model, max_tokens) selon le mode demandé. Le mode précis a besoin d'un
+    gros budget de tokens car le raisonnement en consomme avant la réponse."""
+    if quality == "precise":
+        return PRECISE_MODEL, 65536
+    return FAST_MODEL, 8192
+
 
 # ── Job manager ──────────────────────────────────────────────────────────────
 # Chaque job de traduction est identifié par un UUID. Il possède :
@@ -180,6 +195,7 @@ def _run_translation_job(
     job_dir: str, lang_dir: str, original_path: str,
     extraction_path: str, translated_path: str,
     output_path: str, output_filename: str,
+    model: str, max_tokens: int,
 ):
     """Exécute toute la pipeline dans un thread de fond et émet des events SSE."""
     try:
@@ -224,7 +240,7 @@ def _run_translation_job(
                 raise ValueError("Le traducteur IA n'est pas disponible.")
             cb_translate = _make_progress_cb(job_id, "translate")
             _job_emit(job_id, "progress", {"step": "translate", "message": "Traduction IA en cours...", "page": 0, "total": None})
-            success, result = ai_translator.translate_json(extraction_path, target_lang=target_lang, progress_callback=cb_translate)
+            success, result = ai_translator.translate_json(extraction_path, target_lang=target_lang, progress_callback=cb_translate, model=model, max_tokens=max_tokens)
             if not success:
                 raise ValueError(f"Traduction échouée : {result}")
             if os.path.exists(result) and os.path.abspath(result) != os.path.abspath(translated_path):
@@ -280,6 +296,7 @@ async def translate_endpoint(
     file: UploadFile = File(...),
     target_lang: str = Form("en"),
     format_options: str = Form("{}"),
+    quality: str = Form("fast"),
     x_api_key: str = Header(None),
 ):
     """Démarre un job de traduction et retourne immédiatement un job_id.
@@ -305,6 +322,13 @@ async def translate_endpoint(
     except json.JSONDecodeError:
         format_opts = {}
 
+    # Mode de traduction (rapide vs précis) → modèle + budget de tokens.
+    quality = quality if quality in ("fast", "precise") else "fast"
+    model, max_tokens = _resolve_quality(quality)
+    # Suffixe de cache : les deux modes produisent des résultats différents, ils
+    # ne doivent JAMAIS partager le même translated.json ni le même PDF de sortie.
+    qsuffix = "" if quality == "fast" else "_precise"
+
     file_hash = get_file_hash(file_bytes)
     safe_name = sanitize_filename(filename)
     job_dir = os.path.join(TRANSLATIONS_DIR, f"{safe_name}_{file_hash}")
@@ -313,11 +337,11 @@ async def translate_endpoint(
 
     original_path = os.path.join(job_dir, f"original.{ext}")
     extraction_path = os.path.join(job_dir, "extraction.json")
-    translated_path = os.path.join(lang_dir, "translated.json")
+    translated_path = os.path.join(lang_dir, f"translated{qsuffix}.json")
 
-    output_filename = f"{safe_name}_TRADUIT.{ext}"
+    output_filename = f"{safe_name}_TRADUIT{qsuffix}.{ext}"
     if format_opts.get("mode") and format_opts["mode"] != "preserve":
-        output_filename = f"{safe_name}_TRADUIT_{format_opts['mode']}.{ext}"
+        output_filename = f"{safe_name}_TRADUIT{qsuffix}_{format_opts['mode']}.{ext}"
     layout_opts = format_opts.get("layout")
     if layout_opts:
         import hashlib as _hl
@@ -331,7 +355,8 @@ async def translate_endpoint(
         target=_run_translation_job,
         args=(job_id, file_bytes, filename, ext, target_lang, format_opts,
               job_dir, lang_dir, original_path, extraction_path,
-              translated_path, output_path, output_filename),
+              translated_path, output_path, output_filename,
+              model, max_tokens),
         daemon=True,
     )
     thread.start()

@@ -37,6 +37,7 @@ export default function TranslationSection({ onTranslationComplete, onLibraryOpe
   const [sourceLang, setSourceLang] = useState('auto');
   const [targetLang, setTargetLang] = useState('en-US');
   const [formatMode, setFormatMode] = useState('preserve');
+  const [quality, setQuality] = useState<'fast' | 'precise'>('fast');
   const [result, setResult] = useState<{ blob: Blob; filename: string } | null>(null);
   const [justReset, setJustReset] = useState(false);
 
@@ -55,7 +56,7 @@ export default function TranslationSection({ onTranslationComplete, onLibraryOpe
         lineHeightScale: 1,
         marginScale: 1,
       };
-      const res = await translateFile(selectedFile, targetLang, formatOpts);
+      const res = await translateFile(selectedFile, targetLang, formatOpts, quality);
       setResult(res);
       onTranslationComplete?.({ ...res, file: selectedFile, targetLang });
       showToast(
@@ -156,6 +157,49 @@ export default function TranslationSection({ onTranslationComplete, onLibraryOpe
           current={formatMode}
           onChange={setFormatMode}
         />
+
+        {/* Translation quality mode */}
+        <div>
+          <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--gray-700)', marginBottom: '8px' }}>
+            {t('story.quality_label', 'Mode de traduction')}
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            {([
+              { key: 'fast', icon: '⚡', title: t('story.quality_fast', 'Rapide'), desc: t('story.quality_fast_desc', 'Quelques secondes · version stable') },
+              { key: 'precise', icon: '🎯', title: t('story.quality_precise', 'Précis'), desc: t('story.quality_precise_desc', 'Raisonnement · mises en page complexes · plus lent') },
+            ] as const).map((opt) => {
+              const active = quality === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => setQuality(opt.key)}
+                  disabled={isTranslating}
+                  style={{
+                    textAlign: 'left',
+                    padding: '10px 12px',
+                    borderRadius: '10px',
+                    border: active ? '2px solid var(--blue)' : '1px solid var(--gray-300)',
+                    background: active ? 'rgba(37,99,235,0.06)' : 'var(--white)',
+                    cursor: isTranslating ? 'not-allowed' : 'pointer',
+                    fontFamily: 'inherit',
+                    transition: 'all 0.15s ease',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '2px',
+                  }}
+                >
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: active ? 'var(--blue)' : 'var(--gray-800)' }}>
+                    {opt.icon} {opt.title}
+                  </span>
+                  <span style={{ fontSize: '11px', color: 'var(--gray-500)', lineHeight: 1.3 }}>
+                    {opt.desc}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* Bottom actions — pinned */}

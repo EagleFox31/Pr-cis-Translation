@@ -109,7 +109,12 @@
     "drop_ready": "Déposez votre fichier ici",
     "swap_langs": "Inverser les langues",
     "remove_file": "Retirer le fichier",
-    "saved_to_library": "Document sauvegardé dans votre bibliothèque."
+    "saved_to_library": "Document sauvegardé dans votre bibliothèque.",
+    "quality_label": "Mode de traduction",
+    "quality_fast": "Rapide",
+    "quality_fast_desc": "Quelques secondes · version stable",
+    "quality_precise": "Précis",
+    "quality_precise_desc": "Raisonnement · mises en page complexes · plus lent"
   },
   "library": {
     "title": "Mes documents",

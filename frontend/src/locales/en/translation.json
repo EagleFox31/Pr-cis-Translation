@@ -109,7 +109,12 @@
     "drop_ready": "Drop your file here",
     "swap_langs": "Swap languages",
     "remove_file": "Remove file",
-    "saved_to_library": "Document saved to your library."
+    "saved_to_library": "Document saved to your library.",
+    "quality_label": "Translation mode",
+    "quality_fast": "Fast",
+    "quality_fast_desc": "A few seconds · stable version",
+    "quality_precise": "Precise",
+    "quality_precise_desc": "Reasoning · complex layouts · slower"
   },
   "library": {
     "title": "My documents",

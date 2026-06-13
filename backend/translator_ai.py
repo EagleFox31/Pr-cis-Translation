@@ -14,8 +14,12 @@ class TranslatorAI:
         if not api_key:
             raise ValueError("La clé DEEPSEEK_API_KEY est manquante dans le fichier .env")
 
-        self.client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
-        self.model = "deepseek-chat"
+        base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        # Modèle de REPLI (fallback). Le vrai choix se fait PAR REQUÊTE via le
+        # paramètre `quality` du formulaire (rapide vs précis) : app.py sélectionne
+        # le modèle et le passe à translate_json(). Ici, défaut = rapide/stable.
+        self.model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
         self.max_retries = 3
         self.target_batch_size = 50
 
@@ -29,6 +33,23 @@ class TranslatorAI:
         4. RÉPONDS UNIQUEMENT avec un objet JSON contenant une liste "translations".
         Chaque élément de la liste doit être un objet :
         {"id": "...", "translated_text": "...", "paragraph": "..."}.
+
+        RÈGLE D'ANCRAGE (nombres & symboles) — TRÈS IMPORTANTE :
+        Si le texte ENTIER d'un fragment est uniquement un nombre, un seul symbole
+        ou un jeton mathématique (ex. « 2 », « 11 », « n », « 2n », « O(k) », « k »),
+        recopie-le À L'IDENTIQUE dans "translated_text". Ne lui attribue JAMAIS de
+        mots ni de phrase. Ces fragments sont des points fixes immuables : ils
+        servent d'ancres et empêchent le texte de glisser d'un fragment à l'autre.
+
+        RÈGLE ANTI-EMPRUNT (anti-décalage) — TRÈS IMPORTANTE :
+        Chaque fragment est une case FIGÉE : son "translated_text" est la traduction
+        de SON PROPRE texte, jamais celle du fragment voisin. Si une phrase est
+        coupée sur plusieurs fragments, répartis la traduction entre eux dans les
+        mêmes proportions — n'entasse JAMAIS toute la phrase dans un seul fragment
+        en laissant les suivants « emprunter » le contenu du fragment d'après. La
+        sortie doit avoir EXACTEMENT le même nombre d'éléments que l'entrée, les
+        mêmes "id", dans le même ordre, et AUCUN id ne doit être inventé ou omis.
+
         6. CLÉS DE PARAGRAPHE : les éléments te sont fournis dans l'ordre de lecture
         d'une page de document. Attribue à chaque élément une clé "paragraph"
         ("p1", "p2", "p3"…). Deux éléments partagent la MÊME clé UNIQUEMENT s'ils
@@ -83,7 +104,8 @@ class TranslatorAI:
             text = text.split("```")[1].split("```")[0]
         return text.strip()
 
-    def _translate_batch(self, batch, target_lang, progress_callback, retries=3):
+    def _translate_batch(self, batch, target_lang, progress_callback, retries=3,
+                         model=None, max_tokens=8192):
         if not batch:
             return True
 
@@ -94,13 +116,18 @@ class TranslatorAI:
         for attempt in range(retries):
             try:
                 response = self.client.chat.completions.create(
-                    model=self.model,
+                    model=model or self.model,
                     messages=[
                         {"role": "system", "content": self.system_instruction},
                         {"role": "user", "content": prompt}
                     ],
                     temperature=0.1,
-                    max_tokens=8192,
+                    # max_tokens dépend du mode (passé par translate_json) :
+                    #  • rapide (non-raisonnant)  → 8192 suffit ;
+                    #  • précis (raisonnement)    → 65536, car le modèle consomme
+                    #    d'abord ~12-14k tokens de "réflexion" AVANT d'écrire la
+                    #    réponse ; un budget trop bas tronque tout avant la sortie.
+                    max_tokens=max_tokens,
                     response_format={"type": "json_object"}
                 )
 
@@ -111,8 +138,8 @@ class TranslatorAI:
                         if progress_callback:
                             progress_callback(f"Lot trop grand ({len(batch)} blocs), scission en deux.")
                         mid = len(batch) // 2
-                        return (self._translate_batch(batch[:mid], target_lang, progress_callback, retries)
-                                and self._translate_batch(batch[mid:], target_lang, progress_callback, retries))
+                        return (self._translate_batch(batch[:mid], target_lang, progress_callback, retries, model, max_tokens)
+                                and self._translate_batch(batch[mid:], target_lang, progress_callback, retries, model, max_tokens))
                     raise ValueError("Réponse tronquée (max_tokens atteint) sur un bloc unique.")
 
                 content = response.choices[0].message.content
@@ -180,8 +207,8 @@ class TranslatorAI:
             if progress_callback:
                 progress_callback(f"Échec du lot de {len(batch)} blocs, scission en deux.")
             mid = len(batch) // 2
-            return (self._translate_batch(batch[:mid], target_lang, progress_callback, retries)
-                    and self._translate_batch(batch[mid:], target_lang, progress_callback, retries))
+            return (self._translate_batch(batch[:mid], target_lang, progress_callback, retries, model, max_tokens)
+                    and self._translate_batch(batch[mid:], target_lang, progress_callback, retries, model, max_tokens))
         return False
 
     _LANG_NAMES = {
@@ -190,7 +217,8 @@ class TranslatorAI:
         "ja": "Japanese", "ko": "Korean", "ru": "Russian", "nl": "Dutch",
     }
 
-    def translate_json(self, json_path, target_lang="en", progress_callback=None, limit=None):
+    def translate_json(self, json_path, target_lang="en", progress_callback=None, limit=None,
+                       model=None, max_tokens=8192):
         target_lang = self._LANG_NAMES.get(target_lang.lower(), target_lang)
         if not os.path.exists(json_path):
             return False, "Fichier JSON introuvable."
@@ -280,7 +308,8 @@ class TranslatorAI:
             with failed_lock:
                 if failed_batch[0] is not None:
                     return idx, False
-            success = self._translate_batch(batch, target_lang, progress_callback)
+            success = self._translate_batch(batch, target_lang, progress_callback,
+                                            model=model, max_tokens=max_tokens)
             with done_lock:
                 batches_done[0] += 1
                 n = batches_done[0]
