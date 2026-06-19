@@ -32,7 +32,7 @@ class TranslatorAI:
         3. Ne modifie JAMAIS les identifiants "id".
         4. RÉPONDS UNIQUEMENT avec un objet JSON contenant une liste "translations".
         Chaque élément de la liste doit être un objet :
-        {"id": "...", "translated_text": "...", "paragraph": "..."}.
+        {"id": "...", "translated_text": "..."}.
 
         RÈGLE D'ANCRAGE (nombres & symboles) — TRÈS IMPORTANTE :
         Si le texte ENTIER d'un fragment est uniquement un nombre, un seul symbole
@@ -50,29 +50,6 @@ class TranslatorAI:
         sortie doit avoir EXACTEMENT le même nombre d'éléments que l'entrée, les
         mêmes "id", dans le même ordre, et AUCUN id ne doit être inventé ou omis.
 
-        6. CLÉS DE PARAGRAPHE : les éléments te sont fournis dans l'ordre de lecture
-        d'une page de document. Attribue à chaque élément une clé "paragraph"
-        ("p1", "p2", "p3"…). Deux éléments partagent la MÊME clé UNIQUEMENT s'ils
-        sont les fragments d'une MÊME PHRASE coupée par un retour à la ligne
-        AUTOMATIQUE — c'est-à-dire que la phrase continue grammaticalement d'un
-        fragment au suivant (le premier se termine en plein milieu de phrase ou
-        sur un mot coupé, le suivant la poursuit sans majuscule de début).
-        TOUT RETOUR À LA LIGNE VOLONTAIRE = clés différentes. Reçoivent donc
-        chacun leur propre clé : les titres et sous-titres (même empilés), les
-        numéros de page, les en-têtes/pieds de page, les libellés (notamment se
-        terminant par « : »), la ligne de noms/auteurs qui suit un libellé, les
-        items de liste, les signatures, les éléments de tableau ou de sommaire.
-        Dans le doute, préfère des clés SÉPARÉES (une fusion à tort déplace le
-        texte dans le document final ; une séparation à tort est sans gravité).
-        NE fusionne PAS les textes : chaque "id" garde sa propre "translated_text"
-        (sa part exacte du paragraphe, ni plus ni moins) — la clé sert uniquement
-        à identifier l'appartenance. JAMAIS DE RÉPÉTITION entre fragments d'une
-        même clé : la concaténation des "translated_text" des fragments doit
-        donner EXACTEMENT la traduction de la phrase complète, sans qu'aucun mot
-        ne soit traduit deux fois ni déplacé d'un fragment à l'autre. Exemple :
-        « …en posant des questions » / « ouvertes ? » → « …by asking open-ended » /
-        « questions? » (et NON la phrase complète dans le premier fragment puis
-        « open-ended questions? » répété dans le second).
         7. CÉSURES : un fragment peut se terminer par un mot coupé avec un trait
         d'union de fin de ligne (ex. « mo- » puis « dèle » au début du fragment
         suivant). Dans la traduction, reconstitue TOUJOURS les mots entiers : le
@@ -173,22 +150,14 @@ class TranslatorAI:
                 res_dict = {}
                 for res in translated_results:
                     if isinstance(res, dict) and "id" in res:
-                        res_dict[res["id"]] = (
-                            res.get("translated_text") or res.get("text", ""),
-                            res.get("paragraph"),
-                        )
+                        res_dict[res["id"]] = res.get("translated_text") or res.get("text", "")
 
-                # Préfixe d'unicité : un lot scindé (troncature) régénère des
-                # clés p1/p2… dans chaque moitié — on les préfixe par l'id du
-                # premier bloc du lot pour éviter toute collision sur la page.
-                key_prefix = batch[0]["id"]
+                # Moteur stable bloc par bloc : chaque bloc reçoit SA traduction,
+                # aucune notion de paragraphe ni de regroupement.
                 count = 0
                 for b in batch:
                     if b["id"] in res_dict:
-                        text, para_key = res_dict[b["id"]]
-                        b["translated_text"] = text
-                        if para_key:
-                            b["paragraph_key"] = f"{key_prefix}:{para_key}"
+                        b["translated_text"] = res_dict[b["id"]]
                         count += 1
 
                 if count == 0 and len(batch) > 0:

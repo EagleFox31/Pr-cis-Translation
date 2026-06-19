@@ -15,7 +15,7 @@ export default function FileUploader({ selectedFile, onFileSelect }: FileUploade
   const [isDragging, setIsDragging] = useState(false);
 
   const handleFileSelect = (file: File) => {
-    if (file.size > 5 * 1024 * 1024) {
+    if (file.size > 100 * 1024 * 1024) {
       alert(t('story.error_too_large'));
       return;
     }

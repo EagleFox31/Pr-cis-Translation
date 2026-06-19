@@ -27,7 +27,7 @@ class PPTXTranslatorEngine:
             shutil.rmtree(self.temp_dir, ignore_errors=True)
             self.temp_dir = None
 
-    def extract_text(self, pptx_path, output_json="extraction_texte.json", filters=None, progress_callback=None):
+    def extract_text(self, pptx_path, output_json="extraction_texte.json", filters=None, progress_callback=None, pages=None):
         if filters is None:
             filters = {"shapes": True, "smartarts": True, "tables": True, "connectors": True}
 
@@ -55,6 +55,12 @@ class PPTXTranslatorEngine:
 
         for i, slide_path in enumerate(slide_files):
             slide_num = int(slide_path.stem.replace("slide", ""))
+            # Hors plage sélectionnée : on n'extrait pas le texte de cette diapo.
+            # L'injection itère sur les fichiers de diapos (pas sur le JSON), donc
+            # la diapo reste intacte dans sa langue d'origine. `pages` 1-basé sur
+            # la position visuelle ; None = tout traduire.
+            if pages is not None and (i + 1) not in pages:
+                continue
             if progress_callback:
                 progress_callback(f"Extraction slide {i+1}/{total_slides}...")
                 

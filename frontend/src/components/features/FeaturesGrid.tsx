@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'motion/react';
+
+
 import Badge from '../ui/Badge';
 import ComparisonContent from '../comparison/ComparisonTable';
 
 const features = [
-  {
+  { 
     key: 'fidelity',
     icon: (
       <svg width="22" height="22" fill="none" stroke="var(--blue)" strokeWidth="1.6" viewBox="0 0 24 24">

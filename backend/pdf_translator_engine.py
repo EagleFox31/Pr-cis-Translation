@@ -50,6 +50,7 @@ class PDFTranslatorEngine:
         self._bundled = None    # index lazy du dossier backend/fonts/
         self.auto_download_fonts = True   # télécharge les polices manquantes
         self._font_dl_tried = None        # familles déjà tentées (lazy)
+        self._doc_font_class = {}         # clé police normalisée -> 'serif'/'sans'/'mono'
         self._llm_client = None           # client OpenAI-compatible (optionnel)
         self._llm_model  = "deepseek-chat"
 
@@ -72,7 +73,8 @@ class PDFTranslatorEngine:
     def extract_text(self, pdf_path: str,
                      output_json: str = None,
                      filters: dict = None,
-                     progress_callback=None):
+                     progress_callback=None,
+                     pages=None):
         """
         Extrait chaque span de texte avec la totalité de ses métadonnées :
           - texte, bbox, origin (baseline exacte)
@@ -91,15 +93,22 @@ class PDFTranslatorEngine:
             total = len(doc)
 
             for page_num, page in enumerate(doc):
-                if progress_callback:
-                    progress_callback(f"Extraction page {page_num + 1}/{total}...")
-
                 page_data = {
                     "page_num": page_num + 1,
                     "width":    page.rect.width,
                     "height":   page.rect.height,
                     "text_blocks": []
                 }
+
+                # Hors plage sélectionnée : on conserve la page (l'injection la
+                # recopiera à l'identique) mais on n'extrait AUCUN texte → elle
+                # reste dans sa langue d'origine. `pages` est None = tout traduire.
+                if pages is not None and (page_num + 1) not in pages:
+                    extraction["pages"].append(page_data)
+                    continue
+
+                if progress_callback:
+                    progress_callback(f"Extraction page {page_num + 1}/{total}...")
 
                 raw = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
 
@@ -268,6 +277,21 @@ class PDFTranslatorEngine:
         except Exception as e:
             return False, f"Erreur lecture JSON : {str(e)}"
 
+        # Carte police→classe (serif/sans/mono) déduite des drapeaux PyMuPDF
+        # captés à l'extraction : alimente le repli général de substitution par
+        # classe (_resolve_family_font). Tolérant aux JSON anciens sans le champ.
+        self._doc_font_class = {}
+        for pg in data.get("pages", []):
+            for b in pg.get("text_blocks", []):
+                fr = b.get("font")
+                if not fr or "serif" not in b:
+                    continue
+                key = self._norm_font(fr)
+                if key not in self._doc_font_class:
+                    self._doc_font_class[key] = (
+                        "mono" if b.get("mono") else
+                        "serif" if b.get("serif") else "sans")
+
         # Garantit la disponibilité des polices avant rendu (télécharge les
         # manquantes une fois ; couvre aussi le cas d'un extraction.json en cache
         # qui n'aurait pas déclenché le téléchargement à l'extraction).
@@ -320,20 +344,15 @@ class PDFTranslatorEngine:
 
                 new_page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
 
-                # ── Fusion par clés de paragraphe (attribuées par l'IA) ─────
-                # Les blocs partageant une même paragraph_key sont rendus
-                # ensemble dans un conteneur unique : le rectangle englobant de
-                # leurs bbox d'ORIGINE (tangent aux bords extrêmes haut/bas/
-                # gauche/droite). Chaque fragment conserve sa mise en forme
-                # extraite (police, taille, couleur, soulignement) ; seul le
-                # flux du texte (retours à la ligne) est recalculé dans le
-                # conteneur. Les blocs pivotés (90°/270°) sont fusionnés par
-                # un chemin dédié, le long de leur axe de lecture.
+                # ── Fusion par clés de paragraphe : DÉSACTIVÉE ───────────────
+                # Retour au moteur stable « bloc par bloc » : chaque bloc extrait
+                # est traduit puis réinjecté SEUL à sa position d'origine, avec
+                # ajustement de taille si la traduction déborde (voir la boucle de
+                # rendu standalone plus bas). On ne regroupe plus jamais les blocs
+                # par paragraph_key — `by_key` reste vide même si d'anciens JSON
+                # en cache contiennent encore des clés. La fidélité de la mise en
+                # page prime sur toute tentative de fusion de paragraphes.
                 by_key = {}
-                for block in blocks:
-                    k = block.get("paragraph_key")
-                    if k:
-                        by_key.setdefault(k, []).append(block)
 
                 # Passe 1 — déterminer les groupes à fusionner (validation
                 # géométrique des clés IA : un paragraphe réel a une taille
@@ -466,7 +485,8 @@ class PDFTranslatorEngine:
                     sz = b.get("size", 12)
                     fitted = self._fit_fontsize(
                         t, fm, max(2.0, ext_widths.get(id(b), bb[2] - bb[0])),
-                        sz, min_size=min(min_font_size, 0.75 * sz))
+                        sz, min_size=min(min_font_size, 0.75 * sz),
+                        font_raw=b.get("font", ""))
                     tw = self._text_length(t, fitted, fm, b.get("font", ""))
                     solo_extents.append((sx, sx + tw, sy, sz))
 
@@ -530,12 +550,46 @@ class PDFTranslatorEngine:
                         new_page, run, rn,
                         min_size=min(min_font_size, 0.75 * rmin))
 
+                # Espace inter-blocs perdu : un changement de style (mot en gras,
+                # lien…) coupe une même ligne en plusieurs blocs ; l'espace qui
+                # les séparait est retiré au .strip() de l'extraction. On le
+                # restitue en préfixant un espace au bloc de DROITE quand il
+                # jouxte (gap ≈ 0) le bloc de gauche sur la même ligne et que les
+                # deux côtés sont alphanumériques (vraie frontière de mot). Sans
+                # ça : « DJ »+« Patil » → « DJPatil », « le »+lien → « leInsight ».
+                def _blk_base(b):
+                    o = b.get("origin"); bb = b.get("bbox") or [0, 0, 0, 0]
+                    return o[1] if o and len(o) >= 2 else bb[3]
+                lead_space_ids = set()
+                _line_sorted = sorted(
+                    [b for b in blocks
+                     if abs(b.get("rotation", 0.0)) <= 1.0 and b.get("bbox")
+                     and (b.get("translated_text") or b.get("text") or "").strip()],
+                    key=lambda b: (round(_blk_base(b), 1), b["bbox"][0]))
+                for _i in range(1, len(_line_sorted)):
+                    _prev, _cur = _line_sorted[_i - 1], _line_sorted[_i]
+                    _sz = _cur.get("size", 12) or 12
+                    if abs(_blk_base(_cur) - _blk_base(_prev)) > 0.4 * _sz:
+                        continue                       # pas la même ligne
+                    _gap = _cur["bbox"][0] - _prev["bbox"][2]
+                    if not (-0.5 * _sz <= _gap <= 0.18 * _sz):
+                        continue                       # collés uniquement (gap≈0)
+                    _pt = (_prev.get("translated_text") or _prev.get("text") or "").strip()
+                    _ct = (_cur.get("translated_text") or _cur.get("text") or "").strip()
+                    # Pas d'espace si césure (« mo- »+« dèle ») ou si le bloc de
+                    # droite commence par une ponctuation attachante (« mot »+« , »).
+                    _ATTACH = ",.;:!?)]}»’'%…"
+                    if (_pt and _ct and _pt[-1] != "-" and _ct[0] not in _ATTACH):
+                        lead_space_ids.add(id(_cur))
+
                 for block in blocks:
                     if id(block) in merged_ids:
                         continue   # déjà rendu via son groupe de paragraphe
                     translated = block.get("translated_text", "").strip()
                     if not translated:
                         translated = block.get("text", "").strip()
+                    if translated and id(block) in lead_space_ids:
+                        translated = " " + translated
 
                     is_list    = block.get("is_list_item", False)
                     bullet_char = block.get("bullet_char", None)
@@ -589,7 +643,8 @@ class PDFTranslatorEngine:
                             fontsize = self._fit_fontsize(
                                 translated, font_name, max(2.0, avail),
                                 orig_size,
-                                min_size=min(min_font_size, 0.75 * orig_size))
+                                min_size=min(min_font_size, 0.75 * orig_size),
+                                font_raw=font_raw)
                             self._insert_text_smart(
                                 new_page, (x, y), translated, fontsize,
                                 font_name, font_raw, color, rotation)
@@ -611,7 +666,21 @@ class PDFTranslatorEngine:
                     # garanti.
                     fontsize = self._fit_fontsize(translated, font_name, max_width, orig_size,
                                                   min_size=min(min_font_size,
-                                                               0.75 * orig_size))
+                                                               0.75 * orig_size),
+                                                  font_raw=font_raw)
+
+                    # Garantie anti-débordement de PAGE : si, même réduit au
+                    # plancher doux, le texte sortirait du bord droit de la page,
+                    # on refait l'ajustement avec un plancher dur (6 pt) borné à
+                    # l'espace réellement disponible jusqu'à la marge droite.
+                    # Mieux vaut un texte un peu plus petit qu'un texte coupé.
+                    page_w = page_data.get("width", 595)
+                    avail_to_edge = page_w - 4.0 - x
+                    if avail_to_edge > 8 and self._text_length(
+                            translated, fontsize, font_name, font_raw) > avail_to_edge:
+                        fontsize = self._fit_fontsize(
+                            translated, font_name, avail_to_edge, orig_size,
+                            min_size=6.0, font_raw=font_raw)
 
                     text_x   = x
                     if is_list and bullet_char:
@@ -1051,6 +1120,25 @@ class PDFTranslatorEngine:
         "courierprime": "consolas", "cousine": "consolas", "anonymouspro": "consolas",
         "overpassmono": "consolas",
     }
+    # Repli GÉNÉRAL de classe : toute police introuvable (ni base-14, ni
+    # bundled, ni système, ni _FONT_SIMILAR) est routée vers un substitut LOCAL
+    # de MÊME CLASSE (serif→PT Serif, sans→Open Sans) au lieu de tomber sur
+    # Helvetica base-14 — qui transformait une serif en sans et élargissait le
+    # texte (espaces inter-mots mangés). La classe vient d'abord du DRAPEAU
+    # serif/mono de PyMuPDF (fiable, capté à l'extraction), sinon de tokens de
+    # NOM ci-dessous. Aucune police n'est énumérée : vaut pour tout document.
+    _SERIF_NAME_TOKENS = (
+        "serif", "times", "georgia", "garamond", "minion", "caslon",
+        "baskerville", "palatino", "cambria", "century", "bodoni", "didot",
+        "sabon", "antiqua", "slab", "plantin", "sylfaen", "constantia",
+        "merriweather", "lora", "playfair", "spectral", "cormorant",
+        "freight", "chronicle", "miller", "utopia", "scala",
+    )
+    _MONO_NAME_TOKENS = (
+        "mono", "consol", "courier", "typewriter", "menlo", "monaco",
+        "inconsolata", "jetbrains", "fira code", "firacode",
+    )
+    _CLASS_FALLBACK_FAMILY = {"serif": "ptserif", "sans": "opensans"}
     _BUNDLED_FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 
     @staticmethod
@@ -1234,7 +1322,30 @@ class PDFTranslatorEngine:
             r = self._family_variant_file(sim, bold, italic)
             if r:
                 return r
+        # 4. REPLI GÉNÉRAL : police inconnue → substitut LOCAL de même classe
+        #    (serif→PT Serif, sans→Open Sans). Évite Helvetica base-14 qui
+        #    rend une serif en sans. Mono → None (Courier base-14 via _map_font).
+        fam_key = self._CLASS_FALLBACK_FAMILY.get(self._font_class(font_raw))
+        if fam_key:
+            r = self._bundled_lookup(fam_key, bold, italic)
+            if r:
+                return r
         return None
+
+    def _font_class(self, font_raw):
+        """Classe d'une police : 'serif' | 'sans' | 'mono'. Source FIABLE = le
+        drapeau serif/mono PyMuPDF capté à l'extraction (self._doc_font_class) ;
+        à défaut (JSON ancien, appel hors document), heuristique sur le nom.
+        Règle générale, aucune police énumérée."""
+        c = self._doc_font_class.get(self._norm_font(font_raw or ""))
+        if c:
+            return c
+        n = (font_raw or "").lower()
+        if any(t in n for t in self._MONO_NAME_TOKENS):
+            return "mono"
+        if any(t in n for t in self._SERIF_NAME_TOKENS):
+            return "serif"
+        return "sans"
 
     # ── Téléchargement automatique des polices manquantes (Google Fonts) ──────
     _GOOGLE_SLUG = {  # corrections clé normalisée → dossier du dépôt google/fonts
@@ -2038,6 +2149,10 @@ class PDFTranslatorEngine:
             "color":           self._int_to_rgb(first.get("color", 0)),
             "bold":            bool(flags & FLAG_BOLD),
             "italic":          bool(flags & FLAG_ITALIC),
+            # Classe de police (drapeaux PyMuPDF : bit 2 = serif, bit 3 = mono) :
+            # sert au repli GÉNÉRAL de substitution par classe à l'injection.
+            "serif":           bool(flags & 4),
+            "mono":            bool(flags & FLAG_MONOSPACE),
             "underline":       bool(char_flags & CHAR_UNDERLINE),
             "strikeout":       bool(char_flags & CHAR_STRIKEOUT),
             "rotation":        rot,
@@ -2903,17 +3018,23 @@ class PDFTranslatorEngine:
             avail = max(nearest - bx0, bx1 - bx0)
             b["avail_width"] = avail
 
-    @staticmethod
-    def _fit_fontsize(text: str, font_name: str, max_width: float,
-                      original_size: float, min_size: float = 5.0) -> float:
+    def _fit_fontsize(self, text: str, font_name: str, max_width: float,
+                      original_size: float, min_size: float = 5.0,
+                      font_raw: str = "") -> float:
         """Renvoie la plus grande taille qui permet à `text` de tenir sur une
         ligne dans `max_width`. Si la taille d'origine tient déjà, elle est
         conservée (no-op). Sinon : recherche binaire entre min_size et
         original_size. C'est le 3ᵉ recours (après fusion inter-blocs et
         élargissement horizontal) : s'applique seulement aux blocs mono-ligne
-        (les multi-lignes sont gérés par _insert_paragraph)."""
+        (les multi-lignes sont gérés par _insert_paragraph).
+
+        CRITIQUE : la largeur est mesurée via _text_length (la police RÉELLEMENT
+        rendue — embarquée ou substituée), et NON les métriques base-14. Mesurer
+        avec une police plus étroite que celle du rendu (ex. Times pour un texte
+        rendu en police plus large) faisait croire que le texte tenait : il
+        débordait alors malgré l'ajustement."""
         try:
-            w = fitz.get_text_length(text, fontname=font_name, fontsize=original_size)
+            w = self._text_length(text, original_size, font_name, font_raw)
         except Exception:
             return original_size
         if w <= max_width or original_size <= min_size:
@@ -2922,7 +3043,7 @@ class PDFTranslatorEngine:
         for _ in range(14):                  # 14 iter ≈ 0.003 pt de précision
             mid = (lo + hi) * 0.5
             try:
-                if fitz.get_text_length(text, fontname=font_name, fontsize=mid) <= max_width:
+                if self._text_length(text, mid, font_name, font_raw) <= max_width:
                     lo = mid
                 else:
                     hi = mid

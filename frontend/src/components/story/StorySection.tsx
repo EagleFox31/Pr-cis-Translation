@@ -3,7 +3,7 @@ import { motion, useScroll, useTransform } from 'motion/react';
 import { useRef } from 'react';
 import TranslationSection from '../upload/TranslationSection';
 import ViewerToolbar from '../preview/ViewerToolbar';
-import PdfViewer from '../preview/PdfViewer';
+import DocumentPreview from '../preview/DocumentPreview';
 
 
 interface StorySectionProps {
@@ -49,6 +49,15 @@ export default function StorySection({
 }: StorySectionProps) {
   const { t } = useTranslation();
   const storyRef = useRef<HTMLElement>(null);
+
+  // Format du document à prévisualiser : déterminé d'abord par le fichier
+  // traduit (toujours présent), sinon par l'original. Les formats non-PDF sont
+  // convertis en PDF côté serveur pour un rendu exact (cf. DocumentPreview).
+  const previewExt = (
+    translatedFilename.split('.').pop() ||
+    selectedFile?.name.split('.').pop() ||
+    'pdf'
+  ).toLowerCase();
 
   const { scrollYProgress: storyScrollProgress } = useScroll({
     target: storyRef,
@@ -257,9 +266,10 @@ export default function StorySection({
 
 
                   <div className="scroll" id="scroll">
-                    <PdfViewer
+                    <DocumentPreview
                       sourceFile={selectedFile}
                       translatedBlob={translatedBlob}
+                      ext={previewExt}
                       currentPage={currentPage}
                       zoom={zoom}
                       isTrialMode={isTrialMode}

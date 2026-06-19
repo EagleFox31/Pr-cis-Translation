@@ -7,9 +7,11 @@ import queue
 import threading
 import shutil
 import hashlib
+import subprocess
+import tempfile
 from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, Response
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -18,7 +20,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("backend_app")
 
 FRONTEND_API_KEY = os.getenv("FRONTEND_API_KEY", "precis_frontend_secure_key_2026_xK9mP2vL")
-MAX_FILE_SIZE = 10 * 1024 * 1024
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 Mo
 ALLOWED_EXTENSIONS = {"txt", "pdf", "docx", "pptx"}
 
 TRANSLATIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "translations")
@@ -32,6 +34,122 @@ def sanitize_filename(name: str) -> str:
     cleaned = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in stem)
     cleaned = "_".join(cleaned.split())
     return cleaned[:50] or "document"
+
+def parse_page_range(s: str):
+    """Convertit une saisie de plage de pages ('1-5, 8, 11-13') en un ensemble
+    de numéros 1-basés {1,2,3,4,5,8,11,12,13}. Retourne None si vide
+    (= toutes les pages). Les jetons invalides sont ignorés silencieusement."""
+    if not s or not s.strip():
+        return None
+    pages: set[int] = set()
+    for tok in s.split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        if "-" in tok:
+            a, _, b = tok.partition("-")
+            try:
+                a, b = int(a.strip()), int(b.strip())
+            except ValueError:
+                continue
+            if a > b:
+                a, b = b, a
+            for p in range(a, b + 1):
+                if p >= 1:
+                    pages.add(p)
+        else:
+            try:
+                p = int(tok)
+            except ValueError:
+                continue
+            if p >= 1:
+                pages.add(p)
+    return pages or None
+
+def pages_token(pages_set) -> str:
+    """Jeton de cache déterministe pour une sélection de pages. Lisible quand la
+    sélection est une plage contiguë ('p3-5', 'p7'), sinon un hash court. Vide
+    si aucune sélection (préserve les caches existants 'toutes les pages')."""
+    if not pages_set:
+        return ""
+    sp = sorted(pages_set)
+    if sp == list(range(sp[0], sp[-1] + 1)):
+        return f"p{sp[0]}" if sp[0] == sp[-1] else f"p{sp[0]}-{sp[-1]}"
+    return "p" + hashlib.sha1(",".join(map(str, sp)).encode()).hexdigest()[:8]
+
+# ── Conversion PDF pour l'aperçu ────────────────────────────────────────────────
+# L'aperçu côte-à-côte s'appuie sur pdf.js : pour obtenir un rendu EXACT des
+# formats non-PDF (DOCX, PPTX, TXT), on les convertit en PDF via LibreOffice
+# headless. La conversion ne sert QUE l'aperçu — le téléchargement garde le
+# format d'origine. Résultats mis en cache disque (clé = hash du contenu).
+PREVIEW_CACHE_DIR = os.path.join(TRANSLATIONS_DIR, "_previews")
+_preview_lock = threading.Lock()
+
+def _find_soffice():
+    candidates = [
+        os.getenv("SOFFICE_PATH"),
+        r"C:\Program Files\LibreOffice\program\soffice.exe",
+        r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+        "soffice",
+        "libreoffice",
+    ]
+    for c in candidates:
+        if not c:
+            continue
+        if os.path.isabs(c):
+            if os.path.exists(c):
+                return c
+        else:
+            found = shutil.which(c)
+            if found:
+                return found
+    return None
+
+SOFFICE_PATH = _find_soffice()
+if SOFFICE_PATH:
+    logger.info(f"LibreOffice détecté pour l'aperçu PDF : {SOFFICE_PATH}")
+else:
+    logger.warning("LibreOffice introuvable : l'aperçu des formats non-PDF sera indisponible.")
+
+def convert_to_pdf_bytes(file_bytes: bytes, ext: str) -> bytes:
+    """Convertit un document en PDF (bytes) pour l'aperçu. Les PDF sont
+    renvoyés tels quels. Lève une exception si la conversion échoue."""
+    if ext == "pdf":
+        return file_bytes
+
+    file_hash = get_file_hash(file_bytes)
+    os.makedirs(PREVIEW_CACHE_DIR, exist_ok=True)
+    cache_path = os.path.join(PREVIEW_CACHE_DIR, f"{file_hash}.pdf")
+    if os.path.exists(cache_path):
+        with open(cache_path, "rb") as f:
+            return f.read()
+
+    if not SOFFICE_PATH:
+        raise RuntimeError("LibreOffice est requis pour convertir ce format en PDF.")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        src_path = os.path.join(tmp, f"input.{ext}")
+        with open(src_path, "wb") as f:
+            f.write(file_bytes)
+        profile_uri = "file:///" + os.path.join(tmp, "profile").replace(os.sep, "/")
+        cmd = [
+            SOFFICE_PATH, "--headless", "--norestore", "--nolockcheck",
+            f"-env:UserInstallation={profile_uri}",
+            "--convert-to", "pdf", "--outdir", tmp, src_path,
+        ]
+        # LibreOffice supporte mal les invocations concurrentes : on sérialise.
+        with _preview_lock:
+            proc = subprocess.run(cmd, capture_output=True, timeout=120)
+        out_path = os.path.join(tmp, "input.pdf")
+        if proc.returncode != 0 or not os.path.exists(out_path):
+            err = proc.stderr.decode("utf-8", "ignore")[:300]
+            raise RuntimeError(f"Conversion LibreOffice échouée : {err}")
+        with open(out_path, "rb") as f:
+            data = f.read()
+
+    with open(cache_path, "wb") as f:
+        f.write(data)
+    return data
 
 app = FastAPI(title="Précis Translator API", version="1.0.0")
 
@@ -195,7 +313,7 @@ def _run_translation_job(
     job_dir: str, lang_dir: str, original_path: str,
     extraction_path: str, translated_path: str,
     output_path: str, output_filename: str,
-    model: str, max_tokens: int,
+    model: str, max_tokens: int, pages_set=None,
 ):
     """Exécute toute la pipeline dans un thread de fond et émet des events SSE."""
     try:
@@ -221,10 +339,10 @@ def _run_translation_job(
                 filters = {"paragraphs": True, "tables": True, "headers_footers": True, "text_boxes": True, "smartarts": True}
                 extraction, _ = docx_engine.extract_text(original_path, extraction_path, filters=filters, progress_callback=cb_extract)
             elif ext == "pdf":
-                extraction, _ = pdf_engine.extract_text(original_path, extraction_path, progress_callback=cb_extract)
+                extraction, _ = pdf_engine.extract_text(original_path, extraction_path, progress_callback=cb_extract, pages=pages_set)
             elif ext == "pptx" and pptx_engine:
                 filters = {"shapes": True, "smartarts": True, "tables": True, "connectors": True}
-                extraction, _ = pptx_engine.extract_text(original_path, extraction_path, filters=filters, progress_callback=cb_extract)
+                extraction, _ = pptx_engine.extract_text(original_path, extraction_path, filters=filters, progress_callback=cb_extract, pages=pages_set)
             else:
                 raise ValueError(f"Type de fichier .{ext} non supporté.")
             if not extraction:
@@ -290,6 +408,47 @@ async def translate_options():
         "Access-Control-Allow-Headers": "Content-Type, X-API-Key",
     })
 
+@app.options("/api/preview/pdf")
+async def preview_pdf_options():
+    return JSONResponse(content={}, headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, X-API-Key",
+    })
+
+@app.post("/api/preview/pdf")
+async def preview_pdf_endpoint(
+    request: Request,
+    file: UploadFile = File(...),
+    x_api_key: str = Header(None),
+):
+    """Convertit un document (DOCX/PPTX/TXT) en PDF pour l'aperçu côté client.
+    Les PDF sont renvoyés tels quels. La conversion ne change pas le fichier
+    téléchargeable, elle ne sert qu'à un rendu exact dans le viewer."""
+    verify_api_key(x_api_key)
+
+    filename = file.filename or ""
+    ext = filename.split(".")[-1].lower() if "." in filename else ""
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Type non supporté pour l'aperçu : .{ext}")
+
+    try:
+        file_bytes = await file.read()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Lecture du fichier impossible : {e}")
+
+    if len(file_bytes) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="Fichier trop volumineux pour l'aperçu.")
+
+    try:
+        pdf_bytes = await asyncio.to_thread(convert_to_pdf_bytes, file_bytes, ext)
+    except Exception as e:
+        logger.error(f"Conversion aperçu PDF échouée : {e}")
+        raise HTTPException(status_code=500, detail=f"Conversion PDF impossible : {e}")
+
+    return Response(content=pdf_bytes, media_type="application/pdf")
+
+
 @app.post("/api/translate")
 async def translate_endpoint(
     request: Request,
@@ -297,6 +456,7 @@ async def translate_endpoint(
     target_lang: str = Form("en"),
     format_options: str = Form("{}"),
     quality: str = Form("fast"),
+    pages: str = Form(""),
     x_api_key: str = Header(None),
 ):
     """Démarre un job de traduction et retourne immédiatement un job_id.
@@ -315,7 +475,7 @@ async def translate_endpoint(
         raise HTTPException(status_code=400, detail=f"Lecture du fichier impossible : {e}")
 
     if len(file_bytes) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=400, detail=f"Fichier trop volumineux ({len(file_bytes)/(1024*1024):.1f} Mo, max 10 Mo).")
+        raise HTTPException(status_code=400, detail=f"Fichier trop volumineux ({len(file_bytes)/(1024*1024):.1f} Mo, max 100 Mo).")
 
     try:
         format_opts = json.loads(format_options) if format_options else {}
@@ -329,6 +489,13 @@ async def translate_endpoint(
     # ne doivent JAMAIS partager le même translated.json ni le même PDF de sortie.
     qsuffix = "" if quality == "fast" else "_precise"
 
+    # Sélection de pages (PDF/PPTX) : None = tout le document. Le jeton entre
+    # dans toutes les clés de cache pour qu'une plage donnée ne réutilise jamais
+    # le résultat d'une autre plage (ni du document entier).
+    pages_set = parse_page_range(pages) if ext in ("pdf", "pptx") else None
+    ptok = pages_token(pages_set)
+    psuffix = f"_{ptok}" if ptok else ""
+
     file_hash = get_file_hash(file_bytes)
     safe_name = sanitize_filename(filename)
     job_dir = os.path.join(TRANSLATIONS_DIR, f"{safe_name}_{file_hash}")
@@ -336,12 +503,12 @@ async def translate_endpoint(
     os.makedirs(lang_dir, exist_ok=True)
 
     original_path = os.path.join(job_dir, f"original.{ext}")
-    extraction_path = os.path.join(job_dir, "extraction.json")
-    translated_path = os.path.join(lang_dir, f"translated{qsuffix}.json")
+    extraction_path = os.path.join(job_dir, f"extraction{psuffix}.json")
+    translated_path = os.path.join(lang_dir, f"translated{qsuffix}{psuffix}.json")
 
-    output_filename = f"{safe_name}_TRADUIT{qsuffix}.{ext}"
+    output_filename = f"{safe_name}_TRADUIT{qsuffix}{psuffix}.{ext}"
     if format_opts.get("mode") and format_opts["mode"] != "preserve":
-        output_filename = f"{safe_name}_TRADUIT{qsuffix}_{format_opts['mode']}.{ext}"
+        output_filename = f"{safe_name}_TRADUIT{qsuffix}{psuffix}_{format_opts['mode']}.{ext}"
     layout_opts = format_opts.get("layout")
     if layout_opts:
         import hashlib as _hl
@@ -356,7 +523,7 @@ async def translate_endpoint(
         args=(job_id, file_bytes, filename, ext, target_lang, format_opts,
               job_dir, lang_dir, original_path, extraction_path,
               translated_path, output_path, output_filename,
-              model, max_tokens),
+              model, max_tokens, pages_set),
         daemon=True,
     )
     thread.start()

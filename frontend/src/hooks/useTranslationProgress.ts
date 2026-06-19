@@ -32,7 +32,7 @@ export function useTranslationProgress() {
   }, []);
 
   const translateFile = useCallback(
-    (file: File, targetLang: string, formatOptions?: FormatOptions, quality: string = 'fast'): Promise<TranslationProgressResult> => {
+    (file: File, targetLang: string, formatOptions?: FormatOptions, quality: string = 'fast', pages: string = ''): Promise<TranslationProgressResult> => {
       return new Promise(async (resolve, reject) => {
         setIsTranslating(true);
         setError(null);
@@ -44,6 +44,7 @@ export function useTranslationProgress() {
           formData.append('file', file);
           formData.append('target_lang', targetLang);
           formData.append('quality', quality);
+          if (pages && pages.trim()) formData.append('pages', pages.trim());
           if (formatOptions) formData.append('format_options', JSON.stringify(formatOptions));
 
           const startRes = await fetch(`${API_BASE}/api/translate`, {

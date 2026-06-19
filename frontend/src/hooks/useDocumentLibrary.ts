@@ -33,7 +33,7 @@ export function useDocumentLibrary() {
     saveMeta(documents);
   }, [documents]);
 
-  const saveDocument = useCallback(async (blob: Blob, filename: string, meta: Omit<DocMeta, 'id' | 'date' | 'sizeByes'>) => {
+  const saveDocument = useCallback(async (blob: Blob, filename: string, meta: Omit<DocMeta, 'id' | 'date' | 'sizeByes' | 'filename'>) => {
     const id = crypto.randomUUID();
     const doc: DocMeta = {
       ...meta,

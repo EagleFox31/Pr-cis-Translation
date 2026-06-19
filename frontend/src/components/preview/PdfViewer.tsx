@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { motion } from 'motion/react';
 
 interface PdfViewerProps {
-  sourceFile?: File | null;
+  sourceFile?: Blob | null;
   translatedBlob?: Blob | null;
   demoSource?: string;
   demoTarget?: string;

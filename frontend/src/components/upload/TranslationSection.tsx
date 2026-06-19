@@ -38,11 +38,17 @@ export default function TranslationSection({ onTranslationComplete, onLibraryOpe
   const [targetLang, setTargetLang] = useState('en-US');
   const [formatMode, setFormatMode] = useState('preserve');
   const [quality, setQuality] = useState<'fast' | 'precise'>('fast');
+  const [pages, setPages] = useState('');
   const [result, setResult] = useState<{ blob: Blob; filename: string } | null>(null);
   const [justReset, setJustReset] = useState(false);
 
+  // Le concept de page n'existe proprement que pour PDF et PPTX (diapos).
+  const ext = selectedFile?.name.split('.').pop()?.toLowerCase() ?? '';
+  const supportsPageRange = ext === 'pdf' || ext === 'pptx';
+
   const handleFileSelect = (file: File | null) => {
     setSelectedFile(file);
+    setPages(''); // une plage est propre à un document : on repart de zéro
     if (file) setJustReset(false);
   };
 
@@ -56,7 +62,7 @@ export default function TranslationSection({ onTranslationComplete, onLibraryOpe
         lineHeightScale: 1,
         marginScale: 1,
       };
-      const res = await translateFile(selectedFile, targetLang, formatOpts, quality);
+      const res = await translateFile(selectedFile, targetLang, formatOpts, quality, supportsPageRange ? pages : '');
       setResult(res);
       onTranslationComplete?.({ ...res, file: selectedFile, targetLang });
       showToast(
@@ -67,7 +73,7 @@ export default function TranslationSection({ onTranslationComplete, onLibraryOpe
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : '';
-      const isLarge = msg.includes('413') || msg.toLowerCase().includes('too large') || (!!selectedFile && selectedFile.size > 10 * 1024 * 1024);
+      const isLarge = msg.includes('413') || msg.toLowerCase().includes('too large') || (!!selectedFile && selectedFile.size > 100 * 1024 * 1024);
       const isNetwork = msg.toLowerCase().includes('network') || msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('failed to fetch');
       const hint = isLarge
         ? (lang === 'fr' ? 'Essayez de compresser votre PDF avant de réessayer.' : 'Try compressing your PDF before retrying.')
@@ -80,6 +86,7 @@ export default function TranslationSection({ onTranslationComplete, onLibraryOpe
 
   const handleReset = () => {
     setSelectedFile(null);
+    setPages('');
     setResult(null);
     setJustReset(true);
   };
@@ -200,6 +207,45 @@ export default function TranslationSection({ onTranslationComplete, onLibraryOpe
             })}
           </div>
         </div>
+
+        {/* Page range — only when a PDF/PPTX is loaded */}
+        <AnimatePresence>
+          {selectedFile && supportsPageRange && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              style={{ overflow: 'hidden' }}
+            >
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--gray-700)', marginBottom: '8px' }}>
+                {t('story.pages_label', ext === 'pptx' ? 'Diapositives à traduire' : 'Pages à traduire')}
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={pages}
+                onChange={(e) => setPages(e.target.value.replace(/[^0-9,\-\s]/g, ''))}
+                disabled={isTranslating}
+                placeholder={t('story.pages_placeholder', 'Ex. 1-5, 8, 11-13 — vide = tout le document')}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: '10px',
+                  border: '1px solid var(--gray-300)',
+                  background: 'var(--white)',
+                  fontSize: '13px',
+                  fontFamily: 'inherit',
+                  color: 'var(--gray-800)',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+              <span style={{ display: 'block', fontSize: '11px', color: 'var(--gray-500)', marginTop: '6px', lineHeight: 1.3 }}>
+                {t('story.pages_hint', 'Laissez vide pour traduire tout le document. Les pages non sélectionnées restent dans leur langue d’origine.')}
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Bottom actions — pinned */}
