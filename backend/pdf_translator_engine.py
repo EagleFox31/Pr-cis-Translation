@@ -54,6 +54,17 @@ class PDFTranslatorEngine:
         self._llm_client = None           # client OpenAI-compatible (optionnel)
         self._llm_model  = "deepseek-chat"
 
+        # ── Stratégie d'identification des paragraphes ──────────────────────
+        # MODE ACTIF par défaut : regroupement délégué à l'IA (DeepSeek), écrit
+        # dans block['paragraph_key']. Le regroupement GÉOMÉTRIQUE historique
+        # (para_id) reste calculé et sert de REPLI (LLM absent/erreur), mais
+        # n'est plus le mode principal. Pour repasser en géométrique pur :
+        #   engine.use_llm_paragraph_grouping = False
+        self.use_llm_paragraph_grouping = False
+        # Attribut groupant les contours du mode debug : 'paragraph_key' (IA,
+        # vue canonique) ou 'para_id' (géométrie).
+        self.debug_para_attr = "paragraph_key"
+
     def configure_llm(self, api_key: str,
                       base_url: str = "https://api.deepseek.com",
                       model: str = "deepseek-chat") -> None:
@@ -85,12 +96,39 @@ class PDFTranslatorEngine:
         if output_json is None:
             output_json = str(Path(pdf_path).with_suffix("")) + "_extraction.json"
 
-        extraction = {"pages": []}
+        extraction = {"pages": [], "vis_origin": True}
         element_types_used = {}
 
         try:
             doc = fitz.open(pdf_path)
             total = len(doc)
+
+            # Collecte des polices embarquées du document source (xref → nom).
+            # Chaque police sera extraite et sauvegardée pour être réutilisée
+            # à l'injection, garantissant une fidélité parfaite de rendu.
+            # Les noms PyMuPDF incluent un préfixe de sous-ensemble (ex.
+            # "GUDYVK+AvenirLTStd-Book") ; on indexe SANS le préfixe pour
+            # matcher le `font_raw` des spans (qui n'a pas le préfixe).
+            # Une même police peut être embarquée en PLUSIEURS sous-ensembles
+            # (un par jeu de glyphes / par groupe de pages) partageant le même
+            # nom propre. On garde TOUS les sous-ensembles (un par xref) :
+            # n'en retenir qu'un faisait échouer la couverture des glyphes des
+            # autres pages → bascule sur un substitut (souvent plus léger).
+            font_xrefs = {}
+            for pg_num in range(total):
+                try:
+                    for xref, ext, ftype, base_name, *_ in doc.get_page_fonts(pg_num):
+                        if ext == "n/a":
+                            continue
+                        # Retire le préfixe de sous-ensemble "XXXXXX+"
+                        clean = base_name.split("+")[-1] if "+" in base_name else base_name
+                        variants = font_xrefs.setdefault(clean, [])
+                        if not any(v["xref"] == xref for v in variants):
+                            variants.append({"xref": xref, "ext": ext,
+                                             "base_name": base_name})
+                except Exception:
+                    pass
+            extraction["font_xrefs"] = font_xrefs
 
             for page_num, page in enumerate(doc):
                 page_data = {
@@ -112,6 +150,28 @@ class PDFTranslatorEngine:
 
                 raw = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
 
+                # Origine x du PREMIER GLYPHE VISIBLE de chaque span (via
+                # rawdict, niveau caractère). Le bbox/origine d'un span inclut
+                # ses espaces de tête, dont l'avance varie (parfois nulle) :
+                # cette table fournit la vraie position du 1er caractère non
+                # blanc pour rendre le texte trimmé à la bonne place. Indexée
+                # par bbox de span (identique entre dict et rawdict).
+                vis_x0_map = {}
+                try:
+                    rawc = page.get_text("rawdict",
+                                         flags=fitz.TEXT_PRESERVE_WHITESPACE)
+                    for rb in rawc.get("blocks", []):
+                        for rl in rb.get("lines", []):
+                            for rs in rl.get("spans", []):
+                                for ch in rs.get("chars", []):
+                                    if ch.get("c", " ").strip():
+                                        bb = rs["bbox"]
+                                        vis_x0_map[(round(bb[0], 1), round(bb[1], 1),
+                                                    round(bb[2], 1))] = ch["origin"][0]
+                                        break
+                except Exception:
+                    pass
+
                 rotated_spans = []    # spans pivotés, regroupés au niveau page
                 page_groups = []      # groupes horizontaux de TOUS les blocs (fusion inter-blocs ensuite)
                 all_gap_ratios = []   # gap/size intra-paragraphe observés sur cette page
@@ -129,6 +189,11 @@ class PDFTranslatorEngine:
                         for span in line.get("spans", []):
                             if not span.get("text", "").strip():
                                 continue
+                            bb = span["bbox"]
+                            vx = vis_x0_map.get(
+                                (round(bb[0], 1), round(bb[1], 1), round(bb[2], 1)))
+                            if vx is not None:
+                                span["_vis_x0"] = vx
                             if abs(rot) > 1.0:
                                 rotated_spans.append((span, rot))
                             else:
@@ -141,14 +206,11 @@ class PDFTranslatorEngine:
                     page_groups.extend(grps)
                     all_gap_ratios.extend(gap_ratios)
 
-                # Fusion inter-blocs (_merge_cross_block + validation LLM)
-                # DÉSACTIVÉE : elle créait des fusions erronées. Chaque groupe
-                # issu du regroupement intra-bloc (_group_paragraphs) est
-                # conservé tel quel. Seul le regroupement des lignes wrap d'un
-                # même bloc PyMuPDF reste actif.
-                merged_groups = page_groups
-
-                for p_idx, group in enumerate(merged_groups):
+                # Chaque groupe du regroupement intra-bloc (_group_paragraphs)
+                # devient une entrée telle quelle : pas de fusion inter-blocs
+                # (seul le regroupement des lignes wrap d'un même bloc PyMuPDF
+                # est actif).
+                for p_idx, group in enumerate(page_groups):
                     page_data["text_blocks"].append(
                         self._make_para_entry(group, page_num, 0, p_idx)
                     )
@@ -159,6 +221,32 @@ class PDFTranslatorEngine:
                     page_data["text_blocks"].append(
                         self._make_para_entry(group, page_num, 9000, r_idx, rotated=True)
                     )
+
+                # Annotation des PARAGRAPHES (cadres, écarts, ancres) — métadonnée
+                # pour le futur reflux ; n'affecte PAS le rendu (identité intacte).
+                try:
+                    img_rects = [list(r) for info in page.get_images(full=True)
+                                 for r in page.get_image_rects(info[0])]
+                except Exception:
+                    img_rects = []
+                # Filets décoratifs : segments HORIZONTAUX longs (traits 'l' ou
+                # fins rectangles 're') — délimitent souvent les encarts.
+                rules = []
+                try:
+                    for d in page.get_drawings():
+                        for it in d.get("items", []):
+                            if it[0] == "l":
+                                p1, p2 = it[1], it[2]
+                                if abs(p1.y - p2.y) < 1.0 and abs(p2.x - p1.x) > 40:
+                                    rules.append([min(p1.x, p2.x), p1.y,
+                                                  max(p1.x, p2.x), p2.y])
+                            elif it[0] == "re":
+                                r = it[1]
+                                if r.height < 3.0 and r.width > 40:
+                                    rules.append([r.x0, r.y0, r.x1, r.y1])
+                except Exception:
+                    pass
+                self._annotate_paragraphs(page_data, img_rects, rules)
 
                 # ── Détection du soulignement via les dessins vectoriels ────
                 # Un underline peut être tracé soit comme un trait (type 's',
@@ -217,12 +305,23 @@ class PDFTranslatorEngine:
                 except Exception:
                     pass
 
-                # Calcule l'espace libre à droite de chaque bloc (jusqu'au
-                # prochain bloc voisin sur la même bande verticale, ou la marge
-                # droite). Utilisé à l'injection comme largeur disponible pour
-                # l'ajustement de taille : un bloc d'origine étroit peut recevoir
-                # un texte traduit plus long tant que rien ne le borde à droite.
-                self._compute_avail_widths(page_data, page_data["width"])
+                # Identification des paragraphes DÉLÉGUÉE au LLM (DeepSeek) :
+                # on lui envoie id + texte + position de chaque bloc, il
+                # attribue un identifiant de paragraphe partagé aux blocs d'un
+                # même paragraphe → stocké dans block['paragraph_key'].
+                # Métadonnée pure : n'affecte PAS le rendu (toujours bloc/bloc).
+                self._llm_assign_paragraph_ids(page_data, progress_callback)
+
+                # Groupement de référence = GÉOMÉTRIQUE (`para_id`) : il gère la
+                # FUSION (paragraphe enroulé en L) ET la SÉPARATION (en-tête vs
+                # n° de page, puces voisines) mieux que l'IA, qui se trompe dans
+                # les deux sens. `paragraph_key` est aligné sur `para_id`.
+                self._regroup_by_para_id(page_data)
+
+                # Identification de l'alignement par paragraphe (Étape 0) :
+                # signature multi-ligne + étirement intrinsèque (justifié) +
+                # cadre de colonne (mono-ligne). Métadonnée pure.
+                self._assign_paragraph_alignment(page_data)
 
                 extraction["pages"].append(page_data)
                 element_types_used[page_num + 1] = ["text_block"]
@@ -231,7 +330,12 @@ class PDFTranslatorEngine:
             try:
                 fonts = self._font_inventory(doc, progress_callback)
                 extraction["fonts"] = fonts
-                substituted = [f["name"] for f in fonts if not f["exact"]]
+                # Les polices embarquées dans le PDF source (présentes dans
+                # font_xrefs) sont extraites et réinjectées à l'identique :
+                # elles ne sont PAS substituées, on les exclut de l'alerte.
+                embedded_src = set(extraction.get("font_xrefs", {}))
+                substituted = [f["name"] for f in fonts
+                               if not f["exact"] and f["name"] not in embedded_src]
                 if progress_callback and substituted:
                     progress_callback(
                         "⚠ Polices non disponibles (rendu en substitut) : "
@@ -292,13 +396,19 @@ class PDFTranslatorEngine:
                         "mono" if b.get("mono") else
                         "serif" if b.get("serif") else "sans")
 
-        # Garantit la disponibilité des polices avant rendu (télécharge les
-        # manquantes une fois ; couvre aussi le cas d'un extraction.json en cache
-        # qui n'aurait pas déclenché le téléchargement à l'extraction).
+        # Garantit la disponibilité des polices AVANT rendu : pré-chargement
+        # SYNCHRONE (borné par un budget) des familles manquantes, pour qu'elles
+        # servent à CETTE sortie. Au-delà du budget, repli arrière-plan (substitut
+        # ce coup-ci, police exacte au prochain rendu). Les familles déjà fidèles
+        # (bundled/système/base-14) sont ignorées sans coût.
         try:
+            import time as _time
+            deadline = _time.time() + 25.0
             for fr in {b.get("font") for pg in data.get("pages", [])
                        for b in pg.get("text_blocks", []) if b.get("font")}:
-                self._ensure_font(fr, progress_callback)
+                self._ensure_font(fr, progress_callback,
+                                  synchronous=_time.time() < deadline)
+            self._bundled = None  # ré-indexe backend/fonts/ avec les nouvelles polices
         except Exception:
             pass
 
@@ -306,6 +416,47 @@ class PDFTranslatorEngine:
             original_doc = fitz.open(original_pdf)
             new_doc      = fitz.open()
             pages        = data.get("pages", [])
+
+            # Charge les polices embarquées du document source (collectées
+            # à l'extraction) et les écrit sur disque. PyMuPDF n'accepte PAS
+            # un buffer de police via insert_text(fontfile=...) (« bad
+            # fontfile »), mais accepte un CHEMIN de fichier — y compris pour
+            # les polices CFF/Type1. On extrait donc chaque police dans un
+            # fichier temp : fidélité parfaite, TrueType comme CFF, sans
+            # aucune substitution.
+            self._source_fonts = {}
+            font_xrefs = data.get("font_xrefs", {})
+            if font_xrefs:
+                fdir = os.path.join(str(self.temp_dir), "_srcfonts")
+                os.makedirs(fdir, exist_ok=True)
+                nfonts = 0
+                for clean, info in font_xrefs.items():
+                    # Compat : ancien JSON = 1 dict ; nouveau = liste de variantes
+                    # (plusieurs sous-ensembles du même nom). On les écrit TOUS
+                    # dans des fichiers distincts → la sélection à l'injection
+                    # choisira celui qui couvre réellement le texte du bloc.
+                    variants = info if isinstance(info, list) else [info]
+                    for i, var in enumerate(variants):
+                        try:
+                            xref = var["xref"]
+                            ext  = var["ext"]
+                            buf = original_doc.extract_font(xref)[3]
+                            if not buf:
+                                continue
+                            suffix = ".ttf" if ext == "ttf" else ".otf"
+                            tag = "".join(ch for ch in clean if ch.isalnum())
+                            fp = os.path.join(fdir, f"{tag}_{i}{suffix}")
+                            with open(fp, "wb") as fh:
+                                fh.write(buf)
+                            self._source_fonts.setdefault(clean, []).append((fp, ext))
+                            nfonts += 1
+                        except Exception:
+                            pass
+                if progress_callback and self._source_fonts:
+                    progress_callback(
+                        f"✓ {nfonts} police(s) source embarquée(s) "
+                        f"pour fidélité de rendu."
+                    )
             total        = len(pages)
 
             for page_idx, page_data in enumerate(pages):
@@ -335,8 +486,8 @@ class PDFTranslatorEngine:
                 # imposée à la traduction (≈ même taille, sinon plus court).
 
                 for block in blocks:
-                    # On efface le texte à son ANCIENNE position (avant reflow).
-                    bbox = block.get("_old_bbox") or block.get("bbox")
+                    # Efface le texte d'origine à sa position (rectangle élargi).
+                    bbox = block.get("bbox")
                     if not bbox or len(bbox) < 4:
                         continue
                     rect = fitz.Rect(bbox) + fitz.Rect(-1.5, -2, 1.5, 2)
@@ -344,252 +495,50 @@ class PDFTranslatorEngine:
 
                 new_page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
 
-                # ── Fusion par clés de paragraphe : DÉSACTIVÉE ───────────────
-                # Retour au moteur stable « bloc par bloc » : chaque bloc extrait
-                # est traduit puis réinjecté SEUL à sa position d'origine, avec
-                # ajustement de taille si la traduction déborde (voir la boucle de
-                # rendu standalone plus bas). On ne regroupe plus jamais les blocs
-                # par paragraph_key — `by_key` reste vide même si d'anciens JSON
-                # en cache contiennent encore des clés. La fidélité de la mise en
-                # page prime sur toute tentative de fusion de paragraphes.
-                by_key = {}
-
-                # Passe 1 — déterminer les groupes à fusionner (validation
-                # géométrique des clés IA : un paragraphe réel a une taille
-                # homogène et des baselines consécutives ; les éléments
-                # regroupés à tort — numéro de page, titre… — sont détachés).
-                runs_to_render = []
-                rotated_runs = []      # groupes de fragments pivotés (90/270)
-                merged_ids = set()
-                for grp in by_key.values():
-                    if len(grp) < 2:
-                        continue
-                    # Fragments horizontaux et pivotés validés séparément :
-                    # un paragraphe ne mélange jamais les deux orientations.
-                    horiz = [b for b in grp if abs(b.get("rotation", 0.0)) <= 1.0]
-                    by_rot = {}
-                    for b in grp:
-                        if abs(b.get("rotation", 0.0)) > 1.0:
-                            rn = int(round(b.get("rotation", 0.0) / 90.0)) * 90 % 360
-                            by_rot.setdefault(rn, []).append(b)
-                    if len(horiz) >= 2:
-                        for run in self._split_group_runs(horiz):
-                            if len(run) >= 2:
-                                runs_to_render.append(run)
-                                merged_ids.update(id(b) for b in run)
-                    for rn, rgrp in by_rot.items():
-                        if rn not in (90, 270) or len(rgrp) < 2:
-                            continue
-                        for run in self._split_rotated_group_runs(rgrp, rn):
-                            if len(run) >= 2:
-                                rotated_runs.append((run, rn))
-                                merged_ids.update(id(b) for b in run)
-
-                # Passe 2 — géométries d'origine des unités de rendu.
-                run_geoms = []
-                for run in runs_to_render:
-                    def _rb(b):
-                        o = b.get("origin")
-                        return o[1] if o and len(o) >= 2 else b["bbox"][3]
-                    run_geoms.append([
-                        min(b["bbox"][0] for b in run),
-                        min(b["bbox"][1] for b in run),
-                        max(b["bbox"][2] for b in run),
-                        max(b["bbox"][3] for b in run),
-                        len({round(_rb(b), 1) for b in run}),   # nb de lignes
-                    ])
-
-                solos = []
-                for b in blocks:
-                    if id(b) in merged_ids or abs(b.get("rotation", 0.0)) > 1.0:
-                        continue
-                    t = (b.get("translated_text") or "").strip() \
-                        or (b.get("text") or "").strip()
-                    bb = b.get("bbox")
-                    if not t or not bb or len(bb) < 4:
-                        continue
-                    solos.append((b, t))
-
-                # Toutes les boîtes d'ORIGINE (groupes + individuels) : servent
-                # de références d'alignement et d'obstacles.
-                all_geoms = [(g[0], g[1], g[2], g[3]) for g in run_geoms]
-                all_geoms += [tuple(b["bbox"][:4]) for b, _t in solos]
-
-                # Boîtes des blocs PIVOTÉS : obstacles uniquement (un texte
-                # horizontal ne s'étire jamais par-dessus une cellule
-                # verticale) — jamais références d'alignement ni candidats
-                # à l'étirement.
-                rot_geoms = [tuple(b["bbox"][:4]) for b in blocks
-                             if abs(b.get("rotation", 0.0)) > 1.0
-                             and b.get("bbox") and len(b["bbox"]) >= 4]
-
-                # Filets VERTICAUX vectoriels (bordures de cellules de
-                # tableau) : un étirement de colonne ne traverse jamais une
-                # bordure dessinée.
-                v_rules = self._vertical_rules(new_page)
-
-                # Garde-fou de légitimité : un alignement gauche ne définit une
-                # « colonne » (et n'autorise l'étirement) que s'il est porté
-                # par au moins MIN_ALIGNED unités de rendu de la page. Deux
-                # blocs alignés peuvent être une coïncidence ; trois ou plus
-                # révèlent une structure voulue par le maquettiste. En dessous
-                # du seuil, comportement antérieur inchangé (bbox stricte).
-                MIN_ALIGNED = 3
-
-                def _aligned_count(v):
-                    return sum(1 for ox0, _oy0, _ox1, _oy1 in all_geoms
-                               if abs(ox0 - v) <= 3.0)
-
-                # Passe 2a — largeur étendue des blocs INDIVIDUELS (même règle
-                # de colonne que les groupes) : un bloc mono-ligne aligné à
-                # gauche avec d'autres (entrées de sommaire, titres de même
-                # niveau…) peut s'étendre jusqu'au bord droit max observé
-                # parmi les blocs de même x0 (±3 pt), borné par le premier
-                # bloc d'origine à sa droite dans sa bande verticale. La
-                # réduction de police ne s'applique qu'APRÈS cet étirement.
-                ext_widths = {}
-                for b, _t in solos:
-                    bx0, by0, bx1, by1 = b["bbox"][:4]
-                    if _aligned_count(bx0) < MIN_ALIGNED:
-                        ext_widths[id(b)] = bx1 - bx0   # alignement non prouvé
-                        continue
-                    col_x1 = bx1
-                    for ox0, _oy0, ox1, _oy1 in all_geoms:
-                        if abs(ox0 - bx0) <= 3.0:
-                            col_x1 = max(col_x1, ox1)
-                    limit = col_x1
-                    for ox0, oy0, _ox1, oy1 in all_geoms + rot_geoms:
-                        if oy0 >= by1 or oy1 <= by0:
-                            continue          # hors de la bande verticale
-                        if (ox0, oy0) == (bx0, by0):
-                            continue          # lui-même
-                        if bx1 - 1.0 <= ox0 < limit:
-                            limit = ox0 - 4.0
-                    for vx, vy0, vy1 in v_rules:
-                        if vy0 >= by1 or vy1 <= by0:
-                            continue          # hors de la bande verticale
-                        if bx1 - 1.0 <= vx < limit:
-                            limit = vx - 4.0
-                    ext_widths[id(b)] = max(bx1, limit) - bx0
-
-                # Passe 2b — étendue horizontale RÉELLEMENT rendue des blocs
-                # individuels (avec leur largeur étendue) : sert aux groupes
-                # pour l'anti-chevauchement de 1re ligne.
-                solo_extents = []
-                for b, t in solos:
-                    bb = b["bbox"]
-                    o = b.get("origin")
-                    sx = o[0] if o and len(o) >= 2 else bb[0]
-                    sy = o[1] if o and len(o) >= 2 else bb[3]
-                    fm = b.get("font_mapped", "helv")
-                    sz = b.get("size", 12)
-                    fitted = self._fit_fontsize(
-                        t, fm, max(2.0, ext_widths.get(id(b), bb[2] - bb[0])),
-                        sz, min_size=min(min_font_size, 0.75 * sz),
-                        font_raw=b.get("font", ""))
-                    tw = self._text_length(t, fitted, fm, b.get("font", ""))
-                    solo_extents.append((sx, sx + tw, sy, sz))
-
-                # Passe 2c — largeur réelle de colonne des GROUPES. Les
-                # paragraphes alignés sur la même verticale gauche (±3 pt)
-                # appartiennent au même flux de colonne : le bord droit MAXIMAL
-                # observé parmi les paragraphes multi-lignes de même x0 révèle
-                # la vraie largeur de colonne. Un conteneur étroit (paragraphe
-                # court) peut s'y étendre — borné par le premier élément
-                # rendu à sa droite (encart, autre colonne, libellé…).
-
-                ext_x1s = []
-                for i, (rx0, ry0, rx1, ry1, _nl) in enumerate(run_geoms):
-                    if _aligned_count(rx0) < MIN_ALIGNED:
-                        ext_x1s.append(rx1)             # alignement non prouvé
-                        continue
-                    # Bord droit max des paragraphes multi-lignes de même x0
-                    # (leurs lignes pleines épousent la marge de colonne ; les
-                    # mono-lignes, titres…, ne sont pas une référence fiable).
-                    col_x1 = rx1
-                    for ox0, _oy0, ox1, _oy1, onl in run_geoms:
-                        if onl >= 2 and abs(ox0 - rx0) <= 3.0:
-                            col_x1 = max(col_x1, ox1)
-                    # Borne : premier élément rendu à droite dans la bande
-                    # verticale du paragraphe (jamais d'empiètement).
-                    limit = col_x1
-                    for sx0, _sx1, sy, ssize in solo_extents:
-                        if sy - ssize >= ry1 or sy <= ry0:
-                            continue          # hors de la bande verticale
-                        if rx1 - 1.0 <= sx0 < limit:
-                            limit = sx0 - 4.0
-                    for j, (ox0, oy0, _ox1, oy1, _onl) in enumerate(run_geoms):
-                        if j == i or oy0 >= ry1 or oy1 <= ry0:
-                            continue
-                        if rx1 - 1.0 <= ox0 < limit:
-                            limit = ox0 - 4.0
-                    for ox0, oy0, _ox1, oy1 in rot_geoms:
-                        if oy0 >= ry1 or oy1 <= ry0:
-                            continue
-                        if rx1 - 1.0 <= ox0 < limit:
-                            limit = ox0 - 4.0
-                    for vx, vy0, vy1 in v_rules:
-                        if vy0 >= ry1 or vy1 <= ry0:
-                            continue
-                        if rx1 - 1.0 <= vx < limit:
-                            limit = vx - 4.0
-                    ext_x1s.append(max(rx1, limit))
-
-                # Passe 3 — rendu des groupes, informés des voisins rendus
-                # et de la largeur de colonne disponible.
-                for run, ext_x1 in zip(runs_to_render, ext_x1s):
-                    self._render_paragraph_group(new_page, run, solo_extents,
-                                                 ext_x1=ext_x1)
-
-                # Groupes PIVOTÉS : conteneur englobant + flux le long de
-                # l'axe de lecture (90°/270°). Aucune interaction avec les
-                # règles d'étirement horizontales ci-dessus.
-                for run, rn in rotated_runs:
-                    rmin = min(b.get("size", 12) for b in run)
-                    self._render_rotated_group(
-                        new_page, run, rn,
-                        min_size=min(min_font_size, 0.75 * rmin))
-
-                # Espace inter-blocs perdu : un changement de style (mot en gras,
-                # lien…) coupe une même ligne en plusieurs blocs ; l'espace qui
-                # les séparait est retiré au .strip() de l'extraction. On le
-                # restitue en préfixant un espace au bloc de DROITE quand il
-                # jouxte (gap ≈ 0) le bloc de gauche sur la même ligne et que les
-                # deux côtés sont alphanumériques (vraie frontière de mot). Sans
-                # ça : « DJ »+« Patil » → « DJPatil », « le »+lien → « leInsight ».
+                # Espace inter-blocs : un changement de style (mot souligné,
+                # lien, gras…) coupe une ligne en plusieurs blocs ; l'espace qui
+                # les séparait est retiré au .strip() de l'extraction mais reste
+                # INCLUS dans la bbox du bloc de gauche (son x1 englobe l'espace
+                # final). Sans le restituer, la condensation étire le texte
+                # jusqu'au bord de la boîte et COLLE le bloc suivant
+                # (« theInsight »). On rend donc un espace FINAL au bloc de
+                # gauche d'une paire collée : sa boîte l'absorbe → aucun décalage
+                # du bloc voisin, aucun débordement.
+                _ATTACH = ",.;:!?)]}»’'%…"
                 def _blk_base(b):
                     o = b.get("origin"); bb = b.get("bbox") or [0, 0, 0, 0]
                     return o[1] if o and len(o) >= 2 else bb[3]
-                lead_space_ids = set()
-                _line_sorted = sorted(
+                trail_space_ids = set()
+                _ls = sorted(
                     [b for b in blocks
                      if abs(b.get("rotation", 0.0)) <= 1.0 and b.get("bbox")
                      and (b.get("translated_text") or b.get("text") or "").strip()],
                     key=lambda b: (round(_blk_base(b), 1), b["bbox"][0]))
-                for _i in range(1, len(_line_sorted)):
-                    _prev, _cur = _line_sorted[_i - 1], _line_sorted[_i]
+                for _i in range(len(_ls) - 1):
+                    _cur, _nxt = _ls[_i], _ls[_i + 1]
                     _sz = _cur.get("size", 12) or 12
-                    if abs(_blk_base(_cur) - _blk_base(_prev)) > 0.4 * _sz:
+                    if abs(_blk_base(_nxt) - _blk_base(_cur)) > 0.4 * _sz:
                         continue                       # pas la même ligne
-                    _gap = _cur["bbox"][0] - _prev["bbox"][2]
-                    if not (-0.5 * _sz <= _gap <= 0.18 * _sz):
-                        continue                       # collés uniquement (gap≈0)
-                    _pt = (_prev.get("translated_text") or _prev.get("text") or "").strip()
+                    _gap = _nxt["bbox"][0] - _cur["bbox"][2]
+                    if not (-0.6 * _sz <= _gap <= 0.18 * _sz):
+                        continue                       # collés uniquement
                     _ct = (_cur.get("translated_text") or _cur.get("text") or "").strip()
-                    # Pas d'espace si césure (« mo- »+« dèle ») ou si le bloc de
-                    # droite commence par une ponctuation attachante (« mot »+« , »).
-                    _ATTACH = ",.;:!?)]}»’'%…"
-                    if (_pt and _ct and _pt[-1] != "-" and _ct[0] not in _ATTACH):
-                        lead_space_ids.add(id(_cur))
+                    _nt = (_nxt.get("translated_text") or _nxt.get("text") or "").strip()
+                    # pas d'espace après une césure (« mo- ») ni avant une
+                    # ponctuation attachante (« , » « . » …).
+                    if _ct and _nt and _ct[-1] != "-" and _nt[0] not in _ATTACH:
+                        trail_space_ids.add(id(_cur))
 
+                # Rendu BLOC PAR BLOC à la position d'origine. La fusion par
+                # paragraphe et le reflux sont abandonnés (fidélité de mise en
+                # page d'abord) : chaque bloc — horizontal ou pivoté — est rendu
+                # seul dans sa boîte ; seuls la TAILLE (anti-débordement) et
+                # l'ALIGNEMENT (Étape 1) sont ajustés.
                 for block in blocks:
-                    if id(block) in merged_ids:
-                        continue   # déjà rendu via son groupe de paragraphe
-                    translated = block.get("translated_text", "").strip()
-                    if not translated:
-                        translated = block.get("text", "").strip()
-                    if translated and id(block) in lead_space_ids:
-                        translated = " " + translated
+                    translated = ((block.get("translated_text") or "").strip()
+                                  or (block.get("text") or "").strip())
+                    if translated and id(block) in trail_space_ids:
+                        translated = translated + " "
 
                     is_list    = block.get("is_list_item", False)
                     bullet_char = block.get("bullet_char", None)
@@ -639,50 +588,52 @@ class PDFTranslatorEngine:
                     if translated and abs(rotation) > 1.0:
                         rot_norm = int(round(rotation / 90.0)) * 90 % 360
                         if rot_norm in (90, 270):
-                            avail = abs(bbox[3] - bbox[1])
-                            fontsize = self._fit_fontsize(
-                                translated, font_name, max(2.0, avail),
-                                orig_size,
-                                min_size=min(min_font_size, 0.75 * orig_size),
-                                font_raw=font_raw)
                             self._insert_text_smart(
-                                new_page, (x, y), translated, fontsize,
+                                new_page, (x, y), translated, orig_size,
                                 font_name, font_raw, color, rotation)
                             continue
 
-                    # Largeur du conteneur : bbox d'origine, étendue à la
-                    # largeur de colonne si des blocs alignés (même x0) plus
-                    # larges existent — bornée par le premier bloc à droite
-                    # (passe 2a). La réduction de police ne s'applique
-                    # qu'ensuite, si même cette largeur ne suffit pas.
-                    max_width = ext_widths.get(id(block), abs(bbox[2] - bbox[0]))
-                    if max_width < 2:
-                        max_width = block.get("avail_width",
-                                              page_data.get("width", 595) - x)
-
-                    # Plancher : jamais sous le plus petit texte de la page —
-                    # sauf si le bloc EST ce plus petit texte, qui garde alors
-                    # une marge de réduction (75 %) plutôt qu'un débordement
-                    # garanti.
-                    fontsize = self._fit_fontsize(translated, font_name, max_width, orig_size,
-                                                  min_size=min(min_font_size,
-                                                               0.75 * orig_size),
-                                                  font_raw=font_raw)
-
-                    # Garantie anti-débordement de PAGE : si, même réduit au
-                    # plancher doux, le texte sortirait du bord droit de la page,
-                    # on refait l'ajustement avec un plancher dur (6 pt) borné à
-                    # l'espace réellement disponible jusqu'à la marge droite.
-                    # Mieux vaut un texte un peu plus petit qu'un texte coupé.
-                    page_w = page_data.get("width", 595)
-                    avail_to_edge = page_w - 4.0 - x
-                    if avail_to_edge > 8 and self._text_length(
-                            translated, fontsize, font_name, font_raw) > avail_to_edge:
-                        fontsize = self._fit_fontsize(
-                            translated, font_name, avail_to_edge, orig_size,
-                            min_size=6.0, font_raw=font_raw)
+                    # Réinjection identité : texte inchangé → taille d'origine,
+                    # aucune réduction (la « réduction de police » servait à la
+                    # traduction, écartée ici). Largeur = bbox d'origine stricte.
+                    fontsize = orig_size
+                    max_width = abs(bbox[2] - bbox[0])
 
                     text_x   = x
+                    align_fit_w = None
+
+                    # ── Rendu ALIGNÉ (Étape 1) — uniquement pour un bloc SEUL
+                    # sur sa ligne (les lignes multi-fragments gardent leurs
+                    # positions d'origine, déjà ≈ alignées). Le gauche (0) reste
+                    # le comportement par défaut.
+                    _al  = block.get("align", 0)
+                    _ref = block.get("align_ref")
+                    _solo = block.get("_align_line_solo", False)
+                    if (_al and _ref and _solo and len(_ref) >= 2
+                            and not (is_list and bullet_char)):
+                        _L, _R = _ref
+                        _tw = self._text_length(translated, fontsize,
+                                                font_name, font_raw)
+                        if _al == 3 and not block.get("_align_last_line") \
+                                and " " in translated:
+                            # Justifié : étire les blancs jusqu'à la marge R.
+                            _target = _R - x
+                            if 0 < _tw < _target <= 1.5 * _tw:
+                                if self._insert_justified_line(
+                                        new_page, (x, y), translated, fontsize,
+                                        font_name, font_raw, color, _target):
+                                    if is_underline:
+                                        self._draw_underline(
+                                            new_page, (x, y), translated,
+                                            font_name, fontsize, color, rotation)
+                                    continue
+                        elif _al in (1, 2) and 0 < _tw <= (_R - _L):
+                            # Centre : centre le texte dans le cadre ; droite :
+                            # aligne sa fin sur R. Re-ancrage du point de départ.
+                            text_x = (_L + ((_R - _L) - _tw) / 2.0) if _al == 1 \
+                                else (_R - _tw)
+                            align_fit_w = _R - text_x
+
                     if is_list and bullet_char:
                         bullet_raw = bullet_font or font_raw
                         # Position de la puce : son marqueur séparé si connu
@@ -722,9 +673,18 @@ class PDFTranslatorEngine:
                             max_width = max_width - bullet_w - fontsize * 0.3
                         # Marqueur séparé : le texte garde sa position d'origine.
 
+                    # Couche 2 — largeur d'origine disponible : du début du
+                    # texte jusqu'au bord droit de la bbox d'origine. Le texte
+                    # est condensé horizontalement s'il la dépasse (substitut
+                    # plus large / traduction plus longue), sinon inchangé.
+                    # Largeur disponible : cadre d'alignement (centre/droite)
+                    # si re-ancré, sinon bord droit de la bbox d'origine.
+                    fit_w = align_fit_w if align_fit_w is not None \
+                        else bbox[2] - text_x
                     text_inserted = self._insert_text_smart(
                         new_page, (text_x, y), translated, fontsize,
-                        font_name, font_raw, color, rotation
+                        font_name, font_raw, color, rotation,
+                        fit_width=fit_w
                     )
 
                     if text_inserted and is_underline and translated:
@@ -732,6 +692,151 @@ class PDFTranslatorEngine:
                             new_page, (text_x, y), translated,
                             font_name, fontsize, color, rotation
                         )
+
+                # DEBUG — bordures (toggle `self.debug_draw_borders`, n'affecte
+                # pas le rendu normal) : un CONTOUR par paragraphe (VERT) =
+                # UNION des bbox de ses blocs (regroupés par `para_id`). Le
+                # contour épouse l'étendue RÉELLE de chaque ligne (bords droits
+                # irréguliers, retraits, enroulement autour d'une image) : ce
+                # n'est pas un rectangle englobant mais un tracé en escalier qui
+                # cadre exactement les blocs du paragraphe. + images (ROUGE) +
+                # filets (BLEU).
+                if getattr(self, "debug_draw_borders", False):
+                    # 1) regroupe les blocs horizontaux par clé de paragraphe.
+                    #    Attribut configurable : 'para_id' (regroupement
+                    #    GÉOMÉTRIQUE historique, défaut) ou 'paragraph_key'
+                    #    (regroupement IA délégué à DeepSeek) — permet de
+                    #    comparer visuellement les deux stratégies.
+                    _para_attr = getattr(self, "debug_para_attr", "para_id")
+                    _align_mode = getattr(self, "debug_draw_alignment", False)
+                    _by_para = {}
+                    _align_by_key = {}     # key -> (align, conf)
+                    _ref_by_key = {}       # key -> [L, R] (cadre inféré)
+                    for _b in blocks:
+                        if abs(_b.get("rotation", 0.0)) > 1.0:
+                            continue
+                        _bb = _b.get("bbox")
+                        if not _bb or len(_bb) < 4 or _bb[2] <= _bb[0] or _bb[3] <= _bb[1]:
+                            continue
+                        _pid = _b.get(_para_attr)
+                        _key = _pid if _pid is not None else f"solo{id(_b)}"
+                        _o = _b.get("origin")
+                        _base = _o[1] if _o and len(_o) >= 2 else _bb[3]
+                        _by_para.setdefault(_key, []).append(
+                            (_base, max(6.0, _b.get("size", 10)), list(_bb[:4])))
+                        _align_by_key[_key] = (_b.get("align", 0), _b.get("align_conf"))
+                        _ref_by_key[_key] = _b.get("align_ref")
+
+                    # Couleurs par alignement : gauche=vert, centre=bleu,
+                    # droite=orange, justifié=violet.
+                    _ALIGN_COL = {0: (0, 0.6, 0), 1: (0, 0.3, 1),
+                                  2: (1, 0.55, 0), 3: (0.6, 0, 0.8)}
+
+                    for _key, _members in _by_para.items():
+                        # 2) lignes du paragraphe = blocs partageant une baseline ;
+                        #    chaque ligne = étendue réelle [left, y0, right, y1].
+                        _members.sort(key=lambda m: (round(m[0], 1), m[2][0]))
+                        _rows = []
+                        for _base, _sz, _bb in _members:
+                            if _rows and abs(_base - _rows[-1]["base"]) <= 0.3 * _sz:
+                                _r = _rows[-1]
+                                _r["l"] = min(_r["l"], _bb[0]); _r["t"] = min(_r["t"], _bb[1])
+                                _r["r"] = max(_r["r"], _bb[2]); _r["b"] = max(_r["b"], _bb[3])
+                            else:
+                                _rows.append({"base": _base, "l": _bb[0], "t": _bb[1],
+                                              "r": _bb[2], "b": _bb[3]})
+                        if not _rows:
+                            continue
+                        # 3) frontière nette entre lignes voisines (milieu du
+                        #    chevauchement vertical) → escalier propre, sans
+                        #    auto-intersection.
+                        for _i in range(len(_rows) - 1):
+                            _mid = (_rows[_i]["b"] + _rows[_i + 1]["t"]) / 2
+                            _rows[_i]["b"] = _mid
+                            _rows[_i + 1]["t"] = _mid
+                        # 4) contour rectilinéaire : côté droit haut→bas, côté
+                        #    gauche bas→haut, fermé.
+                        _pts = []
+                        for _r in _rows:
+                            _pts.append((_r["r"], _r["t"])); _pts.append((_r["r"], _r["b"]))
+                        for _r in reversed(_rows):
+                            _pts.append((_r["l"], _r["b"])); _pts.append((_r["l"], _r["t"]))
+                        _pts.append(_pts[0])
+                        if _align_mode:
+                            _al, _cf = _align_by_key.get(_key, (0, None))
+                            _col = _ALIGN_COL.get(_al, (0, 0.6, 0))
+                            new_page.draw_polyline(_pts, color=_col, width=1.0)
+                            # Cadre de colonne inféré [L, R] : tirets gris sur
+                            # la hauteur du paragraphe (référence du mono-ligne).
+                            _ref = _ref_by_key.get(_key)
+                            if _ref and len(_ref) >= 2:
+                                _yt = min(_r["t"] for _r in _rows)
+                                _yb = max(_r["b"] for _r in _rows)
+                                for _vx in (_ref[0], _ref[1]):
+                                    new_page.draw_line((_vx, _yt), (_vx, _yb),
+                                                       color=(0.6, 0.6, 0.6),
+                                                       width=0.4, dashes="[2 2] 0")
+                        else:
+                            new_page.draw_polyline(_pts, color=(0, 0.55, 0), width=0.8)
+
+                    # ── Objets NON-TEXTUELS → cadre ROUGE (images, filets/
+                    # lignes, formes, fonds…). Lus sur la page ORIGINALE pour ne
+                    # pas encadrer les contours verts de cet overlay. On EXCLUT
+                    # les soulignements (segment fin horizontal collé sous une
+                    # baseline de texte — ils appartiennent au texte).
+                    _op = original_doc[page_idx]
+                    _bls = []        # baselines de texte : (y, x0, x1)
+                    for _tb in blocks:
+                        if abs(_tb.get("rotation", 0.0)) > 1.0:
+                            continue
+                        _ob = _tb.get("bbox"); _oo = _tb.get("origin")
+                        if not _ob or len(_ob) < 4:
+                            continue
+                        _by = _oo[1] if _oo and len(_oo) >= 2 else _ob[3]
+                        _bls.append((_by, _ob[0], _ob[2]))
+
+                    def _is_underline(r):
+                        if (r.y1 - r.y0) > 3.0 or (r.x1 - r.x0) < 5.0:
+                            return False          # trop épais ou trop court
+                        for _by, _x0, _x1 in _bls:
+                            if not (-2.0 <= r.y0 - _by <= 5.0):
+                                continue
+                            ov = min(r.x1, _x1) - max(r.x0, _x0)
+                            if ov > 0.3 * min(r.x1 - r.x0, max(1.0, _x1 - _x0)):
+                                return True
+                        return False
+
+                    _seen_obj = set()
+
+                    def _red_frame(r):
+                        if r.x1 < r.x0 or r.y1 < r.y0:
+                            return
+                        # rect dégénéré (ligne) → épaissi pour rester visible
+                        if (r.x1 - r.x0) < 1 or (r.y1 - r.y0) < 1:
+                            r = fitz.Rect(r.x0 - 0.8, r.y0 - 0.8,
+                                          r.x1 + 0.8, r.y1 + 0.8)
+                        _k = (round(r.x0), round(r.y0), round(r.x1), round(r.y1))
+                        if _k in _seen_obj:
+                            return
+                        _seen_obj.add(_k)
+                        new_page.draw_rect(r, color=(1, 0, 0), width=0.8)
+
+                    for _img in _op.get_images(full=True):       # images
+                        try:
+                            for _r in _op.get_image_rects(_img[0]):
+                                _red_frame(fitz.Rect(_r))
+                        except Exception:
+                            pass
+                    for _d in _op.get_drawings():                 # objets vectoriels
+                        _r = _d.get("rect")
+                        if _r is None:
+                            continue
+                        _r = fitz.Rect(_r)
+                        if (_r.x1 - _r.x0) < 1 and (_r.y1 - _r.y0) < 1:
+                            continue
+                        if _is_underline(_r):
+                            continue
+                        _red_frame(_r)
 
             original_doc.close()
             new_doc.save(output_pdf, garbage=4, deflate=True, clean=True)
@@ -750,264 +855,10 @@ class PDFTranslatorEngine:
     # UTILITAIRES PRIVÉS
     # ══════════════════════════════════════════════════════════════════════════
 
-    @staticmethod
-    def _split_group_runs(grp):
-        """Valide une clé de paragraphe IA par deux propriétés UNIVERSELLES
-        d'un paragraphe wrappé (valables pour tout document, aucune règle
-        spécifique) :
-          • taille de police homogène entre fragments (tolérance 15 %) —
-            un paragraphe ne mélange jamais 80 pt et 12 pt ;
-          • baselines consécutives — l'écart entre deux fragments successifs
-            ne dépasse pas ~2.5 × la taille (un numéro de page à 300 pt du
-            texte n'est jamais sa continuation).
-        Découpe le groupe en sous-suites respectant ces propriétés ; les
-        fragments isolés résultants sont rendus individuellement à leur
-        position d'origine."""
-        def base(b):
-            o = b.get("origin")
-            return o[1] if o and len(o) >= 2 else b["bbox"][3]
-        ordered = sorted(grp, key=lambda b: (round(base(b), 1), b["bbox"][0]))
-        runs = [[ordered[0]]]
-        for b in ordered[1:]:
-            prev = runs[-1][-1]
-            s1, s2 = prev.get("size", 12), b.get("size", 12)
-            same_size = min(s1, s2) / max(1e-6, max(s1, s2)) >= 0.85
-            gap = base(b) - base(prev)
-            near = gap <= 2.5 * max(s1, s2) + 0.5
-            if same_size and near:
-                runs[-1].append(b)
-            else:
-                runs.append([b])
-        return runs
 
-    @staticmethod
-    def _split_rotated_group_runs(grp, rot):
-        """Variante PIVOTÉE de _split_group_runs : pour du texte à 90°/270°,
-        les « lignes » successives d'un paragraphe avancent le long de l'axe
-        X (gauche→droite à 90°, droite→gauche à 270°). Mêmes propriétés
-        universelles : taille homogène (15 %) et lignes consécutives
-        (écart ≤ 2.5 × taille)."""
-        def base(b):
-            o = b.get("origin")
-            return o[0] if o and len(o) >= 1 else b["bbox"][0]
-        ordered = sorted(grp, key=base, reverse=(rot == 270))
-        runs = [[ordered[0]]]
-        for b in ordered[1:]:
-            prev = runs[-1][-1]
-            s1, s2 = prev.get("size", 12), b.get("size", 12)
-            same_size = min(s1, s2) / max(1e-6, max(s1, s2)) >= 0.85
-            gap = abs(base(b) - base(prev))
-            near = gap <= 2.5 * max(s1, s2) + 0.5
-            if same_size and near:
-                runs[-1].append(b)
-            else:
-                runs.append([b])
-        return runs
 
-    @staticmethod
-    def _strip_fragment_overlap(prev, frag):
-        """Retire d'un fragment la redondance avec le texte déjà accumulé du
-        même paragraphe. Artefact de la traduction par fragments (universel,
-        indépendant du document) : l'IA traduit parfois chaque fragment d'une
-        phrase coupée comme une phrase autosuffisante — le premier fragment
-        absorbe la fin de la phrase et les suivants répètent du contenu déjà
-        traduit (« …open-ended questions? » + « open-ended questions? »).
-          • fragment entièrement déjà présent (sous-suite de mots contiguë,
-            insensible à la casse) → supprimé ;
-          • début du fragment == fin de l'accumulé (≥ 2 mots) → tronqué.
-        Un fragment correctement réparti (continuation sans répétition) passe
-        inchangé."""
-        fw = frag.split()
-        pw = prev.lower().split()
-        if not fw or not pw:
-            return frag
-        fl = [w.lower() for w in fw]
-        n, m = len(pw), len(fl)
-        if m <= n and any(pw[i:i + m] == fl for i in range(n - m + 1)):
-            return ""
-        k = min(n, m - 1)          # chevauchement partiel : ≥ 1 mot restant
-        while k >= 2:
-            if pw[n - k:] == fl[:k]:
-                return " ".join(fw[k:])
-            k -= 1
-        return frag
 
-    def _render_rotated_group(self, page, grp, rot, min_size=None):
-        """Rend un groupe de fragments PIVOTÉS partageant la même
-        paragraph_key dans un conteneur UNIQUE : rectangle englobant des bbox
-        d'origine, texte joint dans l'ordre de lecture (90° : lignes
-        verticales de gauche à droite ; 270° : de droite à gauche), redondances
-        de traduction entre fragments supprimées, puis insertion via
-        _insert_rotated_paragraph (retour à la ligne + ajustement de taille
-        le long de l'axe de lecture — le texte ne sort pas de l'empreinte)."""
-        grp = sorted(grp, key=lambda b: b["bbox"][0], reverse=(rot == 270))
-        x0 = min(b["bbox"][0] for b in grp)
-        y0 = min(b["bbox"][1] for b in grp)
-        x1 = max(b["bbox"][2] for b in grp)
-        y1 = max(b["bbox"][3] for b in grp)
 
-        parts = []
-        for b in grp:
-            t = (b.get("translated_text") or "").strip() \
-                or (b.get("text") or "").strip()
-            if not t:
-                continue
-            t = self._strip_fragment_overlap(" ".join(parts), t)
-            if t:
-                parts.append(t)
-        text = " ".join(parts)
-        if not text:
-            return
-
-        b0 = grp[0]
-        self._insert_rotated_paragraph(
-            page, (x0, y0, x1, y1), text,
-            b0.get("font_mapped", "helv"), b0.get("font", ""),
-            b0.get("size", 12), tuple(b0.get("color", [0, 0, 0])),
-            self._detect_alignment(grp, rotated=True), rot,
-            min_size=min_size)
-
-    def _render_paragraph_group(self, page, grp, solo_extents=None, ext_x1=None):
-        """Rend un groupe de blocs partageant la même paragraph_key (clé
-        attribuée par l'IA à la traduction) dans un conteneur UNIQUE :
-
-          • conteneur = rectangle englobant des bbox d'ORIGINE des membres
-            (min x0, min y0, max x1, max y1 — tangent aux bords extrêmes) ;
-          • le texte traduit de chaque fragment est réinjecté dans ce conteneur
-            AVEC SA PROPRE mise en forme extraite (police, taille, couleur,
-            soulignement) — aucune fusion de styles ;
-          • le flux est recalculé mot à mot : retour à la ligne au bord droit
-            du conteneur, interligne dérivé des baselines d'origine du groupe ;
-          • le paragraphe ne sort JAMAIS de l'empreinte d'origine : si le texte
-            traduit dépasse le bas du conteneur, la police de TOUS les fragments
-            est réduite du même facteur (recherche binaire, plancher 60 %) —
-            jamais de débordement ni de superposition avec les blocs voisins ;
-          • les césures de fin de ligne sont recollées entre fragments
-            (« mo- » + « dèle » → « modèle » — règle typographique générale).
-        """
-        # Ordre de lecture des fragments : baseline puis x.
-        def _base(b):
-            o = b.get("origin")
-            return o[1] if o and len(o) >= 2 else b["bbox"][3]
-        grp = sorted(grp, key=lambda b: (round(_base(b), 1), b["bbox"][0]))
-
-        x0 = min(b["bbox"][0] for b in grp)
-        y0 = min(b["bbox"][1] for b in grp)
-        x1 = max(b["bbox"][2] for b in grp)
-        y1 = max(b["bbox"][3] for b in grp)
-        # Largeur de colonne : le conteneur peut s'étendre à droite jusqu'au
-        # bord max observé parmi les paragraphes alignés sur le même x0
-        # (calculé par l'appelant, déjà borné par les obstacles à droite).
-        if ext_x1 is not None and ext_x1 > x1:
-            x1 = ext_x1
-
-        # Interligne d'origine : écart médian entre baselines distinctes du
-        # groupe ; à défaut (fragments sur une seule ligne), 1.2 × la plus
-        # grande taille du groupe.
-        max_size = max(b.get("size", 12) for b in grp)
-        baselines = sorted({round(_base(b), 1) for b in grp})
-        gaps = [b2 - b1 for b1, b2 in zip(baselines, baselines[1:]) if b2 - b1 > 1.0]
-        line_h = sorted(gaps)[len(gaps) // 2] if gaps else 1.2 * max_size
-
-        # Mots stylés, dans l'ordre de lecture. Chaque mot porte le style de
-        # SON fragment d'origine. Les césures de fin de ligne sont recollées
-        # à la frontière entre fragments : un fragment finissant par « xxx- »
-        # suivi d'un fragment commençant par une minuscule = mot coupé par la
-        # justification d'origine, reconstitué (« mo- » + « dèle » → « modèle »).
-        words = []
-        for b in grp:
-            t = (b.get("translated_text") or "").strip() or (b.get("text") or "").strip()
-            if not t:
-                continue
-            # Redondance de traduction entre fragments (l'IA traduit parfois
-            # chaque fragment comme une phrase autosuffisante) : la part du
-            # fragment déjà écrite par les précédents est retirée du flux.
-            t = self._strip_fragment_overlap(" ".join(w for w, _ in words), t)
-            if not t:
-                continue
-            style = (b.get("font_mapped", "helv"), b.get("font", ""),
-                     b.get("size", 12), tuple(b.get("color", [0, 0, 0])),
-                     bool(b.get("underline", False)))
-            if b.get("is_list_item") and b.get("bullet_char"):
-                words.append((b["bullet_char"],
-                              (b.get("font_mapped", "helv"),
-                               b.get("bullet_font") or b.get("font", ""),
-                               b.get("size", 12), style[3], False)))
-            frag_words = t.split()
-            if (words and frag_words
-                    and len(words[-1][0]) > 1 and words[-1][0].endswith("-")
-                    and frag_words[0][:1].islower()):
-                prev_w, prev_st = words[-1]
-                words[-1] = (prev_w[:-1] + frag_words[0], prev_st)
-                frag_words = frag_words[1:]
-            for w in frag_words:
-                words.append((w, style))
-        if not words:
-            return
-
-        # Décalage de la 1re baseline par rapport au haut du conteneur.
-        first_off = max(0.0, _base(grp[0]) - y0)
-        # Retrait de 1re ligne : le paragraphe peut être en « L » (1re ligne
-        # commençant APRÈS un libellé en ligne — ex. « (À partir d'un jeu de
-        # données) » en italique). Le flux démarre au x d'origine du premier
-        # fragment ; les lignes suivantes reviennent au bord du conteneur.
-        # Sans ça, le texte du groupe s'écrivait PAR-DESSUS le libellé.
-        first_indent = max(0.0, grp[0]["bbox"][0] - x0)
-
-        # Anti-chevauchement : si un bloc individuel sur la MÊME baseline
-        # (libellé, numéro…) se termine, une fois RENDU, au-delà du début
-        # prévu de la 1re ligne (traduction plus large que sa boîte malgré la
-        # réduction), le flux démarre après sa fin réelle. Règle générale :
-        # vaut pour tout voisin de gauche, quel que soit le document.
-        if solo_extents:
-            fb = _base(grp[0])
-            fsize = grp[0].get("size", 12)
-            start_x = x0 + first_indent
-            for sx0, sx1, sy, ssize in solo_extents:
-                if abs(sy - fb) > 0.5 * max(fsize, ssize):
-                    continue          # pas sur la 1re ligne du groupe
-                if sx0 <= start_x and sx1 > start_x - 1.0:
-                    first_indent = max(first_indent,
-                                       sx1 + 0.3 * fsize - x0)
-
-        def layout(scale):
-            """Positionne les mots à l'échelle donnée (tailles et interligne
-            multipliés par `scale`). Retourne (placements, dernière_baseline)."""
-            placements = []
-            cx = x0 + first_indent
-            cy = y0 + first_off * scale
-            lh = line_h * scale
-            for w, (fm, fraw, size, color, underline) in words:
-                s = size * scale
-                ww = self._text_length(w, s, fm, fraw)
-                sw = self._text_length(" ", s, fm, fraw) or 0.25 * s
-                if cx > x0 and cx + ww > x1 + 0.5:
-                    cx = x0
-                    cy += lh
-                placements.append((w, cx, cy, s, fm, fraw, color, underline))
-                cx += ww + sw
-            return placements, cy
-
-        # Le paragraphe doit tenir dans son empreinte d'ORIGINE (le conteneur
-        # englobant) : à l'échelle 1 d'abord ; s'il déborde en bas, recherche
-        # binaire de la plus grande échelle qui tient. Plancher 0.6 (lisibilité) :
-        # au-delà, on accepte le résidu plutôt que de rendre le texte illisible.
-        placements, last_base = layout(1.0)
-        if last_base > y1 + 0.5:
-            lo, hi, best = 0.6, 1.0, None
-            for _ in range(8):
-                mid = (lo + hi) / 2
-                pl, lb = layout(mid)
-                if lb <= y1 + 0.5:
-                    best, lo = pl, mid
-                else:
-                    hi = mid
-            placements = best if best is not None else layout(0.6)[0]
-
-        for w, cx, cy, s, fm, fraw, color, underline in placements:
-            if self._insert_text_smart(page, (cx, cy), w, s, fm, fraw, color, 0.0) \
-                    and underline:
-                self._draw_underline(page, (cx, cy), w, fm, s, color, 0.0)
 
     def _insert_rotated_text(self, page, point, text, fontsize,
                               font_name, color, angle_deg, fontfile=None):
@@ -1097,7 +948,7 @@ class PDFTranslatorEngine:
         "neuton": "georgia", "faustina": "georgia",
         # — Sans → Segoe UI —
         "opensans": "segoeui", "roboto": "segoeui", "lato": "segoeui",
-        "montserrat": "segoeui", "sourcesanspro": "segoeui", "sourcesans": "segoeui",
+        "sourcesanspro": "segoeui", "sourcesans": "segoeui",
         "sourcesans3": "segoeui", "notosans": "segoeui", "notosansdisplay": "segoeui",
         "nunito": "segoeui", "nunitosans": "segoeui", "poppins": "segoeui",
         "raleway": "segoeui", "inter": "segoeui", "worksans": "segoeui",
@@ -1113,6 +964,11 @@ class PDFTranslatorEngine:
         "figtree": "segoeui", "plusjakartasans": "segoeui", "publicsans": "segoeui",
         "sora": "segoeui", "spacegrotesk": "segoeui", "leaguespartan": "segoeui",
         "librefranklin": "segoeui", "mukta": "segoeui", "helveticaneue": "segoeui",
+        # — Polices éditeur (Avenir, Minion…) → substituts Google Fonts —
+        # Avenir est une police commerciale. Montserrat est le meilleur
+        # substitut gratuit (géométrique, mêmes proportions).
+        "avenir": "montserrat", "avenirltstd": "montserrat",
+        "minionpro": "georgia",
         # — Mono → Consolas —
         "robotomono": "consolas", "sourcecodepro": "consolas", "firacode": "consolas",
         "firamono": "consolas", "jetbrainsmono": "consolas", "inconsolata": "consolas",
@@ -1316,10 +1172,12 @@ class PDFTranslatorEngine:
         r = self._family_variant_file(key, bold, italic)
         if r:
             return r
-        # 3. substitut système de même classe (serif/sans/mono)
+        # 3. substitut de même classe (serif/sans/mono) — d'abord dans
+        #    backend/fonts/ (police téléchargée), puis système, puis bundled.
         sim = self._FONT_SIMILAR.get(key)
         if sim:
-            r = self._family_variant_file(sim, bold, italic)
+            r = self._bundled_lookup(sim, bold, italic) \
+                or self._family_variant_file(sim, bold, italic)
             if r:
                 return r
         # 4. REPLI GÉNÉRAL : police inconnue → substitut LOCAL de même classe
@@ -1351,6 +1209,8 @@ class PDFTranslatorEngine:
     _GOOGLE_SLUG = {  # corrections clé normalisée → dossier du dépôt google/fonts
         "sourcesanspro": "sourcesans3", "sourceserifpro": "sourceserif4",
         "ptsans": "ptsans", "ptserif": "ptserif",
+        # Avenir (commercial) → Montserrat (meilleur substitut open-source)
+        "avenir": "montserrat", "avenirltstd": "montserrat",
     }
 
     def _dl_state_path(self):
@@ -1376,15 +1236,15 @@ class PDFTranslatorEngine:
         except Exception:
             pass
 
-    def _ensure_font(self, font_raw, progress_callback=None):
+    def _ensure_font(self, font_raw, progress_callback=None, synchronous=False):
         """Si la famille `font_raw` n'est PAS déjà reproductible fidèlement
-        (bundled / système / base-14 / symbole), lance EN ARRIÈRE-PLAN le
-        téléchargement de la vraie police depuis Google Fonts vers
-        backend/fonts/ — **sans bloquer** : la sortie courante utilise le
-        substitut de même classe (serif/sans), les traductions suivantes
-        utiliseront la police exacte une fois téléchargée. Best-effort : toute
-        erreur (hors-ligne, police absente du dépôt, fonttools absent…) est
-        silencieuse."""
+        (bundled / système / base-14 / symbole), télécharge la vraie police
+        depuis Google Fonts vers backend/fonts/. Best-effort : toute erreur
+        (hors-ligne, police absente du dépôt, fonttools absent…) est silencieuse.
+
+        `synchronous` : si True, télécharge EN BLOQUANT pour que la police serve
+        à CETTE sortie (pré-chargement à l'injection) ; sinon en arrière-plan
+        (la sortie courante utilise le substitut, la suivante la police exacte)."""
         if not self.auto_download_fonts:
             return
         if self._font_resolution_info(font_raw)["exact"]:
@@ -1410,8 +1270,7 @@ class PDFTranslatorEngine:
                     if progress_callback:
                         try:
                             progress_callback(
-                                f"✓ Police téléchargée : {font_raw} → backend/fonts/ "
-                                "(appliquée à la prochaine traduction)")
+                                f"✓ Police téléchargée : {font_raw} → backend/fonts/")
                         except Exception:
                             pass
                 else:
@@ -1420,6 +1279,9 @@ class PDFTranslatorEngine:
                 with _FONT_DL_LOCK:
                     _FONT_DL_INFLIGHT.discard(key)
 
+        if synchronous:
+            _worker()
+            return
         if progress_callback:
             try:
                 progress_callback(
@@ -1440,8 +1302,9 @@ class PDFTranslatorEngine:
         try:
             from fontTools.ttLib import TTFont
             from fontTools.varLib.instancer import instantiateVariableFont
+            _have_ft = True
         except Exception:
-            return False  # fonttools absent → pas de téléchargement (substitut)
+            _have_ft = False  # pas d'instanciation de variable → voie statique seule
 
         slug = self._GOOGLE_SLUG.get(key, key)
         ua = {"User-Agent": "Mozilla/5.0"}
@@ -1556,8 +1419,52 @@ class PDFTranslatorEngine:
                 except Exception:
                     pass
 
-        gen(pick(False), [(400, "Regular", False, False), (700, "Bold", True, False)])
-        gen(pick(True), [(400, "Italic", False, True), (700, "BoldItalic", True, True)])
+        # ── Voie A — fichiers STATIQUES (Regular/Bold/Italic/BoldItalic) ──────
+        # Beaucoup de familles (PT Serif, Roboto, Open Sans…) sont livrées en
+        # fichiers statiques tels quels dans le dépôt : on les enregistre
+        # DIRECTEMENT, SANS fonttools (leur table de noms distingue déjà les
+        # variantes). Couvre le cas où fonttools est absent.
+        static = [i for i in ttfs if "[" not in i.get("name", "")]
+
+        def _has(nm, words):
+            n = nm.lower()
+            return any(w in n for w in words)
+
+        if static:
+            for suffix, bold, italic in (("Regular", False, False),
+                                         ("Bold", True, False),
+                                         ("Italic", False, True),
+                                         ("BoldItalic", True, True)):
+                it = next((i for i in static
+                           if _has(i["name"], ("bold", "black", "heavy")) == bold
+                           and _has(i["name"], ("italic", "oblique")) == italic), None)
+                if not it:
+                    continue
+                try:
+                    with open(os.path.join(self._BUNDLED_FONT_DIR,
+                                           f"{fam}-{suffix}.ttf"), "wb") as fh:
+                        fh.write(fetch(it["download_url"]))
+                    saved = True
+                except Exception:
+                    pass
+            if saved:
+                return True
+
+        # ── Voie B — police VARIABLE → instances de graisse via fonttools ─────
+        if _have_ft:
+            gen(pick(False), [(400, "Regular", False, False), (700, "Bold", True, False)])
+            gen(pick(True), [(400, "Italic", False, True), (700, "BoldItalic", True, True)])
+        elif ttfs:
+            # Sans fonttools : enregistre la variable comme Regular (best-effort
+            # — famille correcte, graisse par défaut ; gras/italique par substitut).
+            v = next((i for i in ttfs if "italic" not in i["name"].lower()), ttfs[0])
+            try:
+                with open(os.path.join(self._BUNDLED_FONT_DIR,
+                                       f"{fam}-Regular.ttf"), "wb") as fh:
+                    fh.write(fetch(v["download_url"]))
+                saved = True
+            except Exception:
+                pass
         return saved
 
     def _font_resolution_info(self, font_raw):
@@ -1633,20 +1540,80 @@ class PDFTranslatorEngine:
                 }
         return list(seen.values())
 
+    def _glyph_renders(self, fpath, cp):
+        """True si le codepoint `cp` produit RÉELLEMENT de l'encre avec la
+        police `fpath`. `has_glyph` (présence dans la cmap) ne suffit PAS :
+        certains sous-ensembles CFF extraits d'un PDF passent `has_glyph` mais
+        rendent un glyphe VIDE (contour absent / encodage CID non reconstituable
+        depuis l'unicode). Seul un rendu réel le détecte. Mis en cache par
+        (fichier, codepoint) → coût payé une seule fois par glyphe."""
+        if not hasattr(self, "_glyph_render_cache"):
+            self._glyph_render_cache = {}
+        cache = self._glyph_render_cache.setdefault(fpath, {})
+        if cp in cache:
+            return cache[cp]
+        ok = False
+        try:
+            d = fitz.open()
+            pg = d.new_page(width=40, height=40)
+            pg.insert_text((6, 30), chr(cp), fontsize=24,
+                           fontname="probe", fontfile=fpath, color=(0, 0, 0))
+            pm = pg.get_pixmap(colorspace=fitz.csGRAY, alpha=False)
+            ok = sum(1 for b in pm.samples if b < 200) >= 3
+            d.close()
+        except Exception:
+            ok = False
+        cache[cp] = ok
+        return ok
+
     def _embed_font_for(self, text, font_raw):
         """Retourne (fontkey, fontfile) de la police à embarquer pour rendre
         `text` fidèlement, ou None si une police de base suffit.
 
-        1. Texte purement latin (≤ U+00FF) → on embarque la police de la FAMILLE
-           d'origine si elle n'est pas base-14 (préservation de la police) ;
-           sinon None (base-14 fidèle).
-        2. Texte contenant des glyphes hors base-14 (puces ❖, symboles…) → on
-           choisit une police qui couvre réellement ces glyphes (famille
-           d'origine si elle les contient, sinon police de secours Unicode)."""
-        fam = self._resolve_family_font(font_raw)
+        Priorité :
+        0. Police extraite du PDF source (fidélité parfaite).
+        1. Police de la famille d'origine (bundled > système > similar > fallback).
+        2. Polices de secours Unicode pour les glyphes hors base-14."""
         needed = {ord(c) for c in text if ord(c) > 0xFF}
+
+        # Étape 0 — police extraite du document source (fidélité parfaite).
+        # Le buffer a été écrit dans un fichier temp : PyMuPDF le charge via
+        # fontfile=<chemin>, TrueType comme CFF/Type1. La police d'origine est
+        # souvent un SOUS-ENSEMBLE (seuls les glyphes du doc source) : on ne
+        # l'utilise que si elle couvre TOUT le texte à rendre, sinon un
+        # caractère traduit absent (ex. « é », « ç ») produirait un glyphe
+        # manquant → on bascule alors sur la chaîne de secours normale.
+        source_fonts = getattr(self, "_source_fonts", None) or {}
+        clean = font_raw.split("+")[-1] if "+" in font_raw else font_raw
+        variants = source_fonts.get(font_raw) or source_fonts.get(clean)
+        if variants:
+            # Compat ancien format (tuple unique) vs nouveau (liste de variantes).
+            if isinstance(variants, tuple):
+                variants = [variants]
+            need = [ord(c) for c in set(text) if not c.isspace()]
+            for fpath, _ext in variants:
+                # fontkey UNIQUE par fichier : deux sous-ensembles du même nom
+                # ne doivent pas être enregistrés sous le même fontname dans la
+                # page (PyMuPDF réutiliserait le premier buffer → mauvais glyphes).
+                stem = os.path.splitext(os.path.basename(fpath))[0]
+                fontkey = "".join(ch for ch in stem if ch.isalnum()) or "srcfont"
+                try:
+                    fnt = fitz.Font(fontfile=fpath)
+                except Exception:
+                    continue
+                # `has_glyph` = pré-filtre rapide mais NON FIABLE (un sous-
+                # ensemble peut le passer puis rendre un glyphe vide). On confirme
+                # par un RENDU RÉEL de chaque glyphe : sinon on rejette cette
+                # variante et on bascule sur le substitut complet (texte visible
+                # plutôt que des lettres manquantes).
+                if not all(fnt.has_glyph(cp) for cp in need):
+                    continue
+                if all(self._glyph_renders(fpath, cp) for cp in need):
+                    return fontkey, fpath
+
+        fam = self._resolve_family_font(font_raw)
         if not needed:
-            return fam  # latin pur : famille d'origine (ou None → base-14)
+            return fam
 
         fdir = self._system_font_dir()
         candidates = []
@@ -1683,10 +1650,40 @@ class PDFTranslatorEngine:
             return os.path.splitext(os.path.basename(first_valid))[0], first_valid
         return None
 
+    def _write_line(self, page, point, text, fontsize, color,
+                    fontname=None, fontfile=None, hscale=1.0):
+        """Écrit une ligne de texte, éventuellement CONDENSÉE horizontalement
+        (`hscale` < 1) autour de son origine. La condensation passe par un
+        TextWriter + `morph=(origine, Matrix(hscale, 1))` : le texte garde sa
+        baseline et son point de départ, seule sa largeur est réduite."""
+        if hscale >= 0.999:
+            page.insert_text(point, text, fontsize=fontsize,
+                             fontname=fontname, fontfile=fontfile, color=color)
+            return
+        tw = fitz.TextWriter(page.rect)
+        font = self._get_font(fontfile) if fontfile else fitz.Font(fontname)
+        tw.append(fitz.Point(point), text, fontsize=fontsize, font=font)
+        tw.write_text(page, color=color,
+                      morph=(fitz.Point(point), fitz.Matrix(hscale, 1)))
+
     def _insert_text_smart(self, page, point, text, fontsize,
-                           font_mapped, font_raw, color, rotation):
+                           font_mapped, font_raw, color, rotation, fit_width=None):
         """Insère du texte en embarquant une police Unicode si la police de base
-        ne peut pas représenter certains glyphes. Retourne True si écrit."""
+        ne peut pas représenter certains glyphes. Retourne True si écrit.
+
+        `fit_width` (couche 2) : largeur d'origine disponible. Si la largeur
+        NATURELLE du texte la dépasse, le texte est condensé horizontalement
+        pour l'occuper exactement — supprime la dérive d'un substitut un peu
+        plus large et borne le débordement d'une traduction plus longue. On ne
+        fait que CONDENSER (jamais étirer) : no-op si la police rend déjà à la
+        bonne largeur (sous-ensemble source exact)."""
+        # Couche 2 — facteur de condensation horizontale (texte non pivoté).
+        hscale = 1.0
+        if fit_width and fit_width > 1 and abs(rotation) <= 1.0:
+            nat = self._text_length(text, fontsize, font_mapped, font_raw)
+            if nat > fit_width:
+                hscale = max(0.60, fit_width / nat)
+
         # Police symbole (ZapfDingbats/Symbol…) : rendue via la police PDF de
         # base correspondante (zadb/symb) pour préserver le glyphe (ex. puce ❖).
         sym = SYMBOL_BUILTIN_FONT.get(self._norm_font(font_raw or ""))
@@ -1711,9 +1708,9 @@ class PDFTranslatorEngine:
                                               font_mapped, color, rotation,
                                               fontfile=fontfile)
                 else:
-                    page.insert_text(point, text, fontsize=fontsize,
+                    self._write_line(page, point, text, fontsize, color,
                                      fontname=fontkey, fontfile=fontfile,
-                                     color=color)
+                                     hscale=hscale)
                 return True
             except Exception:
                 pass  # bascule sur le chemin base-14 ci-dessous
@@ -1723,8 +1720,8 @@ class PDFTranslatorEngine:
                 self._insert_rotated_text(page, point, text, fontsize,
                                           font_mapped, color, rotation)
             else:
-                page.insert_text(point, text, fontsize=fontsize,
-                                 fontname=font_mapped, color=color)
+                self._write_line(page, point, text, fontsize, color,
+                                 fontname=font_mapped, hscale=hscale)
             return True
         except Exception:
             try:
@@ -1733,6 +1730,34 @@ class PDFTranslatorEngine:
                 return True
             except Exception:
                 return False
+
+    def _insert_justified_line(self, page, point, text, fontsize,
+                               font_mapped, font_raw, color, target_w):
+        """Rend une ligne JUSTIFIÉE : répartit l'excédent (target_w − largeur
+        naturelle des mots) dans les blancs inter-mots, mot par mot. Repli sur
+        un rendu simple si l'étirement requis est aberrant. Retourne True si
+        rendu."""
+        words = text.split()
+        if len(words) < 2:
+            return self._insert_text_smart(page, point, text, fontsize,
+                                           font_mapped, font_raw, color, 0.0)
+        ws = [self._text_length(w, fontsize, font_mapped, font_raw) for w in words]
+        space_w = self._text_length(" ", fontsize, font_mapped, font_raw) \
+            or 0.3 * fontsize
+        gap = (target_w - sum(ws)) / (len(words) - 1)
+        # Garde-fou : ne pas fabriquer de blancs absurdes (< espace normal ou
+        # > 3,5×) — sinon rendu simple, mieux vaut un bord droit légèrement
+        # irrégulier qu'une ligne aérée.
+        if gap < space_w or gap > 3.5 * space_w:
+            return self._insert_text_smart(page, point, text, fontsize,
+                                           font_mapped, font_raw, color, 0.0)
+        x, y = point
+        ok = True
+        for i, w in enumerate(words):
+            ok = self._insert_text_smart(page, (x, y), w, fontsize, font_mapped,
+                                         font_raw, color, 0.0) and ok
+            x += ws[i] + gap
+        return ok
 
     def _text_length(self, text, fontsize, font_mapped, font_raw):
         """Largeur du texte, en tenant compte d'une éventuelle police embarquée."""
@@ -1839,24 +1864,7 @@ class PDFTranslatorEngine:
     # ══════════════════════════════════════════════════════════════════════════
     # GROUPEMENT EN PARAGRAPHES (fusion des lignes wrap d'une même phrase)
     # ══════════════════════════════════════════════════════════════════════════
-    @staticmethod
-    def _span_style_sig(span, font_mapped):
-        fl = span.get("flags", 0)
-        return (font_mapped, round(span.get("size", 12), 1),
-                span.get("color", 0),
-                bool(fl & FLAG_BOLD), bool(fl & FLAG_ITALIC))
 
-    def _is_marker_span(self, span):
-        """Vrai si le span est un marqueur de puce isolé : soit un glyphe puce
-        connu, soit un span court dans une police symbole (ex. « O » en
-        ZapfDingbats, rendu comme ❖). À ne pas confondre avec « ❖ texte… »
-        collé dans un même span (géré par _extract_bullet)."""
-        t = span.get("text", "").strip()
-        if not t or len(t) > 3:
-            return False
-        if self._norm_font(span.get("font", "")) in BULLET_FONT_NAMES:
-            return True
-        return t[0] in BULLET_CHARS
 
     def _group_paragraphs(self, items, block_w):
         """REGROUPEMENT DÉSACTIVÉ : chaque span est traité comme un bloc
@@ -1873,56 +1881,69 @@ class PDFTranslatorEngine:
                            "sig": None, "rot": rot, "bullet": None})
         return groups, []
 
-    @staticmethod
-    def _group_geom(group):
-        """Géométrie de lecture d'un groupe : 1er/dernier span (baseline puis x),
-        étendue x, taille. Sert à décider la fusion inter-blocs."""
-        sp = [m[0] for m in group["members"]]
-        ordered = sorted(sp, key=lambda s: (round(s["origin"][1], 1), s["bbox"][0]))
-        first, last = ordered[0], ordered[-1]
-        return {
-            "x0":         min(s["bbox"][0] for s in sp),
-            "x1":         max(s["bbox"][2] for s in sp),
-            "first_base": first["origin"][1],
-            "last_base":  last["origin"][1],
-            "first_x0":   first["bbox"][0],
-            "last_x1":    last["bbox"][2],
-            "size":       first.get("size", 12),
-        }
 
-    @staticmethod
-    def _group_text(group) -> str:
-        """Concatène le texte de tous les spans d'un groupe, triés visuellement."""
-        members = group["members"]
-        ordered = sorted(members,
-                         key=lambda m: (round(m[0]["origin"][1], 1), m[0]["bbox"][0]))
-        return " ".join(
-            m[0].get("text", "").strip()
-            for m in ordered if m[0].get("text", "").strip()
-        )
 
-    def _llm_validate_merges(self, pairs: list) -> list:
-        """Envoie au LLM les paires de groupes géométriquement ambiguës et retourne
-        la liste des indices (dans `pairs`) que le LLM juge appartenir au même
-        paragraphe. Retourne [] si le LLM est absent ou en cas d'erreur."""
-        if not pairs or self._llm_client is None:
-            return []
 
-        items = []
-        for i, (ga, gb) in enumerate(pairs):
-            items.append({
-                "id": i,
-                "fin_a":    self._group_text(ga)[-150:],
-                "debut_b":  self._group_text(gb)[:150],
-            })
+    def _llm_assign_paragraph_ids(self, page_data, progress_callback=None):
+        """Délègue ENTIÈREMENT au LLM (DeepSeek) l'identification des blocs
+        appartenant au MÊME paragraphe sur une page.
+
+        On lui transmet, pour chaque bloc, son `id`, son `texte` et sa
+        position (`bbox`). Il renvoie un identifiant de paragraphe par bloc :
+        les blocs d'un même paragraphe partagent le même identifiant. Le
+        résultat est écrit dans block['paragraph_key'] — MÉTADONNÉE PURE,
+        sans aucun effet sur le rendu (qui reste bloc par bloc, fidélité
+        intacte).
+
+        Repli (LLM absent, page triviale, ou erreur) : on RETOMBE sur le
+        regroupement GÉOMÉTRIQUE (`para_id`, posé par _annotate_paragraphs)
+        quand il existe — sinon chaque bloc reste seul. Ainsi le champ
+        `paragraph_key` porte toujours le meilleur regroupement disponible :
+        l'IA en priorité, la géométrie en secours (jamais des blocs tous
+        isolés tant qu'une structure géométrique a été détectée)."""
+        blocks = [b for b in page_data.get("text_blocks", [])
+                  if (b.get("text") or "").strip()]
+        if not blocks:
+            return
+
+        page_num = page_data.get("page_num", "?")
+
+        # Défaut / repli : reprend le regroupement géométrique (`para_id`).
+        # Garanti même si le LLM échoue → `paragraph_key` existe toujours et
+        # vaut au moins la géométrie.
+        for b in blocks:
+            pid = b.get("para_id")
+            b["paragraph_key"] = (f"p{page_num}_geom{pid}"
+                                  if pid is not None else b["id"])
+
+        # Option géométrique (désactivée par défaut) : on s'arrête au repli
+        # ci-dessus → paragraph_key = regroupement géométrique, sans DeepSeek.
+        if (self._llm_client is None or len(blocks) < 2
+                or not getattr(self, "use_llm_paragraph_grouping", True)):
+            return
+
+        items = [{
+            "id":    b["id"],
+            "texte": (b.get("text") or "").strip()[:200],
+            "bbox":  [round(v, 1) for v in (b.get("bbox") or [])[:4]],
+        } for b in blocks]
 
         prompt = (
-            "Tu analyses des fragments de texte extraits d'un PDF.\n"
-            "Pour chaque paire, détermine si les deux fragments font partie du MÊME "
-            "paragraphe logique (continuation de la même phrase ou du même bloc).\n"
-            "Réponds UNIQUEMENT avec JSON : "
-            "{\"decisions\": [{\"id\": 0, \"merge\": true}, ...]}\n\n"
-            f"Paires :\n{json.dumps(items, ensure_ascii=False)}"
+            "Tu analyses les blocs de texte d'UNE page de PDF. Chaque bloc a "
+            "un id, son texte et sa position [x0, y0, x1, y1] (origine en haut "
+            "à gauche, y croît vers le bas).\n"
+            "Regroupe les blocs qui appartiennent au MÊME paragraphe logique "
+            "(même phrase coupée par un retour à la ligne, suite d'un même "
+            "alinéa). Des blocs distincts — titre, puce d'une autre entrée, "
+            "colonne voisine, en-tête/pied de page — NE doivent PAS être "
+            "regroupés.\n"
+            "Attribue à chaque bloc un numéro de paragraphe (entier ≥ 1). Les "
+            "blocs d'un même paragraphe partagent le même numéro ; un bloc seul "
+            "a son propre numéro.\n"
+            "Réponds UNIQUEMENT en JSON : "
+            "{\"blocs\": [{\"id\": \"...\", \"paragraphe\": 1}, ...]} — un objet "
+            "par bloc reçu, sans rien omettre.\n\n"
+            f"Blocs :\n{json.dumps(items, ensure_ascii=False)}"
         )
         try:
             resp = self._llm_client.chat.completions.create(
@@ -1933,120 +1954,32 @@ class PDFTranslatorEngine:
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.0,
-                max_tokens=512,
+                max_tokens=4096,
                 response_format={"type": "json_object"},
             )
             data = json.loads(resp.choices[0].message.content or "{}")
-            return [d["id"] for d in data.get("decisions", []) if d.get("merge")]
-        except Exception:
-            return []
+            mapping = {}
+            for d in data.get("blocs", []):
+                bid, para = d.get("id"), d.get("paragraphe")
+                if bid is not None and para is not None:
+                    mapping[bid] = para
+            for b in blocks:
+                para = mapping.get(b["id"])
+                if para is not None:
+                    b["paragraph_key"] = f"p{page_num}_para{para}"
+            if progress_callback:
+                n_para = len({b["paragraph_key"] for b in blocks})
+                progress_callback(
+                    f"  ↳ Page {page_num} : {len(blocks)} blocs → "
+                    f"{n_para} paragraphe(s) (DeepSeek)."
+                )
+        except Exception as e:
+            if progress_callback:
+                progress_callback(
+                    f"  ↳ Page {page_num} : regroupement LLM indisponible "
+                    f"({type(e).__name__}) — repli sur la géométrie (para_id)."
+                )
 
-    def _merge_cross_block(self, groups, line_gap_threshold=1.65):
-        """Fusionne les groupes (issus de blocs PyMuPDF distincts) qui forment
-        une MÊME phrase / titre / libellé. PyMuPDF éclate souvent une seule
-        phrase en plusieurs blocs (espacement, tabulation, retour wrap) ; sans
-        cette passe, les fragments restent séparés et espacés, et l'espace libre
-        entre eux n'est pas exploité par l'ajustement de taille. Deux cas, avec
-        les mêmes garde-fous que le regroupement intra-bloc (#3) et le reflow
-        (#6/#7) :
-          • même ligne  : même style, même baseline, petit écart horizontal
-                          (gros écart = colonnes → jamais fusionné) ;
-          • multi-ligne : même style, baselines consécutives, bord régulier
-                          commun + recouvrement horizontal (côte-à-côte =
-                          colonnes → non fusionné).
-        `line_gap_threshold` est calculé par l'appelant à partir des espacements
-        intra-paragraphe observés sur la page — aucune constante fixe.
-        Conservateur : puces/listes, marqueurs et texte pivoté restent intacts
-        (ils passent tels quels)."""
-        cand, passthrough = [], []
-        for g in groups:
-            first_txt = g["members"][0][0].get("text", "").strip()
-            if (abs(g.get("rot", 0.0)) <= 1.0 and g.get("bullet") is None
-                    and g.get("sig") is not None
-                    and not self._detect_bullet(first_txt)):
-                cand.append(g)
-            else:
-                passthrough.append(g)
-
-        # Instantané des positions de tous les groupes (avant fusion) : sert à
-        # détecter un bloc intercalé entre deux candidats multi-ligne.
-        snapshot = [self._group_geom(g) for g in groups]
-
-        def _has_intervening(ga, gb, size):
-            """Vrai si un autre bloc se trouve verticalement entre la dernière
-            ligne de a et la première de b, dans leur bande horizontale. Empêche
-            d'enchaîner deux paragraphes distincts séparés par un libellé/titre
-            (ex. colonne « COMPÉTENCES » : chaque entrée a son intitulé en gras)."""
-            lo, hi = ga["last_base"], gb["first_base"]
-            bx0 = min(ga["x0"], gb["x0"])
-            bx1 = max(ga["x1"], gb["x1"])
-            for s in snapshot:
-                if not (lo + 0.3 * size < s["first_base"] < hi - 0.3 * size):
-                    continue
-                if min(bx1, s["x1"]) - max(bx0, s["x0"]) > 2.0:
-                    return True
-            return False
-
-        # Facteur de la zone floue : au-delà du seuil × AMBIGUOUS_FACTOR,
-        # le rejet est certain. Entre threshold et threshold × factor,
-        # le LLM tranche si disponible.
-        AMBIGUOUS_FACTOR = 1.30
-
-        def _mergeable_degree(a, b):
-            """Retourne 'merge', 'ambiguous' ou 'reject'."""
-            if a["sig"] != b["sig"]:
-                return "reject"
-            ga, gb = self._group_geom(a), self._group_geom(b)
-            size  = max(6.0, (ga["size"] + gb["size"]) / 2)
-            tol_x = max(8.0, 2.0 * size)
-            # — même ligne : confiance totale —
-            if abs(gb["first_base"] - ga["last_base"]) <= 0.4 * size:
-                gap = gb["first_x0"] - ga["last_x1"]
-                if -0.3 * size <= gap <= 0.6 * size:
-                    return "merge"
-            # — multi-ligne —
-            dy = gb["first_base"] - ga["last_base"]
-            edge = (abs(gb["x0"] - ga["x0"]) <= tol_x
-                    or abs(gb["x1"] - ga["x1"]) <= tol_x
-                    or abs((gb["x0"] + gb["x1"]) / 2
-                           - (ga["x0"] + ga["x1"]) / 2) <= tol_x)
-            overlap = min(ga["x1"], gb["x1"]) - max(ga["x0"], gb["x0"])
-            if not (edge and overlap > 0):
-                return "reject"
-            if _has_intervening(ga, gb, size):
-                return "reject"
-            if 0.5 * size < dy <= line_gap_threshold * size:
-                return "merge"
-            if line_gap_threshold * size < dy <= line_gap_threshold * size * AMBIGUOUS_FACTOR:
-                return "ambiguous"
-            return "reject"
-
-        # Ordre de lecture : baseline du 1er span puis x.
-        cand.sort(key=lambda g: (round(self._group_geom(g)["first_base"], 1),
-                                 self._group_geom(g)["x0"]))
-
-        out            = []
-        ambiguous_pairs = []   # [(target_group, candidate_group)] — à valider par LLM
-
-        for g in cand:
-            target, target_deg = None, "reject"
-            for h in out:
-                deg = _mergeable_degree(h, g)
-                if deg in ("merge", "ambiguous"):
-                    target, target_deg = h, deg
-
-            if target is not None and target_deg == "merge":
-                target["members"].extend(g["members"])
-                target["members"].sort(
-                    key=lambda m: (round(m[0]["origin"][1], 1), m[0]["bbox"][0]))
-            elif target is not None and target_deg == "ambiguous":
-                # Ajouté comme standalone pour l'instant ; le LLM décidera
-                ambiguous_pairs.append((target, g))
-                out.append(g)
-            else:
-                out.append(g)
-
-        return out + passthrough, ambiguous_pairs
 
     def _group_rotated_paragraphs(self, rotated_spans):
         """REGROUPEMENT DÉSACTIVÉ : chaque span pivoté est traité comme un bloc
@@ -2062,33 +1995,442 @@ class PDFTranslatorEngine:
 
     @staticmethod
     def _detect_alignment(spans, rotated=False):
-        """Déduit l'alignement (0=gauche/début, 1=centre, 2=droite/fin) d'un
-        paragraphe à partir de ses lignes : on regarde quel bord est le plus
-        régulier (début aligné → gauche, qui couvre aussi le justifié ; fin
-        alignée → droite ; centres alignés → centre). Pour du texte pivoté 90°
-        (lecture bas→haut), l'axe de lecture est vertical : le « début » est le
-        bas (y1), la « fin » est le haut (y0)."""
+        """Déduit l'alignement d'un paragraphe à partir de ses lignes :
+        0=gauche, 1=centre, 2=droite, 3=JUSTIFIÉ.
+        - justifié : débuts ET fins alignés sur les marges, SAUF la dernière
+          ligne (laissée courte) → nécessite ≥2 lignes pleines ;
+        - gauche : seuls les débuts alignés ; droite : seules les fins ;
+          centre : centres alignés.
+        Texte pivoté 90° (lecture bas→haut) : axe vertical, début=bas (y1),
+        fin=haut (y0). Les lignes sont triées en ordre de lecture pour isoler
+        de façon fiable la DERNIÈRE ligne (exclue du test de marge droite)."""
         if len(spans) < 2:
             return 0
         if rotated:
-            starts  = [s["bbox"][3] for s in spans]                  # bas (y1)
-            ends    = [s["bbox"][1] for s in spans]                  # haut (y0)
-            centers = [(s["bbox"][1] + s["bbox"][3]) / 2 for s in spans]
+            order   = sorted(spans, key=lambda s: -s["bbox"][3])     # bas→haut
+            starts  = [s["bbox"][3] for s in order]                  # bas (y1)
+            ends    = [s["bbox"][1] for s in order]                  # haut (y0)
+            centers = [(s["bbox"][1] + s["bbox"][3]) / 2 for s in order]
             extent  = max(s["bbox"][3] for s in spans) - min(s["bbox"][1] for s in spans)
         else:
-            starts  = [s["bbox"][0] for s in spans]                  # gauche (x0)
-            ends    = [s["bbox"][2] for s in spans]                  # droite (x1)
-            centers = [(s["bbox"][0] + s["bbox"][2]) / 2 for s in spans]
+            order   = sorted(spans, key=lambda s: s["bbox"][1])      # haut→bas
+            starts  = [s["bbox"][0] for s in order]                  # gauche (x0)
+            ends    = [s["bbox"][2] for s in order]                  # droite (x1)
+            centers = [(s["bbox"][0] + s["bbox"][2]) / 2 for s in order]
             extent  = max(s["bbox"][2] for s in spans) - min(s["bbox"][0] for s in spans)
         tol    = max(2.5, 0.03 * extent)
         spread = lambda v: max(v) - min(v)
-        if spread(starts) <= tol:
+        starts_aligned = spread(starts) <= tol
+        # Justifié : débuts alignés ET fins des lignes PLEINES (toutes sauf la
+        # dernière) alignées sur la marge droite, AVEC une dernière ligne plus
+        # courte. ≥2 lignes pleines. Pas de faux positif sur du gauche-ragueux
+        # (ses fins ne sont pas alignées).
+        if (starts_aligned and len(ends) >= 3
+                and spread(ends[:-1]) <= tol and spread(ends) > tol):
+            return 3
+        if starts_aligned:
             return 0
         if spread(ends) <= tol:
             return 2
         if spread(centers) <= tol:
             return 1
         return 0
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # IDENTIFICATION DE L'ALIGNEMENT — métadonnée par paragraphe
+    # ══════════════════════════════════════════════════════════════════════════
+    # PRINCIPE CLÉ : tout alignement (détection ET rendu) est jugé RELATIVEMENT
+    # AU BLOC DU PARAGRAPHE — sa propre boîte [min x0, max x1] de ses lignes —
+    # jamais la page ni la colonne. Un n° de page « à droite de la PAGE » n'est
+    # pas « à droite de son BLOC » ; un encart justifié se justifie sur SA boîte.
+    #   • justifié → fins des lignes PLEINES alignées + dernière ligne courte
+    #                (mesuré sur les fins, indépendant des débuts → robuste à un
+    #                encart qui indente certaines lignes) ;
+    #   • centré/droite → centres / fins alignés ;
+    #   • mono-ligne → remplit sa propre boîte → neutre (gauche).
+    # Sortie par bloc : align (0=g,1=c,2=d,3=just), align_conf, align_ref=[L,R].
+
+    def _compute_alignment(self, lines, frame, page_w, col_right=None):
+        """Retourne (align, confiance) pour un paragraphe, jugé PAR GÉOMÉTRIE
+        (aucune estimation de largeur de police, peu fiable sur serif/italique).
+        Le JUSTIFIÉ repose sur le bord droit COMMUN des lignes pleines : elles
+        finissent toutes au même x (variance ~0), là où un paragraphe en drapeau
+        a un bord droit irrégulier. Quand une SEULE ligne est pleine (parag. de
+        2 lignes), justifié et drapeau sont indiscernables par la seule boîte du
+        bloc → on regarde si cette ligne atteint la marge de COLONNE `col_right`
+        (déduite de la page).  align : 0=gauche 1=centre 2=droite 3=justifié."""
+        L, R = frame
+        W = max(1.0, R - L)
+        starts  = [ln["x0"] for ln in lines]
+        ends    = [ln["x1"] for ln in lines]
+        centers = [(ln["x0"] + ln["x1"]) / 2 for ln in lines]
+        tol     = max(2.5, 0.03 * W)      # tolérance générale (débuts, centres)
+        tol_end = max(2.0, 0.012 * W)     # fins d'un justifié : quasi exactes
+        sp = lambda v: max(v) - min(v)
+        n = len(lines)
+
+        if n >= 2:
+            last_short = ends[-1] < R - tol
+            sa = sp(starts) <= tol
+            ca = sp(centers) <= tol
+            # Lignes PLEINES = toutes sauf une éventuelle dernière plus courte.
+            full = ends[:-1] if last_short else ends
+            nfull = len(full)
+            ends_tight  = nfull >= 1 and sp(full) <= tol_end   # 1 seule marge
+            reaches_col = (col_right is not None
+                           and ends[0] >= col_right - tol_end)
+            # Bord droit « régulier » d'un justifié : ses lignes pleines se
+            # calent sur 1-2 MARGES DISCRÈTES (la colonne, et la pleine largeur
+            # quand le texte s'enroule autour d'un encart) — chaque marge est
+            # partagée par ≥2 lignes. Un drapeau a des fins TOUTES différentes.
+            ends_grouped = nfull >= 2 and (
+                ends_tight or
+                sum(1 for v in full
+                    if sum(1 for w in full if abs(w - v) <= tol_end) >= 2)
+                >= 0.75 * nfull)
+
+            # JUSTIFIÉ — bord droit régulier AVEC (dernière ligne courte OU
+            # débuts alignés), MÊME si débuts/fins sont irréguliers à cause d'un
+            # encart (lignes étroites puis pleine largeur). 1 seule ligne pleine
+            # (parag. de 2 lignes) : exiger la marge de COLONNE.
+            if (ends_grouped and (last_short or sa)) \
+                    or (ends_tight and sa and reaches_col):
+                return 3, (0.9 if nfull >= 2 else 0.8)
+            # DROITE : une seule marge, débuts NON alignés, dernière ligne AUSSI
+            # à droite (pas de ligne courte → ce n'est pas un justifié).
+            if ends_tight and not sa and not last_short:
+                return 2, 0.78
+            # CENTRÉ : centres alignés, ni débuts ni fins alignés.
+            if ca and not sa and not ends_tight:
+                return 1, 0.8
+            # GAUCHE par défaut (débuts alignés, bord droit en drapeau).
+            return 0, (0.85 if sa and n >= 3 else 0.5)
+
+        # ── mono-ligne : indéterminable par sa seule boîte. On n'autorise que
+        # le CENTRÉ, et UNIQUEMENT par symétrie vs la PAGE (titre centré : centre
+        # de la ligne ≈ centre de page, marges gauche/droite LARGES et ~égales).
+        # Un n° de page (collé à droite) ou une ligne à gauche → marges
+        # asymétriques → neutre (gauche), position d'origine préservée.
+        x0, x1 = starts[0], ends[0]
+        cl = (x0 + x1) / 2.0
+        gl, gr = x0, page_w - x1
+        if (abs(cl - page_w / 2.0) <= 0.035 * page_w
+                and gl > 0.03 * page_w and gr > 0.03 * page_w
+                and abs(gl - gr) <= 0.06 * page_w):
+            return 1, 0.6
+        return 0, 0.3
+
+    @staticmethod
+    def _regroup_by_para_id(page_data):
+        """Aligne `paragraph_key` sur le groupement GÉOMÉTRIQUE `para_id`
+        (_annotate_paragraphs) quand il existe. La géométrie gère mieux que l'IA
+        à la fois la FUSION (paragraphe enroulé en L autour d'un encart) ET la
+        SÉPARATION (l'IA groupe parfois un en-tête avec son numéro de page, ou
+        deux puces voisines — la géométrie les distingue par colonne / item).
+        Les blocs sans `para_id` (marqueurs de puce, texte pivoté) gardent la
+        clé IA déjà posée. Déterministe, sans coût API."""
+        page_num = page_data.get("page_num", "?")
+        for b in page_data.get("text_blocks", []):
+            pid = b.get("para_id")
+            if pid is not None:
+                b["paragraph_key"] = f"p{page_num}_pid{pid}"
+
+    def _assign_paragraph_alignment(self, page_data):
+        """Calcule l'alignement de CHAQUE paragraphe (regroupé par
+        `paragraph_key`) et l'écrit sur ses blocs : `align`, `align_conf`,
+        `align_ref`. MÉTADONNÉE — n'affecte pas le rendu."""
+        blocks = [b for b in page_data.get("text_blocks", [])
+                  if (b.get("text") or "").strip()
+                  and abs(b.get("rotation", 0.0)) <= 1.0 and b.get("bbox")]
+        if not blocks:
+            return
+        page_w = page_data.get("width", 595)
+
+        groups = {}
+        for b in blocks:
+            groups.setdefault(b.get("paragraph_key", b["id"]), []).append(b)
+
+        def _base(b):
+            o = b.get("origin")
+            return o[1] if o and len(o) >= 2 else b["bbox"][3]
+
+        # 1re passe : découper chaque paragraphe en LIGNES (par baseline).
+        built = []
+        for members in groups.values():
+            ordered = sorted(members, key=lambda b: (round(_base(b), 1),
+                                                     b["bbox"][0]))
+            lines = []
+            for b in ordered:
+                bs = _base(b)
+                sz = max(6.0, b.get("size", 10))
+                bb = b["bbox"]
+                txt = (b.get("text") or "").strip()
+                if lines and abs(bs - lines[-1]["base"]) <= 0.3 * sz:
+                    ln = lines[-1]
+                    ln["x0"] = min(ln["x0"], bb[0])
+                    ln["x1"] = max(ln["x1"], bb[2])
+                    ln["text"] = (ln["text"] + " " + txt).strip()
+                    ln["blocks"].append(b)
+                else:
+                    lines.append({"base": bs, "size": sz, "x0": bb[0], "x1": bb[2],
+                                  "text": txt, "blocks": [b],
+                                  "font_mapped": b.get("font_mapped", "helv"),
+                                  "font": b.get("font", "")})
+            if lines:
+                built.append((members, lines))
+
+        # 2e passe — PRÉ-CLASSEMENT sans marge de colonne : ne retient comme
+        # justifiés que les paragraphes PROUVÉS géométriquement (≥2 lignes
+        # pleines au même bord droit, conf 0.9). Aucune estimation de police.
+        prelim = []
+        for members, lines in built:
+            px0 = min(ln["x0"] for ln in lines)
+            px1 = max(ln["x1"] for ln in lines)
+            a, c = self._compute_alignment(lines, (px0, px1), page_w, None)
+            prelim.append((members, lines, px0, px1, a, c))
+
+        # Marge de COLONNE justifiée = bord droit d'un paragraphe PROUVÉ justifié
+        # (≥2 lignes pleines au même bord). Preuve qu'on est dans une colonne
+        # réellement justifiée → on peut alors trancher un paragraphe ambigu de
+        # 2 lignes. On la retient si elle est PARTAGÉE par ≥2 paragraphes, OU
+        # portée par ≥1 paragraphe LARGE (≥ 50 % de la page) : une justification
+        # sur toute la largeur est une preuve forte, là où un alignement
+        # fortuit en colonne étroite (ex. sidebar du CV) ne l'est pas.
+        pe = {}
+        wide = set()
+        for _, _, px0, px1, a, c in prelim:
+            if a == 3 and c >= 0.9:
+                e = round(px1)
+                pe[e] = pe.get(e, 0) + 1
+                if (px1 - px0) >= 0.5 * page_w:
+                    wide.add(e)
+        cands = [e for e, n in pe.items() if n >= 2] + list(wide)
+        col_right = max(cands) if cands else None
+
+        # 3e passe — AFFECTATION : ré-évalue avec la marge SEULEMENT les
+        # paragraphes encore ambigus (non déjà justifiés).
+        for members, lines, px0, px1, align, conf in prelim:
+            if align != 3 and col_right is not None:
+                align, conf = self._compute_alignment(lines, (px0, px1),
+                                                      page_w, col_right)
+            ref = [round(px0, 1), round(px1, 1)]
+            for b in members:
+                b["align"] = align
+                b["align_conf"] = round(conf, 2)
+                b["align_ref"] = ref
+            # Marqueurs pour le RENDU aligné (Étape 1) : un bloc SEUL sur sa
+            # ligne peut être re-ancré (centre/droite) ou étiré (justifié) ;
+            # la DERNIÈRE ligne d'un justifié ne s'étire jamais.
+            for ln in lines:
+                solo = len(ln["blocks"]) == 1
+                last = ln is lines[-1]
+                for blk in ln["blocks"]:
+                    blk["_align_line_solo"] = solo
+                    blk["_align_last_line"] = last
+
+    @staticmethod
+    def _annotate_paragraphs(page_data, img_rects=None, rules=None):
+        """Passe d'ANNOTATION (N'AFFECTE PAS LE RENDU). DEUX niveaux :
+          1) span-blocs → LIGNES (même baseline + adjacence horizontale) : une
+             ligne peut mélanger des styles inline (mot gras, LIEN souligné) sans
+             casser le paragraphe ;
+          2) lignes → PARAGRAPHES (style DOMINANT de la ligne, interligne ≈
+             hauteur, bord aligné, chevauchement = même colonne) + fusion L-shape.
+        Stocke page_data['paragraphs'] (frame, bands=zones utilisables, gap_before)
+        et page_data['anchors'] (images) ; annote chaque bloc d'un 'para_id'.
+        Aucune fusion appliquée aux blocs → réinjection ligne-par-ligne → identité
+        intacte."""
+        blocks = page_data.get("text_blocks", [])
+        anchors = [{"type": "image", "bbox": [round(v, 1) for v in r]}
+                   for r in (img_rects or [])]
+        # Un MARQUEUR de puce est un bloc autonome (pas du texte de paragraphe) :
+        #  • soit `is_list_item` + `bullet_char` (souvent un bloc à texte VIDE,
+        #    ex. « • » du Handbook) ;
+        #  • soit un court span (≤2 car.) en police symbole/dingbat (ex. « O » en
+        #    ZapfDingbats = ❖ du CV) — la détection par police vit dans
+        #    `_group_paragraphs` (désactivé), donc `is_list_item` n'est pas posé.
+        # On l'EXCLUT des lignes/paragraphes (sinon il est fusionné dans la ligne
+        # de l'item et absorbé par le paragraphe) : il reste un marqueur défini à
+        # part, rendu seul — comportement identique dans tous les documents.
+        def _is_marker(b):
+            # Un marqueur est COURT (le seul glyphe de puce, ≤2 car.). Un item à
+            # « puce collée » dont le texte est le CONTENU réel n'en est pas un :
+            # il doit rester dans les paragraphes.
+            if len((b.get("text") or "").strip()) > 2:
+                return False
+            if b.get("is_list_item") and b.get("bullet_char"):
+                return True
+            fr = "".join(ch for ch in (b.get("font") or "").split("+")[-1].lower()
+                         if ch.isalnum())
+            return (fr in BULLET_FONT_NAMES
+                    and 0 < len((b.get("text") or "").strip()) <= 2)
+
+        idx = [i for i, b in enumerate(blocks)
+               if abs(b.get("rotation", 0)) <= 1.0 and (b.get("text") or "").strip()
+               and not _is_marker(b)]
+        if not idx:
+            page_data["paragraphs"] = []
+            page_data["anchors"] = anchors
+            return
+
+        cx0 = min(blocks[i]["bbox"][0] for i in idx)   # marges de contenu RÉELLES
+        cx1 = max(blocks[i]["bbox"][2] for i in idx)
+
+        def baseline(i):
+            o = blocks[i].get("origin")
+            return o[1] if o and len(o) >= 2 else blocks[i]["bbox"][3]
+
+        # Chaque marqueur de puce → SÉPARATEUR d'item : (baseline, x gauche). Une
+        # ligne démarre un nouvel item si une puce est sur SA baseline ET juste à
+        # SA gauche (même item) — la contrainte horizontale évite qu'une puce
+        # d'une AUTRE colonne, à la même hauteur, scinde une ligne sans rapport.
+        bullet_bases = []
+        for b in blocks:
+            if _is_marker(b):
+                bo = b.get("bullet_origin") or b.get("origin")
+                by = bo[1] if bo and len(bo) >= 2 else b["bbox"][3]
+                bullet_bases.append((by, b["bbox"][0]))
+
+        # ── 1) span-blocs → LIGNES ────────────────────────────────────────────
+        # Même baseline (à 0,3·taille) ET adjacence horizontale (le saut de
+        # colonne, lui, est large) → une seule ligne, styles inline confondus.
+        lines = []
+        for i in sorted(idx, key=lambda i: (round(baseline(i), 1), blocks[i]["bbox"][0])):
+            bb = blocks[i]["bbox"]; bs = baseline(i); sz = max(6.0, blocks[i].get("size", 10))
+            merge = False
+            if lines and abs(bs - lines[-1]["base"]) <= 0.3 * sz:
+                gap = bb[0] - lines[-1]["x1"]
+                pb = blocks[lines[-1]["blocks"][-1]]; cb = blocks[i]
+                same_style = (bool(cb.get("bold")) == bool(pb.get("bold"))
+                              and bool(cb.get("italic")) == bool(pb.get("italic"))
+                              and abs(cb.get("size", 0) - pb.get("size", 0)) <= 1.0)
+                # Même baseline EXACTE (≤0.8 pt) = même flux typographique → run
+                # inline, même si style/gros écart (titre en capitales espacées
+                # « FOREWORD BY JAKE KLAMKA » dont un mot est gras).
+                same_flow = abs(bs - lines[-1]["base"]) <= 0.8
+                # Jointif/petit écart → même ligne (variation inline : mot gras,
+                # lien…). Au-delà, on n'agrège QUE si style identique (contenu
+                # tabulé) OU même flux. Un changement de style à travers une vraie
+                # gouttière AVEC baseline décalée = frontière de COLONNE (corps
+                # romain | encart italique, p.18 décalé de 2.7 pt) → on coupe.
+                if (-0.5 * sz <= gap <= 2.0 * sz
+                        and (gap <= 0.6 * sz or same_style or same_flow)):
+                    merge = True
+            if merge:
+                L = lines[-1]; L["blocks"].append(i)
+                L["x0"] = min(L["x0"], bb[0]); L["y0"] = min(L["y0"], bb[1])
+                L["x1"] = max(L["x1"], bb[2]); L["y1"] = max(L["y1"], bb[3])
+            else:
+                lines.append({"blocks": [i], "base": bs,
+                              "x0": bb[0], "y0": bb[1], "x1": bb[2], "y1": bb[3]})
+
+        # Zone utilisable d'une LIGNE : bornée par les AUTRES lignes + images.
+        lboxes = [[L["x0"], L["y0"], L["x1"], L["y1"]] for L in lines]
+        obst = lboxes + [a["bbox"] for a in anchors]
+
+        def avail(box):
+            y0, y1, bh = box[1], box[3], max(1.0, box[3] - box[1])
+            left, right = cx0, cx1
+            for ob in obst:
+                if ob is box or min(y1, ob[3]) - max(y0, ob[1]) <= 0.3 * bh:
+                    continue
+                if ob[0] >= box[2] - 1.0:
+                    right = min(right, ob[0])
+                elif ob[2] <= box[0] + 1.0:
+                    left = max(left, ob[2])
+            return [round(left, 1), round(right, 1)]
+
+        for L, lb in zip(lines, lboxes):
+            L["avail"] = avail(lb)
+            # Style de paragraphe d'une ligne : la TAILLE vient du span le plus
+            # large ; mais GRAS/ITALIQUE ne valent que si TOUS les spans de la
+            # ligne le sont. Un libellé gras en tête (« Label : valeur ») est une
+            # emphase inline, pas l'identité du paragraphe → la ligne compte comme
+            # romaine et rejoint ses lignes de continuation romaines (sinon le
+            # libellé gras isolait la 1re ligne dans son propre paragraphe).
+            bi = max(L["blocks"], key=lambda i: blocks[i]["bbox"][2] - blocks[i]["bbox"][0])
+            L["style"] = (round(blocks[bi].get("size", 0)),
+                          all(blocks[i].get("bold") for i in L["blocks"]),
+                          all(blocks[i].get("italic") for i in L["blocks"]))
+            # Début d'item de liste : une puce sur CETTE baseline ET juste à
+            # gauche de cette ligne (même item). La contrainte horizontale évite
+            # qu'une puce d'une autre colonne, à la même hauteur, scinde la ligne.
+            _sz = max(6.0, L["style"][0])
+            L["item_start"] = any(abs(L["base"] - bby) <= 0.4 * _sz
+                                  and -0.5 * _sz <= L["x0"] - bx <= 4.0 * _sz
+                                  for bby, bx in bullet_bases)
+
+        # ── 2) LIGNES → PARAGRAPHES ───────────────────────────────────────────
+        # Comparaison à TOUS les paragraphes ouverts (pas seulement le dernier) :
+        # colonne et encart s'entrelacent en y → une ligne doit rejoindre SON
+        # paragraphe (même colonne = chevauchement horizontal, juste en dessous
+        # de sa dernière ligne) même si une ligne d'une autre colonne s'est
+        # intercalée. Sinon : sur-segmentation (1 paragraphe par ligne).
+        paras = []
+        for L in sorted(lines, key=lambda L: (round(L["y0"], 1), L["x0"])):
+            best, best_dy = None, 1e9
+            # Une ligne qui DÉMARRE un item de liste (puce alignée) ouvre
+            # toujours un nouveau paragraphe : on ne la rattache à aucun item
+            # précédent, même si style/marge/interligne coïncident.
+            cands = [] if L.get("item_start") else paras
+            for p in cands:
+                if p["style"] != L["style"]:
+                    continue
+                last = p["lines"][-1]
+                ov = min(L["x1"], p["x1"]) - max(L["x0"], p["x0"])  # même colonne ?
+                if ov <= 0:
+                    continue
+                size = max(6.0, (L["style"][0] + last["style"][0]) / 2)
+                tol = max(3.0, 0.35 * size)
+                # Adjacence verticale mesurée BASELINE-À-BASELINE (et non entre
+                # bords de boîtes) : la hauteur de boîte varie (gras, asc./desc.)
+                # et peut chevaucher la ligne voisine → l'écart entre bords
+                # devenait négatif et une ligne consécutive valide était rejetée
+                # (la suivante la « sautait » alors, scindant un paragraphe gras).
+                # L'interligne, lui, est un ratio typographique stable.
+                dy = L["base"] - last["base"]                       # juste dessous ?
+                if not (0.5 * size <= dy <= 1.7 * size):
+                    continue
+                # Bord aligné : x0 (début) ou x1 (fin). La tolérance sur x0 est
+                # relative à la taille (~1 caractère) pour absorber le léger
+                # retrait de puce — une continuation revenant à la marge sous une
+                # 1re ligne indentée après « ❖ » reste le même paragraphe.
+                edge = (abs(L["x0"] - last["x0"]) <= max(tol, min(0.9 * size, 12.0))
+                        or abs(L["x1"] - last["x1"]) <= tol)
+                # L-shape : la dernière ligne du para était bornée à gauche par un
+                # obstacle (image/encart), la courante revient pleine largeur.
+                lshape = abs(L["x0"] - cx0) <= tol and last["avail"][0] > cx0 + tol
+                if (edge or lshape) and dy < best_dy:
+                    best, best_dy = p, dy
+            if best is not None:
+                best["lines"].append(L)
+                best["x0"] = min(best["x0"], L["x0"]); best["y0"] = min(best["y0"], L["y0"])
+                best["x1"] = max(best["x1"], L["x1"]); best["y1"] = max(best["y1"], L["y1"])
+            else:
+                paras.append({"lines": [L], "style": L["style"],
+                              "x0": L["x0"], "y0": L["y0"], "x1": L["x1"], "y1": L["y1"]})
+
+        out = []
+        for k, p in enumerate(paras):
+            gap = None
+            for q in reversed(paras[:k]):
+                if min(p["x1"], q["x1"]) - max(p["x0"], q["x0"]) > 0:
+                    gap = round(p["y0"] - q["y1"], 1)
+                    break
+            block_ids, bands = [], []
+            for L in p["lines"]:
+                for i in L["blocks"]:
+                    blocks[i]["para_id"] = k
+                    block_ids.append(i)
+                bands.append([round(L["y0"], 1), round(L["y1"], 1),
+                              L["avail"][0], L["avail"][1]])
+            out.append({"id": k, "lines": block_ids, "n_lines": len(p["lines"]),
+                        "frame": [round(p["x0"], 1), round(p["y0"], 1),
+                                  round(p["x1"], 1), round(p["y1"], 1)],
+                        "bands": bands, "gap_before": gap})
+        page_data["paragraphs"] = out
+        page_data["anchors"] = anchors
+        page_data["rules"] = [[round(v, 1) for v in r] for r in (rules or [])]
 
     def _make_para_entry(self, group, page_num, b_idx, p_idx, rotated=False):
         """Construit un bloc de texte à partir d'un groupe (1+ lignes), avec
@@ -2121,6 +2463,12 @@ class PDFTranslatorEngine:
         xs1 = max(s["bbox"][2] for s in spans)
         ys1 = max(s["bbox"][3] for s in spans)
         origin = list(first.get("origin", [xs0, ys1]))
+        # Origine x = PREMIER GLYPHE VISIBLE (et non le début du span, qui peut
+        # inclure un espace de tête dont l'avance varie — parfois nulle). Sans
+        # ça, un mot suivant un espace de tête se rendrait collé ou décalé.
+        vis_x0 = first.get("_vis_x0")
+        if vis_x0 is not None and abs(rot) <= 1.0:
+            origin[0] = vis_x0
 
         # bbox/point de la puce rattachée (pour la dessiner au bon endroit)
         if bullet is not None:
@@ -2349,704 +2697,3 @@ class PDFTranslatorEngine:
                                     font_mapped, font_raw, color, 0.0)
             y += size * 1.3
         return True
-
-    def _insert_rotated_paragraph(self, page, bbox, text, font_mapped,
-                                  font_raw, orig_size, color, align, rotate,
-                                  min_size=None):
-        """Insère un paragraphe pivoté (cellule verticale) via insert_textbox
-        avec `rotate` (90/270) et retour à la ligne automatique. Même logique
-        de réduction de taille que le cas horizontal."""
-        x0, y0, x1, y1 = bbox[0], bbox[1], bbox[2], bbox[3]
-        embed = self._embed_font_for(text, font_raw)
-        if embed is not None:
-            fontkey, fontfile = embed
-        else:
-            fontkey, fontfile = font_mapped, None
-
-        def _try(rect, size):
-            try:
-                if fontfile:
-                    return page.insert_textbox(rect, text, fontsize=size,
-                                               fontname=fontkey, fontfile=fontfile,
-                                               color=color, align=align, rotate=rotate)
-                return page.insert_textbox(rect, text, fontsize=size,
-                                           fontname=fontkey, color=color,
-                                           align=align, rotate=rotate)
-            except Exception:
-                return None
-
-        # Priorité 1 : taille d'origine dans la cellule telle quelle.
-        base_rect = fitz.Rect(x0, y0, x1, y1)
-        rv = _try(base_rect, orig_size)
-        if rv is not None and rv >= 0:
-            return True
-
-        # Priorité 2 : réduction via estimation de hauteur (mesure pure, sans
-        # insertion). Pour du texte pivoté 90°/270°, la largeur de wrap = hauteur
-        # de cellule (y1-y0) et la hauteur disponible = largeur (x1-x0).
-        if min_size is None:
-            min_size = orig_size * 0.7
-        if orig_size > min_size:
-            try:
-                _fobj = self._get_font(fontfile) if fontfile else fitz.Font(font_mapped)
-            except Exception:
-                _fobj = None
-            if _fobj is not None:
-                _bw = max(1.0, y1 - y0)   # largeur de wrap dans le repère pivoté
-                _bh = max(1.0, x1 - x0)   # hauteur disponible
-                _words = text.split()
-
-                def _fits_rot(sz):
-                    if sz <= 0 or not _words:
-                        return False
-                    try:
-                        sp = _fobj.text_length(" ", fontsize=sz)
-                        n, cur = 1, 0.0
-                        for w in _words:
-                            ww = _fobj.text_length(w, fontsize=sz)
-                            if cur == 0.0:
-                                cur = ww
-                            elif cur + sp + ww > _bw:
-                                n += 1
-                                cur = ww
-                            else:
-                                cur += sp + ww
-                        return n * sz * 1.25 <= _bh
-                    except Exception:
-                        return False
-
-                lo2, hi2, best_size = min_size, orig_size, None
-                for _ in range(12):
-                    mid = (lo2 + hi2) * 0.5
-                    if _fits_rot(mid):
-                        best_size, lo2 = mid, mid
-                    else:
-                        hi2 = mid
-
-                if best_size is not None:
-                    # Le modèle d'estimation (interligne 1.25) peut être
-                    # optimiste face aux métriques réelles de la police :
-                    # paliers descendants de 5 % jusqu'à min_size.
-                    s = best_size
-                    while s >= min_size * 0.999:
-                        r = _try(base_rect, s)
-                        if r is not None and r >= 0:
-                            return True
-                        s *= 0.95
-
-        # Priorité 3 (dernier recours) : cellule élargie dans le sens du
-        # wrap, à la taille MINIMALE — le résidu éventuel reste petit.
-        wide = fitz.Rect(x0, y0, x1 + max(orig_size * 12, 80), y1)
-        rv = _try(wide, min_size if min_size else orig_size)
-        if rv is not None and rv >= 0:
-            return True
-        return False
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # PASSE DE MISE EN PAGE — reflow vertical conservateur
-    # ══════════════════════════════════════════════════════════════════════════
-    # Recalcule la position verticale des blocs de texte « libres » selon la
-    # longueur réelle de leur traduction : un paragraphe plus court rétrécit et
-    # les blocs suivants de la MÊME colonne remontent (écarts d'origine
-    # préservés) ; plus long, ils descendent dans l'espace libre. Périmètre
-    # conservateur : on NE touche PAS aux tableaux, fonds colorés, images,
-    # texte pivoté, ni à plusieurs colonnes à la fois. Au moindre risque de
-    # collision/débordement, on revient à un comportement sans croissance
-    # (déplacement vers le haut uniquement), puis à la position d'origine.
-
-    LINE_PITCH = 1.32   # interligne approximatif (× taille de police)
-
-    def _wrap_line_count(self, text, fontsize, width, font_mapped, font_raw):
-        """Nombre de lignes après retour à la ligne de `text` dans `width`."""
-        if width <= 1 or not text.strip():
-            return 1
-        sym = SYMBOL_BUILTIN_FONT.get(self._norm_font(font_raw or ""))
-        try:
-            if sym:
-                font = fitz.Font(sym)
-            else:
-                embed = self._embed_font_for(text, font_raw)
-                font = self._get_font(embed[1]) if embed else fitz.Font(font_mapped)
-        except Exception:
-            font = fitz.Font("helv")
-        space = font.text_length(" ", fontsize=fontsize)
-        lines, cur = 1, 0.0
-        for w in text.split():
-            ww = font.text_length(w, fontsize=fontsize)
-            if cur <= 0:
-                cur = ww
-            elif cur + space + ww <= width:
-                cur += space + ww
-            else:
-                lines += 1
-                cur = ww
-        return lines
-
-    @staticmethod
-    def _vertical_rules(page):
-        """Segments VERTICAUX vectoriels de la page (filets de tableau,
-        bordures de cellules) : liste de (x, y0, y1). Mêmes critères que
-        _table_regions — trait fin (< 3 pt) d'au moins 20 pt de long, dessiné
-        comme ligne ou rectangle filiforme. Sert d'obstacle à l'étirement de
-        colonne : un texte ne s'étire jamais à travers une bordure dessinée."""
-        vs = []
-        try:
-            drawings = page.get_cdrawings()
-        except Exception:
-            return vs
-        for d in drawings:
-            for it in d.get("items", []):
-                if it[0] == "re":
-                    r = it[1]
-                    w, h = abs(r[2] - r[0]), abs(r[3] - r[1])
-                    if w < 3 and h >= 20:
-                        vs.append(((r[0] + r[2]) / 2,
-                                   min(r[1], r[3]), max(r[1], r[3])))
-                elif it[0] == "l":
-                    p1, p2 = it[1], it[2]
-                    if abs(p1[0] - p2[0]) < 1 and abs(p2[1] - p1[1]) >= 20:
-                        vs.append(((p1[0] + p2[0]) / 2,
-                                   min(p1[1], p2[1]), max(p1[1], p2[1])))
-        return vs
-
-    def _table_regions(self, src_page):
-        """Régions quadrillées (tableaux), détectées par une vraie GRILLE :
-        plusieurs lignes fines horizontales ET verticales. De simples filets
-        horizontaux (soulignements de section) ne suffisent pas — sinon on
-        exclurait à tort des paragraphes ordinaires du reflow."""
-        hs, vs = [], []
-        for d in src_page.get_cdrawings():
-            for it in d.get("items", []):
-                if it[0] == "re":
-                    r = it[1]
-                    w, h = abs(r[2] - r[0]), abs(r[3] - r[1])
-                    if h < 3 and w >= 20:
-                        hs.append((min(r[0], r[2]), min(r[1], r[3]),
-                                   max(r[0], r[2]), max(r[1], r[3])))
-                    elif w < 3 and h >= 20:
-                        vs.append((min(r[0], r[2]), min(r[1], r[3]),
-                                   max(r[0], r[2]), max(r[1], r[3])))
-                elif it[0] == "l":
-                    p1, p2 = it[1], it[2]
-                    if abs(p1[1] - p2[1]) < 1 and abs(p2[0] - p1[0]) >= 20:
-                        hs.append((min(p1[0], p2[0]), p1[1],
-                                   max(p1[0], p2[0]), p1[1]))
-                    elif abs(p1[0] - p2[0]) < 1 and abs(p2[1] - p1[1]) >= 20:
-                        vs.append((p1[0], min(p1[1], p2[1]),
-                                   p1[0], max(p1[1], p2[1])))
-        # Une grille requiert des lignes dans les DEUX directions.
-        if len(hs) < 4 or len(vs) < 2:
-            return []
-        allseg = hs + vs
-        x0 = min(s[0] for s in allseg); y0 = min(s[1] for s in allseg)
-        x1 = max(s[2] for s in allseg); y1 = max(s[3] for s in allseg)
-        return [(x0, y0, x1, y1)]
-
-    def _bg_fills(self, src_page, page_w, page_h):
-        """Rectangles pleins significatifs (fonds colorés). Ignore le fond de
-        page entier (≥ 70 % de la surface) qui n'ancre aucun bloc précis."""
-        fills = []
-        page_area = max(1.0, page_w * page_h)
-        for d in src_page.get_cdrawings():
-            for it in d.get("items", []):
-                if it[0] != "re":
-                    continue
-                r = it[1]
-                w, h = abs(r[2] - r[0]), abs(r[3] - r[1])
-                if h >= 4 and w >= 8 and (w * h) < 0.70 * page_area:
-                    fills.append((min(r[0], r[2]), min(r[1], r[3]),
-                                  max(r[0], r[2]), max(r[1], r[3])))
-        return fills
-
-    @staticmethod
-    def _cluster_columns(blocks):
-        """Regroupe les blocs en colonnes par recouvrement horizontal (union-
-        find transitif sur l'intervalle x). Deux blocs dont les x se recouvrent
-        sont dans la même colonne."""
-        n = len(blocks)
-        parent = list(range(n))
-
-        def find(i):
-            while parent[i] != i:
-                parent[i] = parent[parent[i]]
-                i = parent[i]
-            return i
-
-        def union(i, j):
-            parent[find(i)] = find(j)
-
-        for i in range(n):
-            ax0, ax1 = blocks[i]["bbox"][0], blocks[i]["bbox"][2]
-            for j in range(i + 1, n):
-                bx0, bx1 = blocks[j]["bbox"][0], blocks[j]["bbox"][2]
-                if min(ax1, bx1) - max(ax0, bx0) > 1.0:   # recouvrement x
-                    union(i, j)
-        cols = {}
-        for i in range(n):
-            cols.setdefault(find(i), []).append(blocks[i])
-        return list(cols.values())
-
-    def _reflow_page(self, page_data, src_page):
-        blocks = page_data.get("text_blocks", [])
-        if not blocks:
-            return
-        W = page_data.get("width", src_page.rect.width)
-        H = page_data.get("height", src_page.rect.height)
-        top_margin, bot_margin = 0.05 * H, 0.95 * H
-        tables = self._table_regions(src_page)
-        fills = self._bg_fills(src_page, W, H)
-
-        def overlaps(a, b):
-            return not (a[2] <= b[0] or a[0] >= b[2]
-                        or a[3] <= b[1] or a[1] >= b[3])
-
-        def covered(bb, region, frac):
-            ox = max(0.0, min(bb[2], region[2]) - max(bb[0], region[0]))
-            oy = max(0.0, min(bb[3], region[3]) - max(bb[1], region[1]))
-            area = max(1.0, (bb[2] - bb[0]) * (bb[3] - bb[1]))
-            return (ox * oy) / area >= frac
-
-        # 1. Classification : quels blocs sont reflowables ?
-        reflowable = []
-        for b in blocks:
-            bb = b.get("bbox")
-            ok = (bb and len(bb) >= 4
-                  and abs(b.get("rotation", 0)) <= 1.0
-                  and bb[1] >= top_margin and bb[3] <= bot_margin
-                  and not any(covered(bb, t, 0.2) for t in tables)
-                  and not any(covered(bb, f, 0.5) for f in fills))
-            b["_reflow"] = bool(ok)
-            if ok:
-                reflowable.append(b)
-        if not reflowable:
-            return
-
-        # Colonnes calculées sur la géométrie d'ORIGINE (avant tout élargissement,
-        # sinon un bloc élargi pourrait fusionner à tort deux colonnes voisines).
-        cols = self._cluster_columns(reflowable)
-
-        # Règle 2b — reflow inline (chaînes « même ligne »). Quand un bloc
-        # mono-ligne rétrécit (traduction plus courte), ses voisins directement
-        # adjacents sur la même ligne se décalent pour refermer le trou ; s'il
-        # s'allonge, ils se décalent à droite (borné anti-collision).
-        self._reflow_inline(blocks, tables)
-
-        # Règle 1 — élargissement horizontal dans l'espace libre à droite.
-        # Doit s'exécuter AVANT le reflow vertical : si la traduction plus longue
-        # retrouve sa hauteur d'origine en s'élargissant, le vertical ne bouge rien.
-        self._expand_widths(reflowable, blocks, tables, fills, W)
-
-        # 2. Obstacles fixes (à ne pas chevaucher quand on déplace du texte)
-        obstacles = [b["bbox"] for b in blocks if not b.get("_reflow")]
-        obstacles += list(tables)
-
-        # 3. Reflow colonne par colonne
-        for col in cols:
-            col.sort(key=lambda b: b["bbox"][1])
-            self._reflow_column(col, obstacles, bot_margin)
-
-    def _expand_widths(self, reflowable, all_blocks, tables, fills, W):
-        """Règle 1 — élargissement horizontal.
-
-        Pour un paragraphe multi-lignes dont la traduction est PLUS LONGUE que
-        l'original (donc occuperait plus de lignes à largeur égale), on agrandit
-        sa boîte vers la DROITE dans l'espace libre — juste assez pour que le
-        texte retrouve son nombre de lignes d'origine (donc sa hauteur). On
-        préserve un écart minimal avec tout voisin de droite et on n'empiète
-        jamais sur un autre bloc, un tableau ou un fond coloré. Si l'espace ne
-        suffit pas, on élargit au maximum disponible et le reflow vertical
-        absorbe le reste (règle 2). Si aucun espace à droite : on ne touche à
-        rien (la réduction de police — règle 3 — sera traitée ultérieurement).
-        """
-        if not reflowable:
-            return
-        GAP = 6.0  # écart minimal préservé avec un voisin de droite
-        # Marge droite du contenu : symétrique à la marge gauche du texte.
-        left_margin = min(b["bbox"][0] for b in reflowable)
-        right_bound = W - max(6.0, left_margin)
-        extra = [list(r) for r in list(tables) + list(fills)]
-
-        def yov(a, b):
-            return min(a[3], b[3]) - max(a[1], b[1]) > 2.0
-
-        for b in reflowable:
-            # Règle 1 : gauche uniquement (élargir un bloc centré/droite
-            # déplacerait son ancrage), horizontal, multi-lignes.
-            if (abs(b.get("rotation", 0)) > 1.0
-                    or b.get("align", 0) != 0
-                    or not b.get("multiline")):
-                continue
-            bb = b["bbox"]
-            size = b.get("size", 12)
-            fm, fr = b.get("font_mapped", "helv"), b.get("font", "helv")
-            src = (b.get("text") or "").strip()
-            tr = (b.get("translated_text") or src).strip()
-            if not tr:
-                continue
-            first_x = b.get("first_x", bb[0])
-            cur_w = bb[2] - first_x
-            if cur_w <= 1:
-                continue
-            nl_src = max(1, self._wrap_line_count(src, size, cur_w, fm, fr))
-            nl_tr = max(1, self._wrap_line_count(tr, size, cur_w, fm, fr))
-            if nl_tr <= nl_src:
-                continue  # tient déjà : la règle 1 ne traite que le « plus long »
-
-            # Limite droite : le plus proche obstacle à droite chevauchant en y.
-            limit = right_bound
-            for o in all_blocks:
-                if o is b:
-                    continue
-                ob = o.get("bbox")
-                if ob and len(ob) >= 4 and ob[0] >= bb[2] - 1.0 and yov(bb, ob):
-                    limit = min(limit, ob[0] - GAP)
-            for ob in extra:
-                if ob[0] >= bb[2] - 1.0 and yov(bb, ob):
-                    limit = min(limit, ob[0] - GAP)
-            if limit <= bb[2] + 2.0:
-                continue  # pas d'espace à droite → réduction (règle 3) plus tard
-
-            new_x1 = self._min_width_x1(tr, size, fm, fr, first_x,
-                                        bb[2], limit, nl_src)
-            if new_x1 > bb[2] + 1.0:
-                b.setdefault("_old_bbox", list(bb))  # redaction = aire d'origine
-                b["bbox"] = [bb[0], bb[1], new_x1, bb[3]]
-
-    def _min_width_x1(self, text, size, fm, fr, first_x,
-                      cur_x1, max_x1, target_lines):
-        """Plus petit `x1` dans ]cur_x1, max_x1] tel que `text` tienne en
-        `target_lines` lignes (nombre de lignes décroissant avec la largeur →
-        recherche dichotomique). Si même `max_x1` ne suffit pas, renvoie
-        `max_x1` (élargissement maximal, le vertical absorbera le reste)."""
-        if self._wrap_line_count(text, size, max_x1 - first_x, fm, fr) > target_lines:
-            return max_x1
-        lo, hi = cur_x1, max_x1
-        for _ in range(20):
-            mid = (lo + hi) / 2.0
-            if self._wrap_line_count(text, size, mid - first_x, fm, fr) <= target_lines:
-                hi = mid
-            else:
-                lo = mid
-        return hi
-
-    def _reflow_inline(self, blocks, tables):
-        """Reflow horizontal des CHAÎNES INLINE (blocs mono-ligne partageant la
-        même ligne de base et directement adjacents, écart ≈ 0). Quand la
-        traduction d'un maillon change de largeur, les maillons suivants sont
-        repositionnés pour préserver l'écart d'origine : décalage à GAUCHE si le
-        texte rétrécit (on referme le trou « espace blanc sans texte »), à droite
-        s'il s'allonge (borné pour ne jamais chevaucher un autre bloc/colonne).
-        Les voisins à grand écart (vraies colonnes) ne sont JAMAIS déplacés."""
-        INLINE_FACTOR = 0.6  # écart max d'une chaîne ≈ une espace (× taille)
-
-        def covered(bb, region, frac=0.2):
-            ox = max(0.0, min(bb[2], region[2]) - max(bb[0], region[0]))
-            oy_ = max(0.0, min(bb[3], region[3]) - max(bb[1], region[1]))
-            area = max(1.0, (bb[2] - bb[0]) * (bb[3] - bb[1]))
-            return (ox * oy_) / area >= frac
-
-        def oy(b):
-            o = b.get("origin")
-            return o[1] if o and len(o) >= 2 else b["bbox"][3]
-
-        def line_start(b):
-            # Bord gauche du bloc SUR LA LIGNE DE BASE. Pour un bloc multi-ligne
-            # à 1re ligne indentée (libellé en ligne : « label : valeur… »), la
-            # 1re ligne démarre à first_x (les lignes de retour, elles, à bbox[0]).
-            if b.get("multiline") and b.get("first_x") is not None:
-                return b["first_x"]
-            return b["bbox"][0]
-
-        cand = []
-        for b in blocks:
-            bb = b.get("bbox")
-            if (not bb or len(bb) < 4 or abs(b.get("rotation", 0)) > 1.0
-                    or b.get("bullet_char")):
-                continue
-            if b.get("multiline"):
-                # Multi-ligne accepté UNIQUEMENT comme maillon terminal à 1re
-                # ligne indentée (sa 1re ligne suit un libellé). Les autres
-                # paragraphes multi-lignes ne sont pas des chaînes inline.
-                fx = b.get("first_x")
-                if fx is None or fx <= bb[0] + 1.0:
-                    continue
-            if any(covered(bb, t) for t in tables):
-                continue
-            cand.append(b)
-        if len(cand) < 2:
-            return
-
-        cand.sort(key=lambda b: (round(oy(b), 1), line_start(b)))
-
-        # Regroupement par ligne de base (origin y proche, tolérance ∝ taille).
-        lines, cur = [], [cand[0]]
-        for b in cand[1:]:
-            ref = cur[0]
-            tol = 0.4 * max(ref.get("size", 10), b.get("size", 10))
-            if abs(oy(b) - oy(ref)) <= tol:
-                cur.append(b)
-            else:
-                lines.append(cur)
-                cur = [b]
-        lines.append(cur)
-
-        def overlaps(a, b):
-            return not (a[2] <= b[0] or a[0] >= b[2]
-                        or a[3] <= b[1] or a[1] >= b[3])
-
-        for line in lines:
-            line.sort(key=line_start)
-            i = 0
-            while i < len(line):
-                chain, j = [line[i]], i
-                while j + 1 < len(line):
-                    a, nb = line[j], line[j + 1]
-                    if a.get("multiline"):
-                        break          # un multi-ligne ne peut être que terminal
-                    gap = line_start(nb) - a["bbox"][2]
-                    lim = max(2.0, INLINE_FACTOR * max(a.get("size", 10),
-                                                       nb.get("size", 10)))
-                    if -1.0 <= gap <= lim:
-                        chain.append(nb)
-                        j += 1
-                        if nb.get("multiline"):
-                            break       # maillon terminal atteint
-                    else:
-                        break
-                if len(chain) >= 2:
-                    self._apply_inline_chain(chain, blocks, tables, overlaps)
-                i = j + 1
-
-    def _apply_inline_chain(self, chain, all_blocks, tables, overlaps):
-        """Repositionne les maillons (sauf l'ancre, fixe) d'une chaîne inline
-        selon la largeur réelle de leur traduction, en préservant les écarts
-        d'origine. Tout-ou-rien : si un décalage vers la droite crée une
-        NOUVELLE collision avec un bloc/tableau externe, la chaîne est laissée
-        intacte."""
-        def scaled_width(b):
-            # Largeur rendue estimée de la traduction = largeur RÉELLE d'origine
-            # (bbox, vérité terrain) × ratio (longueur traduite / source) en
-            # métriques de police. Le ratio annule le biais systématique des
-            # métriques (gras, police embarquée…) ; si traduction = source, le
-            # ratio vaut 1 → largeur inchangée → no-op rigoureusement nul.
-            bb = b["bbox"]
-            ow = max(0.0, bb[2] - bb[0])
-            size = b.get("size", 10)
-            fm, fr = b.get("font_mapped", "helv"), b.get("font", "helv")
-            src = (b.get("text") or "").strip()
-            tr = (b.get("translated_text") or src).strip()
-            wsrc = self._text_length(src, size, fm, fr)
-            if wsrc <= 1.0:
-                return ow
-            return ow * (self._text_length(tr, size, fm, fr) / wsrc)
-
-        def line_start(b):
-            if b.get("multiline") and b.get("first_x") is not None:
-                return b["first_x"]
-            return b["bbox"][0]
-
-        cur_right = chain[0]["bbox"][0] + scaled_width(chain[0])
-        proposals = []
-        for k in range(1, len(chain)):
-            b, prev = chain[k], chain[k - 1]
-            ls = line_start(b)
-            orig_gap = ls - prev["bbox"][2]
-            new_ls = cur_right + orig_gap
-            delta = new_ls - ls
-            proposals.append((b, delta))
-            if b.get("multiline"):
-                break               # maillon terminal : pas de suite à propager
-            cur_right = new_ls + scaled_width(b)
-
-        if not proposals:
-            return
-
-        # Garde anti-collision pour les décalages à DROITE (allongement) des
-        # maillons MONO-ligne (un maillon multi-ligne ne décale que sa 1re ligne
-        # à l'intérieur de sa propre boîte → aucune collision externe possible).
-        chain_ids = {id(c) for c in chain}
-        obst = [o["bbox"] for o in all_blocks
-                if id(o) not in chain_ids and o.get("bbox") and len(o["bbox"]) >= 4]
-        obst += list(tables)
-        for b, delta in proposals:
-            if b.get("multiline") or delta <= 0.1:
-                continue
-            bb = b["bbox"]
-            new_bb = [bb[0] + delta, bb[1], bb[2] + delta, bb[3]]
-            for o in obst:
-                if overlaps(new_bb, o) and not overlaps(bb, o):
-                    return          # collision nouvelle → on abandonne la chaîne
-
-        for b, delta in proposals:
-            if abs(delta) < 0.3:
-                continue
-            if b.get("multiline"):
-                # Décale uniquement la 1re ligne (first_x) ; les lignes de retour
-                # restent à la marge (bbox inchangée → redaction d'origine OK).
-                fx = b["first_x"]
-                bb = b["bbox"]
-                new_fx = min(max(fx + delta, bb[0]), bb[2] - b.get("size", 10))
-                shift = new_fx - fx
-                b["first_x"] = new_fx
-                o = b.get("origin")
-                if o and len(o) >= 2:
-                    b["origin"] = [o[0] + shift, o[1]]
-            else:
-                b.setdefault("_old_bbox", list(b["bbox"]))
-                bb = b["bbox"]
-                b["bbox"] = [bb[0] + delta, bb[1], bb[2] + delta, bb[3]]
-                o = b.get("origin")
-                if o and len(o) >= 2:
-                    b["origin"] = [o[0] + delta, o[1]]
-                bo = b.get("bullet_origin")
-                if bo and len(bo) >= 2:
-                    b["bullet_origin"] = [bo[0] + delta, bo[1]]
-
-    def _reflow_column(self, col, obstacles, bottom_limit):
-        """Empile verticalement une colonne en préservant les écarts d'origine.
-        Essaie d'abord en autorisant la croissance ; si ça déborde/chevauche,
-        recommence en bornant chaque hauteur à sa valeur d'origine (déplacement
-        vers le haut uniquement, sans risque)."""
-        def needed_height(b):
-            bb = b["bbox"]
-            orig_h = bb[3] - bb[1]
-            if not b.get("multiline"):
-                return orig_h
-            left = b.get("first_x", bb[0])
-            width = bb[2] - left
-            size = b.get("size", 12)
-            fm, fr = b.get("font_mapped", "helv"), b.get("font", "helv")
-            src = (b.get("text") or "").strip()
-            tr = (b.get("translated_text") or src).strip()
-            if not tr:
-                return orig_h
-            # On met à l'échelle la hauteur d'origine par le ratio de lignes
-            # (traduction / source) : si le nombre de lignes ne change pas, la
-            # hauteur est rigoureusement inchangée → reflow sans dérive.
-            nl_src = max(1, self._wrap_line_count(src, size, width, fm, fr))
-            nl_tr = max(1, self._wrap_line_count(tr, size, width, fm, fr))
-            return orig_h * nl_tr / nl_src
-
-        def overlaps_(a, b):
-            return not (a[2] <= b[0] or a[0] >= b[2]
-                        or a[3] <= b[1] or a[1] >= b[3])
-
-        def layout(cap_to_original):
-            """Renvoie la liste des nouveaux (top, height) ou None si collision."""
-            placements = []
-            prev_new_bottom = prev_orig_bottom = None
-            for b in col:
-                bb = b["bbox"]
-                h = needed_height(b)
-                if cap_to_original:
-                    h = min(h, bb[3] - bb[1])
-                if prev_new_bottom is None:
-                    new_top = bb[1]                       # 1er bloc ancré
-                else:
-                    new_top = prev_new_bottom + (bb[1] - prev_orig_bottom)
-                new_bb = (bb[0], new_top, bb[2], new_top + h)
-                if new_bb[3] > bottom_limit:
-                    return None
-                # collision rejetée seulement si NOUVELLE (un chevauchement déjà
-                # présent à l'origine dans le PDF source ne doit pas tout bloquer)
-                for o in obstacles:
-                    if overlaps_(new_bb, o) and not overlaps_(bb, o):
-                        return None
-                placements.append((new_top, h))
-                prev_new_bottom, prev_orig_bottom = new_top + h, bb[3]
-            return placements
-
-        placements = layout(cap_to_original=False)
-        if placements is None:
-            placements = layout(cap_to_original=True)
-        if placements is None:
-            return  # impossible sans risque → on garde les positions d'origine
-
-        for b, (new_top, h) in zip(col, placements):
-            bb = b["bbox"]
-            dy = new_top - bb[1]
-            if abs(dy) < 0.5 and abs((new_top + h) - bb[3]) < 0.5:
-                continue                                  # rien à déplacer
-            # Conserve l'aire d'origine à effacer : si la passe horizontale a
-            # déjà posé _old_bbox (bbox élargie), ne pas l'écraser.
-            b.setdefault("_old_bbox", list(bb))
-            b["bbox"] = [bb[0], new_top, bb[2], new_top + h]
-            if b.get("origin") and len(b["origin"]) >= 2:
-                b["origin"] = [b["origin"][0], b["origin"][1] + dy]
-            if b.get("bullet_origin") and len(b["bullet_origin"]) >= 2:
-                b["bullet_origin"] = [b["bullet_origin"][0], b["bullet_origin"][1] + dy]
-
-    @staticmethod
-    def _compute_avail_widths(page_data: dict, page_width: float) -> None:
-        """Pour chaque bloc de la page, stocke `avail_width` = espace exploitable
-        à droite : du bord gauche du bloc jusqu'au bord gauche du premier voisin
-        qui le borde à droite sur la même bande verticale. Si personne ne borde,
-        on s'étend jusqu'au bord droit réel du contenu (max x1 des blocs de la
-        page) — aucune marge fixe, valeur entièrement dérivée du document.
-
-        N'est calculé que pour les blocs horizontaux non-rotatifs ; les blocs
-        pivotés gardent leur bbox width (ils sont dans des cellules de tableau)."""
-        blocks = page_data.get("text_blocks", [])
-        # Limite droite = bord droit réel du contenu sur cette page.
-        horiz = [b for b in blocks if b.get("rotation", 0.0) == 0.0 and b.get("bbox")]
-        content_right = max((b["bbox"][2] for b in horiz), default=page_width)
-        content_right = min(content_right, page_width)   # jamais au-delà de la page
-        max_x = content_right
-
-        for b in blocks:
-            if b.get("rotation", 0.0) != 0.0:
-                b["avail_width"] = abs(b["bbox"][2] - b["bbox"][0])
-                continue
-
-            bx0, by0, bx1, by1 = b["bbox"]
-            # Cherche le voisin le plus proche à droite (x0 > bx1) dont la bande
-            # verticale [by0, by1] recouvre celle de b d'au moins 30 % de la
-            # hauteur de b. Ignore les blocs à gauche ou quasi-alignés.
-            h = max(1.0, by1 - by0)
-            nearest = max_x
-            for nb in blocks:
-                if nb is b:
-                    continue
-                nx0, ny0, nx1, ny1 = nb["bbox"]
-                if nx0 <= bx1 + 1.0:       # pas à droite
-                    continue
-                ov = min(by1, ny1) - max(by0, ny0)
-                if ov < 0.3 * h:            # bande verticale sans recouvrement suffisant
-                    continue
-                if nx0 < nearest:
-                    nearest = nx0
-            avail = max(nearest - bx0, bx1 - bx0)
-            b["avail_width"] = avail
-
-    def _fit_fontsize(self, text: str, font_name: str, max_width: float,
-                      original_size: float, min_size: float = 5.0,
-                      font_raw: str = "") -> float:
-        """Renvoie la plus grande taille qui permet à `text` de tenir sur une
-        ligne dans `max_width`. Si la taille d'origine tient déjà, elle est
-        conservée (no-op). Sinon : recherche binaire entre min_size et
-        original_size. C'est le 3ᵉ recours (après fusion inter-blocs et
-        élargissement horizontal) : s'applique seulement aux blocs mono-ligne
-        (les multi-lignes sont gérés par _insert_paragraph).
-
-        CRITIQUE : la largeur est mesurée via _text_length (la police RÉELLEMENT
-        rendue — embarquée ou substituée), et NON les métriques base-14. Mesurer
-        avec une police plus étroite que celle du rendu (ex. Times pour un texte
-        rendu en police plus large) faisait croire que le texte tenait : il
-        débordait alors malgré l'ajustement."""
-        try:
-            w = self._text_length(text, original_size, font_name, font_raw)
-        except Exception:
-            return original_size
-        if w <= max_width or original_size <= min_size:
-            return original_size
-        lo, hi = min_size, original_size
-        for _ in range(14):                  # 14 iter ≈ 0.003 pt de précision
-            mid = (lo + hi) * 0.5
-            try:
-                if self._text_length(text, mid, font_name, font_raw) <= max_width:
-                    lo = mid
-                else:
-                    hi = mid
-            except Exception:
-                break
-        return max(lo, min_size)

@@ -313,7 +313,7 @@ def _run_translation_job(
     job_dir: str, lang_dir: str, original_path: str,
     extraction_path: str, translated_path: str,
     output_path: str, output_filename: str,
-    model: str, max_tokens: int, pages_set=None,
+    model: str, max_tokens: int, pages_set=None, debug: bool = False,
 ):
     """Exécute toute la pipeline dans un thread de fond et émet des events SSE."""
     try:
@@ -352,8 +352,22 @@ def _run_translation_job(
         else:
             _job_emit(job_id, "progress", {"step": "extract", "message": "Extraction : cache utilisé.", "page": 0, "total": None})
 
-        # 4. Traduction IA
-        if not os.path.exists(translated_path):
+        # 4. Traduction IA — ou IDENTITÉ en mode structure/debug
+        if debug:
+            # Aucune traduction : translated_text = texte d'origine, comme
+            # test_extract_inject.py. Le rendu (étape 5) ajoute les bordures.
+            if not os.path.exists(translated_path):
+                _job_emit(job_id, "progress", {"step": "translate", "message": "Mode structure : copie identité (sans traduction).", "page": 0, "total": None})
+                with open(extraction_path, "r", encoding="utf-8") as f:
+                    _ext = json.load(f)
+                for _pg in _ext.get("pages", []):
+                    for _b in _pg.get("text_blocks", []):
+                        _b["translated_text"] = _b.get("text", "")
+                with open(translated_path, "w", encoding="utf-8") as f:
+                    json.dump(_ext, f, ensure_ascii=False)
+            else:
+                _job_emit(job_id, "progress", {"step": "translate", "message": "Mode structure : cache utilisé.", "page": 0, "total": None})
+        elif not os.path.exists(translated_path):
             if not ai_active:
                 raise ValueError("Le traducteur IA n'est pas disponible.")
             cb_translate = _make_progress_cb(job_id, "translate")
@@ -372,7 +386,15 @@ def _run_translation_job(
         if ext == "docx":
             inj_ok, inj_msg = docx_engine.inject_translation(original_path, translated_path, output_path, format_options=format_opts)
         elif ext == "pdf":
-            inj_ok, inj_msg = pdf_engine.inject_translation(original_path, translated_path, output_path, progress_callback=cb_inject, format_options=format_opts)
+            # Mode structure : moteur DÉDIÉ avec bordures de debug (contours de
+            # paragraphes), exactement comme test_extract_inject.py. Instance
+            # neuve pour ne pas muter le moteur partagé entre requêtes.
+            if debug:
+                _dbg = PDFTranslatorEngine()
+                _dbg.debug_draw_borders = True
+                inj_ok, inj_msg = _dbg.inject_translation(original_path, translated_path, output_path, progress_callback=cb_inject, format_options=format_opts)
+            else:
+                inj_ok, inj_msg = pdf_engine.inject_translation(original_path, translated_path, output_path, progress_callback=cb_inject, format_options=format_opts)
         elif ext == "pptx" and pptx_engine:
             inj_ok, inj_msg = pptx_engine.inject_translation(original_path, translated_path, output_path, format_options=format_opts)
         else:
@@ -457,6 +479,7 @@ async def translate_endpoint(
     format_options: str = Form("{}"),
     quality: str = Form("fast"),
     pages: str = Form(""),
+    debug: str = Form(""),
     x_api_key: str = Header(None),
 ):
     """Démarre un job de traduction et retourne immédiatement un job_id.
@@ -482,12 +505,20 @@ async def translate_endpoint(
     except json.JSONDecodeError:
         format_opts = {}
 
+    # Mode STRUCTURE (debug) : aucune traduction. Reproduit exactement
+    # test_extract_inject.py — extraction → translated = texte d'origine →
+    # injection avec bordures de debug (contours de paragraphes). Sert à vérifier
+    # le moteur dans l'interface, à l'identique des tests.
+    debug_mode = str(debug).strip().lower() in ("1", "true", "yes", "on")
+
     # Mode de traduction (rapide vs précis) → modèle + budget de tokens.
     quality = quality if quality in ("fast", "precise") else "fast"
     model, max_tokens = _resolve_quality(quality)
     # Suffixe de cache : les deux modes produisent des résultats différents, ils
     # ne doivent JAMAIS partager le même translated.json ni le même PDF de sortie.
     qsuffix = "" if quality == "fast" else "_precise"
+    if debug_mode:
+        qsuffix = "_debug"   # n'écrase jamais une vraie traduction en cache
 
     # Sélection de pages (PDF/PPTX) : None = tout le document. Le jeton entre
     # dans toutes les clés de cache pour qu'une plage donnée ne réutilise jamais
@@ -507,6 +538,8 @@ async def translate_endpoint(
     translated_path = os.path.join(lang_dir, f"translated{qsuffix}{psuffix}.json")
 
     output_filename = f"{safe_name}_TRADUIT{qsuffix}{psuffix}.{ext}"
+    if debug_mode:
+        output_filename = f"{safe_name}_STRUCTURE{psuffix}.{ext}"
     if format_opts.get("mode") and format_opts["mode"] != "preserve":
         output_filename = f"{safe_name}_TRADUIT{qsuffix}{psuffix}_{format_opts['mode']}.{ext}"
     layout_opts = format_opts.get("layout")
@@ -523,7 +556,7 @@ async def translate_endpoint(
         args=(job_id, file_bytes, filename, ext, target_lang, format_opts,
               job_dir, lang_dir, original_path, extraction_path,
               translated_path, output_path, output_filename,
-              model, max_tokens, pages_set),
+              model, max_tokens, pages_set, debug_mode),
         daemon=True,
     )
     thread.start()

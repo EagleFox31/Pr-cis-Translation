@@ -38,6 +38,7 @@ export default function TranslationSection({ onTranslationComplete, onLibraryOpe
   const [targetLang, setTargetLang] = useState('en-US');
   const [formatMode, setFormatMode] = useState('preserve');
   const [quality, setQuality] = useState<'fast' | 'precise'>('fast');
+  const [structureMode, setStructureMode] = useState(false);
   const [pages, setPages] = useState('');
   const [result, setResult] = useState<{ blob: Blob; filename: string } | null>(null);
   const [justReset, setJustReset] = useState(false);
@@ -62,7 +63,7 @@ export default function TranslationSection({ onTranslationComplete, onLibraryOpe
         lineHeightScale: 1,
         marginScale: 1,
       };
-      const res = await translateFile(selectedFile, targetLang, formatOpts, quality, supportsPageRange ? pages : '');
+      const res = await translateFile(selectedFile, targetLang, formatOpts, quality, supportsPageRange ? pages : '', structureMode);
       setResult(res);
       onTranslationComplete?.({ ...res, file: selectedFile, targetLang });
       showToast(
@@ -207,6 +208,50 @@ export default function TranslationSection({ onTranslationComplete, onLibraryOpe
             })}
           </div>
         </div>
+
+        {/* Mode structure (debug) — rendu identité + contours de paragraphes,
+            exactement comme le test du moteur (sans traduction). PDF uniquement. */}
+        {(ext === 'pdf' || !selectedFile) && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setStructureMode((v) => !v)}
+              disabled={isTranslating}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                padding: '10px 12px',
+                borderRadius: '10px',
+                border: structureMode ? '2px solid var(--blue)' : '1px solid var(--gray-300)',
+                background: structureMode ? 'rgba(37,99,235,0.06)' : 'var(--white)',
+                cursor: isTranslating ? 'not-allowed' : 'pointer',
+                fontFamily: 'inherit',
+                transition: 'all 0.15s ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+              }}
+            >
+              <span style={{
+                width: '18px', height: '18px', borderRadius: '5px', flexShrink: 0,
+                border: structureMode ? 'none' : '1px solid var(--gray-400)',
+                background: structureMode ? 'var(--blue)' : 'transparent',
+                color: 'var(--white)', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', fontSize: '12px', fontWeight: 700,
+              }}>
+                {structureMode ? '✓' : ''}
+              </span>
+              <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: structureMode ? 'var(--blue)' : 'var(--gray-800)' }}>
+                  {t('story.structure_label', '🔍 Mode structure (sans traduction)')}
+                </span>
+                <span style={{ fontSize: '11px', color: 'var(--gray-500)', lineHeight: 1.3 }}>
+                  {t('story.structure_desc', 'Rendu identité + contours de paragraphes — identique au test du moteur.')}
+                </span>
+              </span>
+            </button>
+          </div>
+        )}
 
         {/* Page range — only when a PDF/PPTX is loaded */}
         <AnimatePresence>

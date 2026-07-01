@@ -114,7 +114,9 @@
     "quality_fast": "Fast",
     "quality_fast_desc": "A few seconds · stable version",
     "quality_precise": "Precise",
-    "quality_precise_desc": "Reasoning · complex layouts · slower"
+    "quality_precise_desc": "Reasoning · complex layouts · slower",
+    "structure_label": "🔍 Structure mode (no translation)",
+    "structure_desc": "Identity render + paragraph outlines — identical to the engine test."
   },
   "library": {
     "title": "My documents",
