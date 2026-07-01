@@ -207,12 +207,17 @@ from translator_ai import TranslatorAI
 
 docx_engine = DOCXTranslatorEngine()
 pdf_engine = PDFTranslatorEngine()
-try:
-    if os.getenv("DEEPSEEK_API_KEY"):
-        pdf_engine.configure_llm(os.getenv("DEEPSEEK_API_KEY"))
-        logger.info("PDF engine LLM merge validation enabled.")
-except Exception as e:
-    logger.warning(f"PDF engine LLM not configured: {e}")
+# LLM désactivé par défaut : le regroupement de paragraphes utilise
+# exclusivement la géométrie (positions, colonnes, alignements).
+# Pour réactiver la détection IA : décommenter le bloc ci-dessous
+# ET passer engine.use_llm_paragraph_grouping = True.
+# try:
+#     if os.getenv("DEEPSEEK_API_KEY"):
+#         pdf_engine.configure_llm(os.getenv("DEEPSEEK_API_KEY"))
+#         logger.info("PDF engine LLM merge validation enabled.")
+# except Exception as e:
+#     logger.warning(f"PDF engine LLM not configured: {e}")
+logger.info("PDF engine: regroupement géométrique (pas d'IA).")
 try:
     pptx_engine = PPTXTranslatorEngine() if PPTXTranslatorEngine else None
 except:
