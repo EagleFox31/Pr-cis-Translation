@@ -331,7 +331,13 @@ class PDFObjectEngine:
     para_remaining_space = True    # Étape A : coupe « espace restant » (togglable)
     expand_paragraphs    = True    # Étape D : conteneur élargi vers la droite
     detect_tables        = True    # Étape B : cloisonnement des cellules de table
-    _EXPAND_GAP          = 6.0     # espace « raisonnable » laissé vers un objet/bord
+    _EXPAND_GAP          = 6.0     # (héritage) espace laissé vers un objet/bord
+    # Gouttière de sécurité NORMALISÉE laissée entre un bloc élargi et l'objet /
+    # la colonne voisine à sa droite : recommandation typographique standard,
+    # proportionnelle au corps (≈ gouttière inter-colonnes ~1 pica), avec un
+    # plancher en points. Sert à l'expansion horizontale (Étape D v2).
+    _SAFE_GUTTER_FACTOR  = 1.5     # × taille de police
+    _SAFE_GUTTER_MIN     = 12.0    # plancher (points)
     _PARA_GAP_FACTOR     = 1.8     # saut vertical > facteur × taille → coupe DURE
     _PARA_MODERATE_FACTOR = 1.35   # gap au-delà duquel l'INDENTATION peut couper
     _PARA_PUNCT_FACTOR   = 1.6     # gap au-delà duquel la PONCTUATION peut couper
@@ -636,28 +642,39 @@ class PDFObjectEngine:
         peut s'enrouler autour d'un encart : le conteneur est alors un contour en
         escalier (un L) qui contourne l'objet, pas un rectangle qui le chevauche.
 
-        Règle UNIQUE, appliquée à chaque ligne : on étend la ligne **seulement
-        jusqu'à la plus grande ligne du paragraphe** (`right_max`) — ce qui
-        aligne toutes les fins de ligne sur la ligne la plus longue (« équilibre
-        vers la fin la plus éloignée »). JAMAIS jusqu'à la marge de page : une
-        colonne reste donc dans sa largeur, sans déborder sur le bloc de droite.
-        On n'étend que si `right_max` est atteignable en gardant l'espace de
-        sécurité vis-à-vis du 1er objet/colonne à droite (sinon on laisse la
-        ligne telle quelle — cas de l'enroulement autour d'un encart).
+        Règle (v2), appliquée à CHAQUE ligne selon la structure de colonne :
+        - **rien à droite de la ligne** (ni autre paragraphe, ni image/dessin/
+          cellule dans sa bande) → on étend jusqu'à ce que la **marge droite
+          égale la marge gauche** (`page_width − bord gauche de la colonne`) :
+          bloc pleine largeur, équilibré sur la page. En multi-colonnes, la
+          colonne voisine est un objet à droite → ce cas ne s'y déclenche pas.
+        - **un objet/colonne à droite** → on étend jusqu'à `bord de l'objet −
+          gouttière de sécurité` (normalisée, `_safe_gutter`), pour garder une
+          séparation visuelle nette entre les blocs.
+        Le raisonnement par ligne gère seul le multi-colonnes et l'enroulement
+        (une image ne bornant que quelques lignes laisse les autres aller à la
+        marge symétrique → contour en L).
 
         Ne modifie jamais le texte ni sa position : seul le cadre conteneur
         change (visible à la réinjection en orange pointillé)."""
         obstacles = ctx.get("obstacles", ())
+        page_w = ctx.get("width") or 0
         boxed = [p for p in paras if p.get("bbox") and len(p["bbox"]) >= 4]
 
         for p in boxed:
-            pleft, ptop, right_max, pbottom = p["bbox"]
+            pleft, ptop, _, pbottom = p["bbox"]
+            # Marge droite SYMÉTRIQUE de la marge gauche de la colonne (bord
+            # gauche du paragraphe mesuré depuis le bord de page).
+            sym_right = page_w - pleft if page_w else float("inf")
             clines = []
             for ln in p.get("lines", []):
                 bb = ln.get("bbox")
                 if not bb or len(bb) < 4:
                     continue
                 lx0, lty, lx1, lby = bb
+                size = max((r.get("size", 0) or 0
+                            for r in ln.get("runs", [])), default=10.0)
+                safety = self._safe_gutter(size)
                 # 1er objet à droite de CETTE ligne (autre paragraphe OU objet
                 # non-texte), dans SA bande verticale.
                 obj = float("inf")
@@ -675,12 +692,10 @@ class PDFObjectEngine:
                     if lx1 < ox0 < obj:
                         obj = ox0
 
-                # Extension jusqu'à la plus grande ligne, uniquement si on peut
-                # l'atteindre en gardant l'espace de sécurité ; sinon inchangée.
-                if obj - self._EXPAND_GAP < right_max:
-                    tgt = lx1
+                if obj == float("inf"):
+                    tgt = sym_right          # rien à droite → marge symétrique
                 else:
-                    tgt = right_max
+                    tgt = obj - safety       # objet à droite → gouttière de sécu
                 tgt = max(tgt, lx1)          # jamais vers la gauche / rétrécir
                 clines.append([lx0, lty, tgt, lby])
 
@@ -688,6 +703,12 @@ class PDFObjectEngine:
                 p["container_lines"] = clines
                 p["container_bbox"] = [pleft, ptop,
                                        max(c[2] for c in clines), pbottom]
+
+    def _safe_gutter(self, size):
+        """Gouttière de sécurité normalisée (recommandation typographique) :
+        proportionnelle au corps, avec un plancher en points."""
+        return max(self._SAFE_GUTTER_MIN,
+                   self._SAFE_GUTTER_FACTOR * (size or 10.0))
 
     @staticmethod
     def _line_metrics(ln):
