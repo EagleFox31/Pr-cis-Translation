@@ -243,6 +243,21 @@ def reflow_paragraph(segments, container_lines, lang="fr_FR"):
     return best                          # rien ne tient : renvoie le plus serré
 
 
+def natural_height(segments, container_lines, lang="fr_FR"):
+    """Hauteur qu'occuperait le texte à taille NATURELLE (aucune cascade, aucune
+    borne verticale) dans la largeur du conteneur. Sert à décider de l'expansion
+    verticale : `need − hauteur d'origine` = ce qu'il faut gagner vers le bas.
+    Retourne (hauteur, pas)."""
+    if not container_lines:
+        return 0.0, 0.0
+    tokens = build_tokens(segments)
+    top = min(b[1] for b in container_lines)
+    pitch = _orig_pitch(container_lines, segments)
+    lines, _, _ = _layout(tokens, container_lines, top, top + 1e6,
+                          1.0, pitch, 1.0, lang)
+    return len(lines) * pitch, pitch
+
+
 def _orig_pitch(container_lines, segments):
     """Interligne d'origine : pas vertical médian entre bandes successives,
     sinon repli sur la taille dominante des segments."""

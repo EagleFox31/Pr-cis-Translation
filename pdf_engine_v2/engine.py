@@ -338,6 +338,11 @@ class PDFObjectEngine:
     # plancher en points. Sert à l'expansion horizontale (Étape D v2).
     _SAFE_GUTTER_FACTOR  = 1.5     # × taille de police
     _SAFE_GUTTER_MIN     = 12.0    # plancher (points)
+    # Distance de sécurité VERTICALE (entre un bloc étendu et l'objet ancré en
+    # dessous), normalisée. Sert à l'expansion verticale (Étape 2).
+    _SAFE_VGAP_FACTOR    = 0.8     # × taille de police
+    _SAFE_VGAP_MIN       = 8.0     # plancher (points)
+    expand_vertical      = True    # Étape 2 : flux vertical / push-down
     _PARA_GAP_FACTOR     = 1.8     # saut vertical > facteur × taille → coupe DURE
     _PARA_MODERATE_FACTOR = 1.35   # gap au-delà duquel l'INDENTATION peut couper
     _PARA_PUNCT_FACTOR   = 1.6     # gap au-delà duquel la PONCTUATION peut couper
@@ -728,6 +733,118 @@ class PDFObjectEngine:
         return max(self._SAFE_GUTTER_MIN,
                    self._SAFE_GUTTER_FACTOR * (size or 10.0))
 
+    # ── Étape 2 : flux vertical de page (push-down column-aware) ──────────────
+    def _flow_page_vertical(self, page_data):
+        """Décale les paragraphes traduits vers le BAS pour absorber les
+        traductions plus longues, sans chevauchement. Column-aware via
+        chevauchement horizontal : quand un bloc grandit de Δ, le bloc
+        directement en dessous (même colonne) descend de Δ → les écarts
+        d'origine sont préservés. Borné par le blanc du bas (marge symétrique de
+        la marge haute) et par les objets ancrés (image/dessin) avec distance de
+        sécurité verticale. Ce qui ne rentre pas retombe sur la cascade de
+        réduction du reflow. Modifie `container_lines`/`container_bbox` en place ;
+        ne touche ni au texte ni aux positions horizontales."""
+        if not self.expand_vertical:
+            return
+        els = page_data.get("elements", [])
+        page_h = page_data.get("height") or 0
+        obstacles = []
+        for e in els:
+            if e.get("type") in ("image", "drawing"):
+                bb = e.get("bbox")
+                if bb and len(bb) >= 4 and (bb[2] - bb[0] > 0.5
+                                            or bb[3] - bb[1] > 0.5):
+                    obstacles.append(bb)
+
+        info = []
+        for p in els:
+            if (p.get("type") != "paragraph" or p.get("tr_tagged") is None
+                    or not p.get("container_lines")):
+                continue
+            bb = p.get("bbox")
+            if not bb or len(bb) < 4:
+                continue
+            need = self._needed_height(p)
+            if need is None:
+                continue
+            info.append({"p": p, "left": bb[0], "right": bb[2],
+                         "top": bb[1], "bot": bb[3], "need": need,
+                         "orig_h": bb[3] - bb[1]})
+        if not info:
+            return
+
+        top_margin = min(d["top"] for d in info)
+        bottom_limit = (page_h - top_margin) if page_h else float("inf")
+        v_safety = max(self._SAFE_VGAP_MIN, self._SAFE_VGAP_FACTOR * 10.0)
+        info.sort(key=lambda d: (round(d["top"], 1), d["left"]))
+
+        placed = []
+        for d in info:
+            # Bloc déjà dans la bande de marge BASSE → ancré (pied/numéro) : on
+            # ne le pousse pas, il sert de repère.
+            anchored = d["top"] >= bottom_limit - v_safety
+            # Pousseur = bloc placé au-dessus qui chevauche horizontalement,
+            # au plus bas (le voisin direct de la même colonne).
+            pusher = None
+            for q in placed:
+                ov = min(d["right"], q["right"]) - max(d["left"], q["left"])
+                minw = max(1.0, min(d["right"] - d["left"], q["right"] - q["left"]))
+                if ov <= 0.3 * minw:
+                    continue
+                if pusher is None or q["new_bot"] > pusher["new_bot"]:
+                    pusher = q
+            if anchored:
+                new_top = d["top"]
+            elif pusher is not None:
+                gap = max(0.0, d["top"] - pusher["bot"])   # écart d'origine
+                new_top = max(d["top"], pusher["new_bot"] + gap)
+            else:
+                new_top = d["top"]
+            # Borne basse : marge symétrique OU 1er objet ancré sous le bloc.
+            bound = bottom_limit
+            for ox0, oy0, ox1, oy1 in obstacles:
+                if ox1 <= d["left"] or ox0 >= d["right"]:
+                    continue
+                if oy0 >= d["bot"] - 0.5 and (oy0 - v_safety) < bound:
+                    bound = oy0 - v_safety
+            target_h = max(d["need"], d["orig_h"])
+            new_bot = new_top + target_h
+            if new_bot > bound:
+                new_bot = max(bound, new_top + 1.0)      # cascade réduira le reste
+            d["new_top"], d["new_bot"] = new_top, new_bot
+            placed.append(d)
+
+        for d in info:
+            shift = d["new_top"] - d["top"]
+            alloc = d["new_bot"] - d["new_top"]
+            if shift <= 0.5 and alloc <= d["orig_h"] + 0.5:
+                continue                                 # rien à changer
+            self._apply_vertical(d["p"], shift, d["new_bot"])
+
+    def _needed_height(self, p):
+        """Hauteur naturelle du texte traduit dans la largeur du conteneur."""
+        segs = self._parse_translated_segments(p)
+        cl = p.get("container_lines")
+        if not segs or not cl:
+            return None
+        h, _ = reflow.natural_height(segs, cl, self.reflow_lang)
+        return h
+
+    @staticmethod
+    def _apply_vertical(p, shift, new_bot):
+        """Décale le conteneur de `shift` vers le bas et étend sa bande la plus
+        basse jusqu'à `new_bot` (pour accueillir les lignes supplémentaires)."""
+        cl = p.get("container_lines") or []
+        newcl = [[b[0], b[1] + shift, b[2], b[3] + shift] for b in cl]
+        if not newcl:
+            return
+        mi = max(range(len(newcl)), key=lambda i: newcl[i][3])
+        if new_bot > newcl[mi][3]:
+            newcl[mi][3] = new_bot
+        p["container_lines"] = newcl
+        p["container_bbox"] = [min(b[0] for b in newcl), min(b[1] for b in newcl),
+                               max(b[2] for b in newcl), max(b[3] for b in newcl)]
+
     @staticmethod
     def _line_metrics(ln):
         bb = ln["bbox"]
@@ -1099,6 +1216,8 @@ class PDFObjectEngine:
             for page_data in data.get("pages", []):
                 page = doc.new_page(width=page_data["width"],
                                     height=page_data["height"])
+                if translated:
+                    self._flow_page_vertical(page_data)   # push-down vertical
                 for el in page_data.get("elements", []):
                     kind = el.get("type")
                     try:
