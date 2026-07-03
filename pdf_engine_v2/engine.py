@@ -338,11 +338,6 @@ class PDFObjectEngine:
     # plancher en points. Sert à l'expansion horizontale (Étape D v2).
     _SAFE_GUTTER_FACTOR  = 1.5     # × taille de police
     _SAFE_GUTTER_MIN     = 12.0    # plancher (points)
-    # Distance de sécurité VERTICALE (entre un bloc étendu et l'objet ancré en
-    # dessous), normalisée. Sert à l'expansion verticale (Étape 2).
-    _SAFE_VGAP_FACTOR    = 0.8     # × taille de police
-    _SAFE_VGAP_MIN       = 8.0     # plancher (points)
-    expand_vertical      = True    # Étape 2 : flux vertical / push-down
     _PARA_GAP_FACTOR     = 1.8     # saut vertical > facteur × taille → coupe DURE
     _PARA_MODERATE_FACTOR = 1.35   # gap au-delà duquel l'INDENTATION peut couper
     _PARA_PUNCT_FACTOR   = 1.6     # gap au-delà duquel la PONCTUATION peut couper
@@ -460,8 +455,14 @@ class PDFObjectEngine:
         spans.sort(key=lambda s: (round(s["_base"], 1), s["bbox"][0]))
         rows = []
         for s in spans:
+            # Tolérance basée sur la PLUS PETITE taille des deux : un glyphe
+            # géant (numéro décoratif, capitale ornementale) ne doit pas avaler
+            # une petite ligne voisine dont la baseline diffère (ex. le « 1 »
+            # taille 62 qui happait « & VEHICLE OWNERS » taille 20). Deux spans
+            # d'une même ligne réelle partagent la baseline (écart ≈ 0) → restent
+            # groupés quelle que soit la taille.
             if rows and abs(s["_base"] - rows[-1]["_base"]) <= 0.45 * max(
-                    s["size"], rows[-1]["_size_ref"], 1.0):
+                    min(s["size"], rows[-1]["_size_ref"]), 1.0):
                 rows[-1]["spans"].append(s)
                 rows[-1]["_base"] = s["_base"]
             else:
@@ -640,210 +641,89 @@ class PDFObjectEngine:
         return out
 
     # ── Étape D : expansion du CONTENEUR vers la droite ──────────────────────
+    _COL_LEFT_TOL = 4.0    # écart de marge gauche pour « même colonne »
+
     def _expand_paragraphs(self, paras, ctx):
-        """Calcule la zone utilisable élargie **vers la droite uniquement**
-        (bord gauche de chaque ligne figé), pour absorber des traductions plus
-        longues. Expansion LIGNE PAR LIGNE (`container_lines`), car un paragraphe
-        peut s'enrouler autour d'un encart : le conteneur est alors un contour en
-        escalier (un L) qui contourne l'objet, pas un rectangle qui le chevauche.
+        """Calcule la zone utilisable élargie **vers la droite uniquement**, pour
+        absorber des traductions plus longues. Expansion **au PARAGRAPHE ENTIER**
+        (un bord droit UNIFORME pour toutes ses lignes), pas ligne par ligne :
+        toutes les lignes se décalent ensemble. Si les lignes ont des espaces
+        disponibles différents, on retient le **MINIMUM** (le plus contraint) —
+        ainsi aucune ligne ne dépasse dans un autre bloc.
 
-        Règle (v2), appliquée à CHAQUE ligne selon la structure de colonne :
-        - **un objet/colonne à droite** de la ligne (autre paragraphe, image,
-          dessin, cellule dans sa bande) → on étend jusqu'à `bord de l'objet −
-          gouttière de sécurité` (normalisée, `_safe_gutter`), pour garder une
-          séparation visuelle nette entre les blocs.
-        - **rien à droite de la ligne** → référence de marge droite :
-          1. la **marge droite du TEXTE existant** (bord droit max des autres
-             paragraphes) — c'est la vraie marge de colonne du document ; on s'y
-             aligne en PRIORITÉ ;
-          2. seulement si le paragraphe est **seul sur la page** (aucun autre
-             texte à référencer), on retombe sur la **marge symétrique**
-             (`page_width − bord gauche`), bloc équilibré sur la page.
-        Le raisonnement par ligne gère seul le multi-colonnes et l'enroulement
-        (une image ne bornant que quelques lignes laisse les autres aller à la
-        marge de référence → contour en L).
+        Bord droit cible, calculé sur TOUTE la hauteur du paragraphe :
+        - **objet/colonne à droite** (autre paragraphe d'une AUTRE colonne, image,
+          dessin, cellule chevauchant sa bande verticale) → `bord de l'objet le
+          plus proche − gouttière de sécurité` (`_safe_gutter`). Garantit la
+          séparation des colonnes (sécurité multi-colonnes).
+        - **rien à droite** → marge droite de SA colonne (bord droit max des
+          paragraphes de même marge gauche) ; sinon, seul, marge **symétrique**
+          (`page_width − bord gauche`).
 
-        Ne modifie jamais le texte ni sa position : seul le cadre conteneur
-        change (visible à la réinjection en orange pointillé)."""
+        Bord gauche de chaque ligne figé (indentation préservée). Ne modifie ni
+        le texte ni sa position : seul le cadre conteneur change."""
         obstacles = ctx.get("obstacles", ())
         page_w = ctx.get("width") or 0
         boxed = [p for p in paras if p.get("bbox") and len(p["bbox"]) >= 4]
 
-        # Marge droite du TEXTE existant sur la page (bord droit max de toutes
-        # les lignes) = marge de colonne réelle du document. Sert de référence
-        # d'expansion quand une ligne n'a rien à sa droite, AVANT toute marge
-        # symétrique (n'est valable que si d'autres paragraphes existent).
-        page_text_right = 0.0
-        for q in boxed:
-            for ln in q.get("lines", []):
-                bb = ln.get("bbox")
-                if bb and len(bb) >= 4:
-                    page_text_right = max(page_text_right, bb[2])
-
         for p in boxed:
-            pleft, ptop, _, pbottom = p["bbox"]
-            # Référence quand rien n'est à droite : marge droite des AUTRES
-            # paragraphes si elle existe ; sinon (seul sur la page) marge
-            # symétrique de la marge gauche.
-            if len(boxed) > 1 and page_text_right > pleft:
-                ref_right = page_text_right
+            pleft, ptop, pright, pbottom = p["bbox"]
+            size = 0.0
+            for ln in p.get("lines", []):
+                for r in ln.get("runs", []):
+                    size = max(size, r.get("size", 0) or 0)
+            safety = self._safe_gutter(size or 10.0)
+
+            # 1) Objet le plus proche à droite sur TOUTE la bande [ptop, pbottom]
+            #    (min = contrainte la plus forte → aucune ligne ne dépassera).
+            right_block = float("inf")
+            for q in boxed:
+                if q is p:
+                    continue
+                qx0, qy0, qx1, qy1 = q["bbox"]
+                if qy1 <= ptop or qy0 >= pbottom:      # hors bande verticale
+                    continue
+                if qx0 >= pright - 0.5 and qx0 < right_block:   # à droite
+                    right_block = qx0
+            for ox0, oy0, ox1, oy1 in obstacles:
+                if oy1 <= ptop or oy0 >= pbottom:
+                    continue
+                if ox0 >= pright - 0.5 and ox0 < right_block:
+                    right_block = ox0
+
+            if right_block != float("inf"):
+                target = right_block - safety          # gouttière de sécurité
             else:
-                ref_right = page_w - pleft if page_w else float("inf")
+                # Rien à droite : marge droite de la COLONNE (paragraphes de même
+                # marge gauche) ; sinon symétrique (paragraphe isolé).
+                col_right = pright
+                for q in boxed:
+                    if q is p:
+                        continue
+                    if abs(q["bbox"][0] - pleft) <= self._COL_LEFT_TOL:
+                        col_right = max(col_right, q["bbox"][2])
+                if col_right > pright + 0.5:
+                    target = col_right
+                else:
+                    target = page_w - pleft if page_w else pright
+
+            target = max(target, pright)               # jamais rétrécir
+
             clines = []
             for ln in p.get("lines", []):
                 bb = ln.get("bbox")
                 if not bb or len(bb) < 4:
                     continue
-                lx0, lty, lx1, lby = bb
-                size = max((r.get("size", 0) or 0
-                            for r in ln.get("runs", [])), default=10.0)
-                safety = self._safe_gutter(size)
-                # 1er objet à droite de CETTE ligne (autre paragraphe OU objet
-                # non-texte), dans SA bande verticale.
-                obj = float("inf")
-                for q in boxed:
-                    if q is p:
-                        continue
-                    qb = q["bbox"]
-                    if qb[3] <= lty or qb[1] >= lby:
-                        continue
-                    if lx1 < qb[0] < obj:
-                        obj = qb[0]
-                for ox0, oy0, ox1, oy1 in obstacles:
-                    if oy1 <= lty or oy0 >= lby:
-                        continue
-                    if lx1 < ox0 < obj:
-                        obj = ox0
-
-                if obj == float("inf"):
-                    tgt = ref_right          # rien à droite → marge de référence
-                else:
-                    tgt = obj - safety       # objet à droite → gouttière de sécu
-                tgt = max(tgt, lx1)          # jamais vers la gauche / rétrécir
-                clines.append([lx0, lty, tgt, lby])
-
+                clines.append([bb[0], bb[1], max(target, bb[2]), bb[3]])
             if clines:
                 p["container_lines"] = clines
-                p["container_bbox"] = [pleft, ptop,
-                                       max(c[2] for c in clines), pbottom]
+                p["container_bbox"] = [pleft, ptop, target, pbottom]
 
     def _safe_gutter(self, size):
         """Gouttière de sécurité normalisée (recommandation typographique) :
         proportionnelle au corps, avec un plancher en points."""
         return max(self._SAFE_GUTTER_MIN,
                    self._SAFE_GUTTER_FACTOR * (size or 10.0))
-
-    # ── Étape 2 : flux vertical de page (push-down column-aware) ──────────────
-    def _flow_page_vertical(self, page_data):
-        """Décale les paragraphes traduits vers le BAS pour absorber les
-        traductions plus longues, sans chevauchement. Column-aware via
-        chevauchement horizontal : quand un bloc grandit de Δ, le bloc
-        directement en dessous (même colonne) descend de Δ → les écarts
-        d'origine sont préservés. Borné par le blanc du bas (marge symétrique de
-        la marge haute) et par les objets ancrés (image/dessin) avec distance de
-        sécurité verticale. Ce qui ne rentre pas retombe sur la cascade de
-        réduction du reflow. Modifie `container_lines`/`container_bbox` en place ;
-        ne touche ni au texte ni aux positions horizontales."""
-        if not self.expand_vertical:
-            return
-        els = page_data.get("elements", [])
-        page_h = page_data.get("height") or 0
-        obstacles = []
-        for e in els:
-            if e.get("type") in ("image", "drawing"):
-                bb = e.get("bbox")
-                if bb and len(bb) >= 4 and (bb[2] - bb[0] > 0.5
-                                            or bb[3] - bb[1] > 0.5):
-                    obstacles.append(bb)
-
-        info = []
-        for p in els:
-            if (p.get("type") != "paragraph" or p.get("tr_tagged") is None
-                    or not p.get("container_lines")):
-                continue
-            bb = p.get("bbox")
-            if not bb or len(bb) < 4:
-                continue
-            need = self._needed_height(p)
-            if need is None:
-                continue
-            info.append({"p": p, "left": bb[0], "right": bb[2],
-                         "top": bb[1], "bot": bb[3], "need": need,
-                         "orig_h": bb[3] - bb[1]})
-        if not info:
-            return
-
-        top_margin = min(d["top"] for d in info)
-        bottom_limit = (page_h - top_margin) if page_h else float("inf")
-        v_safety = max(self._SAFE_VGAP_MIN, self._SAFE_VGAP_FACTOR * 10.0)
-        info.sort(key=lambda d: (round(d["top"], 1), d["left"]))
-
-        placed = []
-        for d in info:
-            # Bloc déjà dans la bande de marge BASSE → ancré (pied/numéro) : on
-            # ne le pousse pas, il sert de repère.
-            anchored = d["top"] >= bottom_limit - v_safety
-            # Pousseur = bloc placé au-dessus qui chevauche horizontalement,
-            # au plus bas (le voisin direct de la même colonne).
-            pusher = None
-            for q in placed:
-                ov = min(d["right"], q["right"]) - max(d["left"], q["left"])
-                minw = max(1.0, min(d["right"] - d["left"], q["right"] - q["left"]))
-                if ov <= 0.3 * minw:
-                    continue
-                if pusher is None or q["new_bot"] > pusher["new_bot"]:
-                    pusher = q
-            if anchored:
-                new_top = d["top"]
-            elif pusher is not None:
-                gap = max(0.0, d["top"] - pusher["bot"])   # écart d'origine
-                new_top = max(d["top"], pusher["new_bot"] + gap)
-            else:
-                new_top = d["top"]
-            # Borne basse : marge symétrique OU 1er objet ancré sous le bloc.
-            bound = bottom_limit
-            for ox0, oy0, ox1, oy1 in obstacles:
-                if ox1 <= d["left"] or ox0 >= d["right"]:
-                    continue
-                if oy0 >= d["bot"] - 0.5 and (oy0 - v_safety) < bound:
-                    bound = oy0 - v_safety
-            target_h = max(d["need"], d["orig_h"])
-            new_bot = new_top + target_h
-            if new_bot > bound:
-                new_bot = max(bound, new_top + 1.0)      # cascade réduira le reste
-            d["new_top"], d["new_bot"] = new_top, new_bot
-            placed.append(d)
-
-        for d in info:
-            shift = d["new_top"] - d["top"]
-            alloc = d["new_bot"] - d["new_top"]
-            if shift <= 0.5 and alloc <= d["orig_h"] + 0.5:
-                continue                                 # rien à changer
-            self._apply_vertical(d["p"], shift, d["new_bot"])
-
-    def _needed_height(self, p):
-        """Hauteur naturelle du texte traduit dans la largeur du conteneur."""
-        segs = self._parse_translated_segments(p)
-        cl = p.get("container_lines")
-        if not segs or not cl:
-            return None
-        h, _ = reflow.natural_height(segs, cl, self.reflow_lang)
-        return h
-
-    @staticmethod
-    def _apply_vertical(p, shift, new_bot):
-        """Décale le conteneur de `shift` vers le bas et étend sa bande la plus
-        basse jusqu'à `new_bot` (pour accueillir les lignes supplémentaires)."""
-        cl = p.get("container_lines") or []
-        newcl = [[b[0], b[1] + shift, b[2], b[3] + shift] for b in cl]
-        if not newcl:
-            return
-        mi = max(range(len(newcl)), key=lambda i: newcl[i][3])
-        if new_bot > newcl[mi][3]:
-            newcl[mi][3] = new_bot
-        p["container_lines"] = newcl
-        p["container_bbox"] = [min(b[0] for b in newcl), min(b[1] for b in newcl),
-                               max(b[2] for b in newcl), max(b[3] for b in newcl)]
 
     @staticmethod
     def _line_metrics(ln):
@@ -896,6 +776,10 @@ class PDFObjectEngine:
         # (Prioritaire : un mot en minuscule n'ouvre quasi jamais un paragraphe,
         # même si l'espace restant aurait pu l'accueillir.)
         lower_next = _starts_lower(it["text"])
+        # Continuation certaine aussi si la ligne démarre par une conjonction de
+        # coordination (« And », « But »… ou son symbole « & »/« + ») : c'est la
+        # suite du paragraphe, jamais un nouveau (ex. titre sur deux lignes).
+        continues = lower_next or _starts_coord(it["text"])
 
         # ── A. Coupe « espace restant » (tie-breaker géométrique, togglable) ─
         # Appliquée AVANT le flot continu : elle discrimine un vrai saut de
@@ -903,7 +787,7 @@ class PDFObjectEngine:
         # normal. En texte justifié/ferré, le mot suivant ne rentre jamais dans
         # le reliquat (c'est pourquoi il a wrappé) → fusion ; seul un mot qui
         # « aurait pu tenir » trahit une coupe voulue.
-        if (self.para_remaining_space and ctx is not None and not lower_next
+        if (self.para_remaining_space and ctx is not None and not continues
                 and self._remaining_space_break(parent, it, ctx)):
             return True
 
@@ -1216,8 +1100,6 @@ class PDFObjectEngine:
             for page_data in data.get("pages", []):
                 page = doc.new_page(width=page_data["width"],
                                     height=page_data["height"])
-                if translated:
-                    self._flow_page_vertical(page_data)   # push-down vertical
                 for el in page_data.get("elements", []):
                     kind = el.get("type")
                     try:
@@ -1812,6 +1694,17 @@ def _starts_lower(text):
 def _first_word(text):
     t = text.strip()
     return t.split(" ", 1)[0].strip(".,;:!?)]}»”\"'") if t else ""
+
+
+def _starts_coord(text):
+    """La ligne commence-t-elle par une CONJONCTION DE COORDINATION (mot de
+    `_COORD_CONJ`) ou son symbole (« & » = and, « + » = plus) ? → continuation
+    du paragraphe précédent, pas un nouveau (ex. titre « … DRIVERS / & VEHICLE
+    OWNERS »)."""
+    t = text.lstrip()
+    if t[:1] in "&+":
+        return True
+    return _first_word(text) in _COORD_CONJ
 
 
 def _is_horizontal(run):
