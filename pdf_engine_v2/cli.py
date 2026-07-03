@@ -39,6 +39,12 @@ def main(argv=None):
     p_ex.add_argument("-o", "--output", help="JSON de sortie")
     p_ex.add_argument("--assets", action="store_true",
                       help="images en dossier annexe au lieu de base64")
+    p_ex.add_argument("--no-remaining-space", action="store_true",
+                      help="desactive la coupe paragraphe « espace restant »")
+    p_ex.add_argument("--no-expand", action="store_true",
+                      help="desactive l'expansion du conteneur de paragraphe")
+    p_ex.add_argument("--no-tables", action="store_true",
+                      help="desactive le cloisonnement des cellules de table")
 
     p_re = sub.add_parser("reinject", help="JSON -> PDF reconstruit")
     p_re.add_argument("json")
@@ -50,11 +56,23 @@ def main(argv=None):
     p_rt.add_argument("pdf")
     p_rt.add_argument("output_pdf")
     p_rt.add_argument("--no-borders", action="store_true", help="sans bordures")
+    p_rt.add_argument("--no-remaining-space", action="store_true",
+                      help="desactive la coupe paragraphe « espace restant »")
+    p_rt.add_argument("--no-expand", action="store_true",
+                      help="desactive l'expansion du conteneur de paragraphe")
+    p_rt.add_argument("--no-tables", action="store_true",
+                      help="desactive le cloisonnement des cellules de table")
 
     args = parser.parse_args(argv)
     engine = PDFObjectEngine()
 
     if args.cmd == "extract":
+        if getattr(args, "no_remaining_space", False):
+            engine.para_remaining_space = False
+        if getattr(args, "no_expand", False):
+            engine.expand_paragraphs = False
+        if getattr(args, "no_tables", False):
+            engine.detect_tables = False
         data, out = engine.extract(args.pdf, args.output,
                                    embed_images=not args.assets)
         n = sum(len(p["elements"]) for p in data["pages"])
@@ -67,6 +85,12 @@ def main(argv=None):
         print(f"[OK] PDF reconstruit -> {out}")
 
     elif args.cmd == "roundtrip":
+        if getattr(args, "no_remaining_space", False):
+            engine.para_remaining_space = False
+        if getattr(args, "no_expand", False):
+            engine.expand_paragraphs = False
+        if getattr(args, "no_tables", False):
+            engine.detect_tables = False
         data, jpath = engine.extract(args.pdf, embed_images=True)
         out = engine.reinject(data, args.output_pdf,
                               draw_borders=not args.no_borders)

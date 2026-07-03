@@ -22,6 +22,7 @@ import os
 import io
 import re
 import json
+import math
 import base64
 from pathlib import Path
 from collections import defaultdict
@@ -49,6 +50,11 @@ BORDER_COLORS = {
     "drawing":   (0.00, 0.30, 1.00),   # bleu
 }
 BORDER_WIDTH = 0.6
+
+# Cadre du CONTENEUR élargi d'un paragraphe (Étape D : expansion vers la
+# droite). Orange pointillé, pour le distinguer du contour de texte (vert).
+EXPAND_COLOR = (1.00, 0.50, 0.00)
+EXPAND_WIDTH = 0.8
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -182,12 +188,17 @@ class PDFObjectEngine:
                 # Ordre de peinture (du fond vers l'avant), pour que les
                 # objets se recouvrent comme dans l'original : dessins
                 # vectoriels / fonds d'abord, puis images, puis texte au-dessus.
-                page_data["elements"].extend(self._extract_drawings(page))
-                page_data["elements"].extend(self._extract_images(
-                    doc, page, page_num, embed_images, assets_dir))
+                draw_els = self._extract_drawings(page)
+                img_els = self._extract_images(
+                    doc, page, page_num, embed_images, assets_dir)
+                page_data["elements"].extend(draw_els)
+                page_data["elements"].extend(img_els)
                 text_lines = self._extract_text(page)
                 if self.group_paragraphs:
-                    page_data["elements"].extend(self._group_paragraphs(text_lines))
+                    ctx = self._build_page_ctx(page, text_lines,
+                                               draw_els, img_els)
+                    page_data["elements"].extend(
+                        self._group_paragraphs(text_lines, ctx))
                 else:
                     page_data["elements"].extend(text_lines)
                 data["pages"].append(page_data)
@@ -315,11 +326,67 @@ class PDFObjectEngine:
 
     # ── Regroupement en paragraphes (étape 7) ───────────────────────────────
     group_paragraphs     = True    # False → objets = lignes (pas de paragraphes)
+    para_remaining_space = True    # Étape A : coupe « espace restant » (togglable)
+    expand_paragraphs    = True    # Étape D : conteneur élargi vers la droite
+    detect_tables        = True    # Étape B : cloisonnement des cellules de table
+    _EXPAND_GAP          = 6.0     # espace « raisonnable » laissé vers un objet/bord
     _PARA_GAP_FACTOR     = 1.8     # saut vertical > facteur × taille → coupe DURE
     _PARA_MODERATE_FACTOR = 1.35   # gap au-delà duquel l'INDENTATION peut couper
     _PARA_PUNCT_FACTOR   = 1.6     # gap au-delà duquel la PONCTUATION peut couper
     _PARA_INDENT_FACTOR  = 1.2     # indentation > facteur × taille → coupe
     _PARA_SIZE_FACTOR    = 0.20    # écart de taille relatif → coupe (titre)
+    _RS_SPACE_FACTOR     = 1.0     # marge (en largeurs de glyphe) exigée en plus
+                                   # du 1er mot pour parler de coupe volontaire
+    _RS_WINDOW_FACTOR    = 2.5     # fenêtre verticale (× taille) pour estimer la
+                                   # marge droite de COLONNE d'une ligne
+
+    # ── Contexte de page : géométrie + BLOQUEURS (fondation partagée) ────────
+    # Sert aux étapes qui raisonnent sur l'espace horizontal (règle « espace
+    # restant », future expansion). Un « bloqueur » est tout objet qui empêche
+    # une ligne de s'étendre vers la droite : image, dessin significatif, et
+    # toute AUTRE ligne de texte (colonne voisine). Le bord droit utilisable de
+    # la page est déduit de la disposition réelle (plus grande abscisse de fin
+    # de texte) → aucune constante calée sur un document donné.
+    def _build_page_ctx(self, page, text_lines, draw_els, img_els):
+        # `obstacles` : objets non-texte (image / dessin) qui bornent DUR une
+        # extension horizontale. `line_rects` : rectangles des autres lignes,
+        # servant à retrouver la MARGE DROITE DE LA COLONNE d'une ligne (le bord
+        # où le texte s'aligne réellement) — à ne pas confondre avec la colonne
+        # voisine de l'autre côté d'une gouttière.
+        obstacles = []
+        for el in img_els:
+            bb = el.get("bbox")
+            if bb and len(bb) >= 4:
+                obstacles.append((bb[0], bb[1], bb[2], bb[3]))
+        for el in draw_els:
+            bb = el.get("bbox")
+            if bb and len(bb) >= 4 and (bb[2] - bb[0] > 0.5 or bb[3] - bb[1] > 0.5):
+                obstacles.append((bb[0], bb[1], bb[2], bb[3]))
+        xs = [bb[2] for ln in text_lines
+              if (bb := ln.get("bbox")) and len(bb) >= 4]
+        # Étape B : cellules de tableau (tables BORDÉES uniquement — stratégie
+        # « lines » : faible faux-positif). Chaque cellule borne le texte qu'elle
+        # contient : ajoutée aux obstacles (murs de cellule) ET conservée pour
+        # taguer les lignes (empêche la fusion de paragraphes entre cellules).
+        cells = []
+        if self.detect_tables:
+            try:
+                tf = page.find_tables(vertical_strategy="lines",
+                                      horizontal_strategy="lines")
+                for t in (tf.tables if tf else []):
+                    for c in t.cells:
+                        if c and len(c) >= 4:
+                            cells.append((c[0], c[1], c[2], c[3]))
+            except Exception:
+                pass
+        obstacles.extend(cells)
+        return {
+            "width": page.rect.width,
+            "height": page.rect.height,
+            "obstacles": obstacles,
+            "text_right": max(xs) if xs else page.rect.width,
+            "cells": cells,
+        }
 
     def _extract_text(self, page):
         raw = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
@@ -354,8 +421,26 @@ class PDFObjectEngine:
         return self._group_text_lines(spans)
 
     def _group_text_lines(self, spans):
-        """Regroupe des spans en lignes visuelles (clustering baseline + coupe
-        aux séparateurs de colonne). Retourne une liste d'objets `text_line`."""
+        """Regroupe des spans en lignes visuelles. Le texte HORIZONTAL suit le
+        clustering baseline + coupe colonne (inchangé) ; le texte INCLINÉ/VERTICAL
+        (Étape C) est regroupé le long de son axe d'écriture par
+        `_group_rotated_lines`."""
+        if not spans:
+            return []
+        horiz, other = [], []
+        for s in spans:
+            if abs(s["dir"][1]) <= 0.01 and s["dir"][0] >= 0:
+                horiz.append(s)
+            else:
+                other.append(s)
+        elements = self._group_horizontal_lines(horiz)
+        if other:
+            elements.extend(self._group_rotated_lines(other))
+        return elements
+
+    def _group_horizontal_lines(self, spans):
+        """Clustering baseline + coupe aux séparateurs de colonne (texte
+        horizontal). Retourne une liste d'objets `text_line`."""
         if not spans:
             return []
         # 1) Lignes de base : tri par (baseline, x) puis clustering vertical.
@@ -406,7 +491,18 @@ class PDFObjectEngine:
                         and not s["text"].startswith(" "):
                     parts.append(" ")
             parts.append(s["text"])
-        runs = [{
+        runs = [self._run_from_span(s) for s in seg_spans]
+        return {
+            "type": "text_line",
+            "bbox": [x0, y0, x1, y1],
+            "text": "".join(parts),
+            "gw": med_gw,          # largeur de glyphe médiane (estimation de mot)
+            "runs": runs,
+        }
+
+    @staticmethod
+    def _run_from_span(s):
+        return {
             "text": s["text"],
             "origin": s["origin"],
             "bbox": s["bbox"],
@@ -417,16 +513,57 @@ class PDFObjectEngine:
             "bold": s["bold"],
             "italic": s["italic"],
             "dir": s["dir"],
-        } for s in seg_spans]
+        }
+
+    # ── Texte INCLINÉ / VERTICAL (Étape C) : regroupement le long de l'axe ────
+    def _group_rotated_lines(self, spans):
+        """Regroupe les spans non horizontaux en lignes le long de leur axe
+        d'écriture. Pour chaque direction, on projette l'origine sur l'axe
+        d'avancée `a = o·dir` et l'axe transverse `c = o·perp` : les spans de même
+        `c` (même « ligne ») sont ordonnés par `a`. bbox axis-aligned ; le texte
+        conserve son `dir` pour un rendu pivoté fidèle."""
+        if not spans:
+            return []
+        out = []
+        groups = defaultdict(list)
+        for s in spans:
+            dx, dy = s["dir"]
+            groups[(round(dx, 2), round(dy, 2))].append(s)
+        for (dx, dy), gspans in groups.items():
+            def adv(s):
+                return s["origin"][0] * dx + s["origin"][1] * dy
+
+            def cross(s):
+                return -s["origin"][0] * dy + s["origin"][1] * dx
+
+            gspans.sort(key=lambda s: (round(cross(s), 1), adv(s)))
+            rows = []
+            for s in gspans:
+                if rows and abs(cross(s) - rows[-1]["_c"]) <= 0.6 * max(
+                        s["size"], 1.0):
+                    rows[-1]["spans"].append(s)
+                    rows[-1]["_c"] = cross(s)
+                else:
+                    rows.append({"spans": [s], "_c": cross(s)})
+            for row in rows:
+                seg = sorted(row["spans"], key=adv)
+                out.append(self._make_rotated_line(seg, dx, dy))
+        return out
+
+    def _make_rotated_line(self, seg, dx, dy):
+        x0 = min(s["bbox"][0] for s in seg); y0 = min(s["bbox"][1] for s in seg)
+        x1 = max(s["bbox"][2] for s in seg); y1 = max(s["bbox"][3] for s in seg)
         return {
             "type": "text_line",
             "bbox": [x0, y0, x1, y1],
-            "text": "".join(parts),
-            "runs": runs,
+            "text": "".join(s["text"] for s in seg),
+            "gw": 0,
+            "runs": [self._run_from_span(s) for s in seg],
+            "dir": [dx, dy],
         }
 
     # ── Regroupement en PARAGRAPHES (étape 7 : géométrie + linguistique) ─────
-    def _group_paragraphs(self, lines):
+    def _group_paragraphs(self, lines, ctx=None):
         """Regroupe des lignes (`text_line`) en paragraphes. Column-aware :
         deux lignes ne fusionnent que si elles se chevauchent horizontalement
         (même colonne). La priorité va à la GÉOMÉTRIE (interligne) ; les signaux
@@ -435,6 +572,8 @@ class PDFObjectEngine:
         if not lines:
             return []
         items = [self._line_metrics(ln) for ln in lines]
+        self._assign_column_margins(items, ctx)
+        self._tag_cells(items, ctx)
         items.sort(key=lambda it: (round(it["top"], 1), it["left"]))
 
         paras = []
@@ -444,6 +583,8 @@ class PDFObjectEngine:
             cands = []
             for p in paras:
                 last = p["items"][-1]
+                if last.get("cell") != it.get("cell"):    # cloisonnement table
+                    continue
                 if last["bottom"] > it["top"] + 0.5 * it["size"]:
                     continue
                 ov = min(last["right"], it["right"]) - max(last["left"], it["left"])
@@ -461,7 +602,7 @@ class PDFObjectEngine:
             if cands:
                 parent = min(cands,
                              key=lambda p: it["base"] - p["items"][-1]["base"])
-            if parent is not None and not self._para_break(parent, it):
+            if parent is not None and not self._para_break(parent, it, ctx):
                 parent["items"].append(it)
                 parent["left_min"] = min(parent["left_min"], it["left"])
                 parent["right_max"] = max(parent["right_max"], it["right"])
@@ -481,7 +622,70 @@ class PDFObjectEngine:
                 "lines": [i["line"] for i in its],
             })
         out.sort(key=lambda e: (round(e["bbox"][1], 1), e["bbox"][0]))
+        if self.expand_paragraphs and ctx is not None:
+            self._expand_paragraphs(out, ctx)
         return out
+
+    # ── Étape D : expansion du CONTENEUR vers la droite ──────────────────────
+    def _expand_paragraphs(self, paras, ctx):
+        """Calcule la zone utilisable élargie **vers la droite uniquement**
+        (bord gauche de chaque ligne figé), pour absorber des traductions plus
+        longues. Expansion LIGNE PAR LIGNE (`container_lines`), car un paragraphe
+        peut s'enrouler autour d'un encart : le conteneur est alors un contour en
+        escalier (un L) qui contourne l'objet, pas un rectangle qui le chevauche.
+
+        Règle UNIQUE, appliquée à chaque ligne : on étend la ligne **seulement
+        jusqu'à la plus grande ligne du paragraphe** (`right_max`) — ce qui
+        aligne toutes les fins de ligne sur la ligne la plus longue (« équilibre
+        vers la fin la plus éloignée »). JAMAIS jusqu'à la marge de page : une
+        colonne reste donc dans sa largeur, sans déborder sur le bloc de droite.
+        On n'étend que si `right_max` est atteignable en gardant l'espace de
+        sécurité vis-à-vis du 1er objet/colonne à droite (sinon on laisse la
+        ligne telle quelle — cas de l'enroulement autour d'un encart).
+
+        Ne modifie jamais le texte ni sa position : seul le cadre conteneur
+        change (visible à la réinjection en orange pointillé)."""
+        obstacles = ctx.get("obstacles", ())
+        boxed = [p for p in paras if p.get("bbox") and len(p["bbox"]) >= 4]
+
+        for p in boxed:
+            pleft, ptop, right_max, pbottom = p["bbox"]
+            clines = []
+            for ln in p.get("lines", []):
+                bb = ln.get("bbox")
+                if not bb or len(bb) < 4:
+                    continue
+                lx0, lty, lx1, lby = bb
+                # 1er objet à droite de CETTE ligne (autre paragraphe OU objet
+                # non-texte), dans SA bande verticale.
+                obj = float("inf")
+                for q in boxed:
+                    if q is p:
+                        continue
+                    qb = q["bbox"]
+                    if qb[3] <= lty or qb[1] >= lby:
+                        continue
+                    if lx1 < qb[0] < obj:
+                        obj = qb[0]
+                for ox0, oy0, ox1, oy1 in obstacles:
+                    if oy1 <= lty or oy0 >= lby:
+                        continue
+                    if lx1 < ox0 < obj:
+                        obj = ox0
+
+                # Extension jusqu'à la plus grande ligne, uniquement si on peut
+                # l'atteindre en gardant l'espace de sécurité ; sinon inchangée.
+                if obj - self._EXPAND_GAP < right_max:
+                    tgt = lx1
+                else:
+                    tgt = right_max
+                tgt = max(tgt, lx1)          # jamais vers la gauche / rétrécir
+                clines.append([lx0, lty, tgt, lby])
+
+            if clines:
+                p["container_lines"] = clines
+                p["container_bbox"] = [pleft, ptop,
+                                       max(c[2] for c in clines), pbottom]
 
     @staticmethod
     def _line_metrics(ln):
@@ -497,17 +701,23 @@ class PDFObjectEngine:
             "line": ln, "text": ln.get("text", ""),
             "left": bb[0], "right": bb[2], "top": bb[1], "bottom": bb[3],
             "base": base, "size": size or 1.0,
+            "gw": ln.get("gw") or ((size or 1.0) * 0.5),
             "bold": (bold_chars / total) >= 0.6,
         }
 
-    def _para_break(self, parent, it):
+    def _para_break(self, parent, it, ctx=None):
         """True si `it` doit démarrer un NOUVEAU paragraphe (coupe).
 
         Hiérarchie stricte (la géométrie prime, cf. cas texte enroulé) :
           1. signaux DURS : liste, changement de style, gros saut vertical ;
-          2. flot continu : sous le seuil « modéré », on FUSIONNE toujours —
+          2. continuation certaine (minuscule) → fusion, prioritaire sur A ;
+          3. règle « espace restant » (Étape A, togglable) : si le 1er mot de la
+             ligne suivante AURAIT PU tenir dans l'espace libre à droite de la
+             ligne précédente (jusqu'au 1er bloqueur : marge, colonne, image,
+             dessin), c'est un retour à la ligne VOLONTAIRE → coupe ;
+          4. flot continu : sous le seuil « modéré », on FUSIONNE toujours —
              peu importe x0 (enroulement) ou une ponctuation faible ;
-          3. zone modérée : indentation d'alinéa, puis (gap plus élevé)
+          5. zone modérée : indentation d'alinéa, puis (gap plus élevé)
              ponctuation forte + majuscule — sauf conjonction / minuscule.
         """
         last = parent["items"][-1]
@@ -524,13 +734,27 @@ class PDFObjectEngine:
         if g > self._PARA_GAP_FACTOR:                  # gros saut vertical
             return True
 
+        # Ligne suivante en minuscule → continuation certaine → fusion.
+        # (Prioritaire : un mot en minuscule n'ouvre quasi jamais un paragraphe,
+        # même si l'espace restant aurait pu l'accueillir.)
+        lower_next = _starts_lower(it["text"])
+
+        # ── A. Coupe « espace restant » (tie-breaker géométrique, togglable) ─
+        # Appliquée AVANT le flot continu : elle discrimine un vrai saut de
+        # paragraphe d'un simple retour à la ligne, y compris à interligne
+        # normal. En texte justifié/ferré, le mot suivant ne rentre jamais dans
+        # le reliquat (c'est pourquoi il a wrappé) → fusion ; seul un mot qui
+        # « aurait pu tenir » trahit une coupe voulue.
+        if (self.para_remaining_space and ctx is not None and not lower_next
+                and self._remaining_space_break(parent, it, ctx)):
+            return True
+
         # ── 2. Flot continu : interligne normal → FUSION obligatoire ────────
         # (x0 ignoré : c'est ce qui permet au texte de s'enrouler autour d'une
         # image / d'un encart sans être scindé.)
         if g < self._PARA_MODERATE_FACTOR:
             return False
-        # Ligne suivante en minuscule → continuation certaine → fusion.
-        if _starts_lower(it["text"]):
+        if lower_next:
             return False
 
         # ── 3. Zone modérée : signaux faibles ───────────────────────────────
@@ -553,6 +777,149 @@ class PDFObjectEngine:
                 and _first_word(it["text"]) not in _COORD_CONJ):
             return True
         return False
+
+    @staticmethod
+    def _tag_cells(items, ctx=None):
+        """Étape B : tague chaque ligne avec l'indice de la cellule de tableau
+        qui contient son centre (`cell`), ou None hors tableau. Deux lignes de
+        cellules différentes ne fusionneront jamais en un même paragraphe."""
+        cells = (ctx or {}).get("cells", ())
+        for it in items:
+            it["cell"] = None
+            if not cells:
+                continue
+            cx = 0.5 * (it["left"] + it["right"])
+            cy = 0.5 * (it["top"] + it["bottom"])
+            for i, (x0, y0, x1, y1) in enumerate(cells):
+                if x0 <= cx <= x1 and y0 <= cy <= y1:
+                    it["cell"] = i
+                    break
+
+    def _assign_column_margins(self, items, ctx=None):
+        """Attribue à chaque ligne sa `col_margin` = bord droit de référence pour
+        juger un retour à la ligne volontaire, selon la nature de sa colonne :
+
+          • Colonne JUSTIFIÉE (≥ 2 lignes proches atteignent le MÊME bord droit
+            max) → `col_margin` = ce bord. Les lignes internes l'atteignent → le
+            mot suivant n'y rentre pas → pas de fausse coupe (texte qui coule).
+          • Sinon (bords droits DISPERSÉS = sommaire / liste / titres) →
+            `col_margin` = ESPACE OUVERT à droite (1er obstacle non-texte ou
+            colonne de texte voisine, sinon bord droit du texte de la page). Une
+            entrée courte y laisse largement la place au mot suivant → coupe du
+            retour volontaire.
+
+        Les voisines sont prises dans une fenêtre verticale (`_RS_WINDOW_FACTOR ×
+        taille`) et doivent chevaucher horizontalement la ligne (même colonne) :
+        la fenêtre isole la colonne d'un autre bloc pleine largeur séparé
+        verticalement mais de même marge gauche."""
+        page_w = (ctx or {}).get("width")
+        obstacles = (ctx or {}).get("obstacles", ())
+        for it in items:
+            cy = 0.5 * (it["top"] + it["bottom"])
+            win = self._RS_WINDOW_FACTOR * it["size"]
+            left, right = it["left"], it["right"]
+            # Voisines de colonne (chevauchement horizontal + proximité verticale).
+            neigh = [it["right"]]
+            for jt in items:
+                if jt is it:
+                    continue
+                if jt["right"] <= left or jt["left"] >= right:
+                    continue
+                if abs(0.5 * (jt["top"] + jt["bottom"]) - cy) > win:
+                    continue
+                neigh.append(jt["right"])
+            max_x1 = max(neigh)
+            tol = 0.5 * it["size"]
+            at_max = sum(1 for x in neigh if max_x1 - x <= tol)
+            if page_w is None:
+                it["col_margin"] = max_x1
+                continue
+            # Espace OUVERT à droite (jusqu'au 1er obstacle/colonne, sinon bord de
+            # page) et largeur de contenu de la ligne.
+            openr = self._open_right(it, items, page_w, obstacles)
+            content_w = right - left
+            remaining_open = openr - right
+            # « Texte qui coule » (à protéger) = plusieurs lignes alignées au même
+            # bord droit ET ligne dont le CONTENU est plus large que l'espace
+            # restant (ce reliquat n'est qu'une gouttière). Sinon = item court
+            # dans un espace ouvert (sommaire, liste, numéros) → référence =
+            # espace ouvert, pour couper le retour à la ligne volontaire.
+            if at_max >= 2 and content_w >= remaining_open:
+                it["col_margin"] = max_x1
+            else:
+                it["col_margin"] = openr
+
+    @staticmethod
+    def _open_right(it, items, page_w, obstacles):
+        """Bord droit UTILISABLE à droite d'une ligne : 1er obstacle non-texte ou
+        1re ligne d'une AUTRE colonne à droite dans sa bande ; sinon bord droit
+        de la PAGE (une colonne seule a donc bien tout l'espace ouvert à sa
+        droite, et non son propre bord)."""
+        top, bottom, right = it["top"], it["bottom"], it["right"]
+        bound = page_w
+        for jt in items:
+            if jt is it:
+                continue
+            if jt["left"] <= right:                      # pas à droite
+                continue
+            if jt["bottom"] <= top or jt["top"] >= bottom:
+                continue
+            if jt["left"] < bound:
+                bound = jt["left"]
+        for ox0, oy0, ox1, oy1 in obstacles:
+            if ox0 <= right:
+                continue
+            if oy1 <= top or oy0 >= bottom:
+                continue
+            if ox0 < bound:
+                bound = ox0
+        return bound
+
+    def _remaining_space_break(self, parent, it, ctx):
+        """Vrai si le PREMIER MOT de `it` aurait tenu dans l'espace libre à
+        droite de la dernière ligne du paragraphe → retour à la ligne volontaire.
+
+        Espace libre = (marge droite de la COLONNE) − (fin de la dernière ligne).
+        La marge de colonne (`col_margin`) est le bord droit où le texte de la
+        colonne s'aligne réellement, estimé à partir des lignes verticalement
+        proches qui chevauchent horizontalement la ligne (cf.
+        `_assign_column_margins`). Elle vaut la marge d'une colonne justifiée
+        (→ pas de fausse coupe : le mot suivant n'y rentre pas) tout en restant
+        bien à droite pour un sommaire/liste (→ coupe des retours volontaires).
+        Plafonnée par le 1er obstacle non-texte (image/dessin) intercalé."""
+        last = parent["items"][-1]
+        col_right = self._cap_by_obstacles(last.get("col_margin", last["right"]),
+                                           last, ctx)
+        remaining = col_right - last["right"]
+        if remaining <= 0:
+            return False
+        word = _first_word(it["text"])
+        if not word:
+            return False
+        gw = it.get("gw") or (it["size"] * 0.5)
+        if gw <= 0:
+            return False
+        # Largeur estimée du 1er mot + une espace de séparation ; on exige une
+        # petite marge (_RS_SPACE_FACTOR) pour éviter les faux positifs quand le
+        # mot tient tout juste (cas limite d'un wrap serré).
+        needed = (len(word) + self._RS_SPACE_FACTOR) * gw
+        return remaining >= needed
+
+    @staticmethod
+    def _cap_by_obstacles(col_right, m, ctx):
+        """Réduit la marge droite `col_right` au 1er obstacle non-texte
+        (image/dessin) intercalé à droite de la ligne `m`, dans sa bande
+        verticale."""
+        top, bottom, right = m["top"], m["bottom"], m["right"]
+        bound = col_right
+        for bx0, by0, bx1, by1 in ctx.get("obstacles", ()):
+            if bx0 <= right:
+                continue
+            if by1 <= top or by0 >= bottom:
+                continue
+            if bx0 < bound:
+                bound = bx0
+        return bound
 
     @staticmethod
     def _join_para_text(texts):
@@ -835,33 +1202,169 @@ class PDFObjectEngine:
             self._draw_run(page, run)
 
     def _draw_run(self, page, run):
-        origin = run.get("origin") or [run["bbox"][0], run["bbox"][3]]
+        bb = run.get("bbox")
+        origin = run.get("origin") or [bb[0], bb[3]]
         text = run.get("text", "")
         if not text.strip():
             return
         size = run.get("size", 12) or 12
         color = tuple(run.get("color", [0, 0, 0]))
+        # Largeur d'origine du run : on rend le texte MIS À L'ÉCHELLE
+        # horizontalement pour l'occuper exactement. Les avances de glyphe du
+        # sous-ensemble embarqué diffèrent légèrement (~2 %) du placement réel
+        # du PDF ; sans correction, la dérive cumulée fait déborder un run sur
+        # le suivant (texte qui se colle / se superpose).
+        # La cible est la longueur du run LE LONG DE SON AXE D'ÉCRITURE : extent
+        # horizontal (largeur) pour le texte horizontal, extent vertical
+        # (hauteur) pour le texte vertical/incliné — la bbox est axis-aligned.
+        d = run.get("dir") or (1, 0)
+        if bb and len(bb) >= 4:
+            target_w = (bb[3] - bb[1]) if abs(d[1]) > abs(d[0]) \
+                else (bb[2] - bb[0])
+        else:
+            target_w = None
 
         # 1) Police source embarquée (fidélité exacte de police + glyphes).
         font = self._pick_font(run.get("font", ""), text)
+        # 2) Sinon police base-14 (Helvetica/Times/Courier), comme objet Font
+        #    pour bénéficier du même rendu mis à l'échelle.
+        if font is None:
+            fontname = _base14_fontname(run.get("font", ""), run.get("bold"),
+                                        run.get("italic"))
+            try:
+                font = fitz.Font(fontname)
+            except Exception:
+                font = None
+
         if font is not None:
             try:
-                tw = fitz.TextWriter(page.rect, color=color)
-                tw.append(fitz.Point(origin), text, font=font, fontsize=size)
-                tw.write_text(page)
+                self._write_scaled(page, origin, text, font, size, color,
+                                   target_w, run.get("dir"))
                 return
             except Exception:
-                pass   # repli base-14 ci-dessous
+                pass
 
-        # 2) Repli base-14 (police non embarquée : Helvetica/Times/Courier).
-        fontname = _base14_fontname(run.get("font", ""), run.get("bold"),
-                                    run.get("italic"))
+        # 3) Ultime repli.
         try:
             page.insert_text(fitz.Point(origin), text, fontsize=size,
-                             fontname=fontname, color=color)
-        except Exception:
-            page.insert_text(fitz.Point(origin), text, fontsize=size,
                              fontname="helv", color=color)
+        except Exception:
+            pass
+
+    def _write_scaled(self, page, origin, text, font, size, color, target_w,
+                      direction=None):
+        """Écrit `text` à `origin` avec `font`. Texte horizontal : mis à
+        l'échelle en x pour occuper exactement `target_w` (anti-dérive). Texte
+        incliné/vertical (Étape C, `direction` ≠ (1,0)) : tourné par la matrice
+        de rotation d'angle atan2(dy, dx) autour de l'origine."""
+        dx, dy = (direction or (1, 0))
+        if abs(dy) > 0.01 or dx < 0:            # direction non horizontale
+            self._write_rotated(page, origin, text, font, size, color,
+                                 target_w, dx, dy)
+            return
+
+        core = text.strip()
+        if not core:
+            return                              # espace pure : rien de visible
+        n_lead = len(text) - len(text.lstrip())
+        if n_lead:
+            # Espace(s) DE TÊTE : dans l'original ce gap peut être large (mot
+            # séparé, ou espace « tracké » d'un titre à lettres espacées). La
+            # chasse d'espace de la police embarquée est bien plus étroite → si
+            # on laisse la police avancer l'espace, le glyphe suivant se colle
+            # trop à gauche (gaps de mots écrasés). On positionne donc le core
+            # explicitement : slack (largeur d'origine − chasse du core) réparti
+            # sur les espaces de tête/queue (même principe que `_write_rotated`).
+            try:
+                core_w = font.text_length(core, fontsize=size) if target_w else 0.0
+            except Exception:
+                core_w = 0.0
+            slack = max(0.0, (target_w or core_w) - core_w)
+            n_trail = len(text) - len(text.rstrip())
+            lead_off = slack * n_lead / (n_lead + n_trail) if (n_lead + n_trail) else 0.0
+            pt = fitz.Point(origin[0] + lead_off, origin[1])
+            tw = fitz.TextWriter(page.rect, color=color)
+            tw.append(pt, core, font=font, fontsize=size)
+            tw.write_text(page)                 # rendu naturel (pas de distorsion)
+            return
+
+        pt = fitz.Point(origin)
+        tw = fitz.TextWriter(page.rect, color=color)
+        tw.append(pt, text, font=font, fontsize=size)
+        sx = self._hscale(font, text, size, target_w)   # anti-dérive (ou None)
+        if sx is not None:
+            tw.write_text(page, morph=(pt, fitz.Matrix(sx, 1)))
+        else:
+            tw.write_text(page)
+
+    def _write_rotated(self, page, origin, text, font, size, color,
+                       target_w, dx, dy):
+        """Rendu du texte INCLINÉ / VERTICAL (Étape C).
+
+        Rotation : `dir` de PyMuPDF est en espace page (y vers le BAS) alors que
+        fitz.Matrix(deg) attend un angle au sens mathématique (y vers le HAUT) —
+        on nie dy pour convertir le sens (cf. moteur stable `_dir_to_angle`),
+        sinon la rotation est inversée (texte à l'envers).
+
+        Espaces de mot : le texte vertical est éclaté en glyphes, souvent avec une
+        espace de tête (ex. run ' O'). Dans l'original ce gap est large, mais la
+        chasse d'espace de la police embarquée est étroite → au naturel les mots
+        se colleraient ; à l'échelle (bbox entière) le glyphe se déformerait. On
+        NE rend donc PAS l'espace : on décale le glyphe visible de la largeur du
+        gap d'origine (`target_w − chasse(core)`) et on le rend au NATUREL."""
+        core = text.strip()
+        if not core:
+            return                              # espace pure : rien de visible
+        deg = math.degrees(math.atan2(-dy, dx))
+
+        lead_off = 0.0
+        sx = None
+        if core == text:                        # pas d'espace : anti-dérive normal
+            sx = self._hscale(font, core, size, target_w)
+        elif target_w and target_w > 0:         # espace(s) autour du glyphe
+            try:
+                core_w = font.text_length(core, fontsize=size)
+            except Exception:
+                core_w = 0.0
+            n_lead = len(text) - len(text.lstrip())
+            n_trail = len(text) - len(text.rstrip())
+            slack = max(0.0, target_w - core_w)
+            if n_lead + n_trail:
+                lead_off = slack * n_lead / (n_lead + n_trail)
+
+        pt = fitz.Point(origin[0] + dx * lead_off, origin[1] + dy * lead_off)
+        tw = fitz.TextWriter(page.rect, color=color)
+        tw.append(pt, core, font=font, fontsize=size)
+        mat = fitz.Matrix(deg)
+        if sx is not None:
+            mat = fitz.Matrix(sx, 1) * mat      # scale (le long de l'axe) puis rotation
+        tw.write_text(page, morph=(pt, mat))
+
+    @staticmethod
+    def _hscale(font, text, size, target_w):
+        """Facteur d'échelle horizontal anti-dérive : ramène la chasse du run à sa
+        largeur d'origine `target_w`. Retourne None (pas de correction) si :
+        - pas de cible ; ou
+        - **run d'un seul glyphe** : sa bbox reflète l'INK (approches latérales),
+          pas la chasse — le mettre à l'échelle déformerait le glyphe alors que
+          sa position vient déjà de son origine (cas du texte vertical éclaté en
+          lettres) ; ou
+        - écart aberrant (données incohérentes) ou négligeable.
+        Sinon un `sx` borné à [0.5, 2.0]."""
+        if not target_w or target_w <= 0:
+            return None
+        if len(text.strip()) < 2:            # glyphe isolé : positionné par origine
+            return None
+        try:
+            rw = font.text_length(text, fontsize=size)
+        except Exception:
+            return None
+        if rw <= 0:
+            return None
+        sx = target_w / rw
+        if 0.5 <= sx <= 2.0 and abs(sx - 1.0) > 0.005:
+            return sx
+        return None
 
     # ── Bordures : une par objet (les lignes de texte sont déjà groupées) ────
     def _draw_borders(self, page, elements):
@@ -874,12 +1377,15 @@ class PDFObjectEngine:
 
         # Paragraphe multi-lignes : contour EXACT en escalier épousant chaque
         # ligne (bords droits irréguliers, retraits, enroulement autour d'une
-        # image/encart) plutôt qu'un rectangle englobant.
+        # image/encart) plutôt qu'un rectangle englobant. Puis, si présent, le
+        # CONTENEUR élargi (Étape D) en orange pointillé.
         if el.get("type") == "paragraph":
             bboxes = [ln.get("bbox") for ln in el.get("lines", [])]
             if len([b for b in bboxes if b and len(b) >= 4]) > 1:
                 self._draw_stair_outline(page, bboxes, color)
+                self._draw_expansion_frame(page, el)
                 return
+            self._draw_expansion_frame(page, el)
 
         bbox = el.get("bbox")
         if not bbox or len(bbox) < 4:
@@ -896,7 +1402,22 @@ class PDFObjectEngine:
         except Exception:
             pass
 
-    def _draw_stair_outline(self, page, bboxes, color):
+    def _draw_expansion_frame(self, page, el):
+        """Trace le cadre du CONTENEUR élargi d'un paragraphe (Étape D) en orange
+        pointillé : contour en escalier des lignes élargies (`container_lines`),
+        qui épouse un L autour d'un encart. No-op si absent."""
+        clines = el.get("container_lines")
+        if clines:
+            self._draw_stair_outline(page, clines, EXPAND_COLOR,
+                                     width=EXPAND_WIDTH, dashes="[3 2] 0")
+            return
+        cbb = el.get("container_bbox")
+        if cbb and len(cbb) >= 4:
+            self._draw_stair_outline(page, [cbb], EXPAND_COLOR,
+                                     width=EXPAND_WIDTH, dashes="[3 2] 0")
+
+    def _draw_stair_outline(self, page, bboxes, color,
+                            width=BORDER_WIDTH, dashes=None):
         """Trace un contour rectilinéaire (en escalier) qui passe par les
         sommets de chaque ligne du paragraphe : côté droit haut→bas, côté
         gauche bas→haut, fermé. Épouse exactement l'étendue réelle des lignes."""
@@ -909,11 +1430,14 @@ class PDFObjectEngine:
             return
         if len(rows) == 1:
             r = rows[0]
+            rect = fitz.Rect(r[0], r[1], r[2], r[3])
             try:
-                page.draw_rect(fitz.Rect(r[0], r[1], r[2], r[3]),
-                               color=color, width=BORDER_WIDTH)
+                page.draw_rect(rect, color=color, width=width, dashes=dashes)
             except Exception:
-                pass
+                try:
+                    page.draw_rect(rect, color=color, width=width)
+                except Exception:
+                    pass
             return
         rows.sort(key=lambda r: (r[1], r[0]))
         # Frontière verticale nette entre deux lignes voisines (milieu de
@@ -931,9 +1455,12 @@ class PDFObjectEngine:
             pts.append(fitz.Point(r[0], r[1]))
         pts.append(pts[0])
         try:
-            page.draw_polyline(pts, color=color, width=BORDER_WIDTH)
+            page.draw_polyline(pts, color=color, width=width, dashes=dashes)
         except Exception:
-            pass
+            try:
+                page.draw_polyline(pts, color=color, width=width)
+            except Exception:
+                pass
 
 
 # ════════════════════════════════════════════════════════════════════════════
