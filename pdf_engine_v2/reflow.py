@@ -27,16 +27,46 @@ except Exception:                       # pyphen absent : pas de césure (dégra
     pyphen = None
 
 
+# ── Résolution glyphe-par-glyphe (police embarquée sinon repli complet) ──────
+# `fonts` = liste de (police, couverture) où `couverture` est un ENSEMBLE de
+# caractères que la police rend FIDÈLEMENT, ou None = couverture universelle
+# (police de repli base-14). NB : on n'utilise PAS has_glyph()/valid_codepoints()
+# — un sous-ensemble embarqué les renvoie « présents » pour des glyphes dont le
+# contour a été RETIRÉ au subsetting (rendus vides). La seule couverture fiable
+# est l'ensemble des caractères réellement DESSINÉS dans le PDF source.
+def glyph_font(fonts, ch):
+    """Première police dont la couverture contient `ch` (ou universelle) ; sinon
+    la dernière (repli). Les espaces passent partout."""
+    ws = ch.isspace()
+    for f, cover in fonts:
+        if cover is None or ws or ch in cover:
+            return f
+    return fonts[-1][0]
+
+
+def text_width(text, fonts, size, sx=1.0):
+    """Largeur de `text` mesurée caractère par caractère avec la police qui
+    couvre chaque glyphe (× `sx`)."""
+    w = 0.0
+    for ch in text:
+        f = glyph_font(fonts, ch)
+        try:
+            w += f.text_length(ch, fontsize=size)
+        except Exception:
+            pass
+    return w * sx
+
+
 # ── Tokenisation : segments -> mots porteurs de style ────────────────────────
 def build_tokens(segments):
-    """segments : liste de {text, font(fitz.Font), size, color}.
-    Retourne une liste de tokens-mots : {text, font, size, color, space_before}.
+    """segments : liste de {text, fonts:[fitz.Font,…], size, color}.
+    Retourne une liste de tokens-mots : {text, fonts, size, color, space_before}.
     Les espaces (internes/aux frontières) deviennent le drapeau `space_before`
     du mot suivant → la coulée décide où tombent les retours à la ligne."""
     tokens = []
     pending_space = False
     for seg in segments:
-        font = seg.get("font")
+        fonts = seg.get("fonts") or ([seg["font"]] if seg.get("font") else [])
         size = seg.get("size", 0) or 0
         color = seg.get("color", (0, 0, 0))
         for part in re.split(r"(\s+)", seg.get("text", "")):
@@ -45,7 +75,7 @@ def build_tokens(segments):
             if part.isspace():
                 pending_space = True
             else:
-                tokens.append({"text": part, "font": font, "size": size,
+                tokens.append({"text": part, "fonts": fonts, "size": size,
                                "color": color, "space_before": pending_space})
                 pending_space = False
     return tokens
@@ -86,7 +116,7 @@ def _hyphenator(lang):
     return _HYPH_CACHE[lang]
 
 
-def _hyphen_split(word, font, size, sx, avail, lang):
+def _hyphen_split(word, fonts, size, sx, avail, lang):
     """Tente de couper `word` pour que « préfixe- » tienne dans `avail`.
     Retourne (prefixe_avec_trait, reste) ou None si aucune coupe ne convient.
     On ne coupe pas les mots courts (< 5 lettres) ni les jetons non alphabétiques
@@ -98,7 +128,7 @@ def _hyphen_split(word, font, size, sx, avail, lang):
     best = None
     for p in positions:
         head = word[:p] + "-"
-        if font.text_length(head, fontsize=size) * sx <= avail:
+        if text_width(head, fonts, size, sx) <= avail:
             best = (head, word[p:])             # garde la plus longue qui tient
         else:
             break
@@ -116,12 +146,6 @@ def _layout(tokens, container_lines, top, bottom, size_scale, pitch, sx, lang):
     def bounds():
         return _bounds_at(container_lines, y, y + pitch)
 
-    def wlen(text, font, size):
-        try:
-            return font.text_length(text, fontsize=size) * sx
-        except Exception:
-            return 0.0
-
     left, right = bounds()
     x = left
     cur = []
@@ -138,22 +162,21 @@ def _layout(tokens, container_lines, top, bottom, size_scale, pitch, sx, lang):
         cur = []
         line_size = 0.0
 
-    i = 0
     queue = list(tokens)
     while queue:
         t = queue.pop(0)
         size = (t["size"] or 0) * size_scale
-        w = wlen(t["text"], t["font"], size)
-        sp = wlen(" ", t["font"], size) if (cur and t["space_before"]) else 0.0
+        w = text_width(t["text"], t["fonts"], size, sx)
+        sp = (text_width(" ", t["fonts"], size, sx)
+              if (cur and t["space_before"]) else 0.0)
 
         if cur and x + sp + w > right + 0.5:
             # Ne tient pas : tenter une césure du mot pour finir la ligne.
             avail = right - (x + sp)
-            piece = _hyphen_split(t["text"], t["font"], size, sx, avail, lang)
+            piece = _hyphen_split(t["text"], t["fonts"], size, sx, avail, lang)
             if piece:
                 head, tail = piece
-                hx = x + sp
-                cur.append({"text": head, "x": hx, "font": t["font"],
+                cur.append({"text": head, "x": x + sp, "fonts": t["fonts"],
                             "size": size, "color": t["color"], "sx": sx})
                 line_size = max(line_size, size)
                 queue.insert(0, {**t, "text": tail, "space_before": False})
@@ -165,7 +188,7 @@ def _layout(tokens, container_lines, top, bottom, size_scale, pitch, sx, lang):
             continue
 
         x += sp
-        cur.append({"text": t["text"], "x": x, "font": t["font"],
+        cur.append({"text": t["text"], "x": x, "fonts": t["fonts"],
                     "size": size, "color": t["color"], "sx": sx})
         x += w
         line_size = max(line_size, size)

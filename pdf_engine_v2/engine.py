@@ -29,6 +29,8 @@ from collections import defaultdict
 
 import fitz  # PyMuPDF >= 1.23
 
+from . import reflow
+
 # Ligne commençant par une puce ou un numéro d'item de liste.
 _LIST_RE = re.compile(
     r'^\s*([•◦▪‣·●○∙\-–—*]\s+|\(?\d{1,3}[.)]\s+|\(?[a-zA-Z][.)]\s+)')
@@ -1024,8 +1026,10 @@ class PDFObjectEngine:
     # ─────────────────────────────────────────────────────────────────────────
     # 2. RÉINJECTION (reconstruction sur page vierge + bordures)
     # ─────────────────────────────────────────────────────────────────────────
+    reflow_lang = "fr_FR"          # langue de césure pour le rendu traduit
+
     def reinject(self, data_or_json, output_pdf, draw_borders=True,
-                 assets_dir=None):
+                 assets_dir=None, translated=False):
         """Reconstruit un PDF depuis le JSON d'extraction.
 
         Chaque objet est redessiné à sa position d'origine sur une page
@@ -1064,7 +1068,10 @@ class PDFObjectEngine:
                         elif kind == "drawing":
                             self._draw_drawing(page, el)
                         elif kind == "paragraph":
-                            self._draw_paragraph(page, el)
+                            if translated and el.get("tr_tagged") is not None:
+                                self._draw_paragraph_translated(page, el)
+                            else:
+                                self._draw_paragraph(page, el)
                         elif kind == "text_line":
                             self._draw_text_line(page, el)
                     except Exception:
@@ -1196,6 +1203,158 @@ class PDFObjectEngine:
     def _draw_paragraph(self, page, el):
         for line in el.get("lines", []):
             self._draw_text_line(page, line)
+
+    # ── Rendu TRADUIT : coulée du texte traduit dans le conteneur (reflow) ────
+    def _draw_paragraph_translated(self, page, el):
+        """Peint la version traduite d'un paragraphe : les segments traduits
+        (balises `[[n]]` + styles `tr_segments`) sont coulés dans le polygone
+        `container_lines` par `reflow`, puis peints. Replis : texte incliné /
+        vertical ou parsing vide → rendu original run-par-run (inchangé)."""
+        lines = el.get("lines", [])
+        horiz = all(_is_horizontal(r) for ln in lines
+                    for r in ln.get("runs", []))
+        if not horiz:
+            self._draw_paragraph(page, el)     # incliné/vertical : pas de reflow
+            return
+        segs = self._parse_translated_segments(el)
+        if not segs:
+            self._draw_paragraph(page, el)     # rien de traduit : repli
+            return
+        clines = el.get("container_lines")
+        if not clines:
+            cbb = el.get("container_bbox") or el.get("bbox")
+            clines = [cbb] if cbb else None
+        if not clines:
+            return
+        res = reflow.reflow_paragraph(segs, clines, lang=self.reflow_lang)
+        self._paint_reflow(page, res)
+
+    def _parse_translated_segments(self, el):
+        """Reconstruit les segments {text, font, size, color} depuis le texte
+        traduit balisé (`tr_tagged`) et la table de styles (`tr_segments`)."""
+        tagged = el.get("tr_tagged") or ""
+        meta = el.get("tr_segments") or []
+        segs = []
+        for idx, txt in re.findall(r"\[\[(\d+)\]\](.*?)\[\[/\1\]\]",
+                                   tagged, re.DOTALL):
+            if not txt:
+                continue
+            i = int(idx)
+            m = meta[i] if 0 <= i < len(meta) else (meta[-1] if meta else {})
+            segs.append(self._seg_from_meta(m, txt))
+        if not segs and tagged.strip():
+            # Traduction renvoyée SANS balises → un seul segment, style dominant.
+            clean = re.sub(r"\[\[/?\d+\]\]", "", tagged).strip()
+            if clean:
+                segs.append(self._seg_from_meta(meta[0] if meta else {}, clean))
+        return segs
+
+    def _seg_from_meta(self, m, txt):
+        """Segment de reflow : police embarquée (typeface fidèle) + police de
+        REPLI complète (accents/ponctuation absents du sous-ensemble anglais).
+        Chaque police est associée à sa COUVERTURE fiable (caractères réellement
+        dessinés dans le source pour l'embarquée ; None = universel pour le
+        repli). Le reflow choisit, glyphe par glyphe, la 1re qui couvre."""
+        font_raw = m.get("font", "")
+        fonts = []
+        primary = self._pick_font(font_raw, txt)
+        if primary is not None:
+            # Couverture RÉELLE de la police embarquée pour les caractères de ce
+            # segment, déterminée par test de rendu (has_glyph/valid_codepoints/
+            # glyph_bbox sur-déclarent tous la couverture d'un sous-ensemble).
+            cover = frozenset(ch for ch in set(txt)
+                              if self._renders_glyph(primary, ch))
+            if cover:
+                fonts.append((primary, cover))
+        fonts.append((self._full_fallback_font(font_raw, m.get("bold"),
+                                               m.get("italic")), None))
+        return {"text": txt, "fonts": fonts,
+                "size": m.get("size", 10) or 10,
+                "color": tuple(m.get("color", (0, 0, 0)))}
+
+    def _renders_glyph(self, font, ch):
+        """True si `font` produit RÉELLEMENT de l'encre pour `ch` (test de rendu
+        sur un petit pixmap, mis en cache). Seule mesure fiable de couverture
+        d'un sous-ensemble embarqué, dont les tables cmap/glyf mentent après
+        subsetting. Les espaces sont toujours « couverts »."""
+        if ch.isspace():
+            return True
+        cache = getattr(self, "_render_cache", None)
+        if cache is None:
+            cache = self._render_cache = {}
+        key = (id(font), ch)
+        if key in cache:
+            return cache[key]
+        ok = False
+        try:
+            doc = fitz.open()
+            pg = doc.new_page(width=48, height=48)
+            tw = fitz.TextWriter(pg.rect, color=(0, 0, 0))
+            tw.append(fitz.Point(4, 34), ch, font=font, fontsize=28)
+            tw.write_text(pg)
+            pix = pg.get_pixmap(alpha=False)
+            ok = min(pix.samples) < 250          # un pixel non blanc = de l'encre
+            doc.close()
+        except Exception:
+            ok = False
+        cache[key] = ok
+        return ok
+
+    def _full_fallback_font(self, font_raw, bold, italic):
+        """Police base-14 COMPLÈTE (Latin-1 : é à ç … et ponctuation) assortie à
+        la famille et au style de la source, mise en cache."""
+        cache = getattr(self, "_fallback_cache", None)
+        if cache is None:
+            cache = self._fallback_cache = {}
+        key = (bool(bold), bool(italic), _base14_family(font_raw))
+        f = cache.get(key)
+        if f is None:
+            try:
+                f = fitz.Font(_base14_full_name(font_raw, bold, italic))
+            except Exception:
+                f = fitz.Font("Helvetica")
+            cache[key] = f
+        return f
+
+    def _paint_reflow(self, page, res):
+        """Peint les lignes de runs placés produites par `reflow`. Chaque run est
+        redécoupé en sous-runs par police de glyphe (embarquée / repli) pour que
+        les accents s'affichent sans perdre le typeface embarqué ailleurs."""
+        for ln in res.get("lines", []):
+            base = ln["baseline"]
+            for r in ln["runs"]:
+                self._paint_run_glyphs(page, r, base)
+
+    def _paint_run_glyphs(self, page, r, base):
+        fonts = r.get("fonts") or []
+        if not fonts:
+            return
+        size, color, sx = r["size"], r["color"], r.get("sx", 1.0)
+        x = r["x"]
+        # Regroupe les caractères consécutifs partageant la même police.
+        chunk, chunk_font = "", None
+        def flush(cx):
+            if not chunk:
+                return cx
+            pt = fitz.Point(cx, base)
+            try:
+                tw = fitz.TextWriter(page.rect, color=color)
+                tw.append(pt, chunk, font=chunk_font, fontsize=size)
+                if abs(sx - 1.0) > 0.001:
+                    tw.write_text(page, morph=(pt, fitz.Matrix(sx, 1)))
+                else:
+                    tw.write_text(page)
+            except Exception:
+                pass
+            return cx + reflow.text_width(chunk, [(chunk_font, None)], size, sx)
+        for ch in r["text"]:
+            gf = reflow.glyph_font(fonts, ch)
+            if chunk and gf is not chunk_font:
+                x = flush(x)
+                chunk = ""
+            chunk_font = gf
+            chunk += ch
+        flush(x)
 
     def _draw_text_line(self, page, el):
         for run in el.get("runs", []):
@@ -1497,6 +1656,12 @@ def _first_word(text):
     return t.split(" ", 1)[0].strip(".,;:!?)]}»”\"'") if t else ""
 
 
+def _is_horizontal(run):
+    """Un run est horizontal si sa direction d'écriture est (≈1, 0)."""
+    d = run.get("dir") or [1, 0]
+    return abs(d[1]) <= 0.01 and d[0] >= 0
+
+
 def _int_color_to_rgb(c):
     """Couleur span PyMuPDF (entier 0xRRGGBB) -> [r, g, b] en 0..1."""
     if isinstance(c, (list, tuple)):
@@ -1505,6 +1670,43 @@ def _int_color_to_rgb(c):
     return [((c >> 16) & 255) / 255.0,
             ((c >> 8) & 255) / 255.0,
             (c & 255) / 255.0]
+
+
+def _base14_family(font_raw):
+    """Famille base-14 déduite du nom : 'times' (serif), 'cour' (mono) ou
+    'helv' (sans, défaut)."""
+    name = (font_raw or "").lower()
+    if any(t in name for t in ("mono", "courier", "consol", "typewriter")):
+        return "cour"
+    if any(t in name for t in ("times", "serif", "georgia", "garamond", "roman",
+                               "minion", "cambria", "book")):
+        return "times"
+    return "helv"
+
+
+def _base14_full_name(font_raw, bold, italic):
+    """Nom base-14 COMPLET accepté par `fitz.Font` (ex. 'Times-BoldItalic',
+    'Helvetica-Oblique', 'Courier-Bold') — polices à couverture Latin-1 complète,
+    utilisées comme repli pour les glyphes absents du sous-ensemble embarqué."""
+    fam = _base14_family(font_raw)
+    bold, italic = bool(bold), bool(italic)
+    if fam == "times":
+        if bold and italic:
+            return "Times-BoldItalic"
+        if bold:
+            return "Times-Bold"
+        if italic:
+            return "Times-Italic"
+        return "Times-Roman"
+    base = "Courier" if fam == "cour" else "Helvetica"
+    slant = "Oblique"
+    if bold and italic:
+        return f"{base}-Bold{slant}"
+    if bold:
+        return f"{base}-Bold"
+    if italic:
+        return f"{base}-{slant}"
+    return base
 
 
 def _base14_fontname(font_raw, bold, italic):
