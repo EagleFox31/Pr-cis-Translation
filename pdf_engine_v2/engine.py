@@ -643,17 +643,20 @@ class PDFObjectEngine:
         escalier (un L) qui contourne l'objet, pas un rectangle qui le chevauche.
 
         Règle (v2), appliquée à CHAQUE ligne selon la structure de colonne :
-        - **rien à droite de la ligne** (ni autre paragraphe, ni image/dessin/
-          cellule dans sa bande) → on étend jusqu'à ce que la **marge droite
-          égale la marge gauche** (`page_width − bord gauche de la colonne`) :
-          bloc pleine largeur, équilibré sur la page. En multi-colonnes, la
-          colonne voisine est un objet à droite → ce cas ne s'y déclenche pas.
-        - **un objet/colonne à droite** → on étend jusqu'à `bord de l'objet −
+        - **un objet/colonne à droite** de la ligne (autre paragraphe, image,
+          dessin, cellule dans sa bande) → on étend jusqu'à `bord de l'objet −
           gouttière de sécurité` (normalisée, `_safe_gutter`), pour garder une
           séparation visuelle nette entre les blocs.
+        - **rien à droite de la ligne** → référence de marge droite :
+          1. la **marge droite du TEXTE existant** (bord droit max des autres
+             paragraphes) — c'est la vraie marge de colonne du document ; on s'y
+             aligne en PRIORITÉ ;
+          2. seulement si le paragraphe est **seul sur la page** (aucun autre
+             texte à référencer), on retombe sur la **marge symétrique**
+             (`page_width − bord gauche`), bloc équilibré sur la page.
         Le raisonnement par ligne gère seul le multi-colonnes et l'enroulement
         (une image ne bornant que quelques lignes laisse les autres aller à la
-        marge symétrique → contour en L).
+        marge de référence → contour en L).
 
         Ne modifie jamais le texte ni sa position : seul le cadre conteneur
         change (visible à la réinjection en orange pointillé)."""
@@ -661,11 +664,26 @@ class PDFObjectEngine:
         page_w = ctx.get("width") or 0
         boxed = [p for p in paras if p.get("bbox") and len(p["bbox"]) >= 4]
 
+        # Marge droite du TEXTE existant sur la page (bord droit max de toutes
+        # les lignes) = marge de colonne réelle du document. Sert de référence
+        # d'expansion quand une ligne n'a rien à sa droite, AVANT toute marge
+        # symétrique (n'est valable que si d'autres paragraphes existent).
+        page_text_right = 0.0
+        for q in boxed:
+            for ln in q.get("lines", []):
+                bb = ln.get("bbox")
+                if bb and len(bb) >= 4:
+                    page_text_right = max(page_text_right, bb[2])
+
         for p in boxed:
             pleft, ptop, _, pbottom = p["bbox"]
-            # Marge droite SYMÉTRIQUE de la marge gauche de la colonne (bord
-            # gauche du paragraphe mesuré depuis le bord de page).
-            sym_right = page_w - pleft if page_w else float("inf")
+            # Référence quand rien n'est à droite : marge droite des AUTRES
+            # paragraphes si elle existe ; sinon (seul sur la page) marge
+            # symétrique de la marge gauche.
+            if len(boxed) > 1 and page_text_right > pleft:
+                ref_right = page_text_right
+            else:
+                ref_right = page_w - pleft if page_w else float("inf")
             clines = []
             for ln in p.get("lines", []):
                 bb = ln.get("bbox")
@@ -693,7 +711,7 @@ class PDFObjectEngine:
                         obj = ox0
 
                 if obj == float("inf"):
-                    tgt = sym_right          # rien à droite → marge symétrique
+                    tgt = ref_right          # rien à droite → marge de référence
                 else:
                     tgt = obj - safety       # objet à droite → gouttière de sécu
                 tgt = max(tgt, lx1)          # jamais vers la gauche / rétrécir
