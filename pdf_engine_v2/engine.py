@@ -31,9 +31,32 @@ import fitz  # PyMuPDF >= 1.23
 
 from . import reflow
 
+# Caractères de contrôle parasites (hors \t \n \r) à purger du texte extrait.
+_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
 # Ligne commençant par une puce ou un numéro d'item de liste.
 _LIST_RE = re.compile(
     r'^\s*([•◦▪‣·●○∙\-–—*]\s+|\(?\d{1,3}[.)]\s+|\(?[a-zA-Z][.)]\s+)')
+# Puce seule (marqueur non ambigu) vs numéro/lettre (ambigu : peut être un
+# nombre du texte, ex. « age is 16. », « (MV-44) »).
+_BULLET_RE = re.compile(r'^\s*[•◦▪‣·●○∙\-–—*]\s+')
+_NUMITEM_RE = re.compile(r'^\s*\(?(?:\d{1,3}|[a-zA-Z])[.)]\s+')
+
+# Mots NON TERMINAUX : une ligne finissant par l'un d'eux n'achève pas une
+# phrase → la ligne suivante est une continuation (jamais un nouveau paragraphe).
+_NON_TERMINAL = {
+    # anglais
+    "the", "a", "an", "to", "of", "from", "and", "or", "for", "with", "in",
+    "on", "at", "by", "as", "is", "are", "was", "were", "be", "been", "that",
+    "this", "these", "those", "which", "who", "but", "nor", "so", "into",
+    "onto", "than", "then", "if", "when", "while", "your", "our", "their",
+    "its", "his", "her", "no", "not", "any", "each", "per", "via",
+    # français
+    "le", "la", "les", "un", "une", "des", "de", "du", "à", "au", "aux", "et",
+    "ou", "en", "dans", "sur", "sous", "par", "pour", "avec", "que", "qui",
+    "dont", "est", "sont", "ce", "cette", "ces", "son", "sa", "ses", "leur",
+    "leurs", "votre", "vos", "notre", "nos", "ne", "se", "sans", "vers",
+}
 
 # Conjonctions de coordination : une ligne qui commence par l'une d'elles
 # CONTINUE le paragraphe précédent même après un point (pas de coupe).
@@ -451,6 +474,11 @@ class PDFObjectEngine:
                 direction = line.get("dir", (1, 0))
                 for span in line.get("spans", []):
                     text = span.get("text", "")
+                    # Retire les caractères de CONTRÔLE (BEL \x07, etc.) : sans
+                    # sens visuel, souvent superposés au texte (ex. « \x07 » sur
+                    # « Note: »), ils créent des spans/lignes parasites qui
+                    # cassent le regroupement en lignes et paragraphes.
+                    text = _CTRL_RE.sub("", text)
                     if not text.strip():
                         continue
                     bb = span["bbox"]
@@ -539,7 +567,25 @@ class PDFObjectEngine:
         x1 = max(s["bbox"][2] for s in seg_spans)
         y1 = max(s["bbox"][3] for s in seg_spans)
         # Texte lisible : concatène les runs en insérant une espace là où
-        # l'écart le justifie (pratique pour l'inspection / futur usage).
+        # l'écart le justifie. Cas particulier des titres à LETTRES ESPACÉES
+        # (« A D V I C E A N D … »), où chaque lettre est un span : sans
+        # traitement, une espace tombe entre CHAQUE lettre → charabia illisible
+        # (mauvaise entrée pour la traduction). On reconstruit alors les mots :
+        # les gaps entre lettres sont réguliers, les gaps entre MOTS nettement
+        # plus grands → on n'insère une espace qu'aux grands gaps.
+        text = self._compose_line_text(seg_spans, med_gw)
+        runs = [self._run_from_span(s) for s in seg_spans]
+        return {
+            "type": "text_line",
+            "bbox": [x0, y0, x1, y1],
+            "text": text,
+            "gw": med_gw,          # largeur de glyphe médiane (estimation de mot)
+            "runs": runs,
+        }
+
+    def _compose_line_text(self, seg_spans, med_gw):
+        """Texte lisible d'une ligne : concatène les runs en insérant une espace
+        aux écarts significatifs (> `_SPACE_FACTOR × gw`)."""
         parts = []
         space_gap = self._SPACE_FACTOR * med_gw
         for i, s in enumerate(seg_spans):
@@ -550,14 +596,7 @@ class PDFObjectEngine:
                         and not s["text"].startswith(" "):
                     parts.append(" ")
             parts.append(s["text"])
-        runs = [self._run_from_span(s) for s in seg_spans]
-        return {
-            "type": "text_line",
-            "bbox": [x0, y0, x1, y1],
-            "text": "".join(parts),
-            "gw": med_gw,          # largeur de glyphe médiane (estimation de mot)
-            "runs": runs,
-        }
+        return "".join(parts)
 
     @staticmethod
     def _run_from_span(s):
@@ -737,6 +776,7 @@ class PDFObjectEngine:
 
             # Marges de la COLONNE via les paragraphes qui chevauchent p.
             col_left, col_right = pleft, pright
+            has_col_sibling = False
             for q in boxed:
                 if q is p:
                     continue
@@ -745,6 +785,7 @@ class PDFObjectEngine:
                     continue                            # pas de chevauchement
                 if qb[0] <= pleft + tol:                # commence à gauche → marge droite
                     col_right = max(col_right, qb[2])
+                    has_col_sibling = True              # p appartient à une colonne
                 if qb[2] >= pright - tol:               # finit à droite → marge gauche
                     col_left = min(col_left, qb[0])
 
@@ -773,10 +814,13 @@ class PDFObjectEngine:
                 centered = (lg > big and rg > big and near_center
                             and abs(lg - rg) <= max(6.0, 0.12 * col_w))
 
-            # Bord droit de référence.
+            # Bord droit de référence. La marge SYMÉTRIQUE n'est un repli que si
+            # le paragraphe est VRAIMENT SEUL (aucun voisin de colonne) : sinon,
+            # même s'il définit lui-même la marge droite de sa colonne
+            # (col_right == pright), on reste à cette marge (pas de débordement).
             if col_right > pright + 0.5:
                 ref_right = col_right
-            elif centered:
+            elif has_col_sibling or centered:
                 ref_right = col_right
             else:
                 ref_right = page_w - pleft if page_w else pright
@@ -810,12 +854,6 @@ class PDFObjectEngine:
             p["container_bbox"] = [min(cl, pleft), ptop,
                                    max(c[2] for c in clines), pbottom]
             p["align"] = align
-
-    def _safe_gutter(self, size):
-        """Gouttière de sécurité normalisée (recommandation typographique) :
-        proportionnelle au corps, avec un plancher en points."""
-        return max(self._SAFE_GUTTER_MIN,
-                   self._SAFE_GUTTER_FACTOR * (size or 10.0))
 
     def _safe_gutter(self, size):
         """Gouttière de sécurité normalisée (recommandation typographique) :
@@ -860,8 +898,23 @@ class PDFObjectEngine:
         size_ref = max(last["size"], it["size"], 1.0)
         g = (it["base"] - last["base"]) / size_ref
 
+        # Règle d'ORTHOGRAPHE : la ligne précédente finit-elle EN PLEINE PHRASE ?
+        # Si elle se termine par un mot NON TERMINAL (article, préposition,
+        # conjonction, auxiliaire : the, a, to, from, and, is… / le, de, à, et…)
+        # ou un tiret, la suivante est une CONTINUATION certaine — jamais un
+        # nouveau paragraphe (gère « …from the / U.S. », « (MV- / 44) »…).
+        last_txt = last["text"].rstrip()
+        parent_continues = (last_txt.endswith("-")
+                            or _last_word(last_txt) in _NON_TERMINAL)
+
         # ── 1. Signaux DURS ─────────────────────────────────────────────────
-        if _LIST_RE.match(it["text"]):                 # puce / numéro
+        if _BULLET_RE.match(it["text"]):               # puce → toujours coupe
+            return True
+        # Numéro/lettre en tête = vrai item de liste SEULEMENT si la phrase
+        # précédente est finie ; sinon c'est un nombre du texte (« age is 16. »,
+        # « (MV-44) ») → pas de coupe.
+        if _NUMITEM_RE.match(it["text"]) and not parent_continues \
+                and _ends_sentence(last_txt):
             return True
         if last["bold"] != it["bold"]:                 # titre gras vs corps
             return True
@@ -875,9 +928,9 @@ class PDFObjectEngine:
         # même si l'espace restant aurait pu l'accueillir.)
         lower_next = _starts_lower(it["text"])
         # Continuation certaine aussi si la ligne démarre par une conjonction de
-        # coordination (« And », « But »… ou son symbole « & »/« + ») : c'est la
-        # suite du paragraphe, jamais un nouveau (ex. titre sur deux lignes).
-        continues = lower_next or _starts_coord(it["text"])
+        # coordination (« And », « But »… ou son symbole « & »/« + ») ou si la
+        # ligne précédente finit en pleine phrase (mot non terminal).
+        continues = lower_next or _starts_coord(it["text"]) or parent_continues
 
         # ── A. Coupe « espace restant » (tie-breaker géométrique, togglable) ─
         # Appliquée AVANT le flot continu : elle discrimine un vrai saut de
@@ -1838,6 +1891,15 @@ def _starts_lower(text):
 def _first_word(text):
     t = text.strip()
     return t.split(" ", 1)[0].strip(".,;:!?)]}»”\"'") if t else ""
+
+
+def _last_word(text):
+    """Dernier mot d'une ligne, en minuscules, dépouillé de sa ponctuation
+    (pour tester l'appartenance à `_NON_TERMINAL`)."""
+    t = text.strip()
+    if not t:
+        return ""
+    return t.rsplit(" ", 1)[-1].strip(".,;:!?([{«\"'").lower()
 
 
 def _starts_coord(text):
