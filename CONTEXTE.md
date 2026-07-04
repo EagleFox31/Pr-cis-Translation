@@ -1,31 +1,38 @@
 # CONTEXTE — pdf_engine_v2 (nouveau moteur PDF « from scratch »)
 
-_Dernière mise à jour : 2026-07-02 — Étapes A (retours volontaires), D (expansion),
-B (tables), C (texte incliné/vertical) + rendu mis à l'échelle._
+_Dernière mise à jour : 2026-07-04 — **Traduction bout-en-bout** (balisage →
+reflow → rendu), expansion horizontale v3 (colonne / centrage), soulignements
+suivant le texte, ancrage vertical des baselines, règles d'orthographe de
+segmentation. Restant : **flux vertical / push-down** (étape 2)._
 
 ## But
 
 Nouveau moteur PDF **isolé** dans [`pdf_engine_v2/`](pdf_engine_v2/), **indépendant**
 de l'ancien moteur [`backend/pdf_translator_engine.py`](backend/pdf_translator_engine.py)
-(qui reste **intact**). Il fait **une seule chose**, en deux temps :
+(qui reste **intact**). Deux usages construits l'un sur l'autre :
 
-1. **Extraction** — lit chaque page et sérialise **chaque objet détectable**
-   (texte, image, dessin vectoriel) en JSON, dans l'ordre de peinture.
-2. **Réinjection** — reconstruit chaque page sur une feuille **vierge** (mêmes
-   dimensions) en redessinant chaque objet **à sa position et mise en forme
-   d'origine**, puis trace une **bordure** autour de chaque objet.
-
-Le JSON est la **seule source** du rendu reconstruit (rien n'est copié depuis le
-PDF d'origine) → c'est un vrai test de fidélité de l'extraction.
+1. **Fidélité** (base) — extraction de **chaque objet** (texte, image, dessin) en
+   JSON, puis réinjection sur une feuille **vierge** à la position/mise en forme
+   d'origine. Le JSON est la **seule source** du rendu → vrai test de fidélité.
+2. **Traduction** (but final) — à partir de la même extraction : balisage du texte
+   par style, traduction (DeepSeek), puis **reflow** du texte traduit dans la zone
+   réutilisable de chaque paragraphe, en préservant la mise en forme. Voir la
+   section [Traduction](#traduction).
 
 ## Fichiers
 
 | Fichier | Rôle |
 |---|---|
-| [`pdf_engine_v2/engine.py`](pdf_engine_v2/engine.py) | Cœur : `PDFObjectEngine.extract()` / `.reinject()` |
+| [`pdf_engine_v2/engine.py`](pdf_engine_v2/engine.py) | Cœur : `extract()` / `reinject()` (+ `reinject(translated=True)`) |
+| [`pdf_engine_v2/tagging.py`](pdf_engine_v2/tagging.py) | Balisage `[[n]]` par **segment de style** (méthode Word) |
+| [`pdf_engine_v2/reflow.py`](pdf_engine_v2/reflow.py) | **Coulée** du texte traduit dans `container_lines` (cascade + césure + centrage) |
+| [`pdf_engine_v2/translate.py`](pdf_engine_v2/translate.py) | Orchestration traduction (→ `backend/translator_ai.py`, DeepSeek) |
 | [`pdf_engine_v2/cli.py`](pdf_engine_v2/cli.py) | CLI : `extract` / `reinject` / `roundtrip` |
 | [`pdf_engine_v2/__init__.py`](pdf_engine_v2/__init__.py) | Export `PDFObjectEngine` |
 | [`pdf_engine_v2/README.md`](pdf_engine_v2/README.md) | Doc détaillée (schéma JSON, seuils, limites) |
+
+Dépendances ajoutées (venv) : **`pyphen`** (césure syllabique). Clé DeepSeek dans
+`backend/.env` (`DEEPSEEK_API_KEY`).
 
 ## Utilisation
 
@@ -65,8 +72,15 @@ colonnes** aux grands écarts horizontaux mesurés **relativement à la largeur 
 glyphe** (`_COL_SPLIT_FACTOR = 2.5`) — distingue un letter-spacing (~1–2×) d'un
 saut de colonne (~3–5×). Le texte **incliné / vertical** (Étape C) est séparé du
 texte horizontal et regroupé **le long de son axe d'écriture**
-(`_group_rotated_lines` : projection origine sur l'axe d'avancée `o·dir` et
-transverse `o·perp`) — ex. « TABLE OF CONTENTS » vertical devient **une** ligne.
+(`_group_rotated_lines`) — ex. « TABLE OF CONTENTS » vertical devient **une** ligne.
+
+Deux garde-fous récents :
+- **Tolérance de clustering** basée sur la **plus petite** taille des deux spans
+  (au lieu de max) : un glyphe géant (numéro décoratif « 1 » taille 62) n'avale
+  plus une petite ligne voisine de baseline différente (« & VEHICLE OWNERS »).
+- **Caractères de contrôle** (BEL `\x07`, etc.) purgés à l'extraction
+  (`_CTRL_RE`) : ils créaient des spans/lignes parasites (« Note: » séparé de son
+  corps).
 
 ### Tableaux (`detect_tables = True`, togglable — Étape B)
 Tables **bordées** détectées par `find_tables(strategy="lines")` (faible
@@ -80,13 +94,29 @@ horizontalement ; le parent d'une ligne est la ligne au-dessus la **plus proche
 verticalement** (flot de lecture → gère l'enroulement autour d'une image/encart).
 Hiérarchie de coupe (`g` = saut de ligne de base / taille) :
 
-1. **DUR** : item de liste (puce/numéro) · changement de graisse ou de taille
-   (`> 0.20×`) · gros saut `g > 1.8` (`_PARA_GAP_FACTOR`).
+1. **DUR** : item de liste · changement de graisse ou de taille (`> 0.20×`) ·
+   gros saut `g > 1.8` (`_PARA_GAP_FACTOR`).
 2. **Flot continu** : `g < 1.35` (`_PARA_MODERATE_FACTOR`) → **fusion** (x0
    ignoré) ; ligne suivante en **minuscule** → fusion.
-3. **Modéré** : indentation d'alinéa `> 1.2× taille` (distinction du **centrage**
-   par axe central, pas par bord droit) ; ponctuation `.?!` + majuscule si
-   `g > 1.6` (`_PARA_PUNCT_FACTOR`) et hors **conjonction de coordination**.
+3. **Modéré** : indentation d'alinéa `> 1.2× taille` ; ponctuation `.?!` +
+   majuscule si `g > 1.6` (`_PARA_PUNCT_FACTOR`) et hors conjonction.
+
+**Règles d'ORTHOGRAPHE (continuation)** — évitent les fausses coupes :
+- **Puce** (`_BULLET_RE`) → coupe DURE. **Numéro/lettre** en tête (`_NUMITEM_RE` :
+  « 16. », « 44) ») → item de liste **seulement si la ligne précédente finit une
+  phrase** ; sinon c'est un nombre du texte (« age is 16. », « (MV-44) ») → pas
+  de coupe.
+- La ligne précédente finit par un **mot NON TERMINAL** (article/préposition/
+  conjonction/auxiliaire, EN+FR, `_NON_TERMINAL`) ou un **tiret** → la suivante
+  est une **continuation** → inhibe coupe « espace restant » et ponctuation
+  (« …from the / U.S. », « …The / REAL ID Act »).
+- Ligne démarrant par une **conjonction de coordination** ou son symbole
+  (« & » = and, « + ») → continuation (`_starts_coord`) — ex. titre 2 lignes
+  « INFORMATION FOR DRIVERS / & VEHICLE OWNERS » = **un** paragraphe.
+
+Cas non couverts (assumés) : en-tête gras « run-in » suivi d'un numéro
+(« Class MJ … / 16. »), acronyme en fin de ligne (« …a DMV / Office »),
+parenthèse ouverte non fermée.
 
 **Règle « espace restant »** (`para_remaining_space = True`, togglable — Étape A) :
 tie-breaker géométrique évalué **avant** le flot continu (mais après les signaux
@@ -121,19 +151,32 @@ conforme à l'original (« TABLE OF CONTENTS » vertical).
 
 Étape 8 (texte lisible seulement) : **dé-césure** + espaces écrasés.
 
-### Expansion du conteneur (`expand_paragraphs = True`, togglable — Étape D)
-Pour absorber des traductions plus longues/courtes, chaque paragraphe reçoit une
-**zone utilisable élargie vers la droite uniquement** (bord gauche figé),
-calculée **ligne par ligne** (`container_lines`) — donc un contour en escalier
-qui **contourne un encart** (L) au lieu d'un rectangle qui le traverse. Règle
-**unique** : on étend chaque ligne **seulement jusqu'à la plus grande ligne du
-paragraphe** (`right_max`) — on aligne toutes les fins de ligne sur la ligne la
-plus longue (« équilibrage vers la fin la plus éloignée »). **JAMAIS jusqu'à la
-marge de page** : une colonne reste dans sa largeur, sans déborder sur le bloc de
-droite. On n'étend que si `right_max` est atteignable en gardant l'espace de
-sécurité (`_EXPAND_GAP`) face au 1er objet/colonne à droite ; sinon la ligne est
-**laissée telle quelle** (enroulement autour d'un encart). Ne modifie ni le texte
-ni sa position ; visible en **orange pointillé** à la réinjection.
+### Expansion du conteneur (`expand_paragraphs = True`, togglable — Étape D, v3)
+Pour absorber des traductions plus longues, chaque paragraphe reçoit une **zone
+utilisable élargie vers la droite** (`container_lines` / `container_bbox`, visible
+en **orange pointillé**). Expansion **au PARAGRAPHE ENTIER** : bord droit
+**uniforme** = minimum disponible sur toute la hauteur (aucune ligne ne dépasse).
+
+**Colonne** d'un paragraphe = paragraphes qui le **chevauchent horizontalement**
+(pas seulement de même marge gauche) → une ligne indentée/centrée référence la
+vraie marge de sa colonne. Sécurité multi-colonnes par la **règle de côté** :
+seuls les voisins qui **commencent à gauche** de `p` définissent sa marge droite
+(la colonne voisine, qui démarre à droite, borne via `right_block`, jamais comme
+référence).
+
+Bord droit cible :
+- **objet/colonne à droite** dans la bande → `bord − gouttière de sécurité`
+  (`_safe_gutter`, normalisée ~1,5× le corps, plancher 12 pt) ;
+- sinon **marge droite de sa colonne** (bord droit max des voisins) ;
+- sinon (**vraiment seul**, `has_col_sibling` faux) → **marge symétrique**
+  (`page − marge gauche`).
+
+**Texte CENTRÉ** détecté (multi-ligne : chaque ligne a une gauche différente,
+donc **pas de marge gauche dominante** — un simple alinéa de 1re ligne ne compte
+pas ; mono-ligne : marges gauche/droite substantielles et ~égales) → conteneur =
+**colonne entière** et rendu **recentré** (`align=center`), sinon bord gauche figé
+et rendu ferré à gauche. `align` est mémorisé sur le paragraphe pour le reflow.
+Ne modifie ni le texte ni sa position d'origine.
 
 ### Rendu de texte : mise à l'échelle horizontale (anti-chevauchement)
 Chaque run est rendu **mis à l'échelle en x** pour occuper exactement sa largeur
@@ -142,6 +185,68 @@ Sans cela, les avances de glyphe du sous-ensemble embarqué diffèrent (~2 %) du
 placement réel du PDF : la dérive cumulée fait **déborder un run sur le suivant**
 (texte collé / superposé, ex. liens soulignés). Garde-fou : correction bornée à
 `0.5 ≤ sx ≤ 2.0`. Le repli base-14 passe aussi par ce rendu (objet `fitz.Font`).
+
+## Traduction
+
+Pipeline bout-en-bout, construit sur l'extraction ci-dessus. Chaîne :
+**extraction → balisage → traduction → reflow → rendu**.
+
+### 1. Balisage par segment de style (`tagging.py`)
+Chaque paragraphe devient un texte balisé `[[0]]…[[/0]][[1]]…[[/1]]…` (méthode
+DOCX de `backend/docx_translator_engine.py`). Une balise = un **groupe de runs
+consécutifs de MÊME style** (police, gras, italique, taille, couleur,
+**soulignement**) — car un mot à lettres espacées est éclaté en un run par
+lettre ; les tagger séparément serait absurde. Le texte reconstruit dans les
+balises est **identique** au champ `paragraph.text` (mêmes espaces, dé-césure)
+→ retirer les balises redonne le texte source (0 divergence sur ~5 300
+paragraphes des 2 docs de test). `style_sig` inclut le soulignement, donc un
+lien devient son propre segment.
+
+### 2. Traduction (`translate.py` → `backend/translator_ai.py`)
+Collecte les paragraphes, envoie le texte balisé par lots à **DeepSeek**
+(compatible OpenAI, clé `backend/.env`), qui **préserve les balises `[[n]]`**.
+Résultat stocké par paragraphe : `tr_tagged` (texte traduit balisé) + `tr_segments`
+(style de chaque balise). Décision produit : **compression par reformulation
+seulement**, jamais d'abréviations (le document reste irréprochable).
+
+### 3. Reflow (`reflow.py`)
+Coule les segments traduits dans le polygone `container_lines` :
+- **Découpe en lignes** gloutonne, chaque ligne clippée à `[gauche(y), droite(y)]`
+  du contour en escalier (gère l'enroulement en L). **Césure** syllabique
+  (`pyphen`, langue cible).
+- **Ancrage vertical** : les lignes sont posées aux **baselines d'origine**
+  (`first_baseline + i·pitch`, `first_baseline` = baseline de la 1re ligne
+  source) → le texte garde sa position verticale (corrige la dérive qui décalait
+  le texte sous ses soulignements).
+- **Cascade d'ajustement** (hauteur fixe) du moins au plus intrusif :
+  **tracking → taille → interligne** (marges infimes), pour faire tenir une
+  traduction plus longue. Si rien ne tient au niveau max → `fitted=False`
+  (à signaler / re-traduire plus court).
+- **Alignement** : `left` (bord gauche figé) ou `center` (recentrage par ligne).
+
+### 4. Rendu traduit (`engine.reinject(translated=True)`)
+Peint la version traduite via reflow au lieu du rendu run-par-run.
+- **Police glyphe-par-glyphe** : les sous-ensembles embarqués sont subsettés pour
+  le texte SOURCE (anglais) → ils n'ont pas forcément les glyphes accentués FR.
+  `has_glyph` / `valid_codepoints` / `glyph_bbox` **sur-déclarent tous** la
+  couverture. **Seul test fiable** : rendre le glyphe sur un pixmap et détecter
+  l'encre (`_renders_glyph`, en cache). On garde le typeface embarqué là où il
+  rend vraiment, sinon **repli base-14** assorti (Times/Helvetica/Courier +
+  gras/italique). NB : mv21 (ProximaNova) rend déjà tout ; le Handbook
+  (Avenir/PTSerif) subit le repli sur accents.
+- **Soulignements de liens** : `_mark_underlines` associe le trait fin horizontal
+  au texte juste au-dessus (largeur comparable ; les **filets pleine largeur** =
+  règles de section sont ignorés). Le run porte `underline` (→ segments → reflow),
+  et le soulignement est **redessiné en continu sous le texte reflowé** ; l'ancien
+  trait fixe du source est **supprimé** en mode traduit (sinon figé sous le texte
+  déplacé).
+- Texte **incliné/vertical** : laissé en rendu original (pas de reflow).
+
+### Utilisation (traduction, 10 pages, via script de test)
+Le pilote `scratchpad/run_translate10.py` : charge l'extraction, traduit N pages
+(cache `<json>_trN.json` réutilisé au re-rendu), **recalcule l'expansion** avec le
+code courant, puis `reinject(translated=True)`. Sorties `*_traduit_p1-10.pdf`
+(+ `_debug` avec cadres conteneurs).
 
 ## Bordures (debug)
 
@@ -155,10 +260,13 @@ les sommets de chaque ligne → épouse bords irréguliers, retraits, et forme u
 ```
 pages[] → { page_num, width, height, elements[] }
 elements[] (ordre de peinture) :
-  { type:"drawing", draw_type, bbox, items[], stroke_color, fill_color, ... }
+  { type:"drawing", draw_type, bbox, items[], stroke_color, fill_color,
+                    _underline_consumed? }
   { type:"image",   bbox, xref, ext, asset_b64 | asset_file }
-  { type:"paragraph", bbox, container_bbox, container_lines[], text,
-                       lines[] → { text_line, bbox, runs[] → {text,origin,font,size,color,bold,italic,dir} } }
+  { type:"paragraph", bbox, container_bbox, container_lines[], align, text,
+                      lines[] → { text_line, bbox,
+                                  runs[] → {text,origin,font,size,color,bold,italic,dir,underline?} },
+                      tr_tagged?, tr_segments?[] }   ← champs de TRADUCTION
 fonts{} : nom → [ {ext, b64}, ... ]   (polices embarquées, cmap patchée si CID)
 ```
 
@@ -185,6 +293,17 @@ fonts{} : nom → [ {ext, b64}, ... ]   (polices embarquées, cmap patchée si C
 12. **Étape B** — cloisonnement des cellules de tableau (`find_tables` lignes).
 13. **Étape C** — texte incliné / vertical : regroupement le long de l'axe +
     rendu pivoté (matrice de rotation).
+14. Fix rendu titres à lettres espacées (gaps de mots via runs à espace de tête).
+15. **Traduction bout-en-bout** — balisage par style (`tagging`) → DeepSeek →
+    reflow (`reflow`) → rendu traduit (`reinject(translated=True)`).
+16. **Polices traduites** — couverture fiable par test de rendu (`_renders_glyph`)
+    + repli base-14 assorti (les subsets embarqués mentent sur la couverture).
+17. **Soulignements** suivant le texte reflowé + **ancrage vertical** des baselines.
+18. **Expansion horizontale v3** — au paragraphe (min), colonne par chevauchement,
+    gouttière normalisée, marge symétrique en dernier recours, **détection et
+    rendu du centrage** (vs alinéa de 1re ligne).
+19. **Segmentation** — clustering par plus petite taille, purge des caractères de
+    contrôle, règles d'orthographe (numéro/mot non terminal/`&` = continuation).
 
 ## Toggles (attributs `PDFObjectEngine` + options CLI)
 
@@ -197,20 +316,35 @@ fonts{} : nom → [ {ext, b64}, ... ]   (polices embarquées, cmap patchée si C
 
 ## Limites connues (assumées)
 
-- Dégradés / shadings PDF purs non captés (seuls fonds/traits vectoriels et
-  images raster).
-- **Images** pivotées : placées sans matrice de rotation (le **texte** pivoté,
-  lui, est géré — Étape C).
-- Clips / groupes vectoriels ignorés.
-- Tables **sans bordures** (détectées par alignement seul) non cloisonnées
-  (stratégie `lines` uniquement, pour éviter les faux positifs).
-- Ordre de lecture **inter-colonnes global** (étape 6) non implémenté : chaque
-  paragraphe est correct et boxé, mais la concaténation d'une page multi-colonnes
-  suit haut→bas/gauche→droite (utile surtout pour l'extraction de texte continu).
+**Traduction :**
+- **Débordement VERTICAL** (le plus important) : les conteneurs ont une hauteur
+  FIXE (expansion vers la droite seulement). Un paragraphe dont la traduction est
+  plus longue que ne l'absorbe la cascade **empiète sur le suivant** (ex. titres
+  de sommaire passant à 2 lignes, bas de pages denses). → **étape 2 : flux
+  vertical / push-down** (à faire).
+- **Police sur accents (subsets pauvres)** : les sous-ensembles Avenir/PTSerif du
+  Handbook n'ont pas les glyphes accentués FR → repli base-14 pour CES glyphes.
+  **Limite fondamentale** (la police complète n'est pas embarquée) ; mv21 rend
+  déjà tout.
+- **Titres à lettres espacées** (couverture) : extraits « A D V I C E … » (espace
+  entre chaque lettre) → charabia pour la traduction. Reconstruction des mots
+  tentée puis reverté (incohérente à cause des spans à espace de tête). À reprendre.
+- Reflow **ferré à gauche/centré**, pas **justifié** (l'original l'est souvent).
+- Cas de **segmentation** résiduels (en-tête gras run-in + numéro, acronyme en
+  fin de ligne, parenthèse ouverte).
+
+**Fidélité (base) :**
+- Dégradés / shadings purs non captés ; **images** pivotées sans rotation ;
+  clips / groupes vectoriels ignorés ; tables **sans bordures** non cloisonnées ;
+  ordre de lecture **inter-colonnes global** non implémenté.
 
 ## Pistes suivantes possibles
 
-- Ordre de lecture colonne par colonne (étape 6) pour un flux texte continu.
-- Rotation des **images** pivotées.
-- Tables sans bordures (stratégie `text`) avec garde-fous anti-faux-positifs.
-- Contours de paragraphe : lissage / fusion des micro-marches.
+1. **Étape 2 — flux vertical / push-down** (priorité) : récupérer le blanc du bas
+   de page, décaler les blocs suivants en conservant leurs écarts, borné par les
+   objets ancrés (images/pieds de page) + distance de sécurité, **column-aware**.
+2. **Justification** du texte reflowé (répartition d'espace par ligne).
+3. Reprise propre des **titres à lettres espacées** (reconstruction des mots).
+4. Chargement/embarquement de **polices complètes** (ex. PT Serif, libre) pour
+   éliminer le repli sur accents du Handbook.
+5. Rotation des **images** pivotées ; tables sans bordures (stratégie `text`).
