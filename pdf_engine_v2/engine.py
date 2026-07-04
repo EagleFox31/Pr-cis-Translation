@@ -804,8 +804,15 @@ class PDFObjectEngine:
                 cents = [(b[0] + b[2]) / 2 for b in lbb]
                 left_var = max(lefts) - min(lefts)
                 center_var = max(cents) - min(cents)
-                centered = (left_var > 8.0 and center_var < left_var
-                            and near_center)
+                # FERRÉ À GAUCHE si la majorité des lignes partagent la marge
+                # gauche minimale (un alinéa de 1re ligne ou une dernière ligne
+                # courte ne suffit pas à « centrer »). CENTRÉ = chaque ligne a une
+                # gauche différente (aucune marge gauche dominante).
+                min_left = min(lefts)
+                at_left = sum(1 for l in lefts if l - min_left <= 3.0)
+                left_aligned = at_left >= 0.6 * len(lefts)
+                centered = (not left_aligned and left_var > 8.0
+                            and center_var < left_var and near_center)
             else:
                 # Mono-ligne : exiger des marges SUBSTANTIELLES des deux côtés
                 # (fraction de la colonne), sinon une puce courte ferrée à gauche
