@@ -69,6 +69,7 @@ def build_tokens(segments):
         fonts = seg.get("fonts") or ([seg["font"]] if seg.get("font") else [])
         size = seg.get("size", 0) or 0
         color = seg.get("color", (0, 0, 0))
+        underline = bool(seg.get("underline"))
         for part in re.split(r"(\s+)", seg.get("text", "")):
             if part == "":
                 continue
@@ -76,7 +77,8 @@ def build_tokens(segments):
                 pending_space = True
             else:
                 tokens.append({"text": part, "fonts": fonts, "size": size,
-                               "color": color, "space_before": pending_space})
+                               "color": color, "underline": underline,
+                               "space_before": pending_space})
                 pending_space = False
     return tokens
 
@@ -136,31 +138,36 @@ def _hyphen_split(word, fonts, size, sx, avail, lang):
 
 
 # ── Coulée gloutonne d'une passe (paramètres fixés) ──────────────────────────
-def _layout(tokens, container_lines, top, bottom, size_scale, pitch, sx, lang):
-    """Une passe de coulée avec des paramètres FIXES. Retourne
-    (lignes, hauteur_utilisée, déborde:bool). Chaque ligne :
-    {"top", "baseline", "runs":[{text,x,font,size,color,sx}]}."""
+def _layout(tokens, container_lines, first_baseline, bottom, size_scale, pitch,
+            sx, lang, size_est):
+    """Une passe de coulée avec des paramètres FIXES. Les lignes sont posées à
+    des baselines ANCRÉES sur l'original : `baseline(i) = first_baseline +
+    i·pitch` (à interligne d'origine, `first_baseline` = baseline de la 1re ligne
+    source → le texte reste à sa position verticale ; corrige la dérive qui
+    décalait le texte sous ses soulignements). Retourne (lignes, hauteur, déborde).
+    Chaque ligne : {"baseline", "runs":[{text,x,fonts,size,color,sx,underline}]}."""
     lines = []
-    y = top
+    idx = 0
 
-    def bounds():
-        return _bounds_at(container_lines, y, y + pitch)
+    def baseline_of(i):
+        return first_baseline + i * pitch
 
-    left, right = bounds()
+    def bounds(i):
+        b = baseline_of(i)
+        return _bounds_at(container_lines, b - 0.8 * size_est, b + 0.25 * size_est)
+
+    left, right = bounds(0)
     x = left
     cur = []
-    line_size = 0.0
 
     def close_line():
-        nonlocal cur, line_size, y, left, right, x
+        nonlocal cur, idx, left, right, x
         if cur:
-            asc = line_size * 0.78          # baseline approx (ascender)
-            lines.append({"top": y, "baseline": y + asc, "runs": cur})
-        y += pitch
-        left, right = bounds()
+            lines.append({"baseline": baseline_of(idx), "runs": cur})
+        idx += 1
+        left, right = bounds(idx)
         x = left
         cur = []
-        line_size = 0.0
 
     queue = list(tokens)
     while queue:
@@ -177,8 +184,8 @@ def _layout(tokens, container_lines, top, bottom, size_scale, pitch, sx, lang):
             if piece:
                 head, tail = piece
                 cur.append({"text": head, "x": x + sp, "fonts": t["fonts"],
-                            "size": size, "color": t["color"], "sx": sx})
-                line_size = max(line_size, size)
+                            "size": size, "color": t["color"], "sx": sx,
+                            "underline": t.get("underline")})
                 queue.insert(0, {**t, "text": tail, "space_before": False})
                 close_line()
                 continue
@@ -189,13 +196,15 @@ def _layout(tokens, container_lines, top, bottom, size_scale, pitch, sx, lang):
 
         x += sp
         cur.append({"text": t["text"], "x": x, "fonts": t["fonts"],
-                    "size": size, "color": t["color"], "sx": sx})
+                    "size": size, "color": t["color"], "sx": sx,
+                    "underline": t.get("underline")})
         x += w
-        line_size = max(line_size, size)
 
     close_line()
-    height_used = len(lines) * pitch
-    overflow = (top + height_used) > (bottom + 0.35 * pitch)
+    n = len(lines)
+    height_used = n * pitch
+    last_bottom = baseline_of(n - 1) + 0.25 * size_est if n else first_baseline
+    overflow = last_bottom > (bottom + 0.35 * pitch)
     return lines, height_used, overflow
 
 
@@ -214,8 +223,13 @@ _CASCADE = [
 ]
 
 
-def reflow_paragraph(segments, container_lines, lang="fr_FR"):
+def reflow_paragraph(segments, container_lines, lang="fr_FR",
+                     first_baseline=None):
     """Coule les `segments` traduits dans `container_lines`.
+
+    `first_baseline` : baseline (y) de la 1re ligne d'origine → les lignes
+    reflowées sont posées à cette position (interligne d'origine), gardant le
+    texte à sa place verticale. À défaut, déduit du haut du conteneur.
 
     Retourne un dict :
       { "lines":[…], "fitted":bool, "level":int, "pitch_scale","size_scale","sx",
@@ -229,33 +243,21 @@ def reflow_paragraph(segments, container_lines, lang="fr_FR"):
     top = min(b[1] for b in container_lines)
     bottom = max(b[3] for b in container_lines)
     orig_pitch = _orig_pitch(container_lines, segments)
+    size_est = max((s.get("size", 0) or 0 for s in segments), default=10.0)
+    if first_baseline is None:
+        first_baseline = top + 0.78 * orig_pitch
 
     best = None
     for lvl, (ps, ss, sx) in enumerate(_CASCADE):
         pitch = orig_pitch * ps
-        lines, h, overflow = _layout(tokens, container_lines, top, bottom,
-                                     ss, pitch, sx, lang)
+        lines, h, overflow = _layout(tokens, container_lines, first_baseline,
+                                     bottom, ss, pitch, sx, lang, size_est * ss)
         best = {"lines": lines, "fitted": not overflow, "level": lvl,
                 "pitch_scale": ps, "size_scale": ss, "sx": sx,
                 "n_lines": len(lines)}
         if not overflow:
             return best
     return best                          # rien ne tient : renvoie le plus serré
-
-
-def natural_height(segments, container_lines, lang="fr_FR"):
-    """Hauteur qu'occuperait le texte à taille NATURELLE (aucune cascade, aucune
-    borne verticale) dans la largeur du conteneur. Sert à décider de l'expansion
-    verticale : `need − hauteur d'origine` = ce qu'il faut gagner vers le bas.
-    Retourne (hauteur, pas)."""
-    if not container_lines:
-        return 0.0, 0.0
-    tokens = build_tokens(segments)
-    top = min(b[1] for b in container_lines)
-    pitch = _orig_pitch(container_lines, segments)
-    lines, _, _ = _layout(tokens, container_lines, top, top + 1e6,
-                          1.0, pitch, 1.0, lang)
-    return len(lines) * pitch, pitch
 
 
 def _orig_pitch(container_lines, segments):

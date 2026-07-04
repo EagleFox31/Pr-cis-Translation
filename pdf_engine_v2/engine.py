@@ -203,6 +203,7 @@ class PDFObjectEngine:
                         self._group_paragraphs(text_lines, ctx))
                 else:
                     page_data["elements"].extend(text_lines)
+                self._mark_underlines(page_data["elements"])
                 data["pages"].append(page_data)
         finally:
             doc.close()
@@ -395,6 +396,50 @@ class PDFObjectEngine:
             "text_right": max(xs) if xs else page.rect.width,
             "cells": cells,
         }
+
+    # ── Soulignements (liens) : associer chaque trait au texte au-dessus ─────
+    def _mark_underlines(self, elements):
+        """Détecte les traits de SOULIGNEMENT (fins, horizontaux, sous une ligne
+        de texte et de largeur comparable) et : marque les runs concernés
+        `underline=True` (le rendu traduit les redessine SOUS le texte reflowé) ;
+        marque le trait `_underline_consumed` (non redessiné en mode traduit,
+        sinon il resterait figé sous le texte déplacé). Ne consomme PAS les
+        filets pleine largeur (règles de section) : bien plus larges que le texte."""
+        unders = []
+        for el in elements:
+            if el.get("type") != "drawing":
+                continue
+            bb = el.get("bbox")
+            if not bb or len(bb) < 4:
+                continue
+            w, h = bb[2] - bb[0], bb[3] - bb[1]
+            if h <= 2.5 and w >= 6 and el.get("draw_type") in ("s", "fs", None):
+                unders.append(el)
+        if not unders:
+            return
+        for el in elements:
+            if el.get("type") != "paragraph":
+                continue
+            for ln in el.get("lines", []):
+                for r in ln.get("runs", []):
+                    o, bb = r.get("origin"), r.get("bbox")
+                    if not o or not bb or len(bb) < 4:
+                        continue
+                    by, rx0, rx1 = o[1], bb[0], bb[2]
+                    rw = rx1 - rx0
+                    size = r.get("size", 10) or 10
+                    for u in unders:
+                        ub = u["bbox"]
+                        uy = 0.5 * (ub[1] + ub[3])
+                        if not (by - 1.0 <= uy <= by + 0.35 * size + 3.0):
+                            continue                     # pas juste sous la ligne
+                        ov = min(rx1, ub[2]) - max(rx0, ub[0])
+                        if ov < 0.6 * rw:
+                            continue                     # ne couvre pas le run
+                        if (ub[2] - ub[0]) > 1.4 * rw:
+                            continue                     # filet pleine largeur
+                        r["underline"] = True
+                        u["_underline_consumed"] = True
 
     def _extract_text(self, page):
         raw = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
@@ -1106,7 +1151,11 @@ class PDFObjectEngine:
                         if kind == "image":
                             self._draw_image(page, el, assets_dir)
                         elif kind == "drawing":
-                            self._draw_drawing(page, el)
+                            # En mode traduit, un soulignement de lien consommé
+                            # est redessiné SOUS le texte reflowé, pas ici (sinon
+                            # il resterait figé sous le texte déplacé).
+                            if not (translated and el.get("_underline_consumed")):
+                                self._draw_drawing(page, el)
                         elif kind == "paragraph":
                             if translated and el.get("tr_tagged") is not None:
                                 self._draw_paragraph_translated(page, el)
@@ -1266,7 +1315,16 @@ class PDFObjectEngine:
             clines = [cbb] if cbb else None
         if not clines:
             return
-        res = reflow.reflow_paragraph(segs, clines, lang=self.reflow_lang)
+        # Baseline de la 1re ligne d'origine → le reflow y ancre son texte
+        # (garde la position verticale ; les soulignements suivent le texte).
+        first_baseline = None
+        for ln in lines:
+            runs = ln.get("runs")
+            if runs and runs[0].get("origin"):
+                first_baseline = runs[0]["origin"][1]
+                break
+        res = reflow.reflow_paragraph(segs, clines, lang=self.reflow_lang,
+                                      first_baseline=first_baseline)
         self._paint_reflow(page, res)
 
     def _parse_translated_segments(self, el):
@@ -1310,7 +1368,8 @@ class PDFObjectEngine:
                                                m.get("italic")), None))
         return {"text": txt, "fonts": fonts,
                 "size": m.get("size", 10) or 10,
-                "color": tuple(m.get("color", (0, 0, 0)))}
+                "color": tuple(m.get("color", (0, 0, 0))),
+                "underline": bool(m.get("underline"))}
 
     def _renders_glyph(self, font, ch):
         """True si `font` produit RÉELLEMENT de l'encre pour `ch` (test de rendu
@@ -1359,11 +1418,42 @@ class PDFObjectEngine:
     def _paint_reflow(self, page, res):
         """Peint les lignes de runs placés produites par `reflow`. Chaque run est
         redécoupé en sous-runs par police de glyphe (embarquée / repli) pour que
-        les accents s'affichent sans perdre le typeface embarqué ailleurs."""
+        les accents s'affichent sans perdre le typeface embarqué ailleurs. Les
+        soulignements (liens) sont tracés APRÈS, en fusionnant les runs soulignés
+        consécutifs d'une ligne → un trait CONTINU (espaces compris)."""
         for ln in res.get("lines", []):
             base = ln["baseline"]
             for r in ln["runs"]:
                 self._paint_run_glyphs(page, r, base)
+            self._paint_underlines(page, ln["runs"], base)
+
+    def _paint_underlines(self, page, runs, base):
+        """Trace un soulignement CONTINU sous chaque suite de runs soulignés d'une
+        ligne (de la gauche du 1er à la droite du dernier, espaces inclus)."""
+        i, n = 0, len(runs)
+        while i < n:
+            if not runs[i].get("underline"):
+                i += 1
+                continue
+            j = i
+            x0 = runs[i]["x"]
+            x1 = x0
+            size = 0.0
+            color = runs[i]["color"]
+            while j < n and runs[j].get("underline"):
+                r = runs[j]
+                rw = reflow.text_width(r["text"], r.get("fonts") or [],
+                                       r["size"], r.get("sx", 1.0))
+                x1 = r["x"] + rw
+                size = max(size, r["size"])
+                j += 1
+            uy = base + 0.12 * (size or 10.0)
+            try:
+                page.draw_line(fitz.Point(x0, uy), fitz.Point(x1, uy),
+                               color=color, width=max(0.4, 0.045 * (size or 10)))
+            except Exception:
+                pass
+            i = j
 
     def _paint_run_glyphs(self, page, r, base):
         fonts = r.get("fonts") or []
