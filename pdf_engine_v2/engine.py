@@ -686,83 +686,136 @@ class PDFObjectEngine:
         return out
 
     # ── Étape D : expansion du CONTENEUR vers la droite ──────────────────────
-    _COL_LEFT_TOL = 4.0    # écart de marge gauche pour « même colonne »
+    _COL_SIB_TOL = 12.0    # tolérance « voisin de la même colonne »
 
     def _expand_paragraphs(self, paras, ctx):
-        """Calcule la zone utilisable élargie **vers la droite uniquement**, pour
-        absorber des traductions plus longues. Expansion **au PARAGRAPHE ENTIER**
-        (un bord droit UNIFORME pour toutes ses lignes), pas ligne par ligne :
-        toutes les lignes se décalent ensemble. Si les lignes ont des espaces
-        disponibles différents, on retient le **MINIMUM** (le plus contraint) —
-        ainsi aucune ligne ne dépasse dans un autre bloc.
+        """Élargit la zone utilisable de chaque paragraphe **au paragraphe ENTIER**
+        (bord droit UNIFORME = minimum disponible sur toute la hauteur → aucune
+        ligne ne dépasse dans un autre bloc).
 
-        Bord droit cible, calculé sur TOUTE la hauteur du paragraphe :
-        - **objet/colonne à droite** (autre paragraphe d'une AUTRE colonne, image,
-          dessin, cellule chevauchant sa bande verticale) → `bord de l'objet le
-          plus proche − gouttière de sécurité` (`_safe_gutter`). Garantit la
-          séparation des colonnes (sécurité multi-colonnes).
-        - **rien à droite** → marge droite de SA colonne (bord droit max des
-          paragraphes de même marge gauche) ; sinon, seul, marge **symétrique**
-          (`page_width − bord gauche`).
+        Colonne d'un paragraphe = paragraphes qui le **chevauchent horizontalement**
+        (pas seulement de même marge gauche) : une ligne indentée/centrée référence
+        ainsi la vraie marge de la colonne. Sécurité multi-colonnes conservée par
+        la règle de côté : seuls les voisins qui **commencent à gauche** de `p`
+        définissent sa marge DROITE (une colonne voisine, qui démarre à droite,
+        n'est jamais prise comme référence — elle borne via `right_block`).
 
-        Bord gauche de chaque ligne figé (indentation préservée). Ne modifie ni
-        le texte ni sa position : seul le cadre conteneur change."""
-        obstacles = ctx.get("obstacles", ())
+        Bord droit cible :
+        - **objet/colonne à droite** dans la bande → `bord − gouttière` (sécurité) ;
+        - sinon **marge droite de la colonne** ; sinon (isolé) marge symétrique.
+
+        Texte **CENTRÉ** (marges gauche/droite ~égales et larges dans la colonne) :
+        conteneur = colonne entière et rendu **recentré** (`align=center`) → reste
+        centré tout en occupant l'espace. Sinon bord gauche figé, rendu ferré à
+        gauche. Ne modifie ni le texte ni sa position d'origine."""
         page_w = ctx.get("width") or 0
+        obstacles = ctx.get("obstacles", ())
         boxed = [p for p in paras if p.get("bbox") and len(p["bbox"]) >= 4]
+        tol = self._COL_SIB_TOL
 
         for p in boxed:
             pleft, ptop, pright, pbottom = p["bbox"]
-            size = 0.0
-            for ln in p.get("lines", []):
-                for r in ln.get("runs", []):
-                    size = max(size, r.get("size", 0) or 0)
-            safety = self._safe_gutter(size or 10.0)
+            size = max((r.get("size", 0) or 0 for ln in p.get("lines", [])
+                        for r in ln.get("runs", [])), default=10.0)
+            safety = self._safe_gutter(size)
 
-            # 1) Objet le plus proche à droite sur TOUTE la bande [ptop, pbottom]
-            #    (min = contrainte la plus forte → aucune ligne ne dépassera).
+            # Objet le plus proche à droite sur TOUTE la bande verticale.
             right_block = float("inf")
             for q in boxed:
                 if q is p:
                     continue
-                qx0, qy0, qx1, qy1 = q["bbox"]
-                if qy1 <= ptop or qy0 >= pbottom:      # hors bande verticale
+                qb = q["bbox"]
+                if qb[3] <= ptop or qb[1] >= pbottom:
                     continue
-                if qx0 >= pright - 0.5 and qx0 < right_block:   # à droite
-                    right_block = qx0
+                if qb[0] >= pright - 0.5 and qb[0] < right_block:
+                    right_block = qb[0]
             for ox0, oy0, ox1, oy1 in obstacles:
                 if oy1 <= ptop or oy0 >= pbottom:
                     continue
                 if ox0 >= pright - 0.5 and ox0 < right_block:
                     right_block = ox0
 
-            if right_block != float("inf"):
-                target = right_block - safety          # gouttière de sécurité
-            else:
-                # Rien à droite : marge droite de la COLONNE (paragraphes de même
-                # marge gauche) ; sinon symétrique (paragraphe isolé).
-                col_right = pright
-                for q in boxed:
-                    if q is p:
-                        continue
-                    if abs(q["bbox"][0] - pleft) <= self._COL_LEFT_TOL:
-                        col_right = max(col_right, q["bbox"][2])
-                if col_right > pright + 0.5:
-                    target = col_right
-                else:
-                    target = page_w - pleft if page_w else pright
-
-            target = max(target, pright)               # jamais rétrécir
-
-            clines = []
-            for ln in p.get("lines", []):
-                bb = ln.get("bbox")
-                if not bb or len(bb) < 4:
+            # Marges de la COLONNE via les paragraphes qui chevauchent p.
+            col_left, col_right = pleft, pright
+            for q in boxed:
+                if q is p:
                     continue
-                clines.append([bb[0], bb[1], max(target, bb[2]), bb[3]])
-            if clines:
-                p["container_lines"] = clines
-                p["container_bbox"] = [pleft, ptop, target, pbottom]
+                qb = q["bbox"]
+                if min(qb[2], pright) - max(qb[0], pleft) <= 0.5:
+                    continue                            # pas de chevauchement
+                if qb[0] <= pleft + tol:                # commence à gauche → marge droite
+                    col_right = max(col_right, qb[2])
+                if qb[2] >= pright - tol:               # finit à droite → marge gauche
+                    col_left = min(col_left, qb[0])
+
+            col_w = max(1.0, col_right - col_left)
+            lg, rg = pleft - col_left, col_right - pright
+            min_gap = max(14.0, 0.08 * col_w)
+            col_center, para_center = (col_left + col_right) / 2, (pleft + pright) / 2
+            near_center = abs(para_center - col_center) <= 0.12 * col_w
+            # Le vrai signe du CENTRAGE : les bords GAUCHES des lignes varient
+            # fortement (chaque ligne recentrée), pas les marges du bloc. Un bloc
+            # ferré à gauche (même une puce courte) garde des gauches ~constantes.
+            lbb = [ln["bbox"] for ln in p.get("lines", [])
+                   if ln.get("bbox") and len(ln["bbox"]) >= 4]
+            if len(lbb) >= 2:
+                lefts = [b[0] for b in lbb]
+                cents = [(b[0] + b[2]) / 2 for b in lbb]
+                left_var = max(lefts) - min(lefts)
+                center_var = max(cents) - min(cents)
+                centered = (left_var > 8.0 and center_var < left_var
+                            and near_center)
+            else:
+                # Mono-ligne : exiger des marges SUBSTANTIELLES des deux côtés
+                # (fraction de la colonne), sinon une puce courte ferrée à gauche
+                # (léger retrait ≈ espace droit inutilisé) passerait pour centrée.
+                big = max(min_gap, 0.18 * col_w)
+                centered = (lg > big and rg > big and near_center
+                            and abs(lg - rg) <= max(6.0, 0.12 * col_w))
+
+            # Bord droit de référence.
+            if col_right > pright + 0.5:
+                ref_right = col_right
+            elif centered:
+                ref_right = col_right
+            else:
+                ref_right = page_w - pleft if page_w else pright
+            target = ref_right
+            if right_block != float("inf"):
+                target = min(target, right_block - safety)
+            target = max(target, pright)                # jamais rétrécir
+
+            left_edge = col_left if centered else None
+            if centered and right_block != float("inf"):
+                left_edge = pleft                       # bloqué à droite : pas de recentrage large
+                centered = False
+            self._set_container(p, left_edge, target,
+                                "center" if centered else "left")
+
+    def _set_container(self, p, left_edge, target_right, align):
+        """Pose `container_lines`/`container_bbox` uniformes. `left_edge` None =
+        garder le bord gauche de chaque ligne (ferré à gauche) ; sinon bord gauche
+        commun (colonne, pour un bloc centré). `align` mémorisé pour le rendu."""
+        pleft, ptop, pright, pbottom = p["bbox"]
+        clines = []
+        for ln in p.get("lines", []):
+            bb = ln.get("bbox")
+            if not bb or len(bb) < 4:
+                continue
+            lx0 = left_edge if left_edge is not None else bb[0]
+            clines.append([lx0, bb[1], max(target_right, bb[2]), bb[3]])
+        if clines:
+            p["container_lines"] = clines
+            cl = left_edge if left_edge is not None else pleft
+            p["container_bbox"] = [min(cl, pleft), ptop,
+                                   max(c[2] for c in clines), pbottom]
+            p["align"] = align
+
+    def _safe_gutter(self, size):
+        """Gouttière de sécurité normalisée (recommandation typographique) :
+        proportionnelle au corps, avec un plancher en points."""
+        return max(self._SAFE_GUTTER_MIN,
+                   self._SAFE_GUTTER_FACTOR * (size or 10.0))
 
     def _safe_gutter(self, size):
         """Gouttière de sécurité normalisée (recommandation typographique) :
@@ -1324,7 +1377,8 @@ class PDFObjectEngine:
                 first_baseline = runs[0]["origin"][1]
                 break
         res = reflow.reflow_paragraph(segs, clines, lang=self.reflow_lang,
-                                      first_baseline=first_baseline)
+                                      first_baseline=first_baseline,
+                                      align=el.get("align", "left"))
         self._paint_reflow(page, res)
 
     def _parse_translated_segments(self, el):

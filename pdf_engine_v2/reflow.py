@@ -139,7 +139,7 @@ def _hyphen_split(word, fonts, size, sx, avail, lang):
 
 # ── Coulée gloutonne d'une passe (paramètres fixés) ──────────────────────────
 def _layout(tokens, container_lines, first_baseline, bottom, size_scale, pitch,
-            sx, lang, size_est):
+            sx, lang, size_est, align="left"):
     """Une passe de coulée avec des paramètres FIXES. Les lignes sont posées à
     des baselines ANCRÉES sur l'original : `baseline(i) = first_baseline +
     i·pitch` (à interligne d'origine, `first_baseline` = baseline de la 1re ligne
@@ -163,6 +163,11 @@ def _layout(tokens, container_lines, first_baseline, bottom, size_scale, pitch,
     def close_line():
         nonlocal cur, idx, left, right, x
         if cur:
+            if align == "center":               # recentre la ligne dans [left,right]
+                off = (right - x) / 2.0
+                if off > 0.5:
+                    for rr in cur:
+                        rr["x"] += off
             lines.append({"baseline": baseline_of(idx), "runs": cur})
         idx += 1
         left, right = bounds(idx)
@@ -224,7 +229,7 @@ _CASCADE = [
 
 
 def reflow_paragraph(segments, container_lines, lang="fr_FR",
-                     first_baseline=None):
+                     first_baseline=None, align="left"):
     """Coule les `segments` traduits dans `container_lines`.
 
     `first_baseline` : baseline (y) de la 1re ligne d'origine → les lignes
@@ -251,7 +256,8 @@ def reflow_paragraph(segments, container_lines, lang="fr_FR",
     for lvl, (ps, ss, sx) in enumerate(_CASCADE):
         pitch = orig_pitch * ps
         lines, h, overflow = _layout(tokens, container_lines, first_baseline,
-                                     bottom, ss, pitch, sx, lang, size_est * ss)
+                                     bottom, ss, pitch, sx, lang, size_est * ss,
+                                     align)
         best = {"lines": lines, "fitted": not overflow, "level": lvl,
                 "pitch_scale": ps, "size_scale": ss, "sx": sx,
                 "n_lines": len(lines)}
