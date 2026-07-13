@@ -10,21 +10,17 @@ const SIDE_MARGIN = 10;
 
 /**
  * Justifie le titre : les trois lignes tombent à la MÊME largeur, un même corps
- * pour toutes, le texte étant approché (letter-spacing) jusqu'à remplir la
- * mesure — c'est la justification au sens typographique.
+ * pour toutes, l'écart étant repris par les BLANCS ENTRE LES MOTS — jamais
+ * entre les lettres d'un même mot. C'est la définition de la justification : le
+ * dessin des mots reste intact, seuls les espaces respirent.
  *
- * Deux points qu'on ne peut pas confier au CSS :
+ * `text-align: justify` ne peut pas le faire ici : chaque ligne est un bloc,
+ * donc chaque ligne est une DERNIÈRE ligne — et une dernière ligne n'est jamais
+ * justifiée. On calcule donc le `word-spacing` à la main.
  *
- * • `text-align: justify` n'agit pas ici. Chaque ligne est un bloc, donc chaque
- *   ligne est une DERNIÈRE ligne — et une dernière ligne n'est jamais justifiée.
- *   `text-align-last: justify` le forcerait, mais en n'étirant QUE les blancs :
- *   avec deux ou trois mots, les mots se retrouveraient aux extrémités et le
- *   titre se lirait comme cassé. On répartit donc l'écart sur TOUTES les
- *   lettres, ce qui est l'approche (tracking) du typographe.
- *
- * • Le corps commun est calé sur la ligne la PLUS LONGUE : elle remplit la
- *   mesure sans approche, et les autres n'ont plus qu'à s'écarter. Aucune ligne
- *   n'a donc à se resserrer, ce qui abîmerait le dessin des lettres.
+ * Le corps commun est calé sur la ligne la PLUS LONGUE : elle remplit la mesure
+ * sans rien étirer, et les autres n'ont plus qu'à écarter leurs mots. Aucune
+ * ligne n'a donc à se resserrer.
  */
 function useJustifiedLines(ref: React.RefObject<HTMLHeadingElement | null>, deps: unknown[]) {
   const fit = useCallback(() => {
@@ -39,34 +35,28 @@ function useJustifiedLines(ref: React.RefObject<HTMLHeadingElement | null>, deps
 
     // 1) Corps commun, calé sur la ligne la plus longue.
     title.style.fontSize = '';
-    lines.forEach((l) => { l.style.letterSpacing = '0px'; l.style.setProperty('--ls', '0px'); });
+    lines.forEach((l) => { l.style.wordSpacing = '0px'; });
     const base = parseFloat(getComputedStyle(title).fontSize);
     const widest = Math.max(...texts.map((t) => t!.getBoundingClientRect().width));
     if (!widest) return;
     title.style.fontSize = `${(base * target) / widest}px`;
 
-    // 2) Approche par ligne. Le calcul théorique tombe à quelques pixels près
-    //    (crénage, ligatures) : on corrige sur la mesure réelle, en deux ou
-    //    trois passes, jusqu'à ce que le bord droit tombe juste.
+    // 2) Justification par ligne. `word-spacing` n'agit que sur les caractères
+    //    d'espace : il n'ajoute donc AUCUN blanc en fin de ligne, et le trait
+    //    comme les repères restent collés à leur mot. Le calcul théorique tombe
+    //    à quelques pixels près (crénage) : on corrige sur la mesure réelle.
     lines.forEach((line, i) => {
       const text = texts[i]!;
-      const chars = (text.textContent ?? '').length;
-      if (chars < 2) return;
+      const gaps = ((text.textContent ?? '').match(/\s/g) ?? []).length;
+      if (gaps === 0) return;              // un seul mot : rien à justifier
 
-      let ls = 0;
+      let ws = 0;
       for (let pass = 0; pass < 4; pass++) {
-        // letter-spacing insère aussi un blanc APRÈS la dernière lettre : la
-        // boîte est donc plus large que les glyphes d'exactement `ls`.
-        const visible = text.getBoundingClientRect().width - ls;
-        const delta = target - visible;
+        const delta = target - text.getBoundingClientRect().width;
         if (Math.abs(delta) < 0.4) break;
-        ls += delta / (chars - 1);
-        line.style.letterSpacing = `${ls}px`;
+        ws += delta / gaps;
+        line.style.wordSpacing = `${ws}px`;
       }
-      // Ce blanc de fin décalerait vers la droite tout ce qui s'accroche au
-      // bord du texte : le trait sous « sans perdre » et le repère de droite
-      // de « mise en page ». On l'expose en variable, le CSS le reprend.
-      line.style.setProperty('--ls', `${ls}px`);
     });
   }, [ref]);
 
