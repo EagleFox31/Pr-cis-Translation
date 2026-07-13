@@ -56,28 +56,38 @@ export default function HeroSection() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
           >
-            {t('hero.title_before')}{' '}
-            <span className="hero-underline">
-              {t('hero.title_key')}
-              <motion.span
-                className="hero-underline-stroke"
-                initial={{ scaleX: 0 }}
-                animate={{ scaleX: 1 }}
-                transition={{ duration: 0.8, delay: 0.7, ease: [0.16, 1, 0.3, 1] }}
-              />
-            </span>{' '}
-            {t('hero.title_mid')}{' '}
-            <span className="hero-key">
-              {t('hero.title_layout')}
-              {(['tl', 'tr', 'bl', 'br'] as const).map((corner, i) => (
+            {/* Les trois lignes sont COUPÉES explicitement : `text-wrap: balance`
+                laissait le navigateur décider et la coupe changeait avec la
+                largeur, la langue et la police. Ici la structure du titre est
+                voulue, donc elle est écrite. */}
+            <span className="hero-line">{t('hero.title_before')}</span>
+
+            <span className="hero-line">
+              <span className="hero-underline">
+                {t('hero.title_key')}
                 <motion.span
-                  key={corner}
-                  className={`hero-key-mark hero-key-mark--${corner}`}
-                  initial={{ opacity: 0, scale: 0.4 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.35, delay: 1.25 + i * 0.08, ease: [0.16, 1, 0.3, 1] }}
+                  className="hero-underline-stroke"
+                  initial={{ scaleX: 0 }}
+                  animate={{ scaleX: 1 }}
+                  transition={{ duration: 0.8, delay: 0.7, ease: [0.16, 1, 0.3, 1] }}
                 />
-              ))}
+              </span>{' '}
+              {t('hero.title_mid')}
+            </span>
+
+            <span className="hero-line hero-line--key">
+              <span className="hero-key">
+                {t('hero.title_layout')}
+                {(['tl', 'tr', 'bl', 'br'] as const).map((corner, i) => (
+                  <motion.span
+                    key={corner}
+                    className={`hero-key-mark hero-key-mark--${corner}`}
+                    initial={{ opacity: 0, scale: 0.4 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.35, delay: 1.25 + i * 0.08, ease: [0.16, 1, 0.3, 1] }}
+                  />
+                ))}
+              </span>
             </span>
           </motion.h1>
 

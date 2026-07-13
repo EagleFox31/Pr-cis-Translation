@@ -442,17 +442,33 @@ button { font-family: inherit; cursor: pointer; border: none; }
 }
 .hero-title {
   font-family: var(--font-display);
-  font-size: clamp(2.5rem, 3.5vw, 4.05rem);
+  /* Corps calé pour que « Traduisez vos documents » tienne sur UNE ligne à
+     toute largeur. Le plafond (3.4rem) n'est pas esthétique mais géométrique :
+     au-delà de 1720px le hero cesse de s'élargir alors que le corps, lui,
+     continuait de croître — à 3.9rem il ne restait que 2 % de marge et la
+     ligne 1 finissait par passer à la ligne. Marge minimale mesurée : ~14 %. */
+  font-size: clamp(1.7rem, 3.1vw, 3.4rem);
   font-weight: 300;
-  line-height: 1.14;
   color: var(--white);
   letter-spacing: -0.02em;
-  margin-bottom: 20px;
-  max-width: 19ch;
-  /* Sans ceci, le navigateur remplit chaque ligne au maximum puis laisse un
-     mot orphelin sur la suivante (« Translate your / documents / … ») : le
-     titre paraissait désordonné. `balance` égalise la longueur des lignes. */
-  text-wrap: balance;
+  margin-bottom: 22px;
+  /* Interligne aéré : les repères de coupe débordent au-dessus de « mise en
+     page » (-0.16em), il leur faut du blanc pour ne pas heurter la ligne du
+     dessus. Le titre n'est plus équilibré automatiquement — ses coupes sont
+     écrites dans le JSX — donc `text-wrap` n'a plus lieu d'être. */
+  line-height: 1.34;
+}
+/* Une ligne = un bloc : la coupe est imposée par la structure, pas par le
+   navigateur. Volontairement PAS de `nowrap` : la colonne est en minmax(0,…)
+   et `.hero` est en `overflow: hidden`, donc un texte insécable trop large
+   serait ROGNÉ sans bruit. Le corps du titre (clamp en vw) laisse ~25 % de
+   marge à toutes les largeurs testées ; si elle venait à manquer, le titre
+   passe à la ligne — dégradation visible, jamais silencieuse. */
+.hero-line {
+  display: block;
+}
+.hero-line--key {
+  margin-top: 0.1em;   /* dégage le cadre des repères */
 }
 .hero-title em {
   font-style: italic;
