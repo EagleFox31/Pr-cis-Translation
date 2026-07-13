@@ -4,23 +4,42 @@ import { motion, useScroll, useTransform } from 'motion/react';
 import { ArrowRight, LayoutTemplate, FileType2, Languages } from 'lucide-react';
 import DocumentDemo from './DocumentDemo';
 
-/** Légère marge : les trois lignes ne touchent pas tout à fait le bord, ce qui
- *  laisse aussi respirer les repères de coupe, qui débordent du mot. */
+/** Légère marge : les lignes ne touchent pas tout à fait le bord, ce qui laisse
+ *  aussi respirer les repères de coupe, qui débordent du mot. */
 const SIDE_MARGIN = 10;
 
+/** Blanc AJOUTÉ entre les mots, en em. Le blanc naturel de la police vaut
+ *  ~0.25em : on aboutit donc à ~0.5em, soit deux fois le naturel — assez pour
+ *  aérer, trop peu pour qu'on le remarque. Cf. le commentaire ci-dessous. */
+const WORD_EXTRA_EM = 0.25;
+
+/** Garde-fous du corps. */
+const MIN_SIZE = 20;
+const MAX_SIZE = 120;
+
 /**
- * Justifie le titre : les trois lignes tombent à la MÊME largeur, un même corps
- * pour toutes, l'écart étant repris par les BLANCS ENTRE LES MOTS — jamais
- * entre les lettres d'un même mot. C'est la définition de la justification : le
- * dessin des mots reste intact, seuls les espaces respirent.
+ * Justifie le titre : les trois lignes tombent à la MÊME largeur.
  *
- * `text-align: justify` ne peut pas le faire ici : chaque ligne est un bloc,
- * donc chaque ligne est une DERNIÈRE ligne — et une dernière ligne n'est jamais
- * justifiée. On calcule donc le `word-spacing` à la main.
+ * L'écart de longueur entre « Traduisez vos documents » (23 signes) et « mise
+ * en page » (12) doit être absorbé par quelque chose. Deux leviers existent, et
+ * ils sont TRÈS inégaux — mesuré sur la police du titre :
  *
- * Le corps commun est calé sur la ligne la PLUS LONGUE : elle remplit la mesure
- * sans rien étirer, et les autres n'ont plus qu'à écarter leurs mots. Aucune
- * ligne n'a donc à se resserrer.
+ *     blanc visé   corps des 3 lignes   écart de corps
+ *       0.25em      50 / 81 / 98 px         ×1.95      (blanc naturel)
+ *       0.50em      48 / 75 / 89 px         ×1.86
+ *       1.00em      44 / 65 / 76 px         ×1.74      (blanc ×4 : déjà voyant)
+ *       2.72em      34 / 45 / 50 px         ×1.49      (mots éparpillés)
+ *
+ * Autrement dit : QUADRUPLER les blancs ne réduit l'écart de corps que de 1.95
+ * à 1.74. Les blancs sont un levier presque nul ; le corps est le seul vrai
+ * levier. Tout miser sur eux — ce que faisait la version précédente — éparpille
+ * les mots sans même égaliser les corps.
+ *
+ * On se place donc au point d'équilibre : un blanc de ~0.5em (deux fois le
+ * naturel, invisible), et c'est le CORPS de chaque ligne qui comble le reste.
+ * Les mots gardent leur dessin exact — aucune lettre n'est écartée — et la
+ * ligne la plus courte devient la plus grande : « mise en page », la promesse,
+ * est aussi ce que l'œil voit en premier.
  */
 function useJustifiedLines(ref: React.RefObject<HTMLHeadingElement | null>, deps: unknown[]) {
   const fit = useCallback(() => {
@@ -30,32 +49,24 @@ function useJustifiedLines(ref: React.RefObject<HTMLHeadingElement | null>, deps
     if (target <= 0) return;
 
     const lines = [...title.querySelectorAll<HTMLElement>('.hero-line')];
-    const texts = lines.map((l) => l.querySelector<HTMLElement>('.hero-line-text'));
-    if (texts.some((t) => !t)) return;
 
-    // 1) Corps commun, calé sur la ligne la plus longue.
-    title.style.fontSize = '';
-    lines.forEach((l) => { l.style.wordSpacing = '0px'; });
-    const base = parseFloat(getComputedStyle(title).fontSize);
-    const widest = Math.max(...texts.map((t) => t!.getBoundingClientRect().width));
-    if (!widest) return;
-    title.style.fontSize = `${(base * target) / widest}px`;
+    lines.forEach((line) => {
+      const text = line.querySelector<HTMLElement>('.hero-line-text');
+      if (!text) return;
 
-    // 2) Justification par ligne. `word-spacing` n'agit que sur les caractères
-    //    d'espace : il n'ajoute donc AUCUN blanc en fin de ligne, et le trait
-    //    comme les repères restent collés à leur mot. Le calcul théorique tombe
-    //    à quelques pixels près (crénage) : on corrige sur la mesure réelle.
-    lines.forEach((line, i) => {
-      const text = texts[i]!;
-      const gaps = ((text.textContent ?? '').match(/\s/g) ?? []).length;
-      if (gaps === 0) return;              // un seul mot : rien à justifier
+      line.style.fontSize = '';
+      let size = parseFloat(getComputedStyle(line).fontSize);
 
-      let ws = 0;
-      for (let pass = 0; pass < 4; pass++) {
-        const delta = target - text.getBoundingClientRect().width;
-        if (Math.abs(delta) < 0.4) break;
-        ws += delta / gaps;
-        line.style.wordSpacing = `${ws}px`;
+      // La largeur est LINÉAIRE en `size` — le blanc ajouté est lui aussi
+      // exprimé en em, donc il grandit avec le corps. Une règle de trois suffit
+      // ; la seconde passe ne rattrape que les arrondis (crénage, sous-pixel).
+      for (let pass = 0; pass < 3; pass++) {
+        line.style.fontSize = `${size}px`;
+        line.style.wordSpacing = `${WORD_EXTRA_EM * size}px`;
+        const w = text.getBoundingClientRect().width;
+        if (!w) return;
+        if (Math.abs(target - w) < 0.4) break;
+        size = Math.min(MAX_SIZE, Math.max(MIN_SIZE, (size * target) / w));
       }
     });
   }, [ref]);
@@ -140,18 +151,12 @@ export default function HeroSection() {
               <span className="hero-line-text">{t('hero.title_before')}</span>
             </span>
 
+            {/* Plus de soulignement sous « sans perdre » : le corps croissant
+                conduit déjà l'œil vers la dernière ligne, et le trait venait
+                buter contre les repères de coupe qui la surmontent. */}
             <span className="hero-line">
               <span className="hero-line-text">
-                <span className="hero-underline">
-                  {t('hero.title_key')}
-                  <motion.span
-                    className="hero-underline-stroke"
-                    initial={{ scaleX: 0 }}
-                    animate={{ scaleX: 1 }}
-                    transition={{ duration: 0.8, delay: 0.7, ease: [0.16, 1, 0.3, 1] }}
-                  />
-                </span>{' '}
-                {t('hero.title_mid')}
+                {t('hero.title_key')} {t('hero.title_mid')}
               </span>
             </span>
 

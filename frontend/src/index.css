@@ -452,7 +452,9 @@ button { font-family: inherit; cursor: pointer; border: none; }
   margin-bottom: 24px;
   /* Mesure du titre. C'est elle que les trois lignes viennent remplir. */
   max-width: min(100%, 520px);
-  line-height: 1.3;
+  /* Les corps diffèrent d'une ligne à l'autre : l'interligne se calcule sur
+     chacune, il peut donc rester serré — c'est le rendu d'affiche. */
+  line-height: 1.08;
 }
 /* Une ligne = un bloc : la coupe est imposée par la structure, pas par le
    navigateur. `nowrap` est ici SANS RISQUE de rognage — chaque ligne est
@@ -467,12 +469,11 @@ button { font-family: inherit; cursor: pointer; border: none; }
 .hero-line-text {
   display: inline-block;
 }
-/* Dégagement de la dernière ligne. Le repère de coupe remonte de 0.16em
-   au-dessus du mot et venait presque toucher le trait de « sans perdre ».
-   Blanc disponible = demi-interligne bas (0.15em) + cette marge + demi-interligne
-   haut (0.15em), moins les 0.16em du repère → 0.34em d'air à 0.35em de marge. */
+/* Dégagement de la dernière ligne : le repère de coupe remonte de 0.16em
+   au-dessus du mot. La marge est en `em` du CORPS DE CETTE LIGNE — la plus
+   grande des trois — donc l'air croît avec le repère qu'il doit dégager. */
 .hero-line--key {
-  margin-top: 0.35em;
+  margin-top: 0.3em;
 }
 .hero-title em {
   font-style: italic;
@@ -756,29 +757,12 @@ button { font-family: inherit; cursor: pointer; border: none; }
   font-size: 11px; color: var(--gray-500); line-height: 1.25;
 }
 
-/* Titre — deux traitements typographiques, chacun porteur de sens.
-
-   1) « sans perdre » : un trait se trace sous les mots. Il était épais (10px)
-      et remontait dans les jambages, avec une extrémité arrondie : on y lisait
-      une barre de progression. Il est désormais fin et posé SOUS la ligne de
-      base, donc il ne touche plus aucun glyphe. */
-.hero-underline { position: relative; display: inline-block; white-space: nowrap; }
-.hero-underline-stroke {
-  position: absolute;
-  /* Aucune compensation à prévoir : la justification joue sur `word-spacing`,
-     qui n'agit que sur les caractères d'espace — donc rien n'est ajouté après
-     la dernière lettre, et le trait s'arrête pile sur le « e » de « perdre ». */
-  left: 0; right: 0; bottom: 0.04em;
-  height: 4px;
-  border-radius: 2px;
-  transform-origin: left center;
-  background: linear-gradient(90deg, var(--blue), var(--gold-light));
-}
-
-/* 2) « mise en page » : italique doré, encadré de REPÈRES DE COUPE — les
-      marques qu'on trace autour d'un bloc en préparation d'impression. Le mot
-      est donc lui-même mis en page, et son cadre reste intact : la forme dit
-      exactement ce que la phrase promet. */
+/* « mise en page » : italique doré, encadré de REPÈRES DE COUPE — les marques
+   qu'on trace autour d'un bloc en préparation d'impression. Le mot est donc
+   lui-même mis en page, et son cadre reste intact : la forme dit exactement ce
+   que la phrase promet. C'est le seul ornement du titre — le trait qui
+   soulignait « sans perdre » a été retiré : il faisait double emploi avec le
+   corps croissant, et venait buter contre ces repères. */
 .hero-key {
   position: relative;
   display: inline-block;
