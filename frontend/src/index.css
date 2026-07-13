@@ -469,11 +469,10 @@ button { font-family: inherit; cursor: pointer; border: none; }
 .hero-line-text {
   display: inline-block;
 }
-/* Dégagement de la dernière ligne : le repère de coupe remonte de 0.16em
-   au-dessus du mot. La marge est en `em` du CORPS DE CETTE LIGNE — la plus
-   grande des trois — donc l'air croît avec le repère qu'il doit dégager. */
+/* Le cadre étant désormais calé sur l'encre, il ne remonte plus au-dessus de la
+   boîte : la marge de dégagement peut être réduite d'autant. */
 .hero-line--key {
-  margin-top: 0.3em;
+  margin-top: 0.14em;
 }
 .hero-title em {
   font-style: italic;
@@ -779,14 +778,18 @@ button { font-family: inherit; cursor: pointer; border: none; }
   border: 2px solid rgba(240,217,138,.75);
   pointer-events: none;
 }
-/* Les montants VERTICAUX tombent pile sur le début et la fin du texte
-   (left/right: 0) : le cadre encadre le mot au lieu de sembler déborder.
-   Seul le débord VERTICAL est conservé — c'est lui qui donne au repère son
-   allure de marque de coupe plutôt que de simple boîte. */
-.hero-key-mark--tl { top: -.18em;    left: 0;  border-right: 0; border-bottom: 0; }
-.hero-key-mark--tr { top: -.18em;    right: 0; border-left: 0;  border-bottom: 0; }
-.hero-key-mark--bl { bottom: -.12em; left: 0;  border-right: 0; border-top: 0; }
-.hero-key-mark--br { bottom: -.12em; right: 0; border-left: 0;  border-top: 0; }
+/* Horizontalement : les montants tombent pile sur le premier et le dernier
+   glyphe (left/right: 0), donc le cadre n'a plus l'air de déborder.
+
+   Verticalement : `--frame-top` / `--frame-bottom` sont MESURÉS à l'exécution
+   (cf. frameKeyWord) pour caler le cadre sur l'ENCRE du mot. Un calage sur la
+   boîte le placerait trop haut : la boîte réserve toute la hauteur
+   d'ascendante, alors que « mise en page » n'a ni capitale ni hampe. Les
+   valeurs en dur ne servent que de repli si la mesure d'encre échoue. */
+.hero-key-mark--tl { top: var(--frame-top, -.18em);       left: 0;  border-right: 0; border-bottom: 0; }
+.hero-key-mark--tr { top: var(--frame-top, -.18em);       right: 0; border-left: 0;  border-bottom: 0; }
+.hero-key-mark--bl { bottom: var(--frame-bottom, -.12em); left: 0;  border-right: 0; border-top: 0; }
+.hero-key-mark--br { bottom: var(--frame-bottom, -.12em); right: 0; border-left: 0;  border-top: 0; }
 
 /* Preuves — des faits, pas des chiffres invérifiables */
 .hero-proofs {

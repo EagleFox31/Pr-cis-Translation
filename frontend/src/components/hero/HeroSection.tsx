@@ -17,6 +17,54 @@ const WORD_EXTRA_EM = 0.25;
 const MIN_SIZE = 20;
 const MAX_SIZE = 120;
 
+/** Air laissé entre l'encre du mot et le cadre, en em. */
+const FRAME_PAD_EM = 0.13;
+
+/** « mise en page » est la ligne la plus courte, donc la plus grosse. On la
+ *  rabat très légèrement — la largeur perdue est reprise par ses blancs, si
+ *  bien qu'elle tombe toujours à la mesure exacte. */
+const KEY_SHRINK = 0.93;
+
+/**
+ * Cale les repères de coupe sur l'ENCRE du mot, pas sur sa boîte.
+ *
+ * La boîte d'une ligne réserve toute la hauteur d'ascendante de la police,
+ * qu'il y ait ou non des capitales. « mise en page » n'en a aucune — pas même
+ * une hampe, hormis le point du « i » — donc son encre flotte tout en bas de sa
+ * boîte : un cadre posé sur les bords de la boîte paraît haut et décentré, avec
+ * un grand blanc au-dessus et les jambages qui touchent en dessous.
+ *
+ * On mesure donc l'encre réelle (`actualBoundingBox…`) et on en déduit la
+ * position du cadre par rapport aux bords de la boîte. Le calcul se refait à
+ * chaque rendu, donc il suit la langue : « their layout » a des hampes (t, h, l)
+ * là où « mise en page » n'en a pas, et son cadre montera d'autant.
+ */
+function frameKeyWord(title: HTMLElement) {
+  const key = title.querySelector<HTMLElement>('.hero-key');
+  const ctx = document.createElement('canvas').getContext('2d');
+  if (!key || !ctx) return;
+
+  const cs = getComputedStyle(key);
+  const size = parseFloat(cs.fontSize);
+  ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${size}px ${cs.fontFamily}`;
+  const m = ctx.measureText(key.textContent ?? '');
+
+  const fAsc = m.fontBoundingBoxAscent;    // ce que la MISE EN PAGE réserve
+  const fDesc = m.fontBoundingBoxDescent;
+  const iAsc = m.actualBoundingBoxAscent;  // ce que l'ENCRE occupe vraiment
+  const iDesc = m.actualBoundingBoxDescent;
+  if (![fAsc, fDesc, iAsc, iDesc].every(Number.isFinite)) return;   // repli CSS
+
+  // Demi-interligne : écart entre la boîte de ligne et la zone de contenu.
+  const lineH = parseFloat(cs.lineHeight) || size;
+  const half = (lineH - (fAsc + fDesc)) / 2;
+  const pad = FRAME_PAD_EM * size;
+
+  // Distance du bord de la boîte au bord de l'encre, moins l'air voulu.
+  key.style.setProperty('--frame-top', `${fAsc + half - iAsc - pad}px`);
+  key.style.setProperty('--frame-bottom', `${fDesc + half - iDesc - pad}px`);
+}
+
 /**
  * Justifie le titre : les trois lignes tombent à la MÊME largeur.
  *
@@ -68,7 +116,24 @@ function useJustifiedLines(ref: React.RefObject<HTMLHeadingElement | null>, deps
         if (Math.abs(target - w) < 0.4) break;
         size = Math.min(MAX_SIZE, Math.max(MIN_SIZE, (size * target) / w));
       }
+
+      // La ligne-clé est rabattue d'un cran, puis ses BLANCS reprennent la
+      // largeur perdue : elle reste donc calée sur la mesure, au pixel près.
+      if (line.classList.contains('hero-line--key')) {
+        const gaps = ((text.textContent ?? '').match(/\s/g) ?? []).length;
+        if (!gaps) return;
+        line.style.fontSize = `${size * KEY_SHRINK}px`;
+        let ws = WORD_EXTRA_EM * size * KEY_SHRINK;
+        for (let pass = 0; pass < 3; pass++) {
+          line.style.wordSpacing = `${ws}px`;
+          const delta = target - text.getBoundingClientRect().width;
+          if (Math.abs(delta) < 0.4) break;
+          ws += delta / gaps;
+        }
+      }
     });
+
+    frameKeyWord(title);   // le cadre suit le corps définitif de la ligne-clé
   }, [ref]);
 
   useEffect(() => {
