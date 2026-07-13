@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronDown, Search, Check, Ban } from 'lucide-react';
-import { LANGUAGES, isLangAvailable, findLang } from '../../lib/languages';
+import { LANGUAGES, isLangAvailable, findLang, baseCode } from '../../lib/languages';
 import type { Language } from '../../lib/languages';
 
 interface LanguagePickerProps {
@@ -55,7 +55,10 @@ export default function LanguagePicker({ value, onChange, ext, disabled }: Langu
   const options = useMemo(() => {
     const q = query.trim().toLowerCase();
     const match = (l: Language) =>
-      !q || l.label.toLowerCase().includes(q) || l.code.includes(q);
+      !q
+      || l.name.toLowerCase().includes(q)
+      || (l.region ?? '').toLowerCase().includes(q)
+      || l.code.toLowerCase().includes(q);
     return LANGUAGES.filter(match).map((l) => ({
       lang: l,
       available: isLangAvailable(l, ext),
@@ -142,9 +145,12 @@ export default function LanguagePicker({ value, onChange, ext, disabled }: Langu
           transition: 'border-color 0.15s, box-shadow 0.15s',
         }}
       >
-        <CodeChip code={selected?.code ?? '—'} active />
+        <CodeChip code={selected ? baseCode(selected.code) : '—'} active />
         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {selected?.label ?? t('story.target_lang')}
+          {selected?.name ?? t('story.target_lang')}
+          {selected?.region && (
+            <span style={{ color: 'var(--gray-500)', fontWeight: 400 }}> · {selected.region}</span>
+          )}
         </span>
         <motion.span
           animate={{ rotate: isOpen ? 180 : 0 }}
@@ -209,6 +215,9 @@ export default function LanguagePicker({ value, onChange, ext, disabled }: Langu
               {options.map(({ lang, available }, i) => {
                 const isSel = lang.code === value;
                 const isCur = i === cursor;
+                // Les variantes d'une même langue se suivent : un filet les
+                // regroupe visuellement (les 4 anglais forment un bloc).
+                const newGroup = i > 0 && options[i - 1].lang.name !== lang.name;
                 return (
                   <button
                     key={lang.code}
@@ -220,27 +229,40 @@ export default function LanguagePicker({ value, onChange, ext, disabled }: Langu
                     disabled={!available}
                     onClick={() => commit(i)}
                     onMouseEnter={() => available && setCursor(i)}
-                    title={available ? undefined : t('story.lang_pdf_unsupported', 'Écriture non rendable en PDF : les polices du document ne contiennent pas ces caractères.')}
+                    title={available ? undefined : t('story.lang_pdf_unsupported')}
                     style={{
                       width: '100%',
                       display: 'flex', alignItems: 'center', gap: '9px',
-                      padding: '9px 10px',
-                      border: 'none',
+                      padding: '8px 10px',
+                      marginTop: newGroup ? '4px' : 0,
+                      borderTop: newGroup ? '1px solid var(--gray-100)' : 'none',
+                      borderLeft: 'none', borderRight: 'none', borderBottom: 'none',
                       borderRadius: '8px',
-                      background: !available ? 'transparent' : isCur ? 'var(--gray-50)' : 'transparent',
+                      background: available && isCur ? 'var(--gray-50)' : 'transparent',
                       cursor: available ? 'pointer' : 'not-allowed',
                       opacity: available ? 1 : 0.45,
                       fontFamily: 'inherit',
                       fontSize: '13.5px',
-                      fontWeight: isSel ? 600 : 400,
                       color: isSel ? 'var(--blue)' : 'var(--navy)',
                       textAlign: 'left',
                       transition: 'background 0.1s',
                     }}
                   >
-                    <CodeChip code={lang.code} active={isSel} />
-                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {lang.label}
+                    <CodeChip code={baseCode(lang.code)} active={isSel} />
+                    <span style={{
+                      flex: 1, minWidth: 0,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      fontWeight: isSel ? 600 : 400,
+                    }}>
+                      {lang.name}
+                      {lang.region && (
+                        <span style={{
+                          color: isSel ? 'var(--blue)' : 'var(--gray-500)',
+                          fontWeight: 400, opacity: isSel ? 0.8 : 1,
+                        }}>
+                          {' · '}{lang.region}
+                        </span>
+                      )}
                     </span>
                     {!available && <Ban size={13} strokeWidth={2.2} style={{ color: 'var(--gray-400)', flexShrink: 0 }} />}
                     {isSel && available && <Check size={14} strokeWidth={2.8} style={{ flexShrink: 0 }} />}

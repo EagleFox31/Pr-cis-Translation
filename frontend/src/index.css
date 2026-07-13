@@ -831,7 +831,11 @@ section {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 80px;
-  align-items: center;
+  /* `center` recentrait la carte du formulaire à chaque changement de hauteur :
+     ouvrir les options avancées ou choisir un fichier décalait TOUT le bloc,
+     vers le haut comme vers le bas. `stretch` fige le bord supérieur — la carte
+     ne peut plus que croître vers le bas, sur une action de l'utilisateur. */
+  align-items: stretch;
 }
 
 @media (max-width: 768px) {

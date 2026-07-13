@@ -8,20 +8,13 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import type { DocMeta } from '../../hooks/useDocumentLibrary';
+import { baseCode } from '../../lib/languages';
 
 const EXT_ICONS: Record<string, LucideIcon> = {
   pdf: FileType2,
   docx: FileText,
   pptx: Presentation,
   txt: FileText,
-};
-
-const LANG_LABELS: Record<string, string> = {
-  'fr-FR': 'FR', 'fr': 'FR',
-  'en-US': 'EN', 'en': 'EN',
-  'es': 'ES', 'de': 'DE', 'it': 'IT',
-  'pt-BR': 'PT', 'pt': 'PT',
-  'ar': 'AR', 'zh': 'ZH', 'ja': 'JA',
 };
 
 function formatSize(bytes: number, t: TFunction) {
@@ -227,7 +220,7 @@ export default function DocumentLibrary({
                           background: 'var(--blue-light)', color: 'var(--blue)',
                           padding: '2px 8px', borderRadius: '999px', flexShrink: 0,
                         }}>
-                          {LANG_LABELS[doc.targetLang] ?? doc.targetLang.toUpperCase()}
+                          {baseCode(doc.targetLang).toUpperCase()}
                         </span>
                       </div>
 

@@ -207,20 +207,58 @@ class TranslatorAI:
 
     # Nom ANGLAIS de la langue cible, injecté dans le prompt. Un code absent de
     # cette table y partirait tel quel (« Translate to sv-SE »), ce qui est une
-    # consigne bien plus faible qu'un nom de langue explicite. La table couvre
-    # donc l'intégralité du catalogue proposé par l'interface.
+    # consigne bien plus faible qu'un nom de langue explicite.
+    #
+    # Les VARIANTES régionales sont nommées une par une : « British English »
+    # est une consigne que le modèle sait suivre (colour, whilst, 12/03/2026),
+    # là où « en-GB » n'en est pas vraiment une. C'est ce nommage qui rend le
+    # choix de variante réellement effectif — sans lui, en-GB et en-US
+    # produisent le même texte. Clés en minuscules (cf. lang_name).
     _LANG_NAMES = {
+        # Bases
         "fr": "French", "en": "English", "es": "Spanish", "de": "German",
         "it": "Italian", "pt": "Portuguese", "ar": "Arabic", "zh": "Chinese",
         "ja": "Japanese", "ko": "Korean", "ru": "Russian", "nl": "Dutch",
         "pl": "Polish", "ro": "Romanian", "cs": "Czech", "hu": "Hungarian",
         "tr": "Turkish", "sv": "Swedish", "da": "Danish", "nb": "Norwegian",
         "fi": "Finnish", "uk": "Ukrainian", "el": "Greek",
+        # Variantes régionales
+        "en-us": "American English (US spelling and conventions)",
+        "en-gb": "British English (UK spelling and conventions)",
+        "en-ca": "Canadian English",
+        "en-au": "Australian English",
+        "fr-fr": "French (France)",
+        "fr-ca": "Canadian French (Québec usage)",
+        "fr-be": "French (Belgium)",
+        "fr-ch": "French (Switzerland)",
+        "es-es": "European Spanish (Castilian, Spain)",
+        "es-mx": "Mexican Spanish",
+        "es-ar": "Argentine Spanish (rioplatense, voseo)",
+        "de-de": "German (Germany)",
+        "de-at": "Austrian German",
+        "de-ch": "Swiss German (Swiss standard German, no ß)",
+        "pt-pt": "European Portuguese (Portugal)",
+        "pt-br": "Brazilian Portuguese",
+        "nl-nl": "Dutch (Netherlands)",
+        "nl-be": "Flemish (Dutch, Belgium)",
+        "zh-cn": "Simplified Chinese",
+        "zh-tw": "Traditional Chinese",
     }
+
+    @classmethod
+    def lang_name(cls, code):
+        """Nom de langue à injecter dans le prompt. Reconnaît la variante
+        ('en-GB' → British English) et, à défaut, retombe sur la langue de base
+        ('en-NZ' → English) plutôt que de laisser passer un code brut."""
+        c = str(code).strip().lower()
+        if c in cls._LANG_NAMES:
+            return cls._LANG_NAMES[c]
+        base = c.split("-")[0]
+        return cls._LANG_NAMES.get(base, code)
 
     def translate_json(self, json_path, target_lang="en", progress_callback=None, limit=None,
                        model=None, max_tokens=8192):
-        target_lang = self._LANG_NAMES.get(target_lang.lower(), target_lang)
+        target_lang = self.lang_name(target_lang)
         if not os.path.exists(json_path):
             return False, "Fichier JSON introuvable."
 

@@ -13,6 +13,12 @@ interface FileUploaderProps {
 const ACCEPTED = ['pdf', 'docx', 'txt'] as const;
 const MAX_BYTES = 100 * 1024 * 1024;
 
+/** Hauteur commune aux deux états de la zone (vide / document choisi). Sans
+ *  elle, la zone de dépôt (~180px) laissait place à une fiche compacte (~66px)
+ *  et TOUT le formulaire situé en dessous remontait d'un coup — le contenu
+ *  semblait « sauter » au moment du choix du fichier. */
+const ZONE_HEIGHT = 168;
+
 const EXT_ICONS: Record<string, LucideIcon> = {
   pdf: FileType2,
   docx: FileText,
@@ -53,53 +59,87 @@ export default function FileUploader({ selectedFile, onFileSelect, disabled }: F
   };
 
   if (selectedFile) {
-    const Icon = EXT_ICONS[selectedFile.name.split('.').pop()?.toLowerCase() ?? ''] ?? FileIcon;
+    const ext = selectedFile.name.split('.').pop()?.toLowerCase() ?? '';
+    const Icon = EXT_ICONS[ext] ?? FileIcon;
     return (
       <motion.div
-        initial={{ opacity: 0, scale: 0.98 }}
+        initial={{ opacity: 0, scale: 0.99 }}
         animate={{ opacity: 1, scale: 1 }}
         style={{
-          display: 'flex', alignItems: 'center', gap: '13px',
-          padding: '13px 15px',
-          borderRadius: '12px',
-          border: '1.5px solid #dbeafe',
-          background: '#eff6ff',
+          position: 'relative',
+          height: `${ZONE_HEIGHT}px`, boxSizing: 'border-box',
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', gap: '4px',
+          padding: '16px', borderRadius: '12px',
+          border: '1.5px solid #dbeafe', background: '#eff6ff',
         }}
       >
-        <span style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          width: '38px', height: '38px', borderRadius: '10px', flexShrink: 0,
-          background: 'var(--white)', border: '1px solid #dbeafe', color: 'var(--blue)',
-        }}>
-          <Icon size={19} strokeWidth={2} />
-        </span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{
-            fontSize: '14px', fontWeight: 600, color: 'var(--navy)', margin: 0,
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
-            {selectedFile.name}
-          </p>
-          <p style={{ fontSize: '12px', color: 'var(--gray-500)', margin: '2px 0 0' }}>
-            {formatSize(selectedFile.size)}
-          </p>
-        </div>
         <button
           type="button"
           onClick={() => { onFileSelect(null); setError(null); }}
           disabled={disabled}
           aria-label={t('story.remove_file')}
           style={{
+            position: 'absolute', top: '10px', right: '10px',
             display: 'flex', alignItems: 'center',
             background: 'none', border: 'none', color: 'var(--gray-400)',
             cursor: disabled ? 'not-allowed' : 'pointer',
-            padding: '6px', borderRadius: '8px', transition: 'all 0.15s',
+            padding: '5px', borderRadius: '7px', transition: 'all 0.15s',
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = '#e0ecfd'; e.currentTarget.style.color = 'var(--gray-700)'; }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = '#dbeafe'; e.currentTarget.style.color = 'var(--gray-700)'; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--gray-400)'; }}
         >
-          <X size={16} strokeWidth={2.2} />
+          <X size={15} strokeWidth={2.2} />
         </button>
+
+        <span style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          width: '44px', height: '44px', borderRadius: '11px', marginBottom: '6px',
+          background: 'var(--white)', border: '1px solid #dbeafe', color: 'var(--blue)',
+        }}>
+          <Icon size={21} strokeWidth={1.9} />
+        </span>
+
+        <p style={{
+          maxWidth: '100%', margin: 0, padding: '0 24px',
+          fontSize: '14px', fontWeight: 600, color: 'var(--navy)', textAlign: 'center',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {selectedFile.name}
+        </p>
+        <p style={{
+          margin: 0, fontSize: '12px', color: 'var(--gray-500)',
+          fontFamily: 'var(--font-mono)', textTransform: 'uppercase',
+        }}>
+          {ext} · {formatSize(selectedFile.size)}
+        </p>
+
+        <button
+          type="button"
+          onClick={openPicker}
+          disabled={disabled}
+          style={{
+            marginTop: '8px', padding: '5px 12px', borderRadius: '7px',
+            border: '1px solid #bfdbfe', background: 'var(--white)',
+            color: 'var(--blue)', fontSize: '12px', fontWeight: 600,
+            fontFamily: 'inherit', cursor: disabled ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {t('story.replace_file')}
+        </button>
+
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".pdf,.docx,.txt"
+          hidden
+          disabled={disabled}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) accept(f);
+            e.target.value = '';
+          }}
+        />
       </motion.div>
     );
   }
@@ -140,35 +180,38 @@ export default function FileUploader({ selectedFile, onFileSelect, disabled }: F
         onDragOver={(e) => { e.preventDefault(); if (!disabled) setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
         style={{
+          height: `${ZONE_HEIGHT}px`, boxSizing: 'border-box',
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
           border: `2px dashed ${error ? '#fca5a5' : isDragging ? 'var(--blue)' : 'var(--color-border-primary)'}`,
           background: error ? '#fef7f7' : isDragging ? 'var(--blue-light)' : 'var(--color-background-secondary)',
           borderRadius: '12px',
-          padding: '32px 20px',
+          padding: '16px 20px',
           textAlign: 'center',
           cursor: disabled ? 'not-allowed' : 'pointer',
           opacity: disabled ? 0.6 : 1,
-          transition: 'all 0.2s ease',
+          transition: 'border-color 0.2s, background 0.2s',
           outlineOffset: '2px',
         }}
       >
         <motion.div
           animate={isDragging ? { y: -4 } : { y: 0 }}
           style={{
-            display: 'flex', justifyContent: 'center', marginBottom: '10px',
+            display: 'flex', justifyContent: 'center', marginBottom: '8px',
             color: isDragging ? 'var(--blue)' : 'var(--gray-500)',
           }}
         >
-          <UploadCloud size={36} strokeWidth={1.5} />
+          <UploadCloud size={34} strokeWidth={1.5} />
         </motion.div>
 
         <p style={{
-          fontSize: '14px', fontWeight: 600,
+          margin: 0, fontSize: '14px', fontWeight: 600,
           color: isDragging ? 'var(--blue)' : 'var(--navy)',
         }}>
           {isDragging ? t('story.drop_ready') : t('story.drop_text')}
         </p>
         <p
-          style={{ fontSize: '13px', color: 'var(--gray-500)', marginTop: '4px' }}
+          style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--gray-500)' }}
           dangerouslySetInnerHTML={{ __html: t('story.browse_text') }}
         />
 

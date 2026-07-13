@@ -6,6 +6,7 @@ import type { TranslateConfig } from '../upload/TranslationSection';
 import ViewerToolbar from '../preview/ViewerToolbar';
 import DocumentPreview from '../preview/DocumentPreview';
 import type { PageStatus } from '../../hooks/useStreamingTranslation';
+import { baseCode } from '../../lib/languages';
 
 
 interface StorySectionProps {
@@ -170,8 +171,9 @@ export default function StorySection({
       >
         {!showPreview ? (
           <div className="story-grid">
-            {/* Left: Steps */}
-            <div>
+            {/* Left: Steps — la grille ne centre plus ses colonnes (cf. index.css),
+                on centre donc ce bloc explicitement pour conserver son rendu. */}
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
               <span className="section-tag">{t('story.tag')}</span>
               <h2
                 className="section-title"
@@ -205,11 +207,15 @@ export default function StorySection({
               <div
                 style={{
                   backgroundColor: 'white',
-                  padding: '30px',
+                  padding: '26px 30px',
                   borderRadius: '16px',
                   boxShadow: 'var(--shadow-lg)',
                   border: '1px solid var(--gray-100)',
                   height: '100%',
+                  // Plancher : la carte ne rétrécit plus sous les états courts
+                  // (aucun fichier choisi), donc l'en-tête et la zone de dépôt
+                  // gardent la même position d'un état à l'autre.
+                  minHeight: '580px',
                   display: 'flex',
                   flexDirection: 'column',
                 }}
@@ -333,7 +339,7 @@ export default function StorySection({
                       }
                       translatedPageStatus={pageStatuses[currentPage]}
                       sourceLabel={t('preview.source_label', 'Document original')}
-                      targetLabel={`${(targetLang ?? 'en').toUpperCase()} — ${t('preview.target_label', 'Traduction')}`}
+                      targetLabel={`${baseCode(targetLang ?? 'en').toUpperCase()} — ${t('preview.target_label', 'Traduction')}`}
                     />
                   </div>
                 </div>

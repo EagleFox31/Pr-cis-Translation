@@ -44,7 +44,7 @@ def translate_extraction(data, target_lang="fr", max_pages=None,
     """
     from translator_ai import TranslatorAI
     tr = TranslatorAI()
-    lang_name = tr._LANG_NAMES.get(str(target_lang).lower(), target_lang)
+    lang_name = tr.lang_name(target_lang)
 
     pages = data.get("pages", [])
     if max_pages is not None:
@@ -128,7 +128,7 @@ def retranslate_overflows(data, engine, target_lang="fr", max_pages=None,
     garantie force-fit (jamais de chevauchement)."""
     from translator_ai import TranslatorAI
     tr = TranslatorAI()
-    lang_name = tr._LANG_NAMES.get(str(target_lang).lower(), target_lang)
+    lang_name = tr.lang_name(target_lang)
 
     pages = data.get("pages", [])
     if max_pages is not None:

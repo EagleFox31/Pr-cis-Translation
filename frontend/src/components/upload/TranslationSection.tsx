@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation as useI18n } from 'react-i18next';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  Check, ArrowRight, Loader2, Languages, Wand2,
+  Check, ArrowRight, Loader2, Languages, Wand2, FileText,
   SlidersHorizontal, ChevronDown, ScanSearch, Info,
 } from 'lucide-react';
 import FileUploader from './FileUploader';
@@ -58,7 +58,7 @@ export default function TranslationSection({
   const { t } = useI18n();
 
   const [file, setFile] = useState<File | null>(null);
-  const [targetLang, setTargetLang] = useState('en');
+  const [targetLang, setTargetLang] = useState('en-US');
   const [pages, setPages] = useState('');
   const [structureMode, setStructureMode] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -73,7 +73,7 @@ export default function TranslationSection({
   // une traduction qui produirait des pages vides.
   useEffect(() => {
     const lang = findLang(targetLang);
-    if (file && lang && !isLangAvailable(lang, ext)) setTargetLang('en');
+    if (file && lang && !isLangAvailable(lang, ext)) setTargetLang('en-US');
   }, [file, ext, targetLang]);
 
   const handleFile = (f: File | null) => {
@@ -101,6 +101,32 @@ export default function TranslationSection({
       onSubmit={submit}
       style={{ display: 'flex', flexDirection: 'column', gap: '18px', flex: 1, width: '100%' }}
     >
+      {/* En-tête — ancre le formulaire : le titre reste fixe quel que soit
+          l'état, et annonce ce que fait la carte. */}
+      <header style={{
+        display: 'flex', alignItems: 'center', gap: '11px',
+        paddingBottom: '16px', borderBottom: '1px solid var(--gray-100)',
+      }}>
+        <span style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          width: '36px', height: '36px', borderRadius: '10px', flexShrink: 0,
+          background: 'var(--blue-light)', color: 'var(--blue)',
+        }}>
+          <FileText size={18} strokeWidth={2} />
+        </span>
+        <div style={{ minWidth: 0 }}>
+          <h3 style={{
+            margin: 0, fontSize: '15px', fontWeight: 700,
+            color: 'var(--navy)', lineHeight: 1.3,
+          }}>
+            {t('story.form_title')}
+          </h3>
+          <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--gray-500)', lineHeight: 1.4 }}>
+            {t('story.form_subtitle')}
+          </p>
+        </div>
+      </header>
+
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '18px' }}>
         {/* Confirmation après sauvegarde en bibliothèque */}
         <AnimatePresence>
