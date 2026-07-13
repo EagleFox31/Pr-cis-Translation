@@ -1,14 +1,54 @@
 # CONTEXTE — pdf_engine_v2 (nouveau moteur PDF « from scratch »)
 
-_Dernière mise à jour : 2026-07-11 — campagne de correction complète (voir
-[`PROBLEMES_PDF_ENGINE_V2.md`](PROBLEMES_PDF_ENGINE_V2.md)) : césures/justification
-sans débordement (P2), **expansion v4 par ligne** (encarts imbriqués respectés,
-boîtes contenantes, cellules persistées — P1/P5/P9), **grow-into-gap + échelle de
-groupe + retraduction compacte** (P3), compensation de hauteur d'x du repli (P4),
-gardes de segmentation + folios ancrés (P6), **titres à lettres espacées
-reconstruits** (P7), vérification/retry par item de la traduction (P8). Le flux
-vertical / push-down reste volontairement ANNULÉ : le trio grow-into-gap +
-retraduction compacte + force-fit le remplace sans déplacer aucun bloc._
+_Dernière mise à jour : 2026-07-13._
+
+## La traduction PDF v2, en bref
+
+**`pdf_engine_v2` est LE moteur de traduction PDF du produit.** Il a remplacé
+l'ancien `backend/pdf_translator_engine.py`, qui n'est plus branché sur les PDF
+(il reste en place, intact, pour DOCX/PPTX). Tout ce qui suit décrit ce moteur.
+
+Ce qu'il fait, en une phrase : il **démonte** chaque page en objets (texte, image,
+dessin), **traduit** le texte en préservant ses styles, puis **recoule** la
+traduction dans la zone exacte de chaque paragraphe d'origine — de sorte que la
+page traduite soit géométriquement identique à la source.
+
+Trois propriétés en découlent, et elles gouvernent toutes les décisions du reste
+du document :
+
+1. **La mise en page est toujours préservée** — ce n'est pas une option, c'est
+   l'invariant. Il n'existe aucun « mode de format » à choisir.
+2. **La page traduite est reconstruite, pas retouchée.** Le JSON d'extraction est
+   la seule source du rendu, ce qui en fait un vrai test de fidélité.
+3. **La traduction est PROGRESSIVE, page par page** ([`stream.py`](pdf_engine_v2/stream.py)) :
+   extraction → traduction → rendu, une page à la fois, PDF partiel réécrit après
+   chacune. L'utilisateur voit donc la page 1 traduite pendant que la 2 se calcule.
+
+**Deux contraintes structurantes**, à connaître avant toute évolution :
+
+- **Les polices viennent du document source** (repli sur `backend/fonts`, puis
+  base-14). Aucune ne porte de glyphe **CJK, arabe ou grec** : ces langues cibles
+  sont **hors de portée en PDF** (l'arabe demanderait en plus un reflow
+  droite-à-gauche). Écritures rendables : latin et cyrillique.
+- **Aucun bloc n'est déplacé.** Le débordement vertical est absorbé sur place
+  (grow-into-gap + échelle de groupe + retraduction compacte + force-fit), jamais
+  en poussant les blocs suivants — `vertical_flow` reste volontairement à `False`.
+
+**État** — campagne P1-P9 close (voir [`PROBLEMES_PDF_ENGINE_V2.md`](PROBLEMES_PDF_ENGINE_V2.md)) :
+césures/justification sans débordement (P2), **expansion v4 par ligne** (encarts
+imbriqués respectés, boîtes contenantes, cellules persistées — P1/P5/P9),
+**grow-into-gap + échelle de groupe + retraduction compacte** (P3), compensation de
+hauteur d'x du repli (P4), gardes de segmentation + folios ancrés (P6), **titres à
+lettres espacées reconstruits** (P7), vérification/retry par item de la traduction
+(P8).
+
+## Documents liés
+
+| Document | Couvre |
+|---|---|
+| **`CONTEXTE.md`** (ici) | Le moteur : extraction, analyse de disposition, traduction, reflow, rendu |
+| [`PROBLEMES_PDF_ENGINE_V2.md`](PROBLEMES_PDF_ENGINE_V2.md) | Les défauts P1-P9 : cause → correction → vérification |
+| [`CONTEXTE_INTERFACE.md`](CONTEXTE_INTERFACE.md) | **L'interface** (React) : formulaire, langues, streaming, hero, pièges CSS |
 
 ## But
 
@@ -354,6 +394,16 @@ fonts{} : nom → [ {ext, b64}, ... ]   (polices embarquées, cmap patchée si C
     ouvre l'aperçu au démarrage, vignettes à pastille d'état (attente/en cours/
     prête), panneau traduit avec placeholder par page ; anciens hooks
     (`useTranslation`, `useTranslationProgress`, `TranslationProgress`) supprimés.
+22. **Refonte de l'interface (2026-07-13)** — détaillée dans
+    [`CONTEXTE_INTERFACE.md`](CONTEXTE_INTERFACE.md). Deux conséquences côté
+    **backend** à connaître d'ici : (a) `TranslatorAI.lang_name()` nomme désormais
+    chaque **variante régionale** dans le prompt (`en-GB` → « British English (UK
+    spelling and conventions) ») et retombe sur la langue de base pour un code
+    inconnu — sans ce nommage, `en-GB` et `en-US` produisaient le même texte ;
+    (b) le front n'envoie plus `quality` ni `format_options`, que le moteur v2 ne
+    lisait pas (`translate_pdf_progressive()` ne reçoit ni modèle ni budget de
+    tokens ; la mise en page est toujours préservée). Ces paramètres restent
+    acceptés par l'API avec leurs valeurs par défaut.
 
 ## Toggles (attributs `PDFObjectEngine` + options CLI)
 
