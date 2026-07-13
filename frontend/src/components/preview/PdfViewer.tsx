@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
+import { Loader2, Hourglass, Lock } from 'lucide-react';
 
 interface PdfViewerProps {
   sourceFile?: Blob | null;
@@ -15,6 +16,9 @@ interface PdfViewerProps {
       placeholder à la place du canevas traduit. */
   translatedPageReady?: boolean;
   translatedPageStatus?: string;
+  /** Libellés des panneaux (langue source détectée / langue cible). */
+  sourceLabel?: string;
+  targetLabel?: string;
 }
 
 export default function PdfViewer({
@@ -29,6 +33,8 @@ export default function PdfViewer({
   className,
   translatedPageReady = true,
   translatedPageStatus,
+  sourceLabel = 'Original',
+  targetLabel = 'Traduction',
 }: PdfViewerProps) {
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   // True quand le canevas traduit affiche RÉELLEMENT la page courante.
@@ -52,30 +58,42 @@ export default function PdfViewer({
 
       try {
         let pdfSourceOrig: any;
-        let pdfSourceTrad: any;
+        let pdfSourceTrad: any = null;
 
-        if (translatedBlob && sourceFile) {
+        // Le document CHOISI prime toujours. La démo (CV) ne sert que quand
+        // aucun document n'est chargé (vitrine). Auparavant, l'absence de
+        // traduction — cas normal au DÉMARRAGE du streaming — faisait basculer
+        // les DEUX panneaux sur le CV de démo.
+        if (sourceFile) {
           // Données passées directement à pdf.js (PAS d'URL blob : l'effet se
           // relance à chaque changement de page/zoom et le cleanup révoquait
           // l'URL pendant que le worker la chargeait encore → blob introuvable).
-          const [origBuf, tradBuf] = await Promise.all([
-            sourceFile.arrayBuffer(),
-            translatedBlob.arrayBuffer(),
-          ]);
+          const origBuf = await sourceFile.arrayBuffer();
           if (!active) return;
           pdfSourceOrig = pdfjsLib.getDocument({ data: origBuf });
+          if (translatedBlob) {
+            const tradBuf = await translatedBlob.arrayBuffer();
+            if (!active) return;
+            pdfSourceTrad = pdfjsLib.getDocument({ data: tradBuf });
+          }
+        } else if (translatedBlob) {
+          // Aperçu depuis la bibliothèque : pas d'original, seulement le traduit.
+          const tradBuf = await translatedBlob.arrayBuffer();
+          if (!active) return;
           pdfSourceTrad = pdfjsLib.getDocument({ data: tradBuf });
+          pdfSourceOrig = pdfjsLib.getDocument(demoSource);
         } else {
           pdfSourceOrig = pdfjsLib.getDocument(demoSource);
           pdfSourceTrad = pdfjsLib.getDocument(demoTarget);
         }
-        loadingTasks.push(pdfSourceOrig, pdfSourceTrad);
+        loadingTasks.push(pdfSourceOrig);
+        if (pdfSourceTrad) loadingTasks.push(pdfSourceTrad);
 
         const pdfOrig = await pdfSourceOrig.promise;
         if (!active) return;
         onPagesLoaded?.(pdfOrig.numPages);
 
-        const pdfTrad = await pdfSourceTrad.promise;
+        const pdfTrad = pdfSourceTrad ? await pdfSourceTrad.promise : null;
         if (!active) return;
 
         const renderPage = async (pdf: any, canvasId: string, pageNum: number) => {
@@ -113,9 +131,10 @@ export default function PdfViewer({
 
         await renderPage(pdfOrig, 'pdf-canvas-original', currentPage);
 
-        // Panneau TRADUIT : n'affiche la page que si elle est prête ET présente
-        // dans le PDF partiel (sinon le viewer clamperait sur une autre page).
-        const tradHasPage = translatedPageReady && currentPage <= pdfTrad.numPages;
+        // Panneau TRADUIT : n'affiche la page que si le PDF traduit existe, que
+        // la page est prête ET présente dedans (sinon le viewer clamperait sur
+        // une autre page).
+        const tradHasPage = !!pdfTrad && translatedPageReady && currentPage <= pdfTrad.numPages;
         if (tradHasPage) {
           await renderPage(pdfTrad, 'pdf-canvas-translated', currentPage);
           if (isTrialMode) {
@@ -177,7 +196,7 @@ export default function PdfViewer({
     >
       {/* Original Panel */}
       <div className="cv-wrap" style={{ flexShrink: 0 }}>
-        <span className="cv-lang-badge fr">FR — Original</span>
+        <span className="cv-lang-badge fr">{sourceLabel}</span>
         <div className="cv" id="cv-fr">
           <canvas
             id="pdf-canvas-original"
@@ -202,7 +221,7 @@ export default function PdfViewer({
           className="cv-lang-badge en"
           style={{ background: '#f0fdf4', color: '#15803d' }}
         >
-          EN — Traduction
+          {targetLabel}
         </span>
         <div
           className="cv trial-viewer"
@@ -262,20 +281,17 @@ export default function PdfViewer({
                     transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
                     style={{ display: 'inline-flex', color: '#2563eb' }}
                   >
-                    <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <circle cx="12" cy="12" r="10" opacity="0.25" />
-                      <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
-                    </svg>
+                    <Loader2 size={30} strokeWidth={2.2} />
                   </motion.span>
                   <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--gray-700)' }}>
-                    {translatedPageStatus === 'extracting' && 'Extraction de la page…'}
+                    {translatedPageStatus === 'extracting' && 'Analyse de la page…'}
                     {translatedPageStatus === 'translating' && 'Traduction en cours…'}
-                    {translatedPageStatus === 'rendering' && 'Reconstruction de la page…'}
+                    {translatedPageStatus === 'rendering' && 'Reconstruction de la mise en page…'}
                   </span>
                 </>
               ) : (
                 <>
-                  <span style={{ fontSize: '26px', opacity: 0.5 }}>⏳</span>
+                  <Hourglass size={26} strokeWidth={1.8} style={{ opacity: 0.55 }} />
                   <span style={{ fontSize: '13px' }}>Cette page est en attente de traduction.</span>
                 </>
               )}
@@ -350,13 +366,16 @@ export default function PdfViewer({
                 backdropFilter: 'blur(4px)',
               }}
             >
-              🔒 Version d'essai — Survolez pour apercevoir ·{' '}
-              <a
-                href="#pricing"
-                style={{ color: '#93c5fd', textDecoration: 'underline' }}
-              >
-                Acheter pour télécharger
-              </a>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                <Lock size={13} strokeWidth={2.2} />
+                Version d'essai — Survolez pour apercevoir ·{' '}
+                <a
+                  href="#pricing"
+                  style={{ color: '#93c5fd', textDecoration: 'underline' }}
+                >
+                  Acheter pour télécharger
+                </a>
+              </span>
             </motion.div>
           )}
         </div>

@@ -1,13 +1,18 @@
 import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
+import {
+  X, Eye, Download, Trash2, FolderOpen,
+  FileType2, FileText, Presentation, File as FileIcon,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { DocMeta } from '../../hooks/useDocumentLibrary';
 
-const EXT_ICONS: Record<string, string> = {
-  pdf: '📄',
-  docx: '📝',
-  pptx: '📊',
-  txt: '📃',
+const EXT_ICONS: Record<string, LucideIcon> = {
+  pdf: FileType2,
+  docx: FileText,
+  pptx: Presentation,
+  txt: FileText,
 };
 
 const LANG_LABELS: Record<string, string> = {
@@ -155,9 +160,7 @@ export default function DocumentLibrary({
                   onClick={onClose}
                   style={{ width: '32px', height: '32px', borderRadius: '8px', border: 'none', background: 'var(--gray-100)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M18 6L6 18M6 6l12 12" />
-                  </svg>
+                  <X size={16} strokeWidth={2.2} />
                 </button>
               </div>
             </div>
@@ -173,7 +176,7 @@ export default function DocumentLibrary({
                     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
                   }}
                 >
-                  <div style={{ fontSize: '48px', opacity: 0.3 }}>📂</div>
+                  <FolderOpen size={44} strokeWidth={1.4} style={{ color: 'var(--gray-400)', opacity: 0.6 }} />
                   <p style={{ color: 'var(--gray-500)', fontSize: '14px', lineHeight: 1.5 }}>
                     {t('library.empty', 'Vos documents traduits apparaîtront ici après chaque traduction.')}
                   </p>
@@ -196,8 +199,16 @@ export default function DocumentLibrary({
                     >
                       {/* Row 1: icon + name + lang badge */}
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', marginBottom: '10px' }}>
-                        <span style={{ fontSize: '22px', flexShrink: 0, marginTop: '1px' }}>
-                          {EXT_ICONS[doc.ext] || '📄'}
+                        <span style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          width: '34px', height: '34px', borderRadius: '9px', flexShrink: 0,
+                          background: 'var(--white)', border: '1px solid var(--gray-200)',
+                          color: 'var(--blue)',
+                        }}>
+                          {(() => {
+                            const Icon = EXT_ICONS[doc.ext] ?? FileIcon;
+                            return <Icon size={17} strokeWidth={2} />;
+                          })()}
                         </span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{
@@ -233,9 +244,7 @@ export default function DocumentLibrary({
                               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
                             }}
                           >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
-                            </svg>
+                            <Eye size={13} strokeWidth={2.2} />
                             {t('library.preview', 'Aperçu')}
                           </button>
                         )}
@@ -250,9 +259,7 @@ export default function DocumentLibrary({
                             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
                           }}
                         >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M12 5v14" /><path d="M19 12l-7 7-7-7" />
-                          </svg>
+                          <Download size={13} strokeWidth={2.2} />
                           {t('library.download', 'Télécharger')}
                         </button>
                         <button
@@ -265,9 +272,7 @@ export default function DocumentLibrary({
                           }}
                           title={t('library.delete', 'Supprimer')}
                         >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
-                          </svg>
+                          <Trash2 size={14} strokeWidth={2.2} />
                         </button>
                       </div>
                     </motion.div>

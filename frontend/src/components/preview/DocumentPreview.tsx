@@ -1,4 +1,5 @@
 import { motion } from 'motion/react';
+import { Loader2, AlertTriangle } from 'lucide-react';
 import PdfViewer from './PdfViewer';
 import { usePdfPreview } from '../../hooks/usePdfPreview';
 
@@ -15,6 +16,8 @@ interface DocumentPreviewProps {
   translatedPageReady?: boolean;
   /** Statut de la page courante côté traduction (pour le placeholder). */
   translatedPageStatus?: string;
+  sourceLabel?: string;
+  targetLabel?: string;
 }
 
 /**
@@ -32,6 +35,8 @@ export default function DocumentPreview({
   onPagesLoaded,
   translatedPageReady = true,
   translatedPageStatus,
+  sourceLabel,
+  targetLabel,
 }: DocumentPreviewProps) {
   const { sourcePdf, translatedPdf, loading, error } = usePdfPreview(sourceFile, translatedBlob, ext);
 
@@ -54,10 +59,7 @@ export default function DocumentPreview({
           transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
           style={{ display: 'inline-flex' }}
         >
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <circle cx="12" cy="12" r="10" opacity="0.25" />
-            <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
-          </svg>
+          <Loader2 size={28} strokeWidth={2.2} />
         </motion.span>
         <span style={{ fontSize: '13px' }}>Préparation de l’aperçu…</span>
       </div>
@@ -80,7 +82,7 @@ export default function DocumentPreview({
           color: '#dc2626',
         }}
       >
-        <span style={{ fontSize: '24px' }}>⚠</span>
+        <AlertTriangle size={26} strokeWidth={2} />
         <span style={{ fontSize: '13px' }}>Aperçu indisponible : {error}</span>
         <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
           Le document traduit reste téléchargeable.
@@ -99,6 +101,8 @@ export default function DocumentPreview({
       onPagesLoaded={onPagesLoaded}
       translatedPageReady={translatedPageReady}
       translatedPageStatus={translatedPageStatus}
+      sourceLabel={sourceLabel}
+      targetLabel={targetLabel}
     />
   );
 }

@@ -88,16 +88,6 @@
     "relative_path_en": "English",
     "relative_path_es": "Spanish",
     "translation_mode": "Translation mode",
-    "mode_preserve": "Preserve layout",
-    "mode_preserve_desc": "Keep the original layout exactly",
-    "mode_auto_fit": "Auto-fit",
-    "mode_auto_fit_desc": "Adapt layout to translated text",
-    "mode_optimize": "Optimize spacing",
-    "mode_optimize_desc": "Reduce spacing for a compact look",
-    "mode_adjust_margins": "Adjust margins",
-    "mode_adjust_margins_desc": "Adapt margins to new content",
-    "mode_compact": "Compact",
-    "mode_compact_desc": "Ultra-compact layout",
     "btn_translate": "Translate",
     "translating": "Translating...",
     "download": "Download",
@@ -116,7 +106,11 @@
     "quality_precise": "Precise",
     "quality_precise_desc": "Reasoning · complex layouts · slower",
     "structure_label": "🔍 Structure mode (no translation)",
-    "structure_desc": "Identity render + paragraph outlines — identical to the engine test."
+    "structure_desc": "Identity render + paragraph outlines — identical to the engine test.",
+    "page_ready": "Page translated",
+    "page_progress": "Translating…",
+    "page_waiting": "Waiting",
+    "pages_label_slides": "Slides to translate"
   },
   "library": {
     "title": "My documents",
@@ -193,19 +187,19 @@
     "privacy": "Privacy"
   },
   "viewer": {
-    "fmt_auto_fit": "Adapt (reduce font size)",
-    "fmt_preserve": "Keep original sizes",
-    "fmt_optimize": "Optimize spacing",
-    "fmt_adjust_margins": "Adjust block margins",
-    "fmt_compact": "Compact layout",
-    "fmt_preview": "Preview format",
-    "fmt_apply": "Apply format",
-    "fmt_title": "Document Formatting",
-    "fmt_auto_fit_desc": "Automatically reduce font size to fit translated text",
-    "fmt_preserve_desc": "Keep original font sizes from the source document",
-    "fmt_optimize_desc": "Optimize text spacing and line breaks",
-    "fmt_adjust_margins_desc": "Adjust margins to accommodate translated text",
-    "fmt_compact_desc": "Create a more compact document layout",
-    "fmt_current": "Current format:"
+    "back": "Back",
+    "zoom_in": "Zoom in",
+    "zoom_out": "Zoom out",
+    "prev_page": "Previous page",
+    "next_page": "Next page",
+    "download": "Download translation",
+    "download_wait": "Available once translation completes",
+    "download_locked": "Trial version — unlock downloads",
+    "pages_done": "{{done}}/{{total}} pages",
+    "translation_done": "Translation complete"
+  },
+  "preview": {
+    "source_label": "Original document",
+    "target_label": "Translation"
   }
 }

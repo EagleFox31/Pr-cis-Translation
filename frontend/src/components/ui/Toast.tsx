@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { CheckCircle2, XCircle, Info, AlertTriangle, X } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 type ToastType = 'success' | 'error' | 'info' | 'warning';
 
@@ -25,11 +27,11 @@ export function showToast(type: ToastType, title: string, message?: string, acti
   toastListeners.forEach((fn) => fn(toast));
 }
 
-const icons: Record<ToastType, string> = {
-  success: '✓',
-  error: '✕',
-  info: 'ℹ',
-  warning: '⚠',
+const icons: Record<ToastType, LucideIcon> = {
+  success: CheckCircle2,
+  error: XCircle,
+  info: Info,
+  warning: AlertTriangle,
 };
 
 const colors: Record<ToastType, { bg: string; border: string; icon: string }> = {
@@ -69,21 +71,15 @@ function ToastItem({ toast, onDone }: { toast: ToastMessage; onDone: (id: string
     >
       <span
         style={{
-          width: '22px',
-          height: '22px',
-          borderRadius: '50%',
-          background: c.icon,
-          color: '#fff',
+          color: c.icon,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontSize: '11px',
-          fontWeight: 700,
           flexShrink: 0,
           marginTop: '1px',
         }}
       >
-        {icons[toast.type]}
+        {(() => { const Icon = icons[toast.type]; return <Icon size={19} strokeWidth={2.2} />; })()}
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: '13px', fontWeight: 600, color: '#0d1b3e' }}>{toast.title}</div>
@@ -119,13 +115,14 @@ function ToastItem({ toast, onDone }: { toast: ToastMessage; onDone: (id: string
           border: 'none',
           color: '#94a3b8',
           cursor: 'pointer',
-          fontSize: '14px',
           padding: '2px',
           lineHeight: 1,
+          display: 'flex',
+          alignItems: 'center',
         }}
         aria-label="Fermer"
       >
-        ✕
+        <X size={15} strokeWidth={2.2} />
       </button>
     </motion.div>
   );

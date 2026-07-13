@@ -14,9 +14,7 @@ import type { TranslateConfig } from '../components/upload/TranslationSection';
 
 export default function Home() {
   const { t } = useTranslation();
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isAnnual, setIsAnnual] = useState(true);
-  const [formattingOption, setFormattingOption] = useState('auto-fit');
   const [activeSection, setActiveSection] = useState('hero');
   const [showPreview, setShowPreview] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -250,7 +248,6 @@ export default function Home() {
           currentPage={currentPage}
           numPages={effectiveNumPages}
           zoom={zoom}
-          formattingOption={formattingOption}
           isTrialMode={isTrialMode}
           targetLang={targetLang}
           isTranslating={stream.isTranslating}
@@ -260,7 +257,6 @@ export default function Home() {
           onBack={handleBack}
           onZoomChange={setZoom}
           onPageChange={setCurrentPage}
-          onFormattingChange={setFormattingOption}
           onDownload={handleDownload}
           onPagesLoaded={setNumPages}
           onLibraryOpen={() => setShowLibrary(true)}

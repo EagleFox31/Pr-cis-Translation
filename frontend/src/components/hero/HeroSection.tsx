@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, useScroll, useTransform } from 'motion/react';
+import { ArrowRight, Check } from 'lucide-react';
 import AnimatedCounter from '../ui/AnimatedCounter';
 
 const mascot = "/Identite Precis.png";
@@ -115,7 +116,7 @@ export default function HeroSection() {
                   <div className="doc-panel-label">Source</div>
                   <canvas id="pdf-canvas-hero-source" style={{ width: '100%', height: 'auto', display: 'block' }} />
                 </div>
-                <div className="doc-arrow">→</div>
+                <div className="doc-arrow"><ArrowRight size={18} strokeWidth={2.2} /></div>
                 <div className="doc-panel">
                   <div className="doc-panel-label right">Traduction</div>
                   <canvas id="pdf-canvas-hero-translated" style={{ width: '100%', height: 'auto', display: 'block' }} />
@@ -138,7 +139,7 @@ export default function HeroSection() {
               </div>
             </div>
             <div className="floating-label br">
-              <div className="fl-icon gold">✓</div>
+              <div className="fl-icon gold"><Check size={14} strokeWidth={3} /></div>
               <div className="fl-text">
                 <strong>{t('hero.human_review')}</strong>
                 <span>{t('hero.certified')}</span>
@@ -185,8 +186,8 @@ export default function HeroSection() {
                 </div>
               </div>
               <div className="floating-label br">
-                <div className="fl-icon gold" style={{ color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
-                  ✓
+                <div className="fl-icon gold" style={{ color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Check size={14} strokeWidth={3} />
                 </div>
                 <div className="fl-text">
                   <strong>{t('hero.security')}</strong>

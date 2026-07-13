@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
+import { UploadCloud, FileText, FileType2, File as FileIcon, X } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 interface FileUploaderProps {
   selectedFile: File | null;
@@ -47,13 +49,13 @@ export default function FileUploader({ selectedFile, onFileSelect }: FileUploade
     return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
   };
 
-  const getFileIcon = (name: string) => {
+  const getFileIcon = (name: string): LucideIcon => {
     const ext = name.split('.').pop()?.toLowerCase();
     switch (ext) {
-      case 'pdf': return '📄';
-      case 'docx': return '📝';
-      case 'txt': return '📃';
-      default: return '📁';
+      case 'pdf': return FileType2;
+      case 'docx': return FileText;
+      case 'txt': return FileText;
+      default: return FileIcon;
     }
   };
 
@@ -81,7 +83,14 @@ export default function FileUploader({ selectedFile, onFileSelect }: FileUploade
             background: '#eff6ff',
           }}
         >
-          <span style={{ fontSize: '28px' }}>{getFileIcon(selectedFile.name)}</span>
+          <span style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: '38px', height: '38px', borderRadius: '10px', flexShrink: 0,
+            background: 'var(--white)', border: '1px solid #dbeafe',
+            color: 'var(--blue)',
+          }}>
+            {(() => { const Icon = getFileIcon(selectedFile.name); return <Icon size={19} strokeWidth={2} />; })()}
+          </span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {selectedFile.name}
@@ -97,16 +106,17 @@ export default function FileUploader({ selectedFile, onFileSelect }: FileUploade
               border: 'none',
               color: '#94a3b8',
               cursor: 'pointer',
-              fontSize: '16px',
-              padding: '4px',
-              borderRadius: '6px',
+              padding: '6px',
+              borderRadius: '8px',
               transition: 'all 0.15s',
+              display: 'flex',
+              alignItems: 'center',
             }}
             onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#475569'; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#94a3b8'; }}
             aria-label={t('story.remove_file')}
           >
-            ✕
+            <X size={16} strokeWidth={2.2} />
           </button>
         </motion.div>
       ) : (
@@ -143,22 +153,14 @@ export default function FileUploader({ selectedFile, onFileSelect }: FileUploade
 
           <motion.div
             animate={isDragging ? { y: -5 } : { y: 0 }}
-            style={{ color: isDragging ? 'var(--blue)' : 'var(--gray-500)', marginBottom: '10px' }}
+            style={{
+              color: isDragging ? 'var(--blue)' : 'var(--gray-500)',
+              marginBottom: '10px',
+              display: 'flex',
+              justifyContent: 'center',
+            }}
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth="1.5"
-              stroke="currentColor"
-              style={{ width: '38px', height: '38px', margin: '0 auto' }}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z"
-              />
-            </svg>
+            <UploadCloud size={38} strokeWidth={1.5} />
           </motion.div>
 
           <p style={{ fontSize: '14px', color: isDragging ? 'var(--blue)' : 'var(--navy)', fontWeight: 600 }}>

@@ -16,7 +16,6 @@ interface StorySectionProps {
   currentPage: number;
   numPages: number;
   zoom: number;
-  formattingOption: string;
   isTrialMode: boolean;
   targetLang?: string;
   isTranslating: boolean;
@@ -26,7 +25,6 @@ interface StorySectionProps {
   onBack: () => void;
   onZoomChange: (z: number) => void;
   onPageChange: (p: number) => void;
-  onFormattingChange: (opt: string) => void;
   onDownload: () => void;
   onPagesLoaded: (n: number) => void;
   onLibraryOpen?: () => void;
@@ -40,7 +38,6 @@ export default function StorySection({
   currentPage,
   numPages,
   zoom,
-  formattingOption,
   isTrialMode,
   targetLang,
   isTranslating,
@@ -50,11 +47,14 @@ export default function StorySection({
   onBack,
   onZoomChange,
   onPageChange,
-  onFormattingChange,
   onDownload,
   onPagesLoaded,
   onLibraryOpen,
 }: StorySectionProps) {
+  // Nombre de pages déjà prêtes (traduites ou copiées) — barre de progression.
+  const doneCount = Object.values(pageStatuses).filter(
+    (s) => s === 'done' || s === 'copied',
+  ).length;
   const { t } = useTranslation();
   const storyRef = useRef<HTMLElement>(null);
 
@@ -304,17 +304,16 @@ export default function StorySection({
                     currentPage={currentPage}
                     numPages={numPages}
                     isTrialMode={isTrialMode}
-                    formattingOption={formattingOption}
                     sourceFilename={selectedFile?.name}
                     translatedFilename={translatedFilename}
                     targetLang={targetLang}
+                    isTranslating={isTranslating}
+                    doneCount={doneCount}
                     onZoomChange={onZoomChange}
                     onPageChange={onPageChange}
-                    onFormattingChange={onFormattingChange}
                     onBack={onBack}
                     onDownload={onDownload}
                   />
-
 
 
                   <div className="scroll" id="scroll">
@@ -333,6 +332,8 @@ export default function StorySection({
                         || currentPage <= renderedUpTo
                       }
                       translatedPageStatus={pageStatuses[currentPage]}
+                      sourceLabel={t('preview.source_label', 'Document original')}
+                      targetLabel={`${(targetLang ?? 'en').toUpperCase()} — ${t('preview.target_label', 'Traduction')}`}
                     />
                   </div>
                 </div>

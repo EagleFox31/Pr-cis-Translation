@@ -88,16 +88,6 @@
     "lang_en": "Anglais",
     "lang_es": "Espagnol",
     "translation_mode": "Mode de traduction",
-    "mode_preserve": "Préserver la mise en page",
-    "mode_preserve_desc": "Conserve exactement la disposition originale",
-    "mode_auto_fit": "Ajustement automatique",
-    "mode_auto_fit_desc": "Adapte la mise en page au texte traduit",
-    "mode_optimize": "Optimiser l'espacement",
-    "mode_optimize_desc": "Réduit les espaces pour un rendu compact",
-    "mode_adjust_margins": "Ajuster les marges",
-    "mode_adjust_margins_desc": "Adapte les marges au nouveau contenu",
-    "mode_compact": "Compact",
-    "mode_compact_desc": "Mise en page ultra-compacte",
     "btn_translate": "Traduire",
     "translating": "Traduction en cours...",
     "download": "Télécharger",
@@ -116,7 +106,11 @@
     "quality_precise": "Précis",
     "quality_precise_desc": "Raisonnement · mises en page complexes · plus lent",
     "structure_label": "🔍 Mode structure (sans traduction)",
-    "structure_desc": "Rendu identité + contours de paragraphes — identique au test du moteur."
+    "structure_desc": "Rendu identité + contours de paragraphes — identique au test du moteur.",
+    "page_ready": "Page traduite",
+    "page_progress": "Traduction en cours…",
+    "page_waiting": "En attente",
+    "pages_label_slides": "Diapositives à traduire"
   },
   "library": {
     "title": "Mes documents",
@@ -193,19 +187,19 @@
     "privacy": "Confidentialité"
   },
   "viewer": {
-    "fmt_auto_fit": "Adapter (réduire police)",
-    "fmt_preserve": "Conserver les tailles",
-    "fmt_optimize": "Optimiser espacement",
-    "fmt_adjust_margins": "Ajuster marges",
-    "fmt_compact": "Mise en page compacte",
-    "fmt_preview": "Aperçu format",
-    "fmt_apply": "Appliquer format",
-    "fmt_title": "Mise en forme du document",
-    "fmt_auto_fit_desc": "Réduit automatiquement la taille de police pour le texte traduit",
-    "fmt_preserve_desc": "Conserve les tailles de police originales du document source",
-    "fmt_optimize_desc": "Optimise l'espacement et les sauts de ligne",
-    "fmt_adjust_margins_desc": "Ajuste les marges pour accommoder le texte traduit",
-    "fmt_compact_desc": "Crée une mise en page plus compacte",
-    "fmt_current": "Format actuel :"
+    "back": "Retour",
+    "zoom_in": "Zoomer",
+    "zoom_out": "Dézoomer",
+    "prev_page": "Page précédente",
+    "next_page": "Page suivante",
+    "download": "Télécharger la traduction",
+    "download_wait": "Disponible à la fin de la traduction",
+    "download_locked": "Version d'essai — débloquez le téléchargement",
+    "pages_done": "{{done}}/{{total}} pages",
+    "translation_done": "Traduction terminée"
+  },
+  "preview": {
+    "source_label": "Document original",
+    "target_label": "Traduction"
   }
 }
