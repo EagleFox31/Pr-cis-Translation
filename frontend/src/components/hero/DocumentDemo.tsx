@@ -1,0 +1,381 @@
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
+import { motion, useMotionValue, useSpring, useTransform } from 'motion/react';
+import { ArrowRight, Check, ScanLine, Sparkles, LayoutTemplate } from 'lucide-react';
+
+/**
+ * Démonstration animée du produit — c'est l'accroche du site.
+ *
+ * Le cycle rejoue, sans un mot, exactement ce que fait l'application :
+ *   1. le document source apparaît (vraie page PDF, rendue par pdf.js) ;
+ *   2. un balayage analyse sa mise en page ;
+ *   3. la page de droite se remplit d'un SQUELETTE dont la géométrie est
+ *      extraite du document source — c'est le point clé : le squelette a la
+ *      forme exacte des blocs d'origine, ce qui montre d'un coup d'œil que la
+ *      mise en page est conservée AVANT même que le texte n'arrive ;
+ *   4. la traduction se révèle de haut en bas, le squelette s'effaçant au fur
+ *      et à mesure — comme le streaming page par page du vrai moteur.
+ *
+ * Toutes les coordonnées sont exprimées en POURCENTAGE de la page PDF : la
+ * démo reste alignée à n'importe quelle largeur, sans mesurer le DOM.
+ */
+
+const SOURCE_PDF = '/CV_Mbowou_Ibrahim_Pigier.pdf';
+const TARGET_PDF = '/CV_Mbowou_Ibrahim_Pigier_TRADUIT.pdf';
+
+type Phase = 'scan' | 'skeleton' | 'reveal' | 'done';
+
+/** Barre de squelette, en % de la page (donc indépendante de la taille écran). */
+interface Bar { x: number; y: number; w: number; h: number }
+
+/** Étapes du cycle : durée de chacune, en ms. */
+const TIMINGS: Record<Phase, number> = {
+  scan: 1500,
+  skeleton: 900,
+  reveal: 2000,
+  done: 2600,
+};
+
+/** Regroupe les fragments de texte d'une page en lignes, puis en barres.
+ *  pdf.js donne un item par fragment stylé : deux fragments sur la même
+ *  ligne de base doivent former UNE barre, sinon le squelette est haché. */
+function barsFromTextContent(items: any[], pageW: number, pageH: number): Bar[] {
+  const lines = new Map<number, { x0: number; x1: number; top: number; h: number }>();
+
+  for (const it of items) {
+    const str: string = it.str ?? '';
+    if (!str.trim()) continue;
+    const [, , , d, e, f] = it.transform as number[];
+    const h = Math.abs(d) || 10;
+    const w = it.width ?? 0;
+    if (w <= 0) continue;
+    // PDF : origine en bas à gauche → on repasse en coordonnées écran.
+    const top = pageH - f - h;
+    const key = Math.round(top / 4);          // tolérance de ligne de base
+    const cur = lines.get(key);
+    if (cur) {
+      cur.x0 = Math.min(cur.x0, e);
+      cur.x1 = Math.max(cur.x1, e + w);
+      cur.h = Math.max(cur.h, h);
+      cur.top = Math.min(cur.top, top);
+    } else {
+      lines.set(key, { x0: e, x1: e + w, top, h });
+    }
+  }
+
+  return [...lines.values()]
+    .filter((l) => l.x1 - l.x0 > 4)
+    .sort((a, b) => a.top - b.top)
+    .map((l) => ({
+      x: (l.x0 / pageW) * 100,
+      y: (l.top / pageH) * 100,
+      w: ((l.x1 - l.x0) / pageW) * 100,
+      h: (l.h / pageH) * 100,
+    }));
+}
+
+export default function DocumentDemo() {
+  const { t } = useTranslation();
+  const srcRef = useRef<HTMLCanvasElement>(null);
+  const trgRef = useRef<HTMLCanvasElement>(null);
+
+  const [bars, setBars] = useState<Bar[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [phase, setPhase] = useState<Phase>('scan');
+  const [reveal, setReveal] = useState(0);          // 0 → 1, position du front
+  const [cycle, setCycle] = useState(0);
+
+  const reduced = useRef(false);
+
+  // ── Rendu des deux pages + extraction de la géométrie du squelette ────────
+  useEffect(() => {
+    let active = true;
+    const tasks: any[] = [];
+
+    (async () => {
+      const pdfjsLib = (window as any).pdfjsLib;
+      if (!pdfjsLib) return;
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+      const draw = async (url: string, canvas: HTMLCanvasElement | null) => {
+        if (!canvas) return null;
+        const doc = await pdfjsLib.getDocument(url).promise;
+        if (!active) return null;
+        const page = await doc.getPage(1);
+        if (!active) return null;
+
+        // Rendu à résolution fixe : le canvas est ensuite étiré en CSS
+        // (width:100%), donc la démo reste nette sans re-rendu au resize.
+        const viewport = page.getViewport({ scale: 2 });
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const task = page.render({ canvasContext: canvas.getContext('2d'), viewport });
+        tasks.push(task);
+        await task.promise;
+        return page;
+      };
+
+      try {
+        const srcPage = await draw(SOURCE_PDF, srcRef.current);
+        await draw(TARGET_PDF, trgRef.current);
+        if (!active || !srcPage) return;
+
+        const content = await srcPage.getTextContent();
+        if (!active) return;
+        const vp = srcPage.getViewport({ scale: 1 });
+        setBars(barsFromTextContent(content.items, vp.width, vp.height));
+        setLoaded(true);
+      } catch {
+        setLoaded(true);   // le PDF manque : la carte reste lisible, sans démo
+      }
+    })();
+
+    return () => {
+      active = false;
+      tasks.forEach((tk) => { try { tk.cancel(); } catch { /* déjà fini */ } });
+    };
+  }, []);
+
+  // ── Séquence : scan → squelette → révélation → pause → boucle ─────────────
+  useEffect(() => {
+    if (!loaded) return;
+
+    // Mouvement réduit : on montre l'état final, sans boucle.
+    reduced.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduced.current) {
+      setPhase('done');
+      setReveal(1);
+      return;
+    }
+
+    let raf = 0;
+    const timers: number[] = [];
+    setPhase('scan');
+    setReveal(0);
+
+    timers.push(window.setTimeout(() => setPhase('skeleton'), TIMINGS.scan));
+
+    timers.push(window.setTimeout(() => {
+      setPhase('reveal');
+      const t0 = performance.now();
+      const step = (now: number) => {
+        const p = Math.min(1, (now - t0) / TIMINGS.reveal);
+        // Adouci en fin de course : le front ralentit au lieu de s'arrêter net.
+        setReveal(1 - Math.pow(1 - p, 3));
+        if (p < 1) raf = requestAnimationFrame(step);
+      };
+      raf = requestAnimationFrame(step);
+    }, TIMINGS.scan + TIMINGS.skeleton));
+
+    timers.push(window.setTimeout(
+      () => setPhase('done'),
+      TIMINGS.scan + TIMINGS.skeleton + TIMINGS.reveal,
+    ));
+
+    timers.push(window.setTimeout(
+      () => setCycle((c) => c + 1),
+      TIMINGS.scan + TIMINGS.skeleton + TIMINGS.reveal + TIMINGS.done,
+    ));
+
+    return () => {
+      timers.forEach(clearTimeout);
+      cancelAnimationFrame(raf);
+    };
+  }, [loaded, cycle]);
+
+  // ── Inclinaison 3D suivant le curseur (subtile : la carte « répond ») ─────
+  const mx = useMotionValue(0);
+  const my = useMotionValue(0);
+  const rotX = useSpring(useTransform(my, [-0.5, 0.5], [6, -6]), { stiffness: 140, damping: 18 });
+  const rotY = useSpring(useTransform(mx, [-0.5, 0.5], [-7, 7]), { stiffness: 140, damping: 18 });
+
+  const onMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (reduced.current) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    mx.set((e.clientX - r.left) / r.width - 0.5);
+    my.set((e.clientY - r.top) / r.height - 0.5);
+  }, [mx, my]);
+
+  const onLeave = useCallback(() => { mx.set(0); my.set(0); }, [mx, my]);
+
+  const status =
+    phase === 'scan' ? { Icon: ScanLine, text: t('hero.demo_analyzing') }
+    : phase === 'skeleton' ? { Icon: Sparkles, text: t('hero.demo_translating') }
+    : phase === 'reveal' ? { Icon: Sparkles, text: t('hero.demo_rebuilding') }
+    : { Icon: LayoutTemplate, text: t('hero.demo_done') };
+
+  // Progression affichée : continue sur tout le cycle, pas seulement le reveal.
+  const progress =
+    phase === 'scan' ? 0.15
+    : phase === 'skeleton' ? 0.3
+    : phase === 'reveal' ? 0.3 + reveal * 0.7
+    : 1;
+
+  return (
+    <div className="hd-wrap" style={{ perspective: '1400px' }}>
+      <motion.div
+        className="hd-card"
+        onMouseMove={onMove}
+        onMouseLeave={onLeave}
+        style={{ rotateX: rotX, rotateY: rotY, transformStyle: 'preserve-3d' }}
+        initial={{ opacity: 0, y: 28, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.8, delay: 0.25, ease: [0.16, 1, 0.3, 1] }}
+      >
+        {/* En-tête : nom de fichier + couple de langues */}
+        <div className="hd-head">
+          <span className="hd-dot red" />
+          <span className="hd-dot yellow" />
+          <span className="hd-dot green" />
+          <span className="hd-filename">CV_exemple.pdf</span>
+          <span className="hd-langs">
+            <span>FR</span>
+            <ArrowRight size={11} strokeWidth={2.6} />
+            <span className="hd-lang-to">EN</span>
+          </span>
+        </div>
+
+        {/* Les deux pages */}
+        <div className="hd-body">
+          <div className="hd-panel">
+            <div className="hd-panel-label">{t('hero.panel_source')}</div>
+            <div className="hd-paper">
+              <canvas ref={srcRef} className="hd-canvas" />
+
+              {/* Balayage d'analyse : une ligne descend, un voile la suit */}
+              {phase === 'scan' && (
+                <motion.div
+                  className="hd-scan"
+                  initial={{ top: '0%' }}
+                  animate={{ top: '100%' }}
+                  transition={{ duration: TIMINGS.scan / 1000, ease: 'easeInOut' }}
+                />
+              )}
+
+              {/* Contours des blocs détectés — « je comprends ta mise en page » */}
+              {(phase === 'scan' || phase === 'skeleton') && bars.map((b, i) => (
+                <motion.span
+                  key={i}
+                  className="hd-block"
+                  style={{ left: `${b.x}%`, top: `${b.y}%`, width: `${b.w}%`, height: `${b.h}%` }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: [0, 1, 0.35] }}
+                  transition={{ duration: 0.5, delay: (b.y / 100) * (TIMINGS.scan / 1000) }}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="hd-arrow">
+            <motion.span
+              animate={{ x: [0, 4, 0], opacity: [0.55, 1, 0.55] }}
+              transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+              style={{ display: 'inline-flex' }}
+            >
+              <ArrowRight size={18} strokeWidth={2.4} />
+            </motion.span>
+          </div>
+
+          <div className="hd-panel">
+            <div className="hd-panel-label right">{t('hero.panel_target')}</div>
+            <div className="hd-paper">
+              {/* La traduction se dévoile de haut en bas (clip animé). */}
+              <div
+                className="hd-reveal"
+                style={{ clipPath: `inset(0 0 ${(1 - reveal) * 100}% 0)` }}
+              >
+                <canvas ref={trgRef} className="hd-canvas" />
+              </div>
+
+              {/* Squelette : la géométrie vient du document SOURCE — donc la
+                  mise en page est déjà là avant le texte. Chaque barre
+                  disparaît quand le front de révélation la dépasse. */}
+              {phase !== 'scan' && bars.map((b, i) => {
+                const passed = b.y + b.h <= reveal * 100;
+                return (
+                  <motion.span
+                    key={i}
+                    className="hd-bar"
+                    style={{ left: `${b.x}%`, top: `${b.y}%`, width: `${b.w}%`, height: `${b.h}%` }}
+                    initial={{ opacity: 0, scaleX: 0.55 }}
+                    animate={{
+                      opacity: passed ? 0 : 1,
+                      scaleX: 1,
+                    }}
+                    transition={{
+                      opacity: { duration: passed ? 0.18 : 0.35, delay: passed ? 0 : (i % 12) * 0.03 },
+                      scaleX: { duration: 0.4, delay: (i % 12) * 0.03, ease: [0.16, 1, 0.3, 1] },
+                    }}
+                  />
+                );
+              })}
+
+              {/* Front lumineux, à la limite du texte reconstruit */}
+              {phase === 'reveal' && (
+                <span className="hd-front" style={{ top: `${reveal * 100}%` }} />
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Barre d'état */}
+        <div className="hd-status">
+          <span className="hd-status-text">
+            <motion.span
+              key={phase}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            >
+              {phase === 'done'
+                ? <Check size={13} strokeWidth={3} className="hd-check" />
+                : <status.Icon size={13} strokeWidth={2.4} />}
+              {status.text}
+            </motion.span>
+          </span>
+          <div className="hd-progress">
+            <motion.div
+              className="hd-progress-bar"
+              animate={{ width: `${progress * 100}%` }}
+              transition={{ duration: phase === 'reveal' ? 0 : 0.5, ease: 'easeOut' }}
+            />
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Étiquettes flottantes — elles n'apparaissent qu'au moment où la démo
+          prouve ce qu'elles affirment. */}
+      <motion.div
+        className="hd-float tl"
+        initial={{ opacity: 0, y: 10, scale: 0.9 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.5, delay: 0.9, ease: [0.16, 1, 0.3, 1] }}
+      >
+        <span className="hd-float-icon blue"><Sparkles size={14} strokeWidth={2.2} /></span>
+        <span className="hd-float-text">
+          <strong>{t('hero.float_engine')}</strong>
+          <span>{t('hero.float_engine_sub')}</span>
+        </span>
+      </motion.div>
+
+      <motion.div
+        className="hd-float br"
+        initial={{ opacity: 0, y: 10, scale: 0.9 }}
+        animate={
+          phase === 'done'
+            ? { opacity: 1, y: 0, scale: 1 }
+            : { opacity: 0.45, y: 0, scale: 0.97 }
+        }
+        transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+      >
+        <span className="hd-float-icon green"><Check size={14} strokeWidth={3} /></span>
+        <span className="hd-float-text">
+          <strong>{t('hero.float_layout')}</strong>
+          <span>{t('hero.float_layout_sub')}</span>
+        </span>
+      </motion.div>
+    </div>
+  );
+}
