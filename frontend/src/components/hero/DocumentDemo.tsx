@@ -20,8 +20,14 @@ import { ArrowRight, Check, ScanLine, Sparkles, LayoutTemplate } from 'lucide-re
  * démo reste alignée à n'importe quelle largeur, sans mesurer le DOM.
  */
 
-const SOURCE_PDF = '/CV_Mbowou_Ibrahim_Pigier.pdf';
-const TARGET_PDF = '/CV_Mbowou_Ibrahim_Pigier_TRADUIT.pdf';
+/** Une page de journal plutôt qu'un CV : elle réunit d'un coup les cas que la
+ *  traduction doit tenir — colonnes, manchette, chapeau, encadrés, légendes,
+ *  filets, texte justifié. C'est là que la mise en page se casse d'ordinaire,
+ *  donc c'est là que la démonstration a une valeur.
+ *  (Le nom du fichier est sans accent : « après » aurait dû être encodé dans
+ *  l'URL, et pdf.js ne le fait pas pour nous.) */
+const SOURCE_PDF = '/demo_journal_avant.pdf';   // Global Tribune, en anglais
+const TARGET_PDF = '/demo_journal_apres.pdf';   // Tribune Mondiale, en français
 
 type Phase = 'scan' | 'skeleton' | 'reveal' | 'done';
 
@@ -36,15 +42,27 @@ const TIMINGS: Record<Phase, number> = {
   done: 2600,
 };
 
-/** Regroupe les fragments de texte d'une page en lignes, puis en barres.
- *  pdf.js donne un item par fragment stylé : deux fragments sur la même
- *  ligne de base doivent former UNE barre, sinon le squelette est haché. */
+/**
+ * Regroupe les fragments de texte d'une page en barres de squelette.
+ *
+ * pdf.js donne un item par fragment stylé : plusieurs fragments d'une même
+ * ligne doivent former UNE barre, sinon le squelette est haché. Mais il ne
+ * suffit PAS de regrouper par bande verticale : sur une page en colonnes, deux
+ * colonnes côte à côte partagent la même ligne de base et seraient fondues en
+ * une seule barre traversant la gouttière — le squelette montrerait des lignes
+ * pleine largeur là où le journal a des colonnes, soit exactement l'inverse de
+ * ce qu'il doit prouver. (Mesuré sur la page de démonstration : 25 barres sur
+ * 57 enjambaient la gouttière.)
+ *
+ * On coupe donc aussi sur l'ÉCART HORIZONTAL : au-delà de ~1.2 fois la hauteur
+ * du texte, ce n'est plus une espace entre mots, c'est une gouttière.
+ */
 function barsFromTextContent(items: any[], pageW: number, pageH: number): Bar[] {
-  const lines = new Map<number, { x0: number; x1: number; top: number; h: number }>();
+  type Frag = { x0: number; x1: number; top: number; h: number };
+  const rows = new Map<number, Frag[]>();
 
   for (const it of items) {
-    const str: string = it.str ?? '';
-    if (!str.trim()) continue;
+    if (!(it.str ?? '').trim()) continue;
     const [, , , d, e, f] = it.transform as number[];
     const h = Math.abs(d) || 10;
     const w = it.width ?? 0;
@@ -52,25 +70,38 @@ function barsFromTextContent(items: any[], pageW: number, pageH: number): Bar[] 
     // PDF : origine en bas à gauche → on repasse en coordonnées écran.
     const top = pageH - f - h;
     const key = Math.round(top / 4);          // tolérance de ligne de base
-    const cur = lines.get(key);
-    if (cur) {
-      cur.x0 = Math.min(cur.x0, e);
-      cur.x1 = Math.max(cur.x1, e + w);
-      cur.h = Math.max(cur.h, h);
-      cur.top = Math.min(cur.top, top);
-    } else {
-      lines.set(key, { x0: e, x1: e + w, top, h });
-    }
+    const row = rows.get(key);
+    const frag: Frag = { x0: e, x1: e + w, top, h };
+    if (row) row.push(frag);
+    else rows.set(key, [frag]);
   }
 
-  return [...lines.values()]
-    .filter((l) => l.x1 - l.x0 > 4)
+  const bars: Frag[] = [];
+  for (const row of rows.values()) {
+    row.sort((a, b) => a.x0 - b.x0);
+    let cur = { ...row[0] };
+    for (const frag of row.slice(1)) {
+      const gap = frag.x0 - cur.x1;
+      if (gap > 1.2 * Math.max(cur.h, frag.h)) {
+        bars.push(cur);                       // gouttière : on ferme la barre
+        cur = { ...frag };
+      } else {
+        cur.x1 = Math.max(cur.x1, frag.x1);
+        cur.h = Math.max(cur.h, frag.h);
+        cur.top = Math.min(cur.top, frag.top);
+      }
+    }
+    bars.push(cur);
+  }
+
+  return bars
+    .filter((b) => b.x1 - b.x0 > 4)
     .sort((a, b) => a.top - b.top)
-    .map((l) => ({
-      x: (l.x0 / pageW) * 100,
-      y: (l.top / pageH) * 100,
-      w: ((l.x1 - l.x0) / pageW) * 100,
-      h: (l.h / pageH) * 100,
+    .map((b) => ({
+      x: (b.x0 / pageW) * 100,
+      y: (b.top / pageH) * 100,
+      w: ((b.x1 - b.x0) / pageW) * 100,
+      h: (b.h / pageH) * 100,
     }));
 }
 
@@ -228,11 +259,12 @@ export default function DocumentDemo() {
           <span className="hd-dot red" />
           <span className="hd-dot yellow" />
           <span className="hd-dot green" />
-          <span className="hd-filename">CV_exemple.pdf</span>
+          <span className="hd-filename">global_tribune.pdf</span>
+          {/* Le journal de démonstration va de l'anglais au français. */}
           <span className="hd-langs">
-            <span>FR</span>
+            <span>EN</span>
             <ArrowRight size={11} strokeWidth={2.6} />
-            <span className="hd-lang-to">EN</span>
+            <span className="hd-lang-to">FR</span>
           </span>
         </div>
 

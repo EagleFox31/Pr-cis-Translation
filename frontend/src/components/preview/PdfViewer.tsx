@@ -25,8 +25,10 @@ interface PdfViewerProps {
 export default function PdfViewer({
   sourceFile,
   translatedBlob,
-  demoSource = '/CV_Mbowou_Ibrahim_Pigier.pdf',
-  demoTarget = '/CV_Mbowou_Ibrahim_Pigier_TRADUIT.pdf',
+  // Vitrine : la page de journal montre les cas qui comptent (colonnes,
+  // manchette, encadrés, filets) là où un CV n'en montrait aucun.
+  demoSource = '/demo_journal_avant.pdf',
+  demoTarget = '/demo_journal_apres.pdf',
   currentPage,
   zoom,
   isTrialMode,
