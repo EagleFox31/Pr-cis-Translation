@@ -348,7 +348,7 @@ export default function DocumentDemo() {
       {/* Étiquettes flottantes — elles n'apparaissent qu'au moment où la démo
           prouve ce qu'elles affirment. */}
       <motion.div
-        className="hd-float tl"
+        className="hd-float hd-float--tl"
         initial={{ opacity: 0, y: 10, scale: 0.9 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.5, delay: 0.9, ease: [0.16, 1, 0.3, 1] }}
@@ -361,7 +361,7 @@ export default function DocumentDemo() {
       </motion.div>
 
       <motion.div
-        className="hd-float br"
+        className="hd-float hd-float--br"
         initial={{ opacity: 0, y: 10, scale: 0.9 }}
         animate={
           phase === 'done'

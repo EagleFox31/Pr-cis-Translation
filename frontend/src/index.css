@@ -436,12 +436,17 @@ button { font-family: inherit; cursor: pointer; border: none; }
 }
 .hero-title {
   font-family: var(--font-display);
-  font-size: clamp(2.5rem, 4.5vw, 4.5rem);
+  font-size: clamp(2.4rem, 4vw, 3.9rem);
   font-weight: 300;
-  line-height: 1.08;
+  line-height: 1.12;
   color: var(--white);
   letter-spacing: -0.02em;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
+  max-width: 15ch;
+  /* Sans ceci, le navigateur remplit chaque ligne au maximum puis laisse un
+     mot orphelin sur la suivante (« Translate your / documents / … ») : le
+     titre paraissait désordonné. `balance` égalise la longueur des lignes. */
+  text-wrap: balance;
 }
 .hero-title em {
   font-style: italic;
@@ -597,24 +602,31 @@ button { font-family: inherit; cursor: pointer; border: none; }
 .hd-canvas { display: block; width: 100%; height: 100%; }
 .hd-reveal { position: absolute; inset: 0; }
 
-/* Balayage d'analyse */
+/* Balayage d'analyse — UNE seule arête.
+   Le trait était dessiné par un `border-bottom` DOUBLÉ d'un `box-shadow` à
+   étalement (2px) : le halo se détachait au-dessus du bord et se lisait comme
+   un second trait. L'arête est maintenant portée par le dégradé lui-même. */
 .hd-scan {
   position: absolute;
   left: 0; right: 0;
-  height: 26%;
+  height: 24%;
   transform: translateY(-100%);
-  background: linear-gradient(to bottom, rgba(37,99,235,0) 0%, rgba(37,99,235,.14) 70%, rgba(37,99,235,.55) 100%);
-  border-bottom: 1.5px solid rgba(96,165,250,.95);
-  box-shadow: 0 0 18px 2px rgba(59,130,246,.55);
+  background: linear-gradient(
+    to bottom,
+    rgba(37,99,235,0)    0%,
+    rgba(37,99,235,.10) 70%,
+    rgba(37,99,235,.30) 93%,
+    rgba(147,197,253,.95) 100%
+  );
   pointer-events: none;
 }
 
-/* Contours des blocs détectés sur la source */
+/* Contours des blocs détectés sur la source. Sans remplissage : la page
+   d'origine doit rester LISIBLE — c'est elle la preuve. */
 .hd-block {
   position: absolute;
-  border: 1px solid rgba(37,99,235,.55);
+  border: 1px solid rgba(96,165,250,.45);
   border-radius: 2px;
-  background: rgba(37,99,235,.07);
   pointer-events: none;
 }
 
@@ -688,8 +700,13 @@ button { font-family: inherit; cursor: pointer; border: none; }
   max-width: 240px;
   animation: hd-float 5s ease-in-out infinite;
 }
-.hd-float.tl { top: -22px; left: -28px; animation-delay: -2s; }
-.hd-float.br { bottom: -22px; right: -24px; animation-delay: -1s; }
+/* Modificateurs préfixés : une classe `.tl` existe déjà, plus bas dans cette
+   feuille, pour les lignes des vignettes de l'aperçu (`height: 2.5px`). Comme
+   `.hd-float.tl` ne déclarait aucune hauteur, c'est celle de `.tl` qui
+   s'appliquait — l'étiquette était écrasée et son contenu débordait. (L'ancien
+   `.floating-label` masquait le problème avec un `height: auto !important`.) */
+.hd-float--tl { top: -22px; left: -28px; animation-delay: -2s; }
+.hd-float--br { bottom: -22px; right: -24px; animation-delay: -1s; }
 @keyframes hd-float {
   0%, 100% { transform: translateY(0); }
   50%      { transform: translateY(-9px); }
@@ -712,16 +729,19 @@ button { font-family: inherit; cursor: pointer; border: none; }
   font-size: 11px; color: var(--gray-500); line-height: 1.25;
 }
 
-/* Titre : le trait se trace sous le mot-clé */
+/* Titre : le trait se trace sous le mot-clé.
+   Il était épais (10px) et remontait dans les jambages, avec une extrémité
+   arrondie : on y lisait une barre de progression, pas un soulignement. Il est
+   désormais fin et posé SOUS la ligne de base, donc il ne touche plus aucun
+   glyphe (plus besoin de le renvoyer derrière le texte par z-index). */
 .hero-underline { position: relative; display: inline-block; white-space: nowrap; }
 .hero-underline-stroke {
   position: absolute;
-  left: 0; right: 0; bottom: 2px;
-  height: 10px;
-  border-radius: 6px;
+  left: 0; right: 0; bottom: 0.04em;
+  height: 4px;
+  border-radius: 2px;
   transform-origin: left center;
-  background: linear-gradient(90deg, rgba(37,99,235,.85), rgba(245,183,0,.75));
-  z-index: -1;
+  background: linear-gradient(90deg, var(--blue), var(--gold-light));
 }
 
 /* Preuves — des faits, pas des chiffres invérifiables */
@@ -758,8 +778,8 @@ button { font-family: inherit; cursor: pointer; border: none; }
 .btn-ghost:hover { color: #fff; border-color: #fff; }
 
 @media (max-width: 900px) {
-  .hd-float.tl { top: -16px; left: -10px; }
-  .hd-float.br { bottom: -16px; right: -8px; }
+  .hd-float--tl { top: -16px; left: -10px; }
+  .hd-float--br { bottom: -16px; right: -8px; }
 }
 
 /* Mouvement réduit : plus aucune boucle ni flottement. Le contenu reste
