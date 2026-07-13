@@ -4,11 +4,13 @@ import { motion, useScroll, useTransform } from 'motion/react';
 import { ArrowRight, LayoutTemplate, FileType2, Languages } from 'lucide-react';
 import DocumentDemo from './DocumentDemo';
 
-/** Faits vérifiables, tirés du produit — pas de chiffre invérifiable. */
+/** Faits vérifiables, tirés du produit — pas de chiffre invérifiable.
+ *  Les FORMATS sont des noms techniques : la chasse fixe les rend lisibles
+ *  d'un coup d'œil et distingue la donnée du discours. */
 const PROOFS = [
-  { key: 'layout', Icon: LayoutTemplate },
-  { key: 'formats', Icon: FileType2 },
-  { key: 'langs', Icon: Languages },
+  { key: 'layout', Icon: LayoutTemplate, mono: false },
+  { key: 'formats', Icon: FileType2, mono: true },
+  { key: 'langs', Icon: Languages, mono: false },
 ];
 
 export default function HeroSection() {
@@ -43,9 +45,11 @@ export default function HeroSection() {
             {t('hero.badge')}
           </motion.div>
 
-          {/* Le mot-clé du titre est souligné par un trait qui SE TRACE : le
-              regard est conduit vers la promesse (« sans perdre la mise en
-              page »), qui est la seule chose qui nous distingue. */}
+          {/* Deux traitements, chacun porteur de sens :
+              — « sans perdre » se souligne d'un trait qui se trace ;
+              — « mise en page » est en italique doré, cerné de REPÈRES DE COUPE
+                qui se posent un à un. Le mot est donc lui-même mis en page, et
+                son cadre reste intact : la forme dit ce que la phrase promet. */}
           <motion.h1
             className="hero-title"
             initial={{ opacity: 0, y: 26 }}
@@ -59,10 +63,22 @@ export default function HeroSection() {
                 className="hero-underline-stroke"
                 initial={{ scaleX: 0 }}
                 animate={{ scaleX: 1 }}
-                transition={{ duration: 0.8, delay: 0.75, ease: [0.16, 1, 0.3, 1] }}
+                transition={{ duration: 0.8, delay: 0.7, ease: [0.16, 1, 0.3, 1] }}
               />
             </span>{' '}
-            {t('hero.title_after')}
+            {t('hero.title_mid')}{' '}
+            <span className="hero-key">
+              {t('hero.title_layout')}
+              {(['tl', 'tr', 'bl', 'br'] as const).map((corner, i) => (
+                <motion.span
+                  key={corner}
+                  className={`hero-key-mark hero-key-mark--${corner}`}
+                  initial={{ opacity: 0, scale: 0.4 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: 0.35, delay: 1.25 + i * 0.08, ease: [0.16, 1, 0.3, 1] }}
+                />
+              ))}
+            </span>
           </motion.h1>
 
           <motion.p
@@ -97,9 +113,10 @@ export default function HeroSection() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.55, ease: [0.16, 1, 0.3, 1] }}
           >
-            {PROOFS.map(({ key, Icon }, i) => (
+            {PROOFS.map(({ key, Icon, mono }, i) => (
               <motion.li
                 key={key}
+                className={mono ? 'hero-proof--mono' : undefined}
                 initial={{ opacity: 0, x: -8 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.5, delay: 0.65 + i * 0.09 }}

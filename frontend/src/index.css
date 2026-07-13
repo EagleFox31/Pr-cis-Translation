@@ -339,12 +339,15 @@ button { font-family: inherit; cursor: pointer; border: none; }
 .hero-content {
   position: relative;
   z-index: 10;
-  max-width: 1240px;
+  /* La démo EST l'argument : on lui laisse la place. Le hero occupe presque
+     toute la largeur (au lieu d'une gouttière de 1240px héritée des sections
+     de contenu) et la colonne de droite reçoit la part majoritaire. */
+  max-width: 1720px;
   margin: 0 auto;
-  padding: 80px 24px 40px;
+  padding: 72px clamp(24px, 3.5vw, 56px) 40px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 80px;
+  grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
+  gap: clamp(40px, 4vw, 72px);
   align-items: center;
   width: 100%;
 }
@@ -409,13 +412,16 @@ button { font-family: inherit; cursor: pointer; border: none; }
   background: rgba(37,99,235,.15);
   border: 1px solid rgba(37,99,235,.3);
   color: #93c5fd;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  /* Chasse fixe : le badge nomme un composant technique (le moteur), pas une
+     accroche marketing. La police le dit avant même qu'on l'ait lu. */
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   padding: 6px 14px;
   border-radius: 100px;
-  margin-bottom: 28px;
+  margin-bottom: 26px;
   backdrop-filter: blur(8px);
 }
 .hero-badge-dot {
@@ -436,13 +442,13 @@ button { font-family: inherit; cursor: pointer; border: none; }
 }
 .hero-title {
   font-family: var(--font-display);
-  font-size: clamp(2.4rem, 4vw, 3.9rem);
+  font-size: clamp(2.5rem, 3.5vw, 4.05rem);
   font-weight: 300;
-  line-height: 1.12;
+  line-height: 1.14;
   color: var(--white);
   letter-spacing: -0.02em;
-  margin-bottom: 18px;
-  max-width: 15ch;
+  margin-bottom: 20px;
+  max-width: 19ch;
   /* Sans ceci, le navigateur remplit chaque ligne au maximum puis laisse un
      mot orphelin sur la suivante (« Translate your / documents / … ») : le
      titre paraissait désordonné. `balance` égalise la longueur des lignes. */
@@ -457,12 +463,13 @@ button { font-family: inherit; cursor: pointer; border: none; }
   display: block;
 }
 .hero-subtitle {
-  font-size: 16px;
+  font-size: 17px;
   color: rgba(255,255,255,.70);
-  line-height: 1.7;
-  margin-bottom: 24px;
-  max-width: 480px;
+  line-height: 1.65;
+  margin-bottom: 28px;
+  max-width: 46ch;      /* mesure de lecture confortable, en moins de lignes */
   font-weight: 300;
+  text-wrap: pretty;    /* évite le mot seul en dernière ligne */
 }
 .hero-actions {
   display: flex;
@@ -523,13 +530,13 @@ button { font-family: inherit; cursor: pointer; border: none; }
 .hd-wrap {
   position: relative;
   width: 100%;
-  max-width: 560px;
+  max-width: 780px;   /* les pages doivent être LISIBLES, pas suggérées */
 }
 .hd-card {
   background: rgba(255,255,255,.06);
   border: 1px solid rgba(255,255,255,.12);
   border-radius: var(--radius-lg);
-  padding: 20px;
+  padding: 22px 24px;
   backdrop-filter: blur(12px);
   box-shadow: 0 24px 80px rgba(0,0,0,.45);
   will-change: transform;
@@ -729,11 +736,12 @@ button { font-family: inherit; cursor: pointer; border: none; }
   font-size: 11px; color: var(--gray-500); line-height: 1.25;
 }
 
-/* Titre : le trait se trace sous le mot-clé.
-   Il était épais (10px) et remontait dans les jambages, avec une extrémité
-   arrondie : on y lisait une barre de progression, pas un soulignement. Il est
-   désormais fin et posé SOUS la ligne de base, donc il ne touche plus aucun
-   glyphe (plus besoin de le renvoyer derrière le texte par z-index). */
+/* Titre — deux traitements typographiques, chacun porteur de sens.
+
+   1) « sans perdre » : un trait se trace sous les mots. Il était épais (10px)
+      et remontait dans les jambages, avec une extrémité arrondie : on y lisait
+      une barre de progression. Il est désormais fin et posé SOUS la ligne de
+      base, donc il ne touche plus aucun glyphe. */
 .hero-underline { position: relative; display: inline-block; white-space: nowrap; }
 .hero-underline-stroke {
   position: absolute;
@@ -743,6 +751,30 @@ button { font-family: inherit; cursor: pointer; border: none; }
   transform-origin: left center;
   background: linear-gradient(90deg, var(--blue), var(--gold-light));
 }
+
+/* 2) « mise en page » : italique doré, encadré de REPÈRES DE COUPE — les
+      marques qu'on trace autour d'un bloc en préparation d'impression. Le mot
+      est donc lui-même mis en page, et son cadre reste intact : la forme dit
+      exactement ce que la phrase promet. */
+.hero-key {
+  position: relative;
+  display: inline-block;
+  font-style: italic;
+  color: var(--gold-light);
+  white-space: nowrap;
+  padding: 0 .12em;
+}
+.hero-key-mark {
+  position: absolute;
+  width: .34em;
+  height: .34em;
+  border: 2px solid rgba(240,217,138,.75);
+  pointer-events: none;
+}
+.hero-key-mark--tl { top: -.16em;    left: -.14em;  border-right: 0; border-bottom: 0; }
+.hero-key-mark--tr { top: -.16em;    right: -.14em; border-left: 0;  border-bottom: 0; }
+.hero-key-mark--bl { bottom: -.10em; left: -.14em;  border-right: 0; border-top: 0; }
+.hero-key-mark--br { bottom: -.10em; right: -.14em; border-left: 0;  border-top: 0; }
 
 /* Preuves — des faits, pas des chiffres invérifiables */
 .hero-proofs {
@@ -757,10 +789,15 @@ button { font-family: inherit; cursor: pointer; border: none; }
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-size: 13px;
+  font-size: 13.5px;
   color: rgba(255,255,255,.62);
 }
 .hero-proofs li svg { color: var(--gold-light); flex-shrink: 0; }
+.hero-proof--mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  letter-spacing: .02em;
+}
 
 /* Lien d'action secondaire */
 .btn-ghost {
