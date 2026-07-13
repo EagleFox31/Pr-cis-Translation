@@ -34,6 +34,23 @@ du document :
   (grow-into-gap + échelle de groupe + retraduction compacte + force-fit), jamais
   en poussant les blocs suivants — `vertical_flow` reste volontairement à `False`.
 
+> ### ⚠ Le modèle vient de `DEEPSEEK_MODEL`, et de nulle part ailleurs
+>
+> `translate_pdf_progressive()` ne reçoit **ni modèle ni budget de tokens** : le
+> paramètre `quality` de la requête est **ignoré** sur le chemin PDF, et
+> `TranslatorAI` lit son modèle dans `backend/.env`. **Cette variable est donc le
+> seul réglage qui décide de la vitesse et du coût de toute traduction PDF.**
+>
+> | Valeur | Effet |
+> |---|---|
+> | `deepseek-chat` | rapide, économique, non raisonnant — **défaut attendu** |
+> | `deepseek-v4-flash` | raisonnement : ~2 min/page, bien plus cher |
+>
+> Y placer un modèle de raisonnement ralentit et renchérit **chaque page**, sans
+> qu'aucune option de l'interface ne le laisse deviner. C'est exactement ce qui
+> s'était produit (`.env` basculé sur `deepseek-v4-flash` pendant la campagne de
+> tests, puis oublié) — et cela explique les durées observées alors.
+
 **État** — campagne P1-P9 close (voir [`PROBLEMES_PDF_ENGINE_V2.md`](PROBLEMES_PDF_ENGINE_V2.md)) :
 césures/justification sans débordement (P2), **expansion v4 par ligne** (encarts
 imbriqués respectés, boîtes contenantes, cellules persistées — P1/P5/P9),
