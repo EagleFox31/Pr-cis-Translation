@@ -70,6 +70,11 @@ def build_tokens(segments):
         size = seg.get("size", 0) or 0
         color = seg.get("color", (0, 0, 0))
         underline = bool(seg.get("underline"))
+        lsp = seg.get("lsp") or 0.0
+        # Deux segments À LETTRES ESPACÉES adjacents (changement de style dans
+        # un titre : « CARL » maigre + « SHAN » gras) = frontière de mot.
+        if lsp and tokens and tokens[-1].get("lsp"):
+            pending_space = True
         for part in re.split(r"(\s+)", seg.get("text", "")):
             if part == "":
                 continue
@@ -78,7 +83,7 @@ def build_tokens(segments):
             else:
                 tokens.append({"text": part, "fonts": fonts, "size": size,
                                "color": color, "underline": underline,
-                               "space_before": pending_space})
+                               "space_before": pending_space, "lsp": lsp})
                 pending_space = False
     return tokens
 
@@ -126,6 +131,13 @@ def _hyphen_split(word, fonts, size, sx, avail, lang):
     dic = _hyphenator(lang)
     if dic is None or len(word) < 5 or not word.isalpha():
         return None
+    # Ne JAMAIS couper un mot à Majuscule initiale (nom propre : « Florida ») ni
+    # tout en capitales (titre / acronyme : « INCROYABLES »). Règle typographique
+    # standard et GÉNÉRALE (aucun calage sur un document) : une césure manquée ne
+    # fait qu'écourter une ligne, alors qu'une mauvaise césure (« Flori-da »,
+    # « IN-CROYABLES ») est un défaut visible.
+    if word[0].isupper():
+        return None
     positions = dic.positions(word)             # indices de coupe possibles
     best = None
     for p in positions:
@@ -135,6 +147,40 @@ def _hyphen_split(word, fonts, size, sx, avail, lang):
         else:
             break
     return best
+
+
+# ── Coupe des jetons insécables trop larges (URL, code, référence) ───────────
+_HARD_SEPS = "/.-_=&?#:"
+
+
+def _hard_split(word, fonts, size, sx, avail):
+    """Coupe un jeton qui ne tiendra JAMAIS dans la largeur disponible (URL,
+    chemin, référence) à un séparateur interne — sans ajouter de trait de
+    césure (couper « …/driver-training/ » est l'usage typographique des URL).
+    À défaut de séparateur utile, coupe au dernier caractère qui tient
+    (dernier recours : mieux qu'un débordement dans le bloc voisin).
+    Retourne (tete, reste) ou None si même un caractère ne tient pas."""
+    best = None
+    for i, ch in enumerate(word):
+        if ch in _HARD_SEPS and 0 < i < len(word) - 1:
+            head = word[:i + 1]
+            if text_width(head, fonts, size, sx) <= avail:
+                best = (head, word[i + 1:])
+            else:
+                break
+    if best:
+        return best
+    n = 0                                   # repli : coupe au caractère
+    w = 0.0
+    for i, ch in enumerate(word):
+        cw = text_width(ch, fonts, size, sx)
+        if w + cw > avail:
+            break
+        w += cw
+        n = i + 1
+    if 0 < n < len(word):
+        return word[:n], word[n:]
+    return None
 
 
 # ── Coulée gloutonne d'une passe (paramètres fixés) ──────────────────────────
@@ -160,7 +206,7 @@ def _layout(tokens, container_lines, first_baseline, bottom, size_scale, pitch,
     x = left
     cur = []
 
-    def close_line():
+    def close_line(last=False):
         nonlocal cur, idx, left, right, x
         if cur:
             if align == "center":               # recentre la ligne dans [left,right]
@@ -168,6 +214,22 @@ def _layout(tokens, container_lines, first_baseline, bottom, size_scale, pitch,
                 if off > 0.5:
                     for rr in cur:
                         rr["x"] += off
+            elif align == "justify" and not last:
+                # JUSTIFICATION : répartit le blanc restant sur les espaces
+                # inter-mots (jamais la dernière ligne d'un paragraphe). On ne
+                # justifie pas une ligne trop courte (slack important → rivières) :
+                # elle est probablement suivie d'une coupe volontaire.
+                gap_idx = [i for i in range(1, len(cur)) if cur[i].get("sb")]
+                slack = right - x
+                line_w = max(1.0, right - left)
+                if gap_idx and 0.5 < slack < 0.30 * line_w:
+                    per = slack / len(gap_idx)
+                    gaps = set(gap_idx)
+                    shift = 0.0
+                    for i, rr in enumerate(cur):
+                        if i in gaps:
+                            shift += per
+                        rr["x"] += shift
             lines.append({"baseline": baseline_of(idx), "runs": cur})
         idx += 1
         left, right = bounds(idx)
@@ -178,19 +240,35 @@ def _layout(tokens, container_lines, first_baseline, bottom, size_scale, pitch,
     while queue:
         t = queue.pop(0)
         size = (t["size"] or 0) * size_scale
+        # Tracking d'un TITRE À LETTRES ESPACÉES reconstruit au balisage :
+        # l'avance de chaque glyphe est majorée de `lsp × corps` (l'espace de
+        # mot aussi) → le rendu retrouve l'espacement de l'original.
+        lsp = (t.get("lsp") or 0.0) * size
         w = text_width(t["text"], t["fonts"], size, sx)
-        sp = (text_width(" ", t["fonts"], size, sx)
+        if lsp and len(t["text"]) > 1:
+            w += lsp * (len(t["text"]) - 1)
+        # Espace de MOT d'un titre à lettres espacées : espace + 2× tracking
+        # (l'original montre des blancs de mots nettement plus larges que le
+        # pas des lettres — un seul tracking rendait les mots quasi collés).
+        sp = ((text_width(" ", t["fonts"], size, sx) + 2.0 * lsp)
               if (cur and t["space_before"]) else 0.0)
 
         if cur and x + sp + w > right + 0.5:
             # Ne tient pas : tenter une césure du mot pour finir la ligne.
             avail = right - (x + sp)
-            piece = _hyphen_split(t["text"], t["fonts"], size, sx, avail, lang)
+            piece = (None if lsp
+                     else _hyphen_split(t["text"], t["fonts"], size, sx,
+                                        avail, lang))
             if piece:
                 head, tail = piece
                 cur.append({"text": head, "x": x + sp, "fonts": t["fonts"],
                             "size": size, "color": t["color"], "sx": sx,
-                            "underline": t.get("underline")})
+                            "underline": t.get("underline"), "sb": sp > 0})
+                # Avancer x jusqu'à la fin du préfixe césuré : close_line()
+                # mesure le slack de justification/centrage sur x — sans cette
+                # avance, le slack est surestimé de (espace + préfixe) et la
+                # répartition pousse la ligne AU-DELÀ du bord droit.
+                x += sp + text_width(head, t["fonts"], size, sx)
                 queue.insert(0, {**t, "text": tail, "space_before": False})
                 close_line()
                 continue
@@ -199,13 +277,29 @@ def _layout(tokens, container_lines, first_baseline, bottom, size_scale, pitch,
             queue.insert(0, {**t, "space_before": False})
             continue
 
+        if not cur and w > (right - x) + 0.5:
+            # Jeton seul plus large que la ligne entière (URL, référence) : la
+            # césure syllabique ne s'applique pas → coupe aux séparateurs
+            # internes, sinon au caractère (jamais de débordement).
+            piece = _hard_split(t["text"], t["fonts"], size, sx, right - x)
+            if piece:
+                head, tail = piece
+                cur.append({"text": head, "x": x, "fonts": t["fonts"],
+                            "size": size, "color": t["color"], "sx": sx,
+                            "underline": t.get("underline"), "sb": False})
+                x += text_width(head, t["fonts"], size, sx)
+                queue.insert(0, {**t, "text": tail, "space_before": False})
+                close_line()
+                continue
+
         x += sp
         cur.append({"text": t["text"], "x": x, "fonts": t["fonts"],
                     "size": size, "color": t["color"], "sx": sx,
-                    "underline": t.get("underline")})
+                    "underline": t.get("underline"), "sb": sp > 0,
+                    "lsp": t.get("lsp") or 0.0})
         x += w
 
-    close_line()
+    close_line(last=True)              # dernière ligne : jamais justifiée
     n = len(lines)
     height_used = n * pitch
     last_bottom = baseline_of(n - 1) + 0.25 * size_est if n else first_baseline
@@ -228,13 +322,45 @@ _CASCADE = [
 ]
 
 
+def natural_lines(segments, container_lines, lang="fr_FR", first_baseline=None):
+    """Nombre de lignes que produit la coulée SANS aucune compression (échelle
+    1.0). Sert à estimer le BESOIN vertical naturel d'un paragraphe traduit
+    (→ combien de lignes de plus qu'à l'origine), en amont du flux vertical."""
+    if not container_lines:
+        return 0
+    tokens = build_tokens(segments)
+    top = min(b[1] for b in container_lines)
+    bottom = max(b[3] for b in container_lines)
+    orig_pitch = _orig_pitch(container_lines, segments)
+    size_est = max((s.get("size", 0) or 0 for s in segments), default=10.0)
+    if first_baseline is None:
+        first_baseline = top + 0.78 * orig_pitch
+    lines, _h, _ov = _layout(tokens, container_lines, first_baseline, bottom,
+                             1.0, orig_pitch, 1.0, lang, size_est)
+    return len(lines)
+
+
+# Paliers de FORCE-FIT (au-delà de la cascade normale) : compression uniforme
+# croissante jusqu'à un plancher, employée UNIQUEMENT quand le flux vertical n'a
+# pas pu accorder assez de hauteur à un bloc (texte contraint dans une boîte
+# fixe : panneau, cellule, ou segment borné). Garantit « jamais de dépassement »
+# au prix d'une réduction — préférable à un chevauchement.
+_FORCE_FIT = [0.86, 0.82, 0.78, 0.74, 0.70, 0.66, 0.62, 0.58, 0.54, 0.50, 0.46]
+
+
 def reflow_paragraph(segments, container_lines, lang="fr_FR",
-                     first_baseline=None, align="left"):
+                     first_baseline=None, align="left", force_fit=False,
+                     fixed_scale=None):
     """Coule les `segments` traduits dans `container_lines`.
 
     `first_baseline` : baseline (y) de la 1re ligne d'origine → les lignes
     reflowées sont posées à cette position (interligne d'origine), gardant le
     texte à sa place verticale. À défaut, déduit du haut du conteneur.
+
+    `force_fit` : si True et que même le niveau le plus serré de la cascade
+    déborde, on POURSUIT la compression (paliers `_FORCE_FIT`) jusqu'à ce que le
+    texte tienne dans la hauteur du conteneur — garantie anti-collision pour un
+    bloc à hauteur imposée (panneau, cellule, segment borné).
 
     Retourne un dict :
       { "lines":[…], "fitted":bool, "level":int, "pitch_scale","size_scale","sx",
@@ -252,6 +378,33 @@ def reflow_paragraph(segments, container_lines, lang="fr_FR",
     if first_baseline is None:
         first_baseline = top + 0.78 * orig_pitch
 
+    # Échelle IMPOSÉE (compression uniforme d'un segment saturé, décidée par le
+    # flux vertical) : on rend directement à cette échelle, sans passer par la
+    # cascade → tous les blocs du segment partagent la même taille (cohérence
+    # visuelle). Le force-fit reste disponible en dernier recours.
+    if fixed_scale is not None:
+        ss = max(0.3, min(1.0, fixed_scale))
+        lines, h, overflow = _layout(tokens, container_lines, first_baseline,
+                                     bottom, ss, orig_pitch * ss, 0.98, lang,
+                                     size_est * ss, align)
+        best = {"lines": lines, "fitted": not overflow, "level": -2,
+                "pitch_scale": ss, "size_scale": ss, "sx": 0.98,
+                "n_lines": len(lines)}
+        if not overflow or not force_fit:
+            return best
+        for k, s2 in enumerate(_FORCE_FIT):
+            if s2 >= ss:
+                continue
+            lines, h, overflow = _layout(tokens, container_lines, first_baseline,
+                                         bottom, s2, orig_pitch * s2, 0.96, lang,
+                                         size_est * s2, align)
+            best = {"lines": lines, "fitted": not overflow, "level": -3,
+                    "pitch_scale": s2, "size_scale": s2, "sx": 0.96,
+                    "n_lines": len(lines)}
+            if not overflow:
+                break
+        return best
+
     best = None
     for lvl, (ps, ss, sx) in enumerate(_CASCADE):
         pitch = orig_pitch * ps
@@ -263,6 +416,18 @@ def reflow_paragraph(segments, container_lines, lang="fr_FR",
                 "n_lines": len(lines)}
         if not overflow:
             return best
+
+    if force_fit:                        # garantie de tenue : compression accrue
+        for k, ss in enumerate(_FORCE_FIT):
+            pitch = orig_pitch * ss
+            lines, h, overflow = _layout(tokens, container_lines, first_baseline,
+                                         bottom, ss, pitch, 0.96, lang,
+                                         size_est * ss, align)
+            best = {"lines": lines, "fitted": not overflow,
+                    "level": len(_CASCADE) + k, "pitch_scale": ss,
+                    "size_scale": ss, "sx": 0.96, "n_lines": len(lines)}
+            if not overflow:
+                return best
     return best                          # rien ne tient : renvoie le plus serré
 
 

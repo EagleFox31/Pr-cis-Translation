@@ -1,15 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import Navbar from '../components/navbar/Navbar';
 import HeroSection from '../components/hero/HeroSection';
 import FeaturesGrid from '../components/features/FeaturesGrid';
 import StorySection from '../components/story/StorySection';
 import PricingSection from '../components/pricing/PricingSection';
 import AboutSection from '../components/about/AboutSection';
-import ToastContainer from '../components/ui/Toast';
+import ToastContainer, { showToast } from '../components/ui/Toast';
 import DocumentLibrary from '../components/library/DocumentLibrary';
 import { useDocumentLibrary } from '../hooks/useDocumentLibrary';
+import { useStreamingTranslation } from '../hooks/useStreamingTranslation';
+import type { TranslateConfig } from '../components/upload/TranslationSection';
 
 export default function Home() {
+  const { t } = useTranslation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isAnnual, setIsAnnual] = useState(true);
   const [formattingOption, setFormattingOption] = useState('auto-fit');
@@ -24,6 +28,9 @@ export default function Home() {
   const [isTrialMode, setIsTrialMode] = useState(true);
   const [showLibrary, setShowLibrary] = useState(false);
   const [targetLang, setTargetLang] = useState('en');
+
+  // ---- Traduction PROGRESSIVE (page par page) ----
+  const stream = useStreamingTranslation();
 
   // ---- Document library ----
   const { documents, saveDocument, getBlob, deleteDocument, clearAll } = useDocumentLibrary();
@@ -64,41 +71,58 @@ export default function Home() {
     }
   }, []);
 
-  // ---- Translation complete ----
-  const handleTranslateComplete = useCallback(
-    (result: { blob: Blob; filename: string; file: File; targetLang: string }) => {
-      setTranslatedBlob(result.blob);
-      setTranslatedFilename(result.filename);
-      setSelectedFile(result.file);
-      setTargetLang(result.targetLang);
+  // ---- Démarrage de la traduction : l'aperçu s'ouvre IMMÉDIATEMENT, les pages
+  //      traduites y apparaissent au fil de l'eau (streaming page par page). ----
+  const handleStartTranslate = useCallback(
+    (config: TranslateConfig) => {
+      const { file, targetLang: tl, formatOptions, quality, pages, debug } = config;
+      const shortLang = tl.split('-')[0];   // 'en-US' → 'en' (attendu par l'API)
+      setSelectedFile(file);
+      setTargetLang(shortLang);
+      setTranslatedBlob(null);
+      setTranslatedFilename('');
+      setCurrentPage(1);
       setShowPreview(true);
-      // Sauvegarde automatique dans la bibliothèque
-      const ext = result.filename.split('.').pop()?.toLowerCase() ?? 'pdf';
-      saveDocument(result.blob, result.filename, {
-        originalName: result.file.name,
-        targetLang: result.targetLang,
-        ext,
-      });
+
+      stream
+        .start(file, shortLang, formatOptions, quality, pages, debug)
+        .then((result) => {
+          setTranslatedBlob(result.blob);
+          setTranslatedFilename(result.filename);
+          const ext = result.filename.split('.').pop()?.toLowerCase() ?? 'pdf';
+          saveDocument(result.blob, result.filename, {
+            originalName: file.name,
+            targetLang: shortLang,
+            ext,
+          });
+          showToast('success', t('story.success_done'), result.filename);
+        })
+        .catch((err) => {
+          const msg = err instanceof Error ? err.message : '';
+          showToast('error', t('story.error_default'), msg || undefined);
+        });
     },
-    [saveDocument],
+    [stream, saveDocument, t],
   );
 
   // ---- Library preview ----
   const handleLibraryPreview = useCallback(
     (blob: Blob, filename: string, _ext: string) => {
+      stream.reset();
       setTranslatedBlob(blob);
       setTranslatedFilename(filename);
       setSelectedFile(null);
       setShowLibrary(false);
       setShowPreview(true);
     },
-    [],
+    [stream],
   );
 
-  // ---- Download ----
+  // ---- Download (le résultat complet, une fois la traduction terminée) ----
   const handleDownload = useCallback(() => {
-    if (translatedBlob && translatedFilename) {
-      const url = URL.createObjectURL(translatedBlob);
+    const blob = stream.result?.blob ?? translatedBlob;
+    if (blob && translatedFilename) {
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = translatedFilename;
@@ -107,12 +131,18 @@ export default function Home() {
       URL.revokeObjectURL(url);
       document.body.removeChild(a);
     }
-  }, [translatedBlob, translatedFilename]);
+  }, [stream.result, translatedBlob, translatedFilename]);
 
   // ---- Back from preview ----
   const handleBack = useCallback(() => {
+    stream.cancel();
     setShowPreview(false);
-  }, []);
+  }, [stream]);
+
+  // Aperçu du panneau « traduit » : blob final si dispo, sinon PDF partiel
+  // (pages déjà prêtes), mis à jour au fil de l'eau pendant le streaming.
+  const previewTranslatedBlob = translatedBlob ?? stream.partialBlob;
+  const effectiveNumPages = stream.totalPages ?? numPages;
 
   return (
     <div className="min-h-screen bg-white text-gray-900 font-body">
@@ -214,16 +244,19 @@ export default function Home() {
 
         <StorySection
           showPreview={showPreview}
-          translatedBlob={translatedBlob}
+          translatedBlob={previewTranslatedBlob}
           translatedFilename={translatedFilename}
           selectedFile={selectedFile}
           currentPage={currentPage}
-          numPages={numPages}
+          numPages={effectiveNumPages}
           zoom={zoom}
           formattingOption={formattingOption}
           isTrialMode={isTrialMode}
           targetLang={targetLang}
-          onTranslateComplete={handleTranslateComplete}
+          isTranslating={stream.isTranslating}
+          pageStatuses={stream.pageStatuses}
+          renderedUpTo={stream.renderedUpTo}
+          onStartTranslate={handleStartTranslate}
           onBack={handleBack}
           onZoomChange={setZoom}
           onPageChange={setCurrentPage}

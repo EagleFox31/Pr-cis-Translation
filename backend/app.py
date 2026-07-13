@@ -9,6 +9,7 @@ import shutil
 import hashlib
 import subprocess
 import tempfile
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, Response
@@ -16,8 +17,21 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
 logger = logging.getLogger("backend_app")
+
+# Sous `uvicorn --reload`, ce module est importé DEUX fois : dans le process
+# parent (qui appelle load_app() pour échouer vite) et dans le worker. Les
+# messages d'init sont donc empilés ici puis émis dans le lifespan, que seul le
+# worker traverse — sinon chaque ligne apparaît en double au démarrage.
+_STARTUP_NOTES: list[tuple[int, str]] = []
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    for level, message in _STARTUP_NOTES:
+        logger.log(level, message)
+    yield
 
 FRONTEND_API_KEY = os.getenv("FRONTEND_API_KEY", "precis_frontend_secure_key_2026_xK9mP2vL")
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 Mo
@@ -107,9 +121,9 @@ def _find_soffice():
 
 SOFFICE_PATH = _find_soffice()
 if SOFFICE_PATH:
-    logger.info(f"LibreOffice détecté pour l'aperçu PDF : {SOFFICE_PATH}")
+    _STARTUP_NOTES.append((logging.INFO, f"LibreOffice : {SOFFICE_PATH}"))
 else:
-    logger.warning("LibreOffice introuvable : l'aperçu des formats non-PDF sera indisponible.")
+    _STARTUP_NOTES.append((logging.WARNING, "LibreOffice introuvable : l'aperçu des formats non-PDF sera indisponible."))
 
 def convert_to_pdf_bytes(file_bytes: bytes, ext: str) -> bytes:
     """Convertit un document en PDF (bytes) pour l'aperçu. Les PDF sont
@@ -151,7 +165,7 @@ def convert_to_pdf_bytes(file_bytes: bytes, ext: str) -> bytes:
         f.write(data)
     return data
 
-app = FastAPI(title="Précis Translator API", version="1.0.0")
+app = FastAPI(title="Précis Translator API", version="1.0.0", lifespan=lifespan)
 
 origins_str = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:8000,http://127.0.0.1:5173,http://127.0.0.1:8000,http://localhost:3000,http://localhost:3001,http://127.0.0.1:3001")
 origins = [o.strip() for o in origins_str.split(",") if o.strip()]
@@ -173,10 +187,9 @@ try:
     limiter = Limiter(key_func=get_remote_address)
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-    logger.info("Slowapi rate limiter initialized successfully.")
 except ImportError:
     limiter = None
-    logger.warning("Slowapi library not found. Rate limiting is disabled.")
+    _STARTUP_NOTES.append((logging.WARNING, "Slowapi absent : limitation de débit désactivée."))
 
 def rate_limit_decorator(limit_str: str):
     if limiter:
@@ -198,26 +211,23 @@ def verify_api_key(x_api_key: str = None):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid X-API-Key")
 
 from docx_translator_engine import DOCXTranslatorEngine
-from pdf_translator_engine import PDFTranslatorEngine
 try:
     from pptx_translator_engine import PPTXTranslatorEngine
 except ImportError:
     PPTXTranslatorEngine = None
 from translator_ai import TranslatorAI
 
+# ── Moteur PDF v2 (pdf_engine_v2) : traduction PROGRESSIVE page par page ─────
+# extraction → traduction → rendu PAR PAGE ; le PDF partiel grandit au fil des
+# pages et le client l'affiche sans attendre la fin. L'ancien moteur
+# (pdf_translator_engine) n'est plus branché sur les PDF.
+import sys as _sys
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in _sys.path:
+    _sys.path.insert(0, _REPO_ROOT)
+from pdf_engine_v2 import stream as pdf_v2_stream
+
 docx_engine = DOCXTranslatorEngine()
-pdf_engine = PDFTranslatorEngine()
-# LLM désactivé par défaut : le regroupement de paragraphes utilise
-# exclusivement la géométrie (positions, colonnes, alignements).
-# Pour réactiver la détection IA : décommenter le bloc ci-dessous
-# ET passer engine.use_llm_paragraph_grouping = True.
-# try:
-#     if os.getenv("DEEPSEEK_API_KEY"):
-#         pdf_engine.configure_llm(os.getenv("DEEPSEEK_API_KEY"))
-#         logger.info("PDF engine LLM merge validation enabled.")
-# except Exception as e:
-#     logger.warning(f"PDF engine LLM not configured: {e}")
-logger.info("PDF engine: regroupement géométrique (pas d'IA).")
 try:
     pptx_engine = PPTXTranslatorEngine() if PPTXTranslatorEngine else None
 except:
@@ -226,10 +236,18 @@ except:
 try:
     ai_translator = TranslatorAI()
     ai_active = True
-    logger.info("AI translator initialized successfully.")
 except Exception as e:
     ai_active = False
-    logger.warning(f"AI not initialized: {e}")
+    _STARTUP_NOTES.append((logging.WARNING, f"IA non initialisée : {e}"))
+
+_ready = ["PDF v2 progressif (page par page)", "DOCX"]
+if pptx_engine:
+    _ready.append("PPTX")
+if ai_active:
+    _ready.append("IA")
+if limiter:
+    _ready.append("rate-limit")
+_STARTUP_NOTES.append((logging.INFO, "Moteurs : " + " · ".join(_ready)))
 
 # Deux modes de traduction, choisis par requête via le paramètre `quality` :
 #  • "fast"    → modèle non-raisonnant, ~secondes/page, version stable (défaut) ;
@@ -265,6 +283,7 @@ def _new_job() -> str:
             "q": queue.Queue(),
             "result_path": None,
             "result_filename": None,
+            "partial_path": None,     # PDF v2 : fichier partiel (pages prêtes)
             "error": None,
         }
     return job_id
@@ -343,8 +362,6 @@ def _run_translation_job(
             if ext == "docx":
                 filters = {"paragraphs": True, "tables": True, "headers_footers": True, "text_boxes": True, "smartarts": True}
                 extraction, _ = docx_engine.extract_text(original_path, extraction_path, filters=filters, progress_callback=cb_extract)
-            elif ext == "pdf":
-                extraction, _ = pdf_engine.extract_text(original_path, extraction_path, progress_callback=cb_extract, pages=pages_set)
             elif ext == "pptx" and pptx_engine:
                 filters = {"shapes": True, "smartarts": True, "tables": True, "connectors": True}
                 extraction, _ = pptx_engine.extract_text(original_path, extraction_path, filters=filters, progress_callback=cb_extract, pages=pages_set)
@@ -385,21 +402,10 @@ def _run_translation_job(
         else:
             _job_emit(job_id, "progress", {"step": "translate", "message": "Traduction : cache utilisé.", "page": 0, "total": None})
 
-        # 5. Injection / génération du PDF
-        cb_inject = _make_progress_cb(job_id, "inject")
+        # 5. Injection / génération (DOCX/PPTX — le PDF passe par le moteur v2).
         _job_emit(job_id, "progress", {"step": "inject", "message": "Génération du document traduit...", "page": 0, "total": None})
         if ext == "docx":
             inj_ok, inj_msg = docx_engine.inject_translation(original_path, translated_path, output_path, format_options=format_opts)
-        elif ext == "pdf":
-            # Mode structure : moteur DÉDIÉ avec bordures de debug (contours de
-            # paragraphes), exactement comme test_extract_inject.py. Instance
-            # neuve pour ne pas muter le moteur partagé entre requêtes.
-            if debug:
-                _dbg = PDFTranslatorEngine()
-                _dbg.debug_draw_borders = True
-                inj_ok, inj_msg = _dbg.inject_translation(original_path, translated_path, output_path, progress_callback=cb_inject, format_options=format_opts)
-            else:
-                inj_ok, inj_msg = pdf_engine.inject_translation(original_path, translated_path, output_path, progress_callback=cb_inject, format_options=format_opts)
         elif ext == "pptx" and pptx_engine:
             inj_ok, inj_msg = pptx_engine.inject_translation(original_path, translated_path, output_path, format_options=format_opts)
         else:
@@ -417,6 +423,72 @@ def _run_translation_job(
 
     except Exception as e:
         logger.error(f"Job {job_id} failed: {e}")
+        _job_error(job_id, str(e))
+
+
+def _run_pdf_v2_job(
+    job_id: str, file_bytes: bytes, original_path: str,
+    output_path: str, output_filename: str, partial_path: str,
+    cache_path: str, target_lang: str, pages_set=None, debug: bool = False,
+):
+    """Pipeline PDF v2 PROGRESSIF : chaque page est extraite, traduite et rendue
+    avant la suivante. Le PDF partiel grandit page après page — le client
+    l'affiche au fil de l'eau via /api/translate/partial/{job_id}. Événements
+    SSE émis : start{total} puis page{page,status,done,total}."""
+    try:
+        _job_emit(job_id, "progress", {"step": "start", "message": "Démarrage du job...", "page": 0, "total": None})
+
+        # Cache final : résultat déjà produit → restitution immédiate (le
+        # partiel pointe sur le résultat complet, toutes les pages sont prêtes).
+        if os.path.exists(output_path):
+            with _jobs_lock:
+                job = _jobs.get(job_id)
+                if job is not None:
+                    job["partial_path"] = output_path
+            _job_emit(job_id, "progress", {"step": "cache", "message": "Résultat en cache, restitution immédiate.", "page": 0, "total": None})
+            _job_done(job_id, output_path, output_filename)
+            return
+
+        if not os.path.exists(original_path):
+            with open(original_path, "wb") as f:
+                f.write(file_bytes)
+
+        with _jobs_lock:
+            job = _jobs.get(job_id)
+            if job is not None:
+                job["partial_path"] = partial_path
+
+        def on_event(ev: dict):
+            et = ev.get("type")
+            if et == "start":
+                _job_emit(job_id, "start", {"total": ev.get("total")})
+            elif et == "page":
+                _job_emit(job_id, "page", {
+                    "page": ev.get("page"),
+                    "status": ev.get("status"),
+                    "done": ev.get("done"),
+                    "total": ev.get("total"),
+                })
+                # Compatibilité barre de progression générique.
+                _job_emit(job_id, "progress", {
+                    "step": "translate",
+                    "message": f"Page {ev.get('page')}/{ev.get('total')} : {ev.get('status')}",
+                    "page": ev.get("done"),
+                    "total": ev.get("total"),
+                })
+
+        pdf_v2_stream.translate_pdf_progressive(
+            original_path, output_path, target_lang=target_lang,
+            pages=pages_set, partial_path=partial_path, on_event=on_event,
+            debug=debug, cache_path=cache_path,
+        )
+
+        if not os.path.exists(output_path):
+            raise ValueError("Le fichier traduit est introuvable après génération.")
+        _job_done(job_id, output_path, output_filename)
+
+    except Exception as e:
+        logger.error(f"Job PDF v2 {job_id} failed: {e}")
         _job_error(job_id, str(e))
 
 
@@ -556,14 +628,27 @@ async def translate_endpoint(
     output_path = os.path.join(lang_dir, output_filename)
 
     job_id = _new_job()
-    thread = threading.Thread(
-        target=_run_translation_job,
-        args=(job_id, file_bytes, filename, ext, target_lang, format_opts,
-              job_dir, lang_dir, original_path, extraction_path,
-              translated_path, output_path, output_filename,
-              model, max_tokens, pages_set, debug_mode),
-        daemon=True,
-    )
+    if ext == "pdf":
+        # PDF → moteur v2 PROGRESSIF : page traduite = page affichable.
+        # `partial` grandit page à page ; `v2_pages` = cache de reprise.
+        partial_path = os.path.join(lang_dir, f"partial{qsuffix}{psuffix}_{job_id[:8]}.pdf")
+        cache_path = os.path.join(lang_dir, f"v2_pages{qsuffix}{psuffix}.json")
+        thread = threading.Thread(
+            target=_run_pdf_v2_job,
+            args=(job_id, file_bytes, original_path, output_path,
+                  output_filename, partial_path, cache_path, target_lang,
+                  pages_set, debug_mode),
+            daemon=True,
+        )
+    else:
+        thread = threading.Thread(
+            target=_run_translation_job,
+            args=(job_id, file_bytes, filename, ext, target_lang, format_opts,
+                  job_dir, lang_dir, original_path, extraction_path,
+                  translated_path, output_path, output_filename,
+                  model, max_tokens, pages_set, debug_mode),
+            daemon=True,
+        )
     thread.start()
 
     logger.info(f"Job {job_id} started for '{filename}' -> {target_lang}")
@@ -610,6 +695,26 @@ async def translation_events(job_id: str):
             "Connection": "keep-alive",
         },
     )
+
+
+@app.get("/api/translate/partial/{job_id}")
+async def translation_partial(job_id: str, x_api_key: str = Header(None)):
+    """PDF PARTIEL d'un job v2 en cours : contient les pages 1..k déjà
+    traduites (réécrit atomiquement après chaque page). Le client le recharge
+    à chaque événement `page done` pour afficher la traduction au fil de l'eau."""
+    verify_api_key(x_api_key)
+
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job introuvable.")
+    path = job.get("partial_path")
+    if not path or not os.path.exists(path):
+        raise HTTPException(status_code=202, detail="Aucune page prête pour l'instant.")
+    with open(path, "rb") as f:
+        data = f.read()
+    return Response(content=data, media_type="application/pdf",
+                    headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/translate/result/{job_id}")

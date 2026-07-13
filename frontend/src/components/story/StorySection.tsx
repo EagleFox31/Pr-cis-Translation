@@ -2,8 +2,10 @@ import { useTranslation } from 'react-i18next';
 import { motion, useScroll, useTransform } from 'motion/react';
 import { useRef } from 'react';
 import TranslationSection from '../upload/TranslationSection';
+import type { TranslateConfig } from '../upload/TranslationSection';
 import ViewerToolbar from '../preview/ViewerToolbar';
 import DocumentPreview from '../preview/DocumentPreview';
+import type { PageStatus } from '../../hooks/useStreamingTranslation';
 
 
 interface StorySectionProps {
@@ -17,7 +19,10 @@ interface StorySectionProps {
   formattingOption: string;
   isTrialMode: boolean;
   targetLang?: string;
-  onTranslateComplete: (result: { blob: Blob; filename: string; file: File; targetLang: string }) => void;
+  isTranslating: boolean;
+  pageStatuses: Record<number, PageStatus>;
+  renderedUpTo: number;
+  onStartTranslate: (config: TranslateConfig) => void;
   onBack: () => void;
   onZoomChange: (z: number) => void;
   onPageChange: (p: number) => void;
@@ -38,7 +43,10 @@ export default function StorySection({
   formattingOption,
   isTrialMode,
   targetLang,
-  onTranslateComplete,
+  isTranslating,
+  pageStatuses,
+  renderedUpTo,
+  onStartTranslate,
   onBack,
   onZoomChange,
   onPageChange,
@@ -206,7 +214,7 @@ export default function StorySection({
                   flexDirection: 'column',
                 }}
               >
-                <TranslationSection onTranslationComplete={onTranslateComplete} onLibraryOpen={onLibraryOpen} />
+                <TranslationSection onStartTranslate={onStartTranslate} isTranslating={isTranslating} onLibraryOpen={onLibraryOpen} />
               </div>
             </motion.div>
           </div>
@@ -219,31 +227,75 @@ export default function StorySection({
             <div className="app">
               <div className="body">
                 <div className="sidebar">
-                  {Array.from({ length: numPages }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="thumb"
-                      onClick={() => onPageChange(i + 1)}
-                    >
+                  {Array.from({ length: numPages }).map((_, i) => {
+                    const pageNo = i + 1;
+                    const status = pageStatuses[pageNo];
+                    const isReady = status === 'done' || status === 'copied' || (!isTranslating && pageNo <= renderedUpTo) || (!isTranslating && Object.keys(pageStatuses).length === 0);
+                    const inProgress = status === 'extracting' || status === 'translating' || status === 'rendering';
+                    // Pastille d'état : vert = prête, bleu animé = en cours, gris = en attente.
+                    const dotColor = isReady ? '#16a34a' : inProgress ? '#2563eb' : 'var(--gray-300)';
+                    return (
                       <div
-                        className="thumb-frame"
-                        style={{
-                          borderColor:
-                            currentPage === i + 1 ? '#2563eb' : 'var(--color-border-primary)',
-                        }}
+                        key={i}
+                        className="thumb"
+                        onClick={() => onPageChange(pageNo)}
+                        title={
+                          isReady ? t('story.page_ready', 'Page traduite')
+                          : inProgress ? t('story.page_progress', 'Traduction en cours…')
+                          : t('story.page_waiting', 'En attente')
+                        }
                       >
-                        <div className="tl" style={{ width: '55%', height: '3px' }} />
-                        <div className="tl muted" style={{ width: '42%' }} />
-                        <div className="tl accent" style={{ width: '100%', margin: '3px 0' }} />
-                        <div className="tl" style={{ width: '88%' }} />
-                        <div className="tl muted" style={{ width: '72%' }} />
-                        <div className="tl muted" style={{ width: '80%' }} />
-                        <div className="tl muted" style={{ width: '65%' }} />
-                        <div className="tl accent" style={{ width: '100%', margin: '3px 0' }} />
+                        <div
+                          className="thumb-frame"
+                          style={{
+                            borderColor:
+                              currentPage === pageNo ? '#2563eb' : 'var(--color-border-primary)',
+                            position: 'relative',
+                            opacity: isReady || currentPage === pageNo ? 1 : 0.55,
+                          }}
+                        >
+                          <div className="tl" style={{ width: '55%', height: '3px' }} />
+                          <div className="tl muted" style={{ width: '42%' }} />
+                          <div className="tl accent" style={{ width: '100%', margin: '3px 0' }} />
+                          <div className="tl" style={{ width: '88%' }} />
+                          <div className="tl muted" style={{ width: '72%' }} />
+                          <div className="tl muted" style={{ width: '80%' }} />
+                          <div className="tl muted" style={{ width: '65%' }} />
+                          <div className="tl accent" style={{ width: '100%', margin: '3px 0' }} />
+                          {/* Pastille de statut */}
+                          <span
+                            style={{
+                              position: 'absolute', top: '3px', right: '3px',
+                              width: '8px', height: '8px', borderRadius: '50%',
+                              background: dotColor,
+                              boxShadow: inProgress ? '0 0 0 0 rgba(37,99,235,0.5)' : 'none',
+                              animation: inProgress ? 'thumb-pulse 1.2s infinite' : 'none',
+                            }}
+                          />
+                          {/* Voile « en cours » sur la vignette active du travail */}
+                          {inProgress && (
+                            <span style={{
+                              position: 'absolute', inset: 0, display: 'flex',
+                              alignItems: 'center', justifyContent: 'center',
+                              background: 'rgba(255,255,255,0.4)',
+                            }}>
+                              <motion.span
+                                animate={{ rotate: 360 }}
+                                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                                style={{ display: 'inline-flex', color: '#2563eb' }}
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                  <circle cx="12" cy="12" r="10" opacity="0.25" />
+                                  <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
+                                </svg>
+                              </motion.span>
+                            </span>
+                          )}
+                        </div>
+                        <div className="thumb-num">{pageNo}</div>
                       </div>
-                      <div className="thumb-num">{i + 1}</div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 <div className="main">
@@ -274,6 +326,13 @@ export default function StorySection({
                       zoom={zoom}
                       isTrialMode={isTrialMode}
                       onPagesLoaded={onPagesLoaded}
+                      translatedPageReady={
+                        (!isTranslating && Object.keys(pageStatuses).length === 0)
+                        || pageStatuses[currentPage] === 'done'
+                        || pageStatuses[currentPage] === 'copied'
+                        || currentPage <= renderedUpTo
+                      }
+                      translatedPageStatus={pageStatuses[currentPage]}
                     />
                   </div>
                 </div>

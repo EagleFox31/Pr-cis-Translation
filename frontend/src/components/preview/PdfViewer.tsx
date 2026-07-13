@@ -11,6 +11,10 @@ interface PdfViewerProps {
   isTrialMode: boolean;
   onPagesLoaded?: (numPages: number) => void;
   className?: string;
+  /** La page courante est-elle traduite (streaming) ? Sinon on affiche un
+      placeholder à la place du canevas traduit. */
+  translatedPageReady?: boolean;
+  translatedPageStatus?: string;
 }
 
 export default function PdfViewer({
@@ -23,8 +27,12 @@ export default function PdfViewer({
   isTrialMode,
   onPagesLoaded,
   className,
+  translatedPageReady = true,
+  translatedPageStatus,
 }: PdfViewerProps) {
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
+  // True quand le canevas traduit affiche RÉELLEMENT la page courante.
+  const [translatedShown, setTranslatedShown] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -104,10 +112,28 @@ export default function PdfViewer({
         };
 
         await renderPage(pdfOrig, 'pdf-canvas-original', currentPage);
-        await renderPage(pdfTrad, 'pdf-canvas-translated', currentPage);
 
-        if (isTrialMode) {
-          await renderPage(pdfTrad, 'pdf-canvas-translated-clear', currentPage);
+        // Panneau TRADUIT : n'affiche la page que si elle est prête ET présente
+        // dans le PDF partiel (sinon le viewer clamperait sur une autre page).
+        const tradHasPage = translatedPageReady && currentPage <= pdfTrad.numPages;
+        if (tradHasPage) {
+          await renderPage(pdfTrad, 'pdf-canvas-translated', currentPage);
+          if (isTrialMode) {
+            await renderPage(pdfTrad, 'pdf-canvas-translated-clear', currentPage);
+          }
+          if (active) setTranslatedShown(true);
+        } else {
+          // Page pas encore traduite : on efface le canevas et on montre le
+          // placeholder (dimensionné comme l'original pour un cadre stable).
+          if (active) setTranslatedShown(false);
+          const canvas = document.getElementById('pdf-canvas-translated') as HTMLCanvasElement;
+          const origCanvas = document.getElementById('pdf-canvas-original') as HTMLCanvasElement;
+          if (canvas && origCanvas) {
+            canvas.width = origCanvas.width;
+            canvas.height = origCanvas.height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) { ctx.fillStyle = '#f8fafc'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+          }
         }
       } catch (error) {
         if (error instanceof Error && error.name === 'RenderingCancelledException') return;
@@ -134,7 +160,7 @@ export default function PdfViewer({
         }
       });
     };
-  }, [currentPage, zoom, translatedBlob, sourceFile, isTrialMode, demoSource, demoTarget, onPagesLoaded]);
+  }, [currentPage, zoom, translatedBlob, sourceFile, isTrialMode, demoSource, demoTarget, onPagesLoaded, translatedPageReady]);
 
   const [isHovering, setIsHovering] = useState(false);
 
@@ -206,10 +232,55 @@ export default function PdfViewer({
               display: 'block',
               height: 'auto',
               margin: '0 auto',
-              filter: isTrialMode ? 'brightness(15%) grayscale(100%)' : 'none',
-              opacity: isTrialMode ? 0.85 : 1,
+              filter: isTrialMode && translatedShown ? 'brightness(15%) grayscale(100%)' : 'none',
+              opacity: isTrialMode && translatedShown ? 0.85 : 1,
             }}
           />
+
+          {/* Placeholder « page en cours / en attente » (streaming) */}
+          {!translatedShown && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '12px',
+                background: 'rgba(248,250,252,0.75)',
+                backdropFilter: 'blur(1px)',
+                color: 'var(--gray-500)',
+                textAlign: 'center',
+                padding: '20px',
+              }}
+            >
+              {translatedPageStatus && translatedPageStatus !== 'waiting' ? (
+                <>
+                  <motion.span
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                    style={{ display: 'inline-flex', color: '#2563eb' }}
+                  >
+                    <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <circle cx="12" cy="12" r="10" opacity="0.25" />
+                      <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
+                    </svg>
+                  </motion.span>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--gray-700)' }}>
+                    {translatedPageStatus === 'extracting' && 'Extraction de la page…'}
+                    {translatedPageStatus === 'translating' && 'Traduction en cours…'}
+                    {translatedPageStatus === 'rendering' && 'Reconstruction de la page…'}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: '26px', opacity: 0.5 }}>⏳</span>
+                  <span style={{ fontSize: '13px' }}>Cette page est en attente de traduction.</span>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Clear canvas (visible under cursor in trial mode) */}
           {isTrialMode && (

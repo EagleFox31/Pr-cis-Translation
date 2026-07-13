@@ -138,6 +138,34 @@ def _serialize_drawing_item(item):
     return {"op": op, "raw": str(item)}
 
 
+def _drawing_item_boxes(el):
+    """Bboxes des ITEMS d'un dessin sérialisé. Un dessin composite (grille de
+    tableau, encadré, barres pleines) ne se réduit pas à son bbox englobant :
+    ce sont ses traits/rectangles qui occupent réellement l'espace — c'est le
+    mur vertical d'une cellule qui doit borner l'expansion, pas la grille
+    entière (dont le x0 est celui du tableau)."""
+    boxes = []
+    for it in el.get("items", ()):
+        op = it.get("op")
+        pts = None
+        if op == "l":
+            pts = [it.get("p1"), it.get("p2")]
+        elif op == "c":
+            pts = [it.get("p1"), it.get("p2"), it.get("p3"), it.get("p4")]
+        elif op == "re":
+            r = it.get("rect")
+            if r and len(r) >= 4:
+                boxes.append((r[0], r[1], r[2], r[3]))
+            continue
+        elif op == "qu":
+            pts = it.get("quad")
+        if pts and all(p and len(p) >= 2 for p in pts):
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            boxes.append((min(xs), min(ys), max(xs), max(ys)))
+    return boxes
+
+
 def _serialize_drawing(d):
     """Sérialise un dessin vectoriel complet (une entrée get_drawings())."""
     return {
@@ -204,30 +232,9 @@ class PDFObjectEngine:
             # le JSON → fichier autonome.
             data["fonts"] = self._extract_fonts(doc)
             for page_num, page in enumerate(doc):
-                page_data = {
-                    "page_num": page_num + 1,
-                    "width": page.rect.width,
-                    "height": page.rect.height,
-                    "elements": [],
-                }
-                # Ordre de peinture (du fond vers l'avant), pour que les
-                # objets se recouvrent comme dans l'original : dessins
-                # vectoriels / fonds d'abord, puis images, puis texte au-dessus.
-                draw_els = self._extract_drawings(page)
-                img_els = self._extract_images(
-                    doc, page, page_num, embed_images, assets_dir)
-                page_data["elements"].extend(draw_els)
-                page_data["elements"].extend(img_els)
-                text_lines = self._extract_text(page)
-                if self.group_paragraphs:
-                    ctx = self._build_page_ctx(page, text_lines,
-                                               draw_els, img_els)
-                    page_data["elements"].extend(
-                        self._group_paragraphs(text_lines, ctx))
-                else:
-                    page_data["elements"].extend(text_lines)
-                self._mark_underlines(page_data["elements"])
-                data["pages"].append(page_data)
+                data["pages"].append(self.extract_page_data(
+                    doc, page_num, page, embed_images=embed_images,
+                    assets_dir=assets_dir))
         finally:
             doc.close()
 
@@ -235,6 +242,38 @@ class PDFObjectEngine:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
         return data, output_json
+
+    def extract_page_data(self, doc, page_num, page, embed_images=True,
+                          assets_dir=None):
+        """Extrait UNE page (élément `pages[]` du schéma JSON) — brique de
+        l'extraction complète et du pipeline progressif page par page."""
+        page_data = {
+            "page_num": page_num + 1,
+            "width": page.rect.width,
+            "height": page.rect.height,
+            "elements": [],
+        }
+        # Ordre de peinture (du fond vers l'avant), pour que les
+        # objets se recouvrent comme dans l'original : dessins
+        # vectoriels / fonds d'abord, puis images, puis texte au-dessus.
+        draw_els = self._extract_drawings(page)
+        img_els = self._extract_images(
+            doc, page, page_num, embed_images, assets_dir)
+        page_data["elements"].extend(draw_els)
+        page_data["elements"].extend(img_els)
+        text_lines = self._extract_text(page)
+        if self.group_paragraphs:
+            ctx = self._build_page_ctx(page, text_lines,
+                                       draw_els, img_els)
+            # Cellules de tableau persistées : un recalcul d'expansion
+            # depuis le JSON (sans page fitz) doit pouvoir cloisonner.
+            page_data["cells"] = [list(c) for c in ctx.get("cells", ())]
+            page_data["elements"].extend(
+                self._group_paragraphs(text_lines, ctx))
+        else:
+            page_data["elements"].extend(text_lines)
+        self._mark_underlines(page_data["elements"])
+        return page_data
 
     # ── Polices embarquées : nom propre -> liste de sous-ensembles (b64) ─────
     def _extract_fonts(self, doc):
@@ -355,6 +394,18 @@ class PDFObjectEngine:
     para_remaining_space = True    # Étape A : coupe « espace restant » (togglable)
     expand_paragraphs    = True    # Étape D : conteneur élargi vers la droite
     detect_tables        = True    # Étape B : cloisonnement des cellules de table
+    vertical_flow        = False   # Étape E : push-down vertical + anti-collision
+                                   # ANNULÉ (trop d'heuristiques) — le code reste
+                                   # derrière ce toggle mais est INACTIF par défaut.
+                                   # Conteneurs à hauteur fixe : la cascade du
+                                   # reflow ajuste chaque paragraphe dans sa boîte.
+    justify_text         = True    # Rendu JUSTIFIÉ des paragraphes dont la source
+                                   # l'était (détection géométrique au rendu).
+    shrink_to_fit        = True    # RÈGLE UNIQUE anti-débordement : chaque
+                                   # paragraphe traduit est GARANTI de tenir dans
+                                   # sa propre boîte (compression taille/interligne
+                                   # jusqu'à 46 %). Zéro chevauchement, aucune
+                                   # heuristique de déplacement.
     _EXPAND_GAP          = 6.0     # (héritage) espace laissé vers un objet/bord
     # Gouttière de sécurité NORMALISÉE laissée entre un bloc élargi et l'objet /
     # la colonne voisine à sa droite : recommandation typographique standard,
@@ -412,10 +463,18 @@ class PDFObjectEngine:
             except Exception:
                 pass
         obstacles.extend(cells)
+        # Obstacles d'EXPANSION (chemin rendu uniquement — le regroupement garde
+        # `obstacles` inchangé) : les dessins sont décomposés en ITEMS pour que
+        # le mur/la barre d'un tableau non détecté par find_tables borne quand
+        # même l'expansion à sa vraie position.
+        expand_obstacles = list(obstacles)
+        for el in draw_els:
+            expand_obstacles.extend(_drawing_item_boxes(el))
         return {
             "width": page.rect.width,
             "height": page.rect.height,
             "obstacles": obstacles,
+            "expand_obstacles": expand_obstacles,
             "text_right": max(xs) if xs else page.rect.width,
             "cells": cells,
         }
@@ -660,6 +719,69 @@ class PDFObjectEngine:
             "dir": [dx, dy],
         }
 
+    # ── Numéros ANCRÉS À DROITE (sommaire sans points de conduite) ───────────
+    _TRAILNUM_RE = re.compile(r"^\d{1,4}$")
+
+    def _split_trailing_numbers(self, lines):
+        """Détache en ligne séparée le NUMÉRO DE PAGE final d'une entrée de
+        sommaire quand l'écart avec le texte est trop petit pour la coupe en
+        colonnes. Signal GÉNÉRAL (aucun seuil de document) : plusieurs lignes
+        voisines terminent par un nombre nu dont les bords droits S'ALIGNENT —
+        c'est la colonne de folios d'un sommaire. Sans cette coupe, le numéro
+        est avalé par le paragraphe et perd son fer à droite au reflow."""
+        cands = []                              # (idx, k, right) k = 1er run du n°
+        for i, ln in enumerate(lines):
+            runs = ln.get("runs") or []
+            if len(runs) < 2:
+                continue
+            d = ln.get("dir")
+            if d and abs(d[0] - 1) > 1e-3:      # incliné/vertical : ne pas toucher
+                continue
+            tail = runs[-1]
+            txt = (tail.get("text") or "").strip()
+            if not self._TRAILNUM_RE.match(txt):
+                continue
+            prev = runs[-2]
+            gw = ln.get("gw") or ((tail.get("size") or 10) * 0.5)
+            gap = tail["bbox"][0] - prev["bbox"][2]
+            if gap < 1.2 * gw:                  # collé au texte : nombre du texte
+                continue
+            cands.append((i, len(runs) - 1, round(tail["bbox"][2], 1)))
+        if not cands:
+            return lines
+        # Cluster par bord droit (± 2.5 pt) : il faut ≥ 2 folios alignés. Les
+        # folios DÉJÀ autonomes (lignes-nombres séparées par la coupe en
+        # colonnes) comptent dans l'alignement : c'est la colonne de folios.
+        from collections import Counter
+        edges = Counter()
+        for _i, _k, r in cands:
+            edges[r] += 1
+        for ln in lines:
+            t = (ln.get("text") or "").strip()
+            if self._TRAILNUM_RE.match(t) and ln.get("bbox"):
+                edges[round(ln["bbox"][2], 1)] += 1
+        out = list(lines)
+        for i, k, r in cands:
+            aligned = sum(n for e, n in edges.items() if abs(e - r) <= 2.5)
+            if aligned < 2:
+                continue
+            ln = out[i]
+            runs = ln["runs"]
+            num_runs, txt_runs = runs[k:], runs[:k]
+            if not txt_runs:
+                continue
+            def _mk(rs):
+                x0 = min(x["bbox"][0] for x in rs)
+                y0 = min(x["bbox"][1] for x in rs)
+                x1 = max(x["bbox"][2] for x in rs)
+                y1 = max(x["bbox"][3] for x in rs)
+                return {**ln, "bbox": [x0, y0, x1, y1], "runs": rs,
+                        "text": " ".join((x.get("text") or "").strip()
+                                         for x in rs).strip()}
+            out[i] = _mk(txt_runs)
+            out.append(_mk(num_runs))
+        return out
+
     # ── Regroupement en PARAGRAPHES (étape 7 : géométrie + linguistique) ─────
     def _group_paragraphs(self, lines, ctx=None):
         """Regroupe des lignes (`text_line`) en paragraphes. Column-aware :
@@ -669,6 +791,7 @@ class PDFObjectEngine:
         Retourne des objets `paragraph` { bbox, text, lines:[...] }."""
         if not lines:
             return []
+        lines = self._split_trailing_numbers(lines)
         items = [self._line_metrics(ln) for ln in lines]
         self._assign_column_margins(items, ctx)
         self._tag_cells(items, ctx)
@@ -748,9 +871,20 @@ class PDFObjectEngine:
         centré tout en occupant l'espace. Sinon bord gauche figé, rendu ferré à
         gauche. Ne modifie ni le texte ni sa position d'origine."""
         page_w = ctx.get("width") or 0
-        obstacles = ctx.get("obstacles", ())
+        obstacles = ctx.get("expand_obstacles") or ctx.get("obstacles", ())
         boxed = [p for p in paras if p.get("bbox") and len(p["bbox"]) >= 4]
         tol = self._COL_SIB_TOL
+
+        # Bloqueurs à la granularité LIGNE : le bbox d'un paragraphe enroulé
+        # (lignes pleine largeur incluses) commence à la marge de colonne et ne
+        # serait jamais « à droite » d'une ligne d'encart — ce sont ses LIGNES
+        # qui matérialisent l'espace réellement occupé à chaque hauteur.
+        blocker_lines = []
+        for q in boxed:
+            for ln in q.get("lines", []):
+                bb = ln.get("bbox")
+                if bb and len(bb) >= 4:
+                    blocker_lines.append((q, bb))
 
         for p in boxed:
             pleft, ptop, pright, pbottom = p["bbox"]
@@ -797,6 +931,23 @@ class PDFObjectEngine:
             # Le vrai signe du CENTRAGE : les bords GAUCHES des lignes varient
             # fortement (chaque ligne recentrée), pas les marges du bloc. Un bloc
             # ferré à gauche (même une puce courte) garde des gauches ~constantes.
+            # Un bloc (paragraphe, image, dessin) qui chevauche PARTIELLEMENT le
+            # bbox du paragraphe (encart imbriqué, photo d'enroulement) explique
+            # des gauches variables : c'est un ENROULEMENT, jamais un centrage.
+            # Un bloc qui ENGLOBE le paragraphe (fond plein, bandeau) ne compte
+            # pas — un titre centré sur fond coloré reste détectable centré.
+            def _partial_overlap(bb):
+                ox = min(bb[2], pright) - max(bb[0], pleft)
+                oy = min(bb[3], pbottom) - max(bb[1], ptop)
+                if ox <= 1.0 or oy <= 1.0:
+                    return False
+                contains = (bb[0] <= pleft + 2 and bb[1] <= ptop + 2
+                            and bb[2] >= pright - 2 and bb[3] >= pbottom - 2)
+                return not contains
+            wrapped = any(_partial_overlap(q["bbox"]) for q in boxed if q is not p)
+            if not wrapped:
+                wrapped = any(_partial_overlap(ob) for ob in obstacles)
+
             lbb = [ln["bbox"] for ln in p.get("lines", [])
                    if ln.get("bbox") and len(ln["bbox"]) >= 4]
             if len(lbb) >= 2:
@@ -811,8 +962,19 @@ class PDFObjectEngine:
                 min_left = min(lefts)
                 at_left = sum(1 for l in lefts if l - min_left <= 3.0)
                 left_aligned = at_left >= 0.6 * len(lefts)
-                centered = (not left_aligned and left_var > 8.0
+                centered = (not wrapped and not left_aligned and left_var > 8.0
                             and center_var < left_var and near_center)
+                # JUSTIFIÉ (signal géométrique, général) : bloc ferré à gauche
+                # dont les lignes INTÉRIEURES (hors dernière) atteignent toutes le
+                # MÊME bord droit (faible variance) — c'est le fer à droite du
+                # texte justifié. En ferré-à-gauche « en drapeau », ces bords
+                # varient beaucoup. Nécessite ≥ 3 lignes (2 intérieures + dernière).
+                if not centered and left_aligned and len(lbb) >= 3:
+                    inner_rights = [b[2] for b in lbb[:-1]]
+                    spread = max(inner_rights) - min(inner_rights)
+                    justified = spread <= max(0.5 * size, 0.03 * col_w)
+                else:
+                    justified = False
             else:
                 # Mono-ligne : exiger des marges SUBSTANTIELLES des deux côtés
                 # (fraction de la colonne), sinon une puce courte ferrée à gauche
@@ -820,6 +982,7 @@ class PDFObjectEngine:
                 big = max(min_gap, 0.18 * col_w)
                 centered = (lg > big and rg > big and near_center
                             and abs(lg - rg) <= max(6.0, 0.12 * col_w))
+                justified = False
 
             # Bord droit de référence. La marge SYMÉTRIQUE n'est un repli que si
             # le paragraphe est VRAIMENT SEUL (aucun voisin de colonne) : sinon,
@@ -831,22 +994,75 @@ class PDFObjectEngine:
                 ref_right = col_right
             else:
                 ref_right = page_w - pleft if page_w else pright
-            target = ref_right
             if right_block != float("inf"):
-                target = min(target, right_block - safety)
-            target = max(target, pright)                # jamais rétrécir
+                ref_right = min(ref_right, right_block - safety)
+            # Cloisonnement : un paragraphe DANS une cellule de tableau ne
+            # s'étend jamais au-delà du mur droit de SA cellule (y compris la
+            # dernière colonne, qui n'a pas de cellule voisine pour la borner).
+            pcx, pcy = (pleft + pright) / 2, (ptop + pbottom) / 2
+            for cx0, cy0, cx1, cy1 in ctx.get("cells", ()):
+                if cx0 <= pcx <= cx1 and cy0 <= pcy <= cy1:
+                    ref_right = min(ref_right, cx1 - 2.0)
+                    break
+            # Boîte CONTENANTE (cellule dessinée en boîte pleine, panneau,
+            # encadré) : un paragraphe dessiné DANS une boîte reste dans sa
+            # boîte — bord droit = bord de boîte moins un padding symétrique au
+            # padding gauche constaté. La plus PETITE boîte contenante gagne
+            # (la boîte-cellule avant la boîte-tableau) ; les fonds quasi
+            # pleine page sont ignorés.
+            page_area = (page_w or 1.0) * (ctx.get("height") or 1.0)
+            best_box, best_area = None, None
+            for ob in obstacles:
+                if (ob[0] <= pleft + 2 and ob[1] <= ptop + 2
+                        and ob[2] >= pright - 2 and ob[3] >= pbottom - 2):
+                    area = max(0.0, ob[2] - ob[0]) * max(0.0, ob[3] - ob[1])
+                    if area < 0.6 * page_area and (best_area is None
+                                                   or area < best_area):
+                        best_box, best_area = ob, area
+            if best_box is not None:
+                pad = max(2.0, min(pleft - best_box[0], 8.0))
+                ref_right = min(ref_right, best_box[2] - pad)
+            ref_right = max(ref_right, pright)          # jamais rétrécir
 
             left_edge = col_left if centered else None
             if centered and right_block != float("inf"):
                 left_edge = pleft                       # bloqué à droite : pas de recentrage large
                 centered = False
-            self._set_container(p, left_edge, target,
-                                "center" if centered else "left")
+            align_mode = ("center" if centered
+                          else "justify" if justified else "left")
+
+            # Bord droit cible PAR LIGNE : chaque bande y s'arrête au 1er
+            # bloqueur (paragraphe TEXTE compris, image, dessin) qui commence à
+            # droite d'ELLE — un encart imbriqué dans l'empan du paragraphe
+            # borne ainsi les lignes qui le côtoient, sans priver les autres
+            # lignes de l'expansion (l'escalier en L est préservé ; le reflow
+            # sait le suivre via `_bounds_at`).
+            def _line_target(lb):
+                blk = float("inf")
+                for q, qb in blocker_lines:
+                    if q is p:
+                        continue
+                    if qb[3] <= lb[1] or qb[1] >= lb[3]:
+                        continue
+                    if qb[0] >= lb[2] - 0.5 and qb[0] < blk:
+                        blk = qb[0]
+                for ox0, oy0, ox1, oy1 in obstacles:
+                    if oy1 <= lb[1] or oy0 >= lb[3]:
+                        continue
+                    if ox0 >= lb[2] - 0.5 and ox0 < blk:
+                        blk = ox0
+                t = ref_right
+                if blk != float("inf"):
+                    t = min(t, blk - safety)
+                return max(t, lb[2])                    # jamais rétrécir la ligne
+            self._set_container(p, left_edge, _line_target, align_mode)
 
     def _set_container(self, p, left_edge, target_right, align):
-        """Pose `container_lines`/`container_bbox` uniformes. `left_edge` None =
-        garder le bord gauche de chaque ligne (ferré à gauche) ; sinon bord gauche
-        commun (colonne, pour un bloc centré). `align` mémorisé pour le rendu."""
+        """Pose `container_lines`/`container_bbox`. `left_edge` None = garder le
+        bord gauche de chaque ligne (ferré à gauche) ; sinon bord gauche commun
+        (colonne, pour un bloc centré). `target_right` : bord droit commun, ou
+        une FONCTION bbox_ligne -> bord droit (cible par ligne, escalier
+        préservé autour d'un encart). `align` mémorisé pour le rendu."""
         pleft, ptop, pright, pbottom = p["bbox"]
         clines = []
         for ln in p.get("lines", []):
@@ -854,7 +1070,8 @@ class PDFObjectEngine:
             if not bb or len(bb) < 4:
                 continue
             lx0 = left_edge if left_edge is not None else bb[0]
-            clines.append([lx0, bb[1], max(target_right, bb[2]), bb[3]])
+            tr = target_right(bb) if callable(target_right) else target_right
+            clines.append([lx0, bb[1], max(tr, bb[2]), bb[3]])
         if clines:
             p["container_lines"] = clines
             cl = left_edge if left_edge is not None else pleft
@@ -911,7 +1128,9 @@ class PDFObjectEngine:
         # ou un tiret, la suivante est une CONTINUATION certaine — jamais un
         # nouveau paragraphe (gère « …from the / U.S. », « (MV- / 44) »…).
         last_txt = last["text"].rstrip()
-        parent_continues = (last_txt.endswith("-")
+        # « / » final = énumération coupée (« Statement/ | Record ») : même
+        # continuation certaine qu'un tiret.
+        parent_continues = (last_txt.endswith("-") or last_txt.endswith("/")
                             or _last_word(last_txt) in _NON_TERMINAL)
 
         # ── 1. Signaux DURS ─────────────────────────────────────────────────
@@ -937,7 +1156,12 @@ class PDFObjectEngine:
         # Continuation certaine aussi si la ligne démarre par une conjonction de
         # coordination (« And », « But »… ou son symbole « & »/« + ») ou si la
         # ligne précédente finit en pleine phrase (mot non terminal).
-        continues = lower_next or _starts_coord(it["text"]) or parent_continues
+        # Un NOMBRE NU suivi d'un mot en minuscule (« 17 ans avec… », « 26 000
+        # livres ») est une continuation de MESURE, jamais un début d'item.
+        measure_next = bool(re.match(r"^\d[\d\s., ]*\s+[a-zà-ÿ]",
+                                     it["text"]))
+        continues = (lower_next or measure_next or _starts_coord(it["text"])
+                     or parent_continues)
 
         # ── A. Coupe « espace restant » (tie-breaker géométrique, togglable) ─
         # Appliquée AVANT le flot continu : elle discrimine un vrai saut de
@@ -945,9 +1169,41 @@ class PDFObjectEngine:
         # normal. En texte justifié/ferré, le mot suivant ne rentre jamais dans
         # le reliquat (c'est pourquoi il a wrappé) → fusion ; seul un mot qui
         # « aurait pu tenir » trahit une coupe voulue.
+        # Dans un ITEM de liste (le paragraphe a commencé par une puce ou un
+        # numéro), la ligne suivante qui n'ouvre pas elle-même un item est le
+        # WRAP de l'item : l'« espace ouvert » à droite (qui va jusqu'à la
+        # colonne voisine) ne dit rien de sa marge réelle → pas de coupe
+        # « espace restant » (c'est elle qui scindait « …Official / Transcript »
+        # en deux paragraphes, dupliqués à la traduction).
+        first_txt = parent["items"][0]["text"]
+        item_parent = bool(_BULLET_RE.match(first_txt)
+                           or _NUMITEM_RE.match(first_txt))
+        it_opens_item = bool(_BULLET_RE.match(it["text"])
+                             or _NUMITEM_RE.match(it["text"]))
         if (self.para_remaining_space and ctx is not None and not continues
+                and not (item_parent and not it_opens_item)
                 and self._remaining_space_break(parent, it, ctx)):
             return True
+
+        # ── Lignes INDIVIDUELLEMENT centrées et AUTO-SUFFISANTES ────────────
+        # (bloc de contacts, liste d'organismes, adresse : une ligne = une
+        # entrée). Signal : axes centraux alignés, gauches ET droites toutes
+        # deux décalées, ligne précédente loin de la marge de colonne (donc pas
+        # du texte qui coule) et finissant une UNITÉ complète (ponctuation
+        # finale, parenthèse fermée, nombre, domaine « .org ») — un TITRE
+        # centré sur 2 lignes ne finit pas ainsi et reste soudé.
+        if not continues:
+            c_it = (it["left"] + it["right"]) / 2.0
+            c_last = (last["left"] + last["right"]) / 2.0
+            gw_last = last.get("gw") or (size_ref * 0.5)
+            colm = last.get("col_margin", last["right"])
+            unit_end = bool(re.search(r"([.!?)\]»]|\d|\.\w{2,4})\s*$", last_txt))
+            if (abs(c_it - c_last) <= 0.6 * size_ref
+                    and abs(it["left"] - last["left"]) > 6.0
+                    and abs(it["right"] - last["right"]) > 6.0
+                    and last["right"] < colm - 2.0 * gw_last
+                    and unit_end):
+                return True
 
         # ── 2. Flot continu : interligne normal → FUSION obligatoire ────────
         # (x0 ignoré : c'est ce qui permet au texte de s'enrouler autour d'une
@@ -1256,36 +1512,61 @@ class PDFObjectEngine:
         doc = fitz.open()
         try:
             for page_data in data.get("pages", []):
-                page = doc.new_page(width=page_data["width"],
-                                    height=page_data["height"])
-                for el in page_data.get("elements", []):
-                    kind = el.get("type")
-                    try:
-                        if kind == "image":
-                            self._draw_image(page, el, assets_dir)
-                        elif kind == "drawing":
-                            # En mode traduit, un soulignement de lien consommé
-                            # est redessiné SOUS le texte reflowé, pas ici (sinon
-                            # il resterait figé sous le texte déplacé).
-                            if not (translated and el.get("_underline_consumed")):
-                                self._draw_drawing(page, el)
-                        elif kind == "paragraph":
-                            if translated and el.get("tr_tagged") is not None:
-                                self._draw_paragraph_translated(page, el)
-                            else:
-                                self._draw_paragraph(page, el)
-                        elif kind == "text_line":
-                            self._draw_text_line(page, el)
-                    except Exception:
-                        # Un objet fautif ne doit pas casser toute la page.
-                        pass
-                # Bordures en dernier : toujours visibles, jamais recouvertes.
-                if draw_borders:
-                    self._draw_borders(page, page_data.get("elements", []))
+                self.render_page_into(doc, page_data, draw_borders=draw_borders,
+                                      assets_dir=assets_dir, translated=translated)
             doc.save(output_pdf, garbage=4, deflate=True, clean=True)
         finally:
             doc.close()
         return output_pdf
+
+    def render_page_into(self, doc, page_data, draw_borders=False,
+                         assets_dir=None, translated=False):
+        """Peint UNE page (page_data) dans un document fitz existant — brique du
+        rendu progressif page par page (le PDF partiel grandit au fil des pages
+        traduites) et de `reinject`. Nécessite `_build_fonts(data)` au préalable."""
+        page = doc.new_page(width=page_data["width"],
+                            height=page_data["height"])
+        # Flux vertical (Étape E) : calcule DÉCALAGE + croissance de
+        # chaque paragraphe traduit AVANT de peindre (place récupérée par
+        # push-down des blocs libres, borné par les objets ancrés ;
+        # anti-collision garanti). No-op si non traduit ou toggle off.
+        if translated and self.vertical_flow:
+            try:
+                self._apply_vertical_flow(page_data)
+            except Exception:
+                pass
+        # Grow-into-gap + échelle de groupe (P3) : blanc existant offert
+        # aux conteneurs, page visuellement homogène. Aucun déplacement.
+        if translated:
+            try:
+                self._prepare_translated_page(page_data)
+            except Exception:
+                pass
+        for el in page_data.get("elements", []):
+            kind = el.get("type")
+            try:
+                if kind == "image":
+                    self._draw_image(page, el, assets_dir)
+                elif kind == "drawing":
+                    # En mode traduit, un soulignement de lien consommé
+                    # est redessiné SOUS le texte reflowé, pas ici (sinon
+                    # il resterait figé sous le texte déplacé).
+                    if not (translated and el.get("_underline_consumed")):
+                        self._draw_drawing(page, el)
+                elif kind == "paragraph":
+                    if translated and el.get("tr_tagged") is not None:
+                        self._draw_paragraph_translated(page, el)
+                    else:
+                        self._draw_paragraph(page, el)
+                elif kind == "text_line":
+                    self._draw_text_line(page, el)
+            except Exception:
+                # Un objet fautif ne doit pas casser toute la page.
+                pass
+        # Bordures en dernier : toujours visibles, jamais recouvertes.
+        if draw_borders:
+            self._draw_borders(page, page_data.get("elements", []))
+        return page
 
     # ── Polices : b64 -> objets fitz.Font (regroupés par nom propre) ─────────
     def _build_fonts(self, data):
@@ -1406,28 +1687,446 @@ class PDFObjectEngine:
         for line in el.get("lines", []):
             self._draw_text_line(page, line)
 
+    # ═════════════════════════════════════════════════════════════════════════
+    # Étape E — FLUX VERTICAL (push-down des blocs libres + anti-collision)
+    # ═════════════════════════════════════════════════════════════════════════
+    _VFLOW_SAFETY = 3.0        # gouttière verticale mini avant un objet ancré (pt)
+
+    def _apply_vertical_flow(self, page_data):
+        """Décale vers le bas les paragraphes traduits pour absorber les
+        traductions plus longues, SANS jamais chevaucher un objet ancré ni sortir
+        d'un conteneur. Écrit sur chaque paragraphe traduit : `_yshift` (décalage
+        vers le bas), `_grow` (hauteur ajoutée à sa boîte) et `_force_fit`
+        (compression imposée, garantie de tenue).
+
+        Modèle GÉNÉRAL (aucune règle propre à un document) :
+        - **Colonne** = paragraphes qui se chevauchent horizontalement.
+        - **Frontières** qui NE BOUGENT PAS : images, blocs liés à un conteneur
+          (panneau/cellule = rectangle plein/tracé de taille moyenne qui les
+          enclot), marges de page (en-tête / pied de page).
+        - Dans un **segment** de blocs libres bornés par deux frontières, la place
+          nécessaire (somme des croissances) est accordée si elle tient jusqu'à la
+          frontière ; sinon répartie au prorata et le reste absorbé par
+          compression (force-fit). ⇒ jamais de collision, jamais de déplacement
+          d'un objet ancré, jamais de franchissement de colonne/conteneur."""
+        W = page_data.get("width") or 0.0
+        H = page_data.get("height") or 0.0
+        els = page_data.get("elements", [])
+        paras = [e for e in els if e.get("type") == "paragraph"
+                 and e.get("tr_tagged") is not None
+                 and self._para_is_horizontal(e)]
+        if not paras:
+            return
+        page_area = max(1.0, W * H)
+        boxes = self._container_boxes(els, page_area)
+        images = [e["bbox"] for e in els if e.get("type") == "image"
+                  and e.get("bbox") and len(e["bbox"]) >= 4]
+        margin = 0.05 * H
+
+        for p in paras:
+            p["_bound"] = self._is_boxed(p["bbox"], boxes)
+            p["_delta"] = self._natural_delta(p)
+            p["_yshift"] = 0.0
+            p["_grow"] = 0.0
+            # Bloc lié à un conteneur (panneau/cellule) qui déborde : compression
+            # garantie DANS sa boîte (jamais de sortie du panneau). Indépendant
+            # du push-down.
+            p["_force_fit"] = bool(p["_bound"] and p["_delta"] > 0)
+
+        for col in self._columns(paras):
+            # Les blocs qui se chevauchent VERTICALEMENT (contenu parallèle :
+            # colonnes côte à côte, « préface | auteur », puce gauche/droite) sont
+            # réunis en une RANGÉE qui se décale SOLIDAIREMENT — le push-down agit
+            # sur les rangées, jamais en séquençant du contenu parallèle (ce qui
+            # créerait des collisions). Une pile propre = une rangée par bloc.
+            rows = self._group_rows(col)
+            xr = (min(p["bbox"][0] for p in col),
+                  max(p["bbox"][2] for p in col))
+            # Frontières = images ET panneaux/encadrés (composants) : le texte
+            # d'AU-DESSUS est borné par le haut du composant, jamais poussé DEDANS
+            # (corrige l'intrusion dans une zone grise / un encart).
+            barriers = sorted((bb[1], bb[3]) for bb in (images + boxes)
+                              if bb[2] > xr[0] and bb[0] < xr[1]
+                              and not (bb[1] <= min(p["bbox"][1] for p in col)
+                                       and bb[3] >= max(p["bbox"][3] for p in col)))
+            seg, bi = [], 0
+            for u in rows:
+                while bi < len(barriers) and barriers[bi][0] <= u["top"]:
+                    self._flow_units(seg, barriers[bi][0])
+                    seg = []
+                    bi += 1
+                if u["bound"]:
+                    self._flow_units(seg, u["top"])
+                    seg = []
+                else:
+                    seg.append(u)
+            while bi < len(barriers):
+                self._flow_units(seg, barriers[bi][0])
+                seg = []
+                bi += 1
+            self._flow_units(seg, H - margin)
+
+    @staticmethod
+    def _group_rows(col):
+        """Réunit en RANGÉES les blocs d'une colonne qui se chevauchent
+        verticalement (contenu parallèle) → une rangée bouge solidairement. Une
+        pile propre donne une rangée par bloc. Rangée = {top, bottom, delta (=max
+        des membres), bound (=un membre lié), paras:[…]}."""
+        rows = []
+        for p in sorted(col, key=lambda q: q["bbox"][1]):
+            pt, pb = p["bbox"][1], p["bbox"][3]
+            hit = None
+            for r in rows:
+                # Vrai contenu PARALLÈLE (même rangée) = chevauchement vertical
+                # SUBSTANTIEL (> 50 % de la plus petite hauteur). Des lignes
+                # simplement EMPILÉES se touchent de quelques points (ascendantes/
+                # descendantes) : ce chevauchement minime ne doit PAS les réunir,
+                # sinon la croissance de l'une empiète sur l'autre au lieu de la
+                # pousser.
+                ov = min(pb, r["bottom"]) - max(pt, r["top"])
+                if ov > 0.5 * max(1.0, min(pb - pt, r["bottom"] - r["top"])):
+                    hit = r
+                    break
+            if hit is None:
+                rows.append({"top": pt, "bottom": pb, "paras": [p],
+                             "delta": max(0.0, p["_delta"]),
+                             "bound": bool(p.get("_bound"))})
+            else:
+                hit["paras"].append(p)
+                hit["top"] = min(hit["top"], pt)
+                hit["bottom"] = max(hit["bottom"], pb)
+                hit["delta"] = max(hit["delta"], max(0.0, p["_delta"]))
+                hit["bound"] = hit["bound"] or bool(p.get("_bound"))
+        return sorted(rows, key=lambda r: r["top"])
+
+    def _flow_units(self, seg, boundary_top):
+        """Absorbe la croissance des RANGÉES libres `seg` (bornées en bas par
+        `boundary_top`), en préservant les écarts d'origine.
+
+        Deux régimes :
+        - **Assez de place** → PUSH-DOWN : chaque rangée est décalée du cumul des
+          croissances des rangées au-dessus ; chaque bloc grandit de sa propre
+          croissance. Tailles d'origine CONSERVÉES.
+        - **Segment saturé** → COMPRESSION UNIFORME : une seule échelle `s` sur
+          tout le segment (taille + interligne + écarts), repositionnement
+          proportionnel → tailles cohérentes, aucun débordement.
+        Le décalage/échelle d'une rangée s'applique à TOUS ses blocs (solidaire)."""
+        if not seg:
+            return
+        seg = sorted(seg, key=lambda u: u["top"])
+        total = sum(u["delta"] for u in seg)
+        if total <= 0:
+            return
+        first_top = seg[0]["top"]
+        last_bottom = max(u["bottom"] for u in seg)
+        slack = boundary_top - self._VFLOW_SAFETY - last_bottom
+
+        if total <= slack:                      # place suffisante : push simple
+            cum = 0.0
+            for u in seg:
+                for p in u["paras"]:
+                    p["_yshift"] = cum
+                    p["_grow"] = max(0.0, p["_delta"])
+                cum += u["delta"]
+            return
+
+        # Segment saturé : échelle uniforme s telle que le segment (avec toute sa
+        # croissance) tienne dans l'espace disponible depuis first_top.
+        natural_h = (last_bottom + total) - first_top
+        avail = max(1.0, boundary_top - self._VFLOW_SAFETY - first_top)
+        s = max(0.4, min(1.0, avail / natural_h)) if natural_h > 0 else 1.0
+        off = 0.0
+        prev_bottom = None
+        for u in seg:
+            gap = 0.0 if prev_bottom is None else max(0.0, u["top"] - prev_bottom)
+            off += gap
+            new_top = first_top + off * s
+            dy = new_top - u["top"]
+            for p in u["paras"]:
+                ph = p["bbox"][3] - p["bbox"][1]
+                own_h = ph + max(0.0, p["_delta"])
+                p["_yshift"] = dy
+                p["_vscale"] = s
+                p["_grow"] = own_h * s - ph
+                p["_force_fit"] = True
+            off += (u["bottom"] - u["top"]) + u["delta"]
+            prev_bottom = u["bottom"]
+
+    def _natural_delta(self, el):
+        """Hauteur (pt) dont la traduction DÉPASSE réellement le bas du conteneur
+        du paragraphe (0 si elle y tient). C'est le seul déplacement à propager :
+        un paragraphe dont la traduction — même en plus de lignes qu'à l'origine —
+        rentre dans sa boîte (conteneur multi-lignes) ne pousse RIEN."""
+        segs = self._parse_translated_segments(el)
+        clines = el.get("container_lines")
+        if not clines:
+            cbb = el.get("container_bbox") or el.get("bbox")
+            clines = [cbb] if cbb else None
+        if not segs or not clines:
+            return 0.0
+        fb = None
+        for ln in el.get("lines", []):
+            runs = ln.get("runs")
+            if runs and runs[0].get("origin"):
+                fb = runs[0]["origin"][1]
+                break
+        pitch = reflow._orig_pitch(clines, segs)
+        top = min(c[1] for c in clines)
+        if fb is None:
+            fb = top + 0.78 * pitch
+        n0 = reflow.natural_lines(segs, clines, self.reflow_lang, fb)
+        size_est = max((s.get("size", 0) or 0 for s in segs), default=10.0)
+        natural_bottom = fb + (n0 - 1) * pitch + 0.25 * size_est
+        container_bottom = max(c[3] for c in clines)
+        return max(0.0, natural_bottom - container_bottom)
+
+    @staticmethod
+    def _para_is_horizontal(el):
+        for ln in el.get("lines", []):
+            for r in ln.get("runs", []):
+                d = r.get("dir") or [1, 0]
+                if not (abs(d[1]) <= 0.01 and d[0] >= 0):
+                    return False
+        return True
+
+    @staticmethod
+    def _container_boxes(els, page_area):
+        """Rectangles conteneurs (panneau/cellule/encadré) : dessin PLEIN ou
+        TRACÉ, de taille MOYENNE (entre ~1,5 % et ~55 % de la page) — ni un
+        filet, ni un fond plein-page (qui, lui, laisse couler le texte)."""
+        boxes = []
+        for e in els:
+            if e.get("type") != "drawing":
+                continue
+            if e.get("draw_type") not in ("f", "fs", "s"):
+                continue
+            bb = e.get("bbox")
+            if not bb or len(bb) < 4:
+                continue
+            a = (bb[2] - bb[0]) * (bb[3] - bb[1])
+            if a < 0.015 * page_area or a > 0.55 * page_area:
+                continue
+            boxes.append(bb)
+        return boxes
+
+    @staticmethod
+    def _is_boxed(pb, boxes):
+        """Le paragraphe `pb` est-il ENCLOS par un rectangle conteneur (avec une
+        petite tolérance) ? → son texte est lié à ce conteneur (ne pas décaler)."""
+        for bx in boxes:
+            if (bx[0] - 3 <= pb[0] and bx[1] - 3 <= pb[1]
+                    and bx[2] + 3 >= pb[2] and bx[3] + 3 >= pb[3]):
+                return True
+        return False
+
+    @staticmethod
+    def _columns(paras):
+        """Groupe les paragraphes en COLONNES par chevauchement horizontal
+        transitif (union-find). Deux blocs de la même colonne se chevauchent en
+        x ; deux colonnes côte à côte ne fusionnent pas."""
+        items = list(paras)
+        n = len(items)
+        parent = list(range(n))
+
+        def find(a):
+            while parent[a] != a:
+                parent[a] = parent[parent[a]]
+                a = parent[a]
+            return a
+
+        for i in range(n):
+            bi = items[i]["bbox"]
+            for j in range(i + 1, n):
+                bj = items[j]["bbox"]
+                ov = min(bi[2], bj[2]) - max(bi[0], bj[0])
+                minw = max(1.0, min(bi[2] - bi[0], bj[2] - bj[0]))
+                if ov > 0.25 * minw:
+                    parent[find(i)] = find(j)
+        groups = {}
+        for i in range(n):
+            groups.setdefault(find(i), []).append(items[i])
+        return list(groups.values())
+
     # ── Rendu TRADUIT : coulée du texte traduit dans le conteneur (reflow) ────
-    def _draw_paragraph_translated(self, page, el):
-        """Peint la version traduite d'un paragraphe : les segments traduits
-        (balises `[[n]]` + styles `tr_segments`) sont coulés dans le polygone
-        `container_lines` par `reflow`, puis peints. Replis : texte incliné /
-        vertical ou parsing vide → rendu original run-par-run (inchangé)."""
+    # ── Préparation d'une page traduite : grow-into-gap + échelle de groupe ──
+    grow_into_gap = True     # accorde au conteneur le BLANC déjà présent sous le
+                             # bloc (aucun déplacement d'aucun bloc → sans risque)
+    group_scale   = True     # fratries (même corps, même colonne, contiguës) →
+                             # échelle commune = la pire du groupe (uniformité)
+    _GROW_KEEP_FRAC   = 0.30   # fraction du blanc TOUJOURS préservée
+    _GROW_MAX_PITCH   = 2.5    # croissance max (en interlignes)
+    _GROUP_MIN_SCALE  = 0.88   # en-deçà : hors groupe (candidat retraduction)
+
+    def _prepare_translated_page(self, page_data):
+        """Avant de peindre une page traduite : (1) donne à chaque paragraphe le
+        blanc RÉELLEMENT disponible sous lui (`_grow` — aucun bloc n'est déplacé,
+        on ne consomme que du vide existant, borné par le prochain élément, la
+        boîte contenante et une réserve) ; (2) mesure l'échelle nécessaire de
+        chaque paragraphe (reflow à blanc) ; (3) impose aux FRATRIES l'échelle
+        du plus contraint (`_vscale`) pour une page visuellement homogène ;
+        (4) marque `_needs_shorter` les paragraphes qui exigeraient une
+        compression au-delà du plancher visuel (→ retraduction plus courte)."""
+        els = page_data.get("elements", [])
+        paras = [e for e in els if e.get("type") == "paragraph"
+                 and (e.get("tr_tagged") or "").strip()]
+        if not paras:
+            return
+        for p in paras:                        # idempotence (re-préparation)
+            p.pop("_vscale", None)
+            p.pop("_needs_shorter", None)
+            p.pop("_grow", None)
+        # Bloqueurs verticaux : tout élément occupe l'espace ; les dessins par
+        # leurs ITEMS (un filet sous un encart doit arrêter la croissance).
+        vboxes = []
+        for e in els:
+            bb = e.get("bbox")
+            if e.get("type") == "drawing":
+                vboxes.extend(_drawing_item_boxes(e))
+            elif bb and len(bb) >= 4:
+                vboxes.append(tuple(bb))
+        page_h = page_data.get("height") or 0
+        page_w = page_data.get("width") or 0
+        page_area = max(1.0, page_w * page_h)
+
+        if self.grow_into_gap:
+            for p in paras:
+                bb = p.get("bbox")
+                cl = p.get("container_lines")
+                if not bb or len(bb) < 4 or not cl:
+                    continue
+                pl, pt, pr, pb = bb
+                pitch = reflow._orig_pitch(cl, [])
+                # 1er élément SOUS le paragraphe qui chevauche sa largeur.
+                nxt = None
+                for vb in vboxes:
+                    if vb[1] < pb - 1.0:                    # pas en dessous
+                        continue
+                    if min(vb[2], pr) - max(vb[0], pl) <= 2.0:
+                        continue                            # pas la même colonne
+                    if nxt is None or vb[1] < nxt:
+                        nxt = vb[1]
+                gap = (nxt - pb) if nxt is not None else 0.0
+                # Boîte contenante : jamais de croissance hors de sa boîte.
+                for vb in vboxes:
+                    if (vb[0] <= pl + 2 and vb[1] <= pt + 2 and vb[2] >= pr - 2
+                            and vb[3] >= pb - 2):
+                        area = (vb[2] - vb[0]) * (vb[3] - vb[1])
+                        if area < 0.6 * page_area:
+                            gap = min(gap, vb[3] - 2.0 - pb)
+                if gap <= 1.0:
+                    continue
+                grow = gap * (1.0 - self._GROW_KEEP_FRAC)
+                p["_grow"] = max(0.0, min(grow, self._GROW_MAX_PITCH * pitch))
+
+        # Échelle NÉCESSAIRE de chaque paragraphe (reflow à blanc, sans force).
+        needs = {}
+        for p in paras:
+            lay = self._translated_layout(p)
+            if lay is None:
+                continue
+            res = reflow.reflow_paragraph(lay["segs"], lay["clines"],
+                                          lang=self.reflow_lang,
+                                          first_baseline=lay["first_baseline"],
+                                          align=lay["align"], force_fit=True)
+            scale = res.get("size_scale", 1.0)
+            needs[id(p)] = scale if res.get("fitted") else min(scale, 0.4)
+            if needs[id(p)] < self._GROUP_MIN_SCALE:
+                p["_needs_shorter"] = True      # candidat retraduction compacte
+
+        if not self.group_scale:
+            return
+        # Fratries : même corps (±0.6 pt), chevauchement horizontal majoritaire,
+        # contiguïté verticale (< 2.5 × corps). Échelle commune = min du groupe
+        # (bornée au plancher : les cas extrêmes restent traités seuls).
+        def psize(p):
+            return max((r.get("size", 0) or 0 for ln in p.get("lines", [])
+                        for r in ln.get("runs", [])), default=10.0)
+        items = sorted((p for p in paras if id(p) in needs),
+                       key=lambda p: p["bbox"][1])
+        used = set()
+        for i, p in enumerate(items):
+            if id(p) in used:
+                continue
+            group = [p]
+            used.add(id(p))
+            sz, bb = psize(p), p["bbox"]
+            last = p
+            for q in items[i + 1:]:
+                if id(q) in used:
+                    continue
+                qb, lb = q["bbox"], last["bbox"]
+                if abs(psize(q) - sz) > 0.6:
+                    continue                     # autre corps : n'interrompt pas
+                ovl = min(qb[2], bb[2]) - max(qb[0], bb[0])
+                if ovl < 0.5 * min(qb[2] - qb[0], bb[2] - bb[0]):
+                    continue
+                # Contiguïté tolérante : une structure ALTERNÉE (titre/sous-titre
+                # de sommaire, item/sous-item) intercale un bloc d'un autre corps
+                # entre deux frères — on tolère ce saut (4 × corps).
+                if qb[1] - lb[3] > 4.0 * sz:
+                    break                        # trop loin → fin de chaîne
+                group.append(q)
+                used.add(id(q))
+                last = q
+            if len(group) < 2:
+                continue
+            gscale = min(max(needs[id(g)], self._GROUP_MIN_SCALE)
+                         for g in group)
+            if gscale < 0.999:
+                for g in group:
+                    g["_vscale"] = gscale
+
+    def translated_fit(self, el):
+        """Mesure la TENUE d'un paragraphe traduit dans son conteneur :
+        { scale (échelle nécessaire), budget (nb de caractères qui tiendraient
+        sans compression visible) } — ou None si non reflowable. Sert à la
+        retraduction compacte (décision produit : reformulation, jamais une
+        mise en forme dégradée)."""
+        lay = self._translated_layout(el)
+        if lay is None:
+            return None
+        res = reflow.reflow_paragraph(lay["segs"], lay["clines"],
+                                      lang=self.reflow_lang,
+                                      first_baseline=lay["first_baseline"],
+                                      align=lay["align"], force_fit=True)
+        scale = res.get("size_scale", 1.0)
+        if not res.get("fitted"):
+            scale = min(scale, 0.4)
+        clines = lay["clines"]
+        pitch = reflow._orig_pitch(clines, lay["segs"])
+        bottom = max(c[3] for c in clines)
+        fb = lay["first_baseline"]
+        if fb is None:
+            fb = min(c[1] for c in clines) + 0.78 * pitch
+        avail = max(1, int((bottom - fb) / max(pitch, 1e-6) + 1.35))
+        natural = reflow.natural_lines(lay["segs"], clines,
+                                       lang=self.reflow_lang,
+                                       first_baseline=lay["first_baseline"])
+        plain = re.sub(r"\[\[/?\d+\]\]", "", el.get("tr_tagged") or "")
+        budget = len(plain)
+        if natural > avail:
+            budget = int(len(plain) * (avail / natural) * 0.92)
+        return {"scale": scale, "budget": budget,
+                "avail": avail, "natural": natural}
+
+    def _translated_layout(self, el):
+        """Prépare le REFLOW d'un paragraphe traduit : segments + conteneur +
+        baseline + alignement (avec `_yshift`/`_grow` appliqués). Retourne un
+        dict ou None si le paragraphe ne se reflowe pas (incliné, vide)."""
         lines = el.get("lines", [])
         horiz = all(_is_horizontal(r) for ln in lines
                     for r in ln.get("runs", []))
         if not horiz:
-            self._draw_paragraph(page, el)     # incliné/vertical : pas de reflow
-            return
+            return None                        # incliné/vertical : pas de reflow
         segs = self._parse_translated_segments(el)
         if not segs:
-            self._draw_paragraph(page, el)     # rien de traduit : repli
-            return
+            return None                        # rien de traduit : repli
         clines = el.get("container_lines")
         if not clines:
             cbb = el.get("container_bbox") or el.get("bbox")
             clines = [cbb] if cbb else None
         if not clines:
-            return
+            return None
         # Baseline de la 1re ligne d'origine → le reflow y ancre son texte
         # (garde la position verticale ; les soulignements suivent le texte).
         first_baseline = None
@@ -1436,10 +2135,63 @@ class PDFObjectEngine:
             if runs and runs[0].get("origin"):
                 first_baseline = runs[0]["origin"][1]
                 break
-        res = reflow.reflow_paragraph(segs, clines, lang=self.reflow_lang,
-                                      first_baseline=first_baseline,
-                                      align=el.get("align", "left"))
+        # `_yshift` : bloc décalé (flux vertical) ; `_grow` : hauteur accordée
+        # en plus (blanc déjà disponible sous le bloc) ; `_force_fit` : hauteur
+        # imposée → compression garantie, jamais de débordement.
+        yshift = el.get("_yshift", 0.0) or 0.0
+        grow = el.get("_grow", 0.0) or 0.0
+        if yshift or grow:
+            clines = [[c[0], c[1] + yshift, c[2], c[3] + yshift] for c in clines]
+            if grow and clines:
+                clines[-1] = [clines[-1][0], clines[-1][1],
+                              clines[-1][2], clines[-1][3] + grow]
+        if first_baseline is not None:
+            first_baseline += yshift
+        align = el.get("align", "left")
+        if align == "left" and self.justify_text and self._is_justified(el):
+            align = "justify"                  # source justifiée → rendu justifié
+        return {"segs": segs, "clines": clines, "first_baseline": first_baseline,
+                "align": align,
+                "force_fit": self.shrink_to_fit or bool(el.get("_force_fit")),
+                "vscale": el.get("_vscale")}
+
+    def _draw_paragraph_translated(self, page, el):
+        """Peint la version traduite d'un paragraphe : les segments traduits
+        (balises `[[n]]` + styles `tr_segments`) sont coulés dans le polygone
+        `container_lines` par `reflow`, puis peints. Replis : texte incliné /
+        vertical ou parsing vide → rendu original run-par-run (inchangé)."""
+        lay = self._translated_layout(el)
+        if lay is None:
+            self._draw_paragraph(page, el)
+            return
+        res = reflow.reflow_paragraph(lay["segs"], lay["clines"],
+                                      lang=self.reflow_lang,
+                                      first_baseline=lay["first_baseline"],
+                                      align=lay["align"],
+                                      force_fit=lay["force_fit"],
+                                      fixed_scale=lay["vscale"])
         self._paint_reflow(page, res)
+
+    @staticmethod
+    def _is_justified(el):
+        """Le paragraphe SOURCE était-il justifié ? Signal géométrique général :
+        ≥ 3 lignes, ferré à gauche (bords gauches ~alignés) ET lignes INTÉRIEURES
+        (hors dernière) atteignant le MÊME bord droit (faible variance = fer à
+        droite du texte justifié). En « drapeau » ces bords varient beaucoup."""
+        lbb = [ln.get("bbox") for ln in el.get("lines", [])
+               if ln.get("bbox") and len(ln.get("bbox")) >= 4]
+        if len(lbb) < 3:
+            return False
+        lefts = [b[0] for b in lbb]
+        min_left = min(lefts)
+        if sum(1 for l in lefts if l - min_left <= 3.0) < 0.6 * len(lefts):
+            return False                       # pas ferré à gauche (centré/drapeau)
+        inner_rights = [b[2] for b in lbb[:-1]]
+        spread = max(inner_rights) - min(inner_rights)
+        size = max((r.get("size", 0) or 0 for ln in el.get("lines", [])
+                    for r in ln.get("runs", [])), default=10.0)
+        col_w = max(b[2] for b in lbb) - min_left
+        return spread <= max(0.5 * size, 0.03 * col_w)
 
     def _parse_translated_segments(self, el):
         """Reconstruit les segments {text, font, size, color} depuis le texte
@@ -1462,34 +2214,106 @@ class PDFObjectEngine:
         return segs
 
     def _seg_from_meta(self, m, txt):
-        """Segment de reflow : police embarquée (typeface fidèle) + police de
-        REPLI complète (accents/ponctuation absents du sous-ensemble anglais).
-        Chaque police est associée à sa COUVERTURE fiable (caractères réellement
-        dessinés dans le source pour l'embarquée ; None = universel pour le
-        repli). Le reflow choisit, glyphe par glyphe, la 1re qui couvre."""
+        """Segment de reflow : UNE SEULE police pour tout le segment — jamais de
+        mélange intra-mot (« MANᴜEL », « aveᴢ » en Helvetica détonnaient).
+
+        Choix : la police EMBARQUÉE si elle rend RÉELLEMENT **tous** les glyphes
+        du segment (typeface d'origine, fidèle) ; sinon la police ASSORTIE
+        complète (PT Serif / Montserrat / Open Sans…) pour **tout** le segment
+        (cohérent, proche du typeface). Le test de rendu (`_renders_glyph`) est le
+        seul fiable — un sous-ensemble embarqué sur-déclare sa couverture. Une
+        base-14 reste en secours ultime pour un glyphe rare absent partout."""
         font_raw = m.get("font", "")
-        fonts = []
+        matched = self._full_fallback_font(font_raw, m.get("bold"),
+                                           m.get("italic"))
         primary = self._pick_font(font_raw, txt)
+        use_embedded = False
         if primary is not None:
-            # Couverture RÉELLE de la police embarquée pour les caractères de ce
-            # segment, déterminée par test de rendu (has_glyph/valid_codepoints/
-            # glyph_bbox sur-déclarent tous la couverture d'un sous-ensemble).
-            cover = frozenset(ch for ch in set(txt)
-                              if self._renders_glyph(primary, ch))
-            if cover:
-                fonts.append((primary, cover))
-        fonts.append((self._full_fallback_font(font_raw, m.get("bold"),
-                                               m.get("italic")), None))
+            chars = set(c for c in txt if not c.isspace())
+            use_embedded = all(self._renders_glyph(primary, c) for c in chars)
+        # Police unique du segment (couverture None = universelle), + base-14 en
+        # secours pour un éventuel glyphe non couvert.
+        size = m.get("size", 10) or 10
+        if use_embedded:
+            fonts = [(primary, None), (matched, None)]
+        else:
+            fonts = [(matched, None)]
+            # COMPENSATION DE HAUTEUR D'X : la police assortie n'a pas la même
+            # hauteur d'x que le typeface source — à corps égal elle paraît
+            # plus grosse/petite et les lignes voisines semblent dépareillées.
+            # On ajuste le corps pour égaler la hauteur d'x MESURÉE (rendu à
+            # l'encre — les glyphes latins de base du subset sont fiables).
+            if primary is not None and self._renders_glyph(primary, "x"):
+                xh_src = self._font_xheight(primary)
+                xh_mat = self._font_xheight(matched)
+                if xh_src and xh_mat:
+                    k = max(0.85, min(1.12, xh_src / xh_mat))
+                    size = size * k
+        # Tracking d'un titre à LETTRES ESPACÉES reconstruit au balisage :
+        # lsp = (largeur source − largeur naturelle des glyphes+espaces) /
+        # (nombre de joints), mesuré avec les polices RÉELLES du rendu.
+        lsp = 0.0
+        ls = m.get("letter_spaced")
+        if isinstance(ls, dict):
+            src = (ls.get("text") or "").strip()
+            w_src = float(ls.get("width") or 0.0)
+            letters = src.replace(" ", "")
+            n_sp = src.count(" ")
+            if w_src > 0 and len(letters) > 1:
+                base = (reflow.text_width(letters, fonts, size)
+                        + n_sp * reflow.text_width(" ", fonts, size))
+                lsp = max(0.0, (w_src - base) / (len(letters) - 1)) / size
+        elif ls:
+            try:
+                lsp = max(0.0, float(ls))
+            except Exception:
+                lsp = 0.0
         return {"text": txt, "fonts": fonts,
-                "size": m.get("size", 10) or 10,
+                "size": size,
                 "color": tuple(m.get("color", (0, 0, 0))),
-                "underline": bool(m.get("underline"))}
+                "underline": bool(m.get("underline")),
+                "lsp": lsp}
+
+    def _font_xheight(self, font):
+        """Hauteur d'x RÉELLE d'une police (fraction du corps), mesurée à
+        l'encre sur un rendu du glyphe « x » — les métriques déclarées d'un
+        sous-ensemble embarqué ne sont pas fiables. En cache par police."""
+        cache = getattr(self, "_xh_cache", None)
+        if cache is None:
+            cache = self._xh_cache = {}
+        key = id(font)
+        if key in cache:
+            return cache[key]
+        xh = None
+        try:
+            doc = fitz.open()
+            pg = doc.new_page(width=200, height=200)
+            tw = fitz.TextWriter(pg.rect, color=(0, 0, 0))
+            tw.append(fitz.Point(30, 150), "x", font=font, fontsize=100)
+            tw.write_text(pg)
+            pix = pg.get_pixmap(alpha=False)
+            w, h = pix.width, pix.height
+            s = pix.samples
+            rows = [y for y in range(h)
+                    if any(s[(y * w + x) * 3] < 200 for x in range(w))]
+            if rows:
+                xh = (rows[-1] - rows[0] + 1) / 100.0
+            doc.close()
+        except Exception:
+            xh = None
+        cache[key] = xh
+        return xh
 
     def _renders_glyph(self, font, ch):
-        """True si `font` produit RÉELLEMENT de l'encre pour `ch` (test de rendu
-        sur un petit pixmap, mis en cache). Seule mesure fiable de couverture
-        d'un sous-ensemble embarqué, dont les tables cmap/glyf mentent après
-        subsetting. Les espaces sont toujours « couverts »."""
+        """True si `font` couvre RÉELLEMENT `ch`. Deux garde-fous complémentaires,
+        car chacun ment seul sur un sous-ensemble embarqué :
+        - `has_glyph(ch) == 0` → glyphe ABSENT du cmap : fitz SUBSTITUE alors un
+          glyphe d'une autre police à l'écran (le test d'encre seul renverrait
+          True à tort — c'est le piège du « U »/« É » d'un titre Avenir subsetté
+          pour l'anglais) → on rejette ;
+        - sinon test d'ENCRE sur pixmap : un glyphe présent au cmap mais dont le
+          contour a été retiré au subsetting ne dessine rien → on rejette.
+        Les espaces sont toujours « couverts »."""
         if ch.isspace():
             return True
         cache = getattr(self, "_render_cache", None)
@@ -1498,6 +2322,12 @@ class PDFObjectEngine:
         key = (id(font), ch)
         if key in cache:
             return cache[key]
+        try:
+            if font.has_glyph(ord(ch)) == 0:     # absent → fitz substituerait
+                cache[key] = False
+                return False
+        except Exception:
+            pass
         ok = False
         try:
             doc = fitz.open()
@@ -1514,18 +2344,25 @@ class PDFObjectEngine:
         return ok
 
     def _full_fallback_font(self, font_raw, bold, italic):
-        """Police base-14 COMPLÈTE (Latin-1 : é à ç … et ponctuation) assortie à
-        la famille et au style de la source, mise en cache."""
+        """Police de REPLI à couverture complète (accents FR + ponctuation), pour
+        les glyphes absents du sous-ensemble embarqué. On privilégie une vraie
+        police libre ASSORTIE à la famille source (`backend/fonts/` : PT Serif,
+        Montserrat, Open Sans, Roboto, Oswald, Merriweather) — bien plus proche du
+        typeface embarqué qu'Helvetica (le « z », les accents, le « U » d'un titre
+        géométrique ne détonnent plus). Base-14 seulement en dernier recours."""
         cache = getattr(self, "_fallback_cache", None)
         if cache is None:
             cache = self._fallback_cache = {}
-        key = (bool(bold), bool(italic), _base14_family(font_raw))
+        fam = _matched_family(font_raw)
+        key = (fam, bool(bold), bool(italic))
         f = cache.get(key)
         if f is None:
-            try:
-                f = fitz.Font(_base14_full_name(font_raw, bold, italic))
-            except Exception:
-                f = fitz.Font("Helvetica")
+            f = _load_matched_font(fam, bold, italic)
+            if f is None:                       # aucune police assortie : base-14
+                try:
+                    f = fitz.Font(_base14_full_name(font_raw, bold, italic))
+                except Exception:
+                    f = fitz.Font("Helvetica")
             cache[key] = f
         return f
 
@@ -1575,6 +2412,25 @@ class PDFObjectEngine:
             return
         size, color, sx = r["size"], r["color"], r.get("sx", 1.0)
         x = r["x"]
+        lsp = (r.get("lsp") or 0.0) * size
+        if lsp:
+            # Titre à lettres espacées : chaque glyphe est peint séparément,
+            # avancé de son propre chasse + tracking (cohérent avec la mesure
+            # du reflow).
+            for ch in r["text"]:
+                gf = reflow.glyph_font(fonts, ch)
+                try:
+                    pt = fitz.Point(x, base)
+                    tw = fitz.TextWriter(page.rect, color=color)
+                    tw.append(pt, ch, font=gf, fontsize=size)
+                    if abs(sx - 1.0) > 0.001:
+                        tw.write_text(page, morph=(pt, fitz.Matrix(sx, 1)))
+                    else:
+                        tw.write_text(page)
+                except Exception:
+                    pass
+                x += reflow.text_width(ch, [(gf, None)], size, sx) + lsp
+            return
         # Regroupe les caractères consécutifs partageant la même police.
         chunk, chunk_font = "", None
         def flush(cx):
@@ -1934,6 +2790,57 @@ def _int_color_to_rgb(c):
     return [((c >> 16) & 255) / 255.0,
             ((c >> 8) & 255) / 255.0,
             (c & 255) / 255.0]
+
+
+# ── Polices de repli COMPLÈTES assorties (dossier backend/fonts) ─────────────
+# Vraies polices libres embarquables couvrant le Latin étendu (accents FR),
+# choisies pour RESSEMBLER au typeface source là où le sous-ensemble embarqué ne
+# rend pas un glyphe (bien mieux qu'Helvetica). Familles disponibles :
+#   ptserif (serif ≈ PT Serif/Times/Minion) · merriweather (serif) ·
+#   montserrat (sans géométrique ≈ Avenir/Proxima Nova/Futura) ·
+#   opensans / roboto (sans humaniste ≈ Helvetica/Arial/Segoe) ·
+#   oswald (sans condensé ≈ titres condensés).
+_FONTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                          "backend", "fonts")
+
+
+def _matched_family(font_raw):
+    """Famille de repli (dossier backend/fonts) la plus proche du nom de police
+    source. Choix purement typographique (serif/sans/géométrique/condensé),
+    général et indépendant de tout document."""
+    n = (font_raw or "").lower()
+    if any(t in n for t in ("oswald", "condens", "compress", "narrow", "impact")):
+        return "oswald"
+    if any(t in n for t in ("avenir", "proxima", "futura", "gotham", "montserrat",
+                            "circular", "gothic", "geometr", "poppins", "brandon",
+                            "century gothic")):
+        return "montserrat"
+    if any(t in n for t in ("ptserif", "pt serif", "merri", "georgia", "cambria",
+                            "minion", "garamond", "times", "roman", "serif",
+                            "book antiqua", "palatino")):
+        return "ptserif"
+    if "roboto" in n:
+        return "roboto"
+    # sans par défaut (helvetica, arial, segoe, calibri, open sans, verdana, DIN…)
+    return "opensans"
+
+
+def _load_matched_font(fam, bold, italic):
+    """Charge la variante (Regular/Bold/Italic/BoldItalic) d'une famille de repli
+    depuis backend/fonts. Retombe sur Regular si la variante manque (ex. Oswald
+    n'a pas d'italique). Retourne None si le fichier est introuvable/illisible
+    (→ l'appelant utilisera la base-14)."""
+    bold, italic = bool(bold), bool(italic)
+    variant = ("BoldItalic" if bold and italic else "Bold" if bold
+               else "Italic" if italic else "Regular")
+    for v in (variant, "Bold" if bold else "Regular", "Regular"):
+        path = os.path.join(_FONTS_DIR, f"{fam}-{v}.ttf")
+        if os.path.exists(path):
+            try:
+                return fitz.Font(fontfile=path)
+            except Exception:
+                continue
+    return None
 
 
 def _base14_family(font_raw):

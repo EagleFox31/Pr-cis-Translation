@@ -15,7 +15,7 @@ class TranslatorAI:
             raise ValueError("La clé DEEPSEEK_API_KEY est manquante dans le fichier .env")
 
         base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=120.0)
         # Modèle de REPLI (fallback). Le vrai choix se fait PAR REQUÊTE via le
         # paramètre `quality` du formulaire (rapide vs précis) : app.py sélectionne
         # le modèle et le passe à translate_json(). Ici, défaut = rapide/stable.
@@ -86,9 +86,21 @@ class TranslatorAI:
         if not batch:
             return True
 
-        items = [{"id": b["id"], "text": b["text"]} for b in batch]
+        items = []
+        for b in batch:
+            it = {"id": b["id"], "text": b["text"]}
+            if b.get("consigne"):
+                # Consigne PAR ITEM (ex. budget de caractères pour une
+                # retraduction compacte) — voir translate.retranslate_overflows.
+                it["consigne"] = b["consigne"]
+            items.append(it)
 
-        prompt = f"Traduis ces éléments vers la langue : {target_lang}. Conserve la structure JSON et les balises [[n]].\n\n{json.dumps(items, ensure_ascii=False)}"
+        prompt = (f"Traduis ces éléments vers la langue : {target_lang}. "
+                  "Conserve la structure JSON et les balises [[n]]. "
+                  "Si un élément comporte un champ \"consigne\", applique-la "
+                  "STRICTEMENT (par exemple une longueur maximale à respecter "
+                  "en reformulant, jamais en abrégeant ni en omettant du sens)."
+                  f"\n\n{json.dumps(items, ensure_ascii=False)}")
 
         for attempt in range(retries):
             try:
@@ -117,6 +129,15 @@ class TranslatorAI:
                         mid = len(batch) // 2
                         return (self._translate_batch(batch[:mid], target_lang, progress_callback, retries, model, max_tokens)
                                 and self._translate_batch(batch[mid:], target_lang, progress_callback, retries, model, max_tokens))
+                    if max_tokens < 32768:
+                        # Bloc unique tronqué : doubler le budget de SORTIE
+                        # avant d'abandonner (le modèle divague parfois avant de
+                        # fermer le JSON ; un budget plus large le laisse finir).
+                        max_tokens = min(32768, max_tokens * 2)
+                        if progress_callback:
+                            progress_callback(
+                                f"Bloc unique tronqué : budget de sortie porté à {max_tokens}.")
+                        continue
                     raise ValueError("Réponse tronquée (max_tokens atteint) sur un bloc unique.")
 
                 content = response.choices[0].message.content
@@ -138,6 +159,10 @@ class TranslatorAI:
                             (v for v in translated_data.values() if isinstance(v, list)),
                             None
                         )
+                    if translated_results is None and "id" in translated_data:
+                        # objet NU d'un résultat unique (fréquent sur un lot
+                        # d'un seul item) : {"id": "...", "translated_text": "..."}
+                        translated_results = [translated_data]
                     if translated_results is None:
                         # mapping direct {id: texte_traduit}
                         translated_results = [

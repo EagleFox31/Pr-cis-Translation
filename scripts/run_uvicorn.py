@@ -36,6 +36,7 @@ def _cleanup_port(port: int):
         result = subprocess.run(
             ["netstat", "-ano"],
             capture_output=True, text=True, timeout=5,
+            encoding="utf-8", errors="replace",
         )
         for line in result.stdout.splitlines():
             if f":{port}" in line and "LISTENING" in line:
@@ -67,14 +68,24 @@ if __name__ == "__main__":
     # Nettoyage préalable du port
     _cleanup_port(port)
 
-    # Lancement d'uvicorn en tant que sous-processus
+    # Lancement d'uvicorn en tant que sous-processus.
+    # --reload-dir : sans ça le reloader scrute toute la racine du dépôt, donc
+    # node_modules/ et backend/venv/ — des milliers de fichiers relus en boucle.
     uvicorn_args = [
         sys.executable, "-m", "uvicorn",
         "app:app",
         "--app-dir", "backend",
         "--reload",
+        "--reload-dir", "backend",
+        "--reload-dir", "pdf_engine_v2",
         "--port", str(port),
     ]
+
+    # Forcer l'encodage UTF-8 pour le sous-processus (corrige les logs
+    # accentués rendus en 'd�tect�' sur Windows via concurrently).
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
 
     proc = subprocess.Popen(
         uvicorn_args,
@@ -83,6 +94,7 @@ if __name__ == "__main__":
         stdout=sys.stdout,
         stderr=sys.stderr,
         stdin=subprocess.DEVNULL,
+        env=env,
     )
     CHILD_PIDS.add(proc.pid)
 

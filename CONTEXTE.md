@@ -1,9 +1,14 @@
 # CONTEXTE — pdf_engine_v2 (nouveau moteur PDF « from scratch »)
 
-_Dernière mise à jour : 2026-07-04 — **Traduction bout-en-bout** (balisage →
-reflow → rendu), expansion horizontale v3 (colonne / centrage), soulignements
-suivant le texte, ancrage vertical des baselines, règles d'orthographe de
-segmentation. Restant : **flux vertical / push-down** (étape 2)._
+_Dernière mise à jour : 2026-07-11 — campagne de correction complète (voir
+[`PROBLEMES_PDF_ENGINE_V2.md`](PROBLEMES_PDF_ENGINE_V2.md)) : césures/justification
+sans débordement (P2), **expansion v4 par ligne** (encarts imbriqués respectés,
+boîtes contenantes, cellules persistées — P1/P5/P9), **grow-into-gap + échelle de
+groupe + retraduction compacte** (P3), compensation de hauteur d'x du repli (P4),
+gardes de segmentation + folios ancrés (P6), **titres à lettres espacées
+reconstruits** (P7), vérification/retry par item de la traduction (P8). Le flux
+vertical / push-down reste volontairement ANNULÉ : le trio grow-into-gap +
+retraduction compacte + force-fit le remplace sans déplacer aucun bloc._
 
 ## But
 
@@ -27,6 +32,7 @@ de l'ancien moteur [`backend/pdf_translator_engine.py`](backend/pdf_translator_e
 | [`pdf_engine_v2/tagging.py`](pdf_engine_v2/tagging.py) | Balisage `[[n]]` par **segment de style** (méthode Word) |
 | [`pdf_engine_v2/reflow.py`](pdf_engine_v2/reflow.py) | **Coulée** du texte traduit dans `container_lines` (cascade + césure + centrage) |
 | [`pdf_engine_v2/translate.py`](pdf_engine_v2/translate.py) | Orchestration traduction (→ `backend/translator_ai.py`, DeepSeek) |
+| [`pdf_engine_v2/stream.py`](pdf_engine_v2/stream.py) | **Traduction PROGRESSIVE** page par page (`translate_pdf_progressive`) : extraction→traduction→rendu PAR PAGE, PDF partiel réécrit après chaque page, reprise par cache |
 | [`pdf_engine_v2/cli.py`](pdf_engine_v2/cli.py) | CLI : `extract` / `reinject` / `roundtrip` |
 | [`pdf_engine_v2/__init__.py`](pdf_engine_v2/__init__.py) | Export `PDFObjectEngine` |
 | [`pdf_engine_v2/README.md`](pdf_engine_v2/README.md) | Doc détaillée (schéma JSON, seuils, limites) |
@@ -151,11 +157,19 @@ conforme à l'original (« TABLE OF CONTENTS » vertical).
 
 Étape 8 (texte lisible seulement) : **dé-césure** + espaces écrasés.
 
-### Expansion du conteneur (`expand_paragraphs = True`, togglable — Étape D, v3)
+### Expansion du conteneur (`expand_paragraphs = True`, togglable — Étape D, v4)
 Pour absorber des traductions plus longues, chaque paragraphe reçoit une **zone
 utilisable élargie vers la droite** (`container_lines` / `container_bbox`, visible
-en **orange pointillé**). Expansion **au PARAGRAPHE ENTIER** : bord droit
-**uniforme** = minimum disponible sur toute la hauteur (aucune ligne ne dépasse).
+en **orange pointillé**). Expansion **PAR LIGNE** (`_line_target`) : chaque bande
+y s'arrête au 1er bloqueur qui commence à sa droite — bloqueurs à granularité
+**LIGNE** (les lignes des autres paragraphes, pas leurs bboxes : un encart
+imbriqué dans l'empan du paragraphe borne les lignes qui le côtoient, l'escalier
+en L est préservé, cf. P1). S'y ajoutent : les **items de dessins** décomposés
+(`_drawing_item_boxes` : le mur d'un tableau non détecté borne quand même), les
+**cellules `find_tables`** (persistées dans le JSON, `page.cells`, clamp au mur
+droit de SA cellule y compris la dernière colonne) et les **boîtes contenantes**
+(un paragraphe dessiné DANS une boîte — panneau, cellule en boîte pleine — ne
+s'étend jamais au-delà, padding symétrique au padding gauche).
 
 **Colonne** d'un paragraphe = paragraphes qui le **chevauchent horizontalement**
 (pas seulement de même marge gauche) → une ligne indentée/centrée référence la
@@ -175,8 +189,24 @@ Bord droit cible :
 donc **pas de marge gauche dominante** — un simple alinéa de 1re ligne ne compte
 pas ; mono-ligne : marges gauche/droite substantielles et ~égales) → conteneur =
 **colonne entière** et rendu **recentré** (`align=center`), sinon bord gauche figé
-et rendu ferré à gauche. `align` est mémorisé sur le paragraphe pour le reflow.
-Ne modifie ni le texte ni sa position d'origine.
+et rendu ferré à gauche. **Garde anti-enroulement (P5)** : un bloc qui chevauche
+PARTIELLEMENT le bbox du paragraphe (encart, photo — pas un fond qui l'englobe)
+explique les gauches variables → jamais centré. `align` est mémorisé sur le
+paragraphe pour le reflow. Ne modifie ni le texte ni sa position d'origine.
+
+### Préparation d'une page traduite (P3 — `_prepare_translated_page`)
+Avant de peindre une page traduite : (1) **grow-into-gap** (`grow_into_gap`) —
+chaque paragraphe reçoit via `_grow` le blanc RÉELLEMENT disponible sous lui
+(borné par le prochain élément, la boîte contenante, 2,5 interlignes ; 30 % du
+blanc préservé) — **aucun bloc n'est déplacé** ; (2) reflow à blanc → échelle
+nécessaire de chaque paragraphe ; (3) **échelle de groupe** (`group_scale`) —
+les fratries (même corps ±0,6 pt, même colonne, chaîne tolérante 4× corps pour
+les structures alternées titre/sous-titre) prennent l'échelle du plus contraint
+(`_vscale`, plancher 0,88) → page homogène ; (4) les paragraphes sous le
+plancher sont marqués `_needs_shorter` → **retraduction compacte**
+(`translate.retranslate_overflows`) avec budget de caractères **≥ 0,92× la
+longueur source** (en-deçà, le modèle abrège — interdit) ; le force-fit (46 %)
+ne reste qu'en garantie ultime anti-chevauchement (`shrink_to_fit`).
 
 ### Rendu de texte : mise à l'échelle horizontale (anti-chevauchement)
 Chaque run est rendu **mis à l'échelle en x** pour occuper exactement sa largeur
@@ -304,6 +334,26 @@ fonts{} : nom → [ {ext, b64}, ... ]   (polices embarquées, cmap patchée si C
     rendu du centrage** (vs alinéa de 1re ligne).
 19. **Segmentation** — clustering par plus petite taille, purge des caractères de
     contrôle, règles d'orthographe (numéro/mot non terminal/`&` = continuation).
+20. **Campagne P1-P9 (2026-07-10/11)** — voir `PROBLEMES_PDF_ENGINE_V2.md` :
+    césure+justification sans débordement + coupe des jetons insécables (P2) ;
+    expansion v4 par ligne, bloqueurs-lignes, boîtes contenantes, cellules
+    persistées (P1/P9) ; garde anti-centrage des enroulements (P5) ;
+    grow-into-gap + échelle de groupe + retraduction compacte plafonnée (P3) ;
+    compensation de hauteur d'x du repli (P4) ; gardes de segmentation + folios
+    ancrés `_split_trailing_numbers` (P6) ; reconstruction des titres à lettres
+    espacées avec tracking exact (P7) ; vérification/retry par item + parseur
+    robuste + budget de tokens adaptatif (P8).
+21. **Intégration dans l'app (2026-07-12)** — moteur v2 branché sur `backend/app.py`
+    (l'ancien `pdf_translator_engine` n'est plus branché sur les PDF). Traduction
+    **PROGRESSIVE page par page** (`pdf_engine_v2/stream.py`) : `extract_page_data`
+    → `translate` → `render_page_into` par page, PDF partiel réécrit
+    atomiquement (tmp+rename) après chaque page, cache de reprise `v2_pages.json`.
+    API : POST `/api/translate` (PDF → runner v2), SSE `start{total}` +
+    `page{page,status,done,total}`, GET `/api/translate/partial/{job}` (PDF des
+    pages prêtes), GET `.../result/{job}` (complet). Front : `useStreamingTranslation`
+    ouvre l'aperçu au démarrage, vignettes à pastille d'état (attente/en cours/
+    prête), panneau traduit avec placeholder par page ; anciens hooks
+    (`useTranslation`, `useTranslationProgress`, `TranslationProgress`) supprimés.
 
 ## Toggles (attributs `PDFObjectEngine` + options CLI)
 
@@ -317,19 +367,19 @@ fonts{} : nom → [ {ext, b64}, ... ]   (polices embarquées, cmap patchée si C
 ## Limites connues (assumées)
 
 **Traduction :**
-- **Débordement VERTICAL** (le plus important) : les conteneurs ont une hauteur
-  FIXE (expansion vers la droite seulement). Un paragraphe dont la traduction est
-  plus longue que ne l'absorbe la cascade **empiète sur le suivant** (ex. titres
-  de sommaire passant à 2 lignes, bas de pages denses). → **étape 2 : flux
-  vertical / push-down** (à faire).
-- **Police sur accents (subsets pauvres)** : les sous-ensembles Avenir/PTSerif du
-  Handbook n'ont pas les glyphes accentués FR → repli base-14 pour CES glyphes.
-  **Limite fondamentale** (la police complète n'est pas embarquée) ; mv21 rend
-  déjà tout.
-- **Titres à lettres espacées** (couverture) : extraits « A D V I C E … » (espace
-  entre chaque lettre) → charabia pour la traduction. Reconstruction des mots
-  tentée puis reverté (incohérente à cause des spans à espace de tête). À reprendre.
-- Reflow **ferré à gauche/centré**, pas **justifié** (l'original l'est souvent).
+- **Débordement vertical** : plus de chevauchement possible (grow-into-gap +
+  retraduction compacte + force-fit garanti), mais pas de REMONTÉE de blocs
+  quand une traduction est plus courte (trous résiduels) — le push-down/pull-up
+  reste volontairement désactivé (`vertical_flow=False`).
+- **Police sur accents (subsets pauvres)** : repli famille assortie avec
+  **compensation de hauteur d'x** (mesure à l'encre) → homogène ; la police
+  exacte reste non embarquée (limite fondamentale).
+- **Paragraphes trans-pages** : un paragraphe coupé par le bas de page est
+  traduit par page → le fragment pendant est traduit isolément (« Votre permis
+  étranger », mv p18). Nécessiterait une couture inter-pages.
+- Incohérences de traduction ponctuelles du modèle (ex. « PART TWO » conservé
+  alors que « PARTIE UN » est traduit) — re-tenté mais non forcé.
+- Titres stylisés hors reflow (« Go the extra mile… » mv p3) : rendu original.
 - Cas de **segmentation** résiduels (en-tête gras run-in + numéro, acronyme en
   fin de ligne, parenthèse ouverte).
 

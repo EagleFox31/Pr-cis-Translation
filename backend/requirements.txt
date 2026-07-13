@@ -9,4 +9,5 @@ slowapi>=0.1.8
 lxml>=5.0.0
 PyMuPDF>=1.23.0
 fonttools>=4.40.0
+pyphen>=0.14.0
 openai>=1.0.0

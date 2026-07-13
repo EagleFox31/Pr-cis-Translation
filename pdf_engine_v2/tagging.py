@@ -61,12 +61,128 @@ def _sig_to_meta(sig):
 _SPACE_FACTOR = 0.30
 
 
+_ISOLATED_RE = re.compile(r"^\S(?:\s+\S)+\s*$")   # « A D V I C E  A N D … »
+
+
+def _letterspaced_segments(runs, size):
+    """Détecte une ligne À LETTRES ESPACÉES et RECONSTRUIT les mots. Deux
+    structures existent dans les PDF réels :
+
+      1. UN SEUL run contenant les glyphes isolés — la frontière de mot y est
+         un DOUBLE espace (« A D V I C E␣␣A N D ») ; c'est l'écrasement
+         `\\s{2,}` du balisage qui la détruisait ;
+      2. UN RUN PAR GLYPHE — la frontière de mot est l'ESPACE DE TÊTE du run
+         suivant (« D », « ␣B ») : les écarts géométriques, eux, sont uniformes
+         (c'est le piège qui avait fait échouer la 1re tentative) ; à défaut,
+         un SAUT net des pas entre glyphes trahit la frontière.
+
+    Retourne des segments {sig, text (mots normaux), ls_width (largeur bbox du
+    segment source — le moteur en déduit le tracking exact avec les vraies
+    polices)} ou None si la ligne n'est pas à lettres espacées. Sans cette
+    reconstruction, le traducteur reçoit « A D V I C E A N D … » et rend un
+    texte collé (« CONSEILSETIDEESDE »)."""
+    vis = [r for r in runs if (r.get("text") or "").strip()]
+    if not vis:
+        return None
+    # La ligne est-elle globalement lettre-à-lettre ? (structure 1 ou 2)
+    def isolated(rt):
+        return bool(_ISOLATED_RE.match(rt.strip())) and len(rt.strip()) >= 3
+    singles = sum(1 for r in vis if len((r.get("text") or "").strip()) == 1)
+    monolith = sum(1 for r in vis if isolated(r.get("text") or ""))
+    if singles < 0.8 * len(vis) and monolith == 0:
+        return None
+    total_letters = sum(len((r.get("text") or "").replace(" ", ""))
+                        for r in vis)
+    if total_letters < 2:
+        return None
+
+    segs = []
+    i = 0
+    while i < len(vis):
+        sig = style_sig(vis[i])
+        j = i
+        while j < len(vis) and style_sig(vis[j]) == sig:
+            j += 1
+        block = vis[i:j]
+        raw = [(r.get("text") or "") for r in block]
+        strip = [t.strip() for t in raw]
+        width = block[-1]["bbox"][2] - block[0]["bbox"][0]
+
+        # UNITÉS par glyphe (couvre les 3 formes rencontrées : mono-run
+        # « C A R L », run-par-lettre ['C','A','R','L'], et MIXTE
+        # ['C A R','L']). Chaque unité = (lettre, frontière_de_mot_avant) —
+        # frontière = double espace INTERNE ou espace de TÊTE d'un run.
+        units = None
+        if sum(len(t) for t in strip) >= 2:
+            units = []
+            for bi, r in enumerate(block):
+                rt, st = raw[bi], strip[bi]
+                lead = rt[:1].isspace() and bi > 0
+                if len(st) == 1:
+                    units.append([st, lead])
+                elif isolated(rt) or " " not in st and len(st) <= 2:
+                    for ci, chunk in enumerate(re.split(r"\s{2,}", st)):
+                        letters = chunk.split()
+                        for li, ch in enumerate(letters):
+                            if len(ch) != 1:
+                                units = None
+                                break
+                            units.append([ch, li == 0 and (ci > 0 or lead)])
+                        if units is None:
+                            break
+                else:
+                    units = None
+                if units is None:
+                    break
+        if units and len(units) >= 2:
+            # Repli géométrique : uniquement pour les runs-par-lettre sans
+            # aucune frontière textuelle (pas d'espaces de tête).
+            if (not any(b for _c, b in units) and len(block) >= 3
+                    and all(len(t) == 1 for t in strip)):
+                centers = [(r["bbox"][0] + r["bbox"][2]) / 2.0 for r in block]
+                steps = [centers[k + 1] - centers[k]
+                         for k in range(len(block) - 1)]
+                srt = sorted(steps)
+                cut = None
+                for k in range(len(srt) - 1):
+                    if srt[k] > 0 and srt[k + 1] / srt[k] > 1.30:
+                        cut = 0.5 * (srt[k] + srt[k + 1])
+                if cut is not None:
+                    for k, st_ in enumerate(steps):
+                        if st_ > cut:
+                            units[k + 1][1] = True
+            words, word = [], units[0][0]
+            for ch, boundary in units[1:]:
+                if boundary:
+                    words.append(word)
+                    word = ch
+                else:
+                    word += ch
+            words.append(word)
+            segs.append({"sig": sig, "text": " ".join(w for w in words if w),
+                         "ls_width": width})
+        else:
+            # Bloc non lettre-à-lettre au sein de la ligne : texte brut.
+            segs.append({"sig": sig, "text": " ".join(t for t in strip if t)})
+        # Changement de style au sein d'une ligne à lettres espacées = frontière
+        # de mot (« C A R L » maigre + « S H A N » gras) → espace de jointure.
+        if len(segs) >= 2 and segs[-1]["text"]:
+            segs[-1]["text"] = " " + segs[-1]["text"]
+        i = j
+    _strip_edges(segs)
+    return segs or None
+
+
 def _line_segments(line):
     """Liste de {sig, text} pour UNE ligne, espaces internes replaçées comme à
     l'extraction, puis rognée en tête/queue."""
     runs = line.get("runs", [])
     if not runs:
         return []
+    size = max((r.get("size", 0) or 0 for r in runs), default=10.0)
+    ls = _letterspaced_segments(runs, size)
+    if ls is not None:
+        return ls
     gw = line.get("gw") or 1.0
     space_gap = _SPACE_FACTOR * gw
     segs = []
@@ -157,7 +273,13 @@ def tag_paragraph(para):
     meta = []
     for i, s in enumerate(segs):
         parts.append(f"[[{i}]]{s['text']}[[/{i}]]")
-        meta.append(_sig_to_meta(s["sig"]))
+        m = _sig_to_meta(s["sig"])
+        if s.get("ls_width"):
+            # Le moteur déduit le tracking exact : (largeur source − largeur
+            # naturelle des glyphes) / nombre de joints, avec les vraies polices.
+            m["letter_spaced"] = {"width": round(s["ls_width"], 2),
+                                  "text": s["text"]}
+        meta.append(m)
     return "".join(parts), meta
 
 

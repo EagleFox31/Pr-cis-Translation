@@ -11,6 +11,10 @@ interface DocumentPreviewProps {
   zoom: number;
   isTrialMode: boolean;
   onPagesLoaded?: (numPages: number) => void;
+  /** La page courante est-elle déjà traduite (streaming page par page) ? */
+  translatedPageReady?: boolean;
+  /** Statut de la page courante côté traduction (pour le placeholder). */
+  translatedPageStatus?: string;
 }
 
 /**
@@ -26,6 +30,8 @@ export default function DocumentPreview({
   zoom,
   isTrialMode,
   onPagesLoaded,
+  translatedPageReady = true,
+  translatedPageStatus,
 }: DocumentPreviewProps) {
   const { sourcePdf, translatedPdf, loading, error } = usePdfPreview(sourceFile, translatedBlob, ext);
 
@@ -91,6 +97,8 @@ export default function DocumentPreview({
       zoom={zoom}
       isTrialMode={isTrialMode}
       onPagesLoaded={onPagesLoaded}
+      translatedPageReady={translatedPageReady}
+      translatedPageStatus={translatedPageStatus}
     />
   );
 }
