@@ -1,5 +1,4 @@
 import { useState, useRef, useCallback } from 'react';
-import type { FormatOptions } from '../components/upload/TranslationSection';
 
 const API_KEY = import.meta.env.VITE_API_KEY || 'precis_frontend_secure_key_2026_xK9mP2vL';
 const API_BASE = import.meta.env.VITE_API_BASE || '';
@@ -87,8 +86,6 @@ export function useStreamingTranslation() {
     (
       file: File,
       targetLang: string,
-      formatOptions?: FormatOptions,
-      quality: string = 'fast',
       pages: string = '',
       debug: boolean = false,
     ): Promise<{ blob: Blob; filename: string }> => {
@@ -99,13 +96,14 @@ export function useStreamingTranslation() {
         pendingFetchRef.current = false;
 
         try {
+          // `quality` et `format_options` ne sont plus envoyés : le moteur PDF v2
+          // ne les lit pas (il préserve toujours la mise en page et n'accepte pas
+          // de modèle alternatif). Le serveur garde des valeurs par défaut.
           const formData = new FormData();
           formData.append('file', file);
           formData.append('target_lang', targetLang);
-          formData.append('quality', quality);
           if (debug) formData.append('debug', '1');
           if (pages && pages.trim()) formData.append('pages', pages.trim());
-          if (formatOptions) formData.append('format_options', JSON.stringify(formatOptions));
 
           const startRes = await fetch(`${API_BASE}/api/translate`, {
             method: 'POST',

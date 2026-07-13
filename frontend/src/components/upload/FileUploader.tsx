@@ -1,195 +1,212 @@
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'motion/react';
-import { UploadCloud, FileText, FileType2, File as FileIcon, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { UploadCloud, FileText, FileType2, File as FileIcon, X, AlertCircle } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 interface FileUploaderProps {
   selectedFile: File | null;
   onFileSelect: (file: File | null) => void;
+  disabled?: boolean;
 }
 
-const SUPPORTED_FORMATS = ['PDF', 'DOCX', 'TXT'];
+const ACCEPTED = ['pdf', 'docx', 'txt'] as const;
+const MAX_BYTES = 100 * 1024 * 1024;
 
-export default function FileUploader({ selectedFile, onFileSelect }: FileUploaderProps) {
+const EXT_ICONS: Record<string, LucideIcon> = {
+  pdf: FileType2,
+  docx: FileText,
+  txt: FileText,
+};
+
+export default function FileUploader({ selectedFile, onFileSelect, disabled }: FileUploaderProps) {
   const { t } = useTranslation();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleFileSelect = (file: File) => {
-    if (file.size > 100 * 1024 * 1024) {
-      alert(t('story.error_too_large'));
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} ${t('units.b')}`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} ${t('units.kb')}`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} ${t('units.mb')}`;
+  };
+
+  // Les erreurs s'affichent SOUS le champ (rattachées via aria-describedby)
+  // plutôt que dans un alert() bloquant, qui sort du flux et n'est pas annoncé
+  // comme une erreur de formulaire aux lecteurs d'écran.
+  const accept = (file: File) => {
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+    if (!ACCEPTED.includes(ext as (typeof ACCEPTED)[number])) {
+      setError(t('story.error_unsupported'));
       return;
     }
-    const ext = file.name.split('.').pop()?.toLowerCase();
-    if (!['txt', 'pdf', 'docx'].includes(ext || '')) {
-      alert(t('story.error_unsupported'));
+    if (file.size > MAX_BYTES) {
+      setError(t('story.error_too_large'));
       return;
     }
+    setError(null);
     onFileSelect(file);
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFileSelect(file);
+  const openPicker = () => {
+    if (!disabled) inputRef.current?.click();
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => setIsDragging(false);
-
-  const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} o`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} Ko`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
-  };
-
-  const getFileIcon = (name: string): LucideIcon => {
-    const ext = name.split('.').pop()?.toLowerCase();
-    switch (ext) {
-      case 'pdf': return FileType2;
-      case 'docx': return FileText;
-      case 'txt': return FileText;
-      default: return FileIcon;
-    }
-  };
+  if (selectedFile) {
+    const Icon = EXT_ICONS[selectedFile.name.split('.').pop()?.toLowerCase() ?? ''] ?? FileIcon;
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.98 }}
+        animate={{ opacity: 1, scale: 1 }}
+        style={{
+          display: 'flex', alignItems: 'center', gap: '13px',
+          padding: '13px 15px',
+          borderRadius: '12px',
+          border: '1.5px solid #dbeafe',
+          background: '#eff6ff',
+        }}
+      >
+        <span style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          width: '38px', height: '38px', borderRadius: '10px', flexShrink: 0,
+          background: 'var(--white)', border: '1px solid #dbeafe', color: 'var(--blue)',
+        }}>
+          <Icon size={19} strokeWidth={2} />
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{
+            fontSize: '14px', fontWeight: 600, color: 'var(--navy)', margin: 0,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {selectedFile.name}
+          </p>
+          <p style={{ fontSize: '12px', color: 'var(--gray-500)', margin: '2px 0 0' }}>
+            {formatSize(selectedFile.size)}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => { onFileSelect(null); setError(null); }}
+          disabled={disabled}
+          aria-label={t('story.remove_file')}
+          style={{
+            display: 'flex', alignItems: 'center',
+            background: 'none', border: 'none', color: 'var(--gray-400)',
+            cursor: disabled ? 'not-allowed' : 'pointer',
+            padding: '6px', borderRadius: '8px', transition: 'all 0.15s',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = '#e0ecfd'; e.currentTarget.style.color = 'var(--gray-700)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--gray-400)'; }}
+        >
+          <X size={16} strokeWidth={2.2} />
+        </button>
+      </motion.div>
+    );
+  }
 
   return (
     <div>
       <input
-        ref={fileInputRef}
+        ref={inputRef}
         type="file"
-        accept=".txt,.pdf,.docx"
+        accept=".pdf,.docx,.txt"
         hidden
-        onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
+        disabled={disabled}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) accept(f);
+          e.target.value = '';   // re-choisir le MÊME fichier doit redéclencher change
+        }}
       />
 
-      {selectedFile ? (
+      {/* Zone de dépôt — role=button + tabIndex : atteignable et actionnable au
+          clavier (Entrée / Espace), ce qu'un <div onClick> ne permet pas. */}
+      <div
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        aria-disabled={disabled}
+        aria-describedby={error ? 'file-error' : undefined}
+        onClick={openPicker}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPicker(); }
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setIsDragging(false);
+          if (disabled) return;
+          const f = e.dataTransfer.files[0];
+          if (f) accept(f);
+        }}
+        onDragOver={(e) => { e.preventDefault(); if (!disabled) setIsDragging(true); }}
+        onDragLeave={() => setIsDragging(false)}
+        style={{
+          border: `2px dashed ${error ? '#fca5a5' : isDragging ? 'var(--blue)' : 'var(--color-border-primary)'}`,
+          background: error ? '#fef7f7' : isDragging ? 'var(--blue-light)' : 'var(--color-background-secondary)',
+          borderRadius: '12px',
+          padding: '32px 20px',
+          textAlign: 'center',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          opacity: disabled ? 0.6 : 1,
+          transition: 'all 0.2s ease',
+          outlineOffset: '2px',
+        }}
+      >
         <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
+          animate={isDragging ? { y: -4 } : { y: 0 }}
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '14px',
-            padding: '14px 18px',
-            borderRadius: '12px',
-            border: '1.5px solid #dbeafe',
-            background: '#eff6ff',
+            display: 'flex', justifyContent: 'center', marginBottom: '10px',
+            color: isDragging ? 'var(--blue)' : 'var(--gray-500)',
           }}
         >
-          <span style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            width: '38px', height: '38px', borderRadius: '10px', flexShrink: 0,
-            background: 'var(--white)', border: '1px solid #dbeafe',
-            color: 'var(--blue)',
-          }}>
-            {(() => { const Icon = getFileIcon(selectedFile.name); return <Icon size={19} strokeWidth={2} />; })()}
-          </span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {selectedFile.name}
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--gray-500)', marginTop: '2px' }}>
-              {formatFileSize(selectedFile.size)}
-            </div>
-          </div>
-          <button
-            onClick={() => onFileSelect(null)}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: '#94a3b8',
-              cursor: 'pointer',
-              padding: '6px',
-              borderRadius: '8px',
-              transition: 'all 0.15s',
-              display: 'flex',
-              alignItems: 'center',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#475569'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#94a3b8'; }}
-            aria-label={t('story.remove_file')}
-          >
-            <X size={16} strokeWidth={2.2} />
-          </button>
+          <UploadCloud size={36} strokeWidth={1.5} />
         </motion.div>
-      ) : (
-        <motion.div
-          whileHover={{ scale: 1.005 }}
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onClick={() => fileInputRef.current?.click()}
-          style={{
-            border: `2px dashed ${isDragging ? 'var(--blue)' : 'var(--color-border-primary)'}`,
-            background: isDragging ? 'var(--blue-light)' : 'var(--color-background-secondary)',
-            borderRadius: '12px',
-            padding: '36px 20px',
-            textAlign: 'center',
-            cursor: 'pointer',
-            transition: 'all 0.2s ease',
-            position: 'relative',
-            overflow: 'hidden',
-          }}
-        >
-          {isDragging && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
+
+        <p style={{
+          fontSize: '14px', fontWeight: 600,
+          color: isDragging ? 'var(--blue)' : 'var(--navy)',
+        }}>
+          {isDragging ? t('story.drop_ready') : t('story.drop_text')}
+        </p>
+        <p
+          style={{ fontSize: '13px', color: 'var(--gray-500)', marginTop: '4px' }}
+          dangerouslySetInnerHTML={{ __html: t('story.browse_text') }}
+        />
+
+        <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', marginTop: '12px' }}>
+          {ACCEPTED.map((fmt) => (
+            <span
+              key={fmt}
               style={{
-                position: 'absolute',
-                inset: 0,
-                background: 'rgba(37,99,235,0.04)',
-                pointerEvents: 'none',
+                fontFamily: 'var(--font-mono)', fontSize: '10px', fontWeight: 500,
+                padding: '3px 8px', borderRadius: '4px',
+                background: 'var(--gray-100)', color: 'var(--gray-500)',
+                border: '1px solid var(--gray-200)', textTransform: 'uppercase',
               }}
-            />
-          )}
+            >
+              {fmt}
+            </span>
+          ))}
+        </div>
+      </div>
 
-          <motion.div
-            animate={isDragging ? { y: -5 } : { y: 0 }}
+      <AnimatePresence>
+        {error && (
+          <motion.p
+            id="file-error"
+            role="alert"
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
             style={{
-              color: isDragging ? 'var(--blue)' : 'var(--gray-500)',
-              marginBottom: '10px',
-              display: 'flex',
-              justifyContent: 'center',
+              display: 'flex', alignItems: 'center', gap: '6px',
+              marginTop: '8px', fontSize: '12.5px', color: '#dc2626',
             }}
           >
-            <UploadCloud size={38} strokeWidth={1.5} />
-          </motion.div>
-
-          <p style={{ fontSize: '14px', color: isDragging ? 'var(--blue)' : 'var(--navy)', fontWeight: 600 }}>
-            {isDragging ? t('story.drop_ready') : t('story.drop_text')}
-          </p>
-          <p style={{ fontSize: '13px', color: 'var(--gray-500)', marginTop: '5px' }}
-            dangerouslySetInnerHTML={{ __html: t('story.browse_text') }}
-          />
-          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', marginTop: '12px' }}>
-            {SUPPORTED_FORMATS.map((fmt) => (
-              <span
-                key={fmt}
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '10px',
-                  fontWeight: 500,
-                  padding: '3px 8px',
-                  borderRadius: '4px',
-                  background: 'var(--gray-100)',
-                  color: 'var(--gray-500)',
-                  border: '1px solid var(--gray-200)',
-                }}
-              >
-                {fmt}
-              </span>
-            ))}
-          </div>
-        </motion.div>
-      )}
+            <AlertCircle size={14} strokeWidth={2.2} style={{ flexShrink: 0 }} />
+            {error}
+          </motion.p>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

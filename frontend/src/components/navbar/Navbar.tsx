@@ -122,7 +122,7 @@ export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibr
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" />
             </svg>
-            <span style={{ display: 'none' }} className="nav-lib-label">Mes docs</span>
+            <span style={{ display: 'none' }} className="nav-lib-label">{t('nav.library')}</span>
             {docCount > 0 && (
               <span style={{
                 position: 'absolute',

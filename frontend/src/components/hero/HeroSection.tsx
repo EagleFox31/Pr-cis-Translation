@@ -113,12 +113,12 @@ export default function HeroSection() {
               </div>
               <div className="doc-body">
                 <div className="doc-panel">
-                  <div className="doc-panel-label">Source</div>
+                  <div className="doc-panel-label">{t('hero.panel_source')}</div>
                   <canvas id="pdf-canvas-hero-source" style={{ width: '100%', height: 'auto', display: 'block' }} />
                 </div>
                 <div className="doc-arrow"><ArrowRight size={18} strokeWidth={2.2} /></div>
                 <div className="doc-panel">
-                  <div className="doc-panel-label right">Traduction</div>
+                  <div className="doc-panel-label right">{t('hero.panel_target')}</div>
                   <canvas id="pdf-canvas-hero-translated" style={{ width: '100%', height: 'auto', display: 'block' }} />
                 </div>
               </div>

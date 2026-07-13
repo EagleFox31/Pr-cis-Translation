@@ -6,6 +6,7 @@ import {
   FileType2, FileText, Presentation, File as FileIcon,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import type { TFunction } from 'i18next';
 import type { DocMeta } from '../../hooks/useDocumentLibrary';
 
 const EXT_ICONS: Record<string, LucideIcon> = {
@@ -23,15 +24,15 @@ const LANG_LABELS: Record<string, string> = {
   'ar': 'AR', 'zh': 'ZH', 'ja': 'JA',
 };
 
-function formatSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+function formatSize(bytes: number, t: TFunction) {
+  if (bytes < 1024) return `${bytes} ${t('units.b')}`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} ${t('units.kb')}`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} ${t('units.mb')}`;
 }
 
-function formatDate(iso: string) {
+function formatDate(iso: string, locale: string) {
   const d = new Date(iso);
-  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return new Date(d).toLocaleDateString(locale, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 interface DocumentLibraryProps {
@@ -47,7 +48,7 @@ interface DocumentLibraryProps {
 export default function DocumentLibrary({
   isOpen, onClose, documents, onPreview, onDelete, onClearAll, getBlob,
 }: DocumentLibraryProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
 
@@ -218,7 +219,7 @@ export default function DocumentLibrary({
                             {doc.filename}
                           </p>
                           <p style={{ fontSize: '11.5px', color: 'var(--gray-500)', margin: '2px 0 0' }}>
-                            {formatDate(doc.date)} · {formatSize(doc.sizeByes)}
+                            {formatDate(doc.date, i18n.language)} · {formatSize(doc.sizeByes, t)}
                           </p>
                         </div>
                         <span style={{

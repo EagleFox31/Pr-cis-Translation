@@ -73,24 +73,25 @@ export default function Home() {
   //      traduites y apparaissent au fil de l'eau (streaming page par page). ----
   const handleStartTranslate = useCallback(
     (config: TranslateConfig) => {
-      const { file, targetLang: tl, formatOptions, quality, pages, debug } = config;
-      const shortLang = tl.split('-')[0];   // 'en-US' → 'en' (attendu par l'API)
+      // Le catalogue ne propose que des codes de base ('en', 'fr'…) : plus de
+      // variante régionale à réduire avant l'envoi.
+      const { file, targetLang, pages, debug } = config;
       setSelectedFile(file);
-      setTargetLang(shortLang);
+      setTargetLang(targetLang);
       setTranslatedBlob(null);
       setTranslatedFilename('');
       setCurrentPage(1);
       setShowPreview(true);
 
       stream
-        .start(file, shortLang, formatOptions, quality, pages, debug)
+        .start(file, targetLang, pages, debug)
         .then((result) => {
           setTranslatedBlob(result.blob);
           setTranslatedFilename(result.filename);
           const ext = result.filename.split('.').pop()?.toLowerCase() ?? 'pdf';
           saveDocument(result.blob, result.filename, {
             originalName: file.name,
-            targetLang: shortLang,
+            targetLang,
             ext,
           });
           showToast('success', t('story.success_done'), result.filename);

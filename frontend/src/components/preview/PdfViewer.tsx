@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
 import { Loader2, Hourglass, Lock } from 'lucide-react';
 
@@ -33,9 +34,10 @@ export default function PdfViewer({
   className,
   translatedPageReady = true,
   translatedPageStatus,
-  sourceLabel = 'Original',
-  targetLabel = 'Traduction',
+  sourceLabel,
+  targetLabel,
 }: PdfViewerProps) {
+  const { t } = useTranslation();
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   // True quand le canevas traduit affiche RÉELLEMENT la page courante.
   const [translatedShown, setTranslatedShown] = useState(false);
@@ -196,7 +198,7 @@ export default function PdfViewer({
     >
       {/* Original Panel */}
       <div className="cv-wrap" style={{ flexShrink: 0 }}>
-        <span className="cv-lang-badge fr">{sourceLabel}</span>
+        <span className="cv-lang-badge fr">{sourceLabel ?? t('preview.source_label')}</span>
         <div className="cv" id="cv-fr">
           <canvas
             id="pdf-canvas-original"
@@ -221,7 +223,7 @@ export default function PdfViewer({
           className="cv-lang-badge en"
           style={{ background: '#f0fdf4', color: '#15803d' }}
         >
-          {targetLabel}
+          {targetLabel ?? t('preview.target_label')}
         </span>
         <div
           className="cv trial-viewer"
@@ -284,15 +286,15 @@ export default function PdfViewer({
                     <Loader2 size={30} strokeWidth={2.2} />
                   </motion.span>
                   <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--gray-700)' }}>
-                    {translatedPageStatus === 'extracting' && 'Analyse de la page…'}
-                    {translatedPageStatus === 'translating' && 'Traduction en cours…'}
-                    {translatedPageStatus === 'rendering' && 'Reconstruction de la mise en page…'}
+                    {translatedPageStatus === 'extracting' && t('preview.status_extracting')}
+                    {translatedPageStatus === 'translating' && t('preview.status_translating')}
+                    {translatedPageStatus === 'rendering' && t('preview.status_rendering')}
                   </span>
                 </>
               ) : (
                 <>
                   <Hourglass size={26} strokeWidth={1.8} style={{ opacity: 0.55 }} />
-                  <span style={{ fontSize: '13px' }}>Cette page est en attente de traduction.</span>
+                  <span style={{ fontSize: '13px' }}>{t('preview.page_pending')}</span>
                 </>
               )}
             </div>
@@ -368,12 +370,12 @@ export default function PdfViewer({
             >
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
                 <Lock size={13} strokeWidth={2.2} />
-                Version d'essai — Survolez pour apercevoir ·{' '}
+                {t('preview.trial_hover')} ·{' '}
                 <a
                   href="#pricing"
                   style={{ color: '#93c5fd', textDecoration: 'underline' }}
                 >
-                  Acheter pour télécharger
+                  {t('preview.trial_buy')}
                 </a>
               </span>
             </motion.div>

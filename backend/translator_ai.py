@@ -205,10 +205,17 @@ class TranslatorAI:
                     and self._translate_batch(batch[mid:], target_lang, progress_callback, retries, model, max_tokens))
         return False
 
+    # Nom ANGLAIS de la langue cible, injecté dans le prompt. Un code absent de
+    # cette table y partirait tel quel (« Translate to sv-SE »), ce qui est une
+    # consigne bien plus faible qu'un nom de langue explicite. La table couvre
+    # donc l'intégralité du catalogue proposé par l'interface.
     _LANG_NAMES = {
         "fr": "French", "en": "English", "es": "Spanish", "de": "German",
         "it": "Italian", "pt": "Portuguese", "ar": "Arabic", "zh": "Chinese",
         "ja": "Japanese", "ko": "Korean", "ru": "Russian", "nl": "Dutch",
+        "pl": "Polish", "ro": "Romanian", "cs": "Czech", "hu": "Hungarian",
+        "tr": "Turkish", "sv": "Swedish", "da": "Danish", "nb": "Norwegian",
+        "fi": "Finnish", "uk": "Ukrainian", "el": "Greek",
     }
 
     def translate_json(self, json_path, target_lang="en", progress_callback=None, limit=None,

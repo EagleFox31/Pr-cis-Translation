@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import PdfViewer from './PdfViewer';
@@ -38,6 +39,7 @@ export default function DocumentPreview({
   sourceLabel,
   targetLabel,
 }: DocumentPreviewProps) {
+  const { t } = useTranslation();
   const { sourcePdf, translatedPdf, loading, error } = usePdfPreview(sourceFile, translatedBlob, ext);
 
   if (loading) {
@@ -61,7 +63,7 @@ export default function DocumentPreview({
         >
           <Loader2 size={28} strokeWidth={2.2} />
         </motion.span>
-        <span style={{ fontSize: '13px' }}>Préparation de l’aperçu…</span>
+        <span style={{ fontSize: '13px' }}>{t('preview.loading')}</span>
       </div>
     );
   }
@@ -83,9 +85,9 @@ export default function DocumentPreview({
         }}
       >
         <AlertTriangle size={26} strokeWidth={2} />
-        <span style={{ fontSize: '13px' }}>Aperçu indisponible : {error}</span>
+        <span style={{ fontSize: '13px' }}>{t('preview.error', { error })}</span>
         <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
-          Le document traduit reste téléchargeable.
+          {t('preview.error_hint')}
         </span>
       </div>
     );
