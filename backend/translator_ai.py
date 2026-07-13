@@ -6,6 +6,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
 from dotenv import load_dotenv
 
+try:
+    from . import glossary                      # importé en paquet
+except ImportError:                             # ... ou à plat (sys.path backend)
+    import glossary
+
 load_dotenv()
 
 class TranslatorAI:
@@ -24,7 +29,17 @@ class TranslatorAI:
         self.target_batch_size = 50
 
         self.system_instruction = """
-        Tu es un traducteur technique expert spécialisé dans la localisation de documents structurés.
+        Tu es un traducteur expert spécialisé dans la localisation de documents structurés.
+
+        RÈGLE DE REGISTRE — TRÈS IMPORTANTE :
+        Adapte le registre au SUPPORT du fragment, pas seulement à son sens. Un
+        bandeau de presse, un titre d'affiche, un libellé de bouton ou une
+        notification obéissent à des formules CONSACRÉES : rends l'USAGE, pas le
+        mot à mot (« BREAKING NEWS » en bandeau = « FLASH INFO » / « EN DIRECT »,
+        jamais « dernières minutes » ; « Read more » = « Lire la suite »). Une
+        traduction sémantiquement juste mais qui ne se dirait pas dans ce support
+        est une FAUTE. Si un fragment porte un champ "consigne" de TERMINOLOGIE,
+        elle prime sur ton choix spontané.
 
         RÈGLES CRITIQUES :
         1. PRÉSERVE les balises structurelles comme [[n]] et [[/n]] exactement à leur place.
@@ -86,17 +101,41 @@ class TranslatorAI:
         if not batch:
             return True
 
+        tgt = self._tgt_code(target_lang)
         items = []
         for b in batch:
             it = {"id": b["id"], "text": b["text"]}
+            # SUPPORT joint à TOUT fragment (pas seulement à ceux du glossaire) :
+            # c'est la couche GÉNÉRALE. Savoir qu'un fragment est un titre / un
+            # bandeau / un libellé suffit au modèle pour choisir la formule
+            # consacrée, y compris pour une expression que le glossaire ne
+            # connaît pas. Coût : quelques jetons par item.
+            if b.get("support"):
+                it["support"] = b["support"]
+            consignes = []
             if b.get("consigne"):
                 # Consigne PAR ITEM (ex. budget de caractères pour une
                 # retraduction compacte) — voir translate.retranslate_overflows.
-                it["consigne"] = b["consigne"]
+                consignes.append(b["consigne"])
+            # Expressions PIÈGES : consigne de terminologie jointe UNIQUEMENT aux
+            # fragments concernés (les autres ne paient rien). `support` et
+            # `contexte` viennent de la mise en page — c'est ce que le modèle
+            # n'avait pas et qui lui manquait pour choisir le bon usage.
+            gl = glossary.consigne_for(b["text"], support=b.get("support", "corps"),
+                                       context=b.get("contexte", ""), tgt=tgt)
+            if gl:
+                consignes.append(gl)
+            if consignes:
+                it["consigne"] = "\n".join(consignes)
             items.append(it)
 
         prompt = (f"Traduis ces éléments vers la langue : {target_lang}. "
                   "Conserve la structure JSON et les balises [[n]]. "
+                  "Le champ \"support\" dit CE QU'EST le fragment dans la page : "
+                  "\"titre\" = titre, bandeau, affiche, libellé ou notification "
+                  "(texte court au grand corps) → emploie la formule CONSACRÉE de "
+                  "ce support, pas la traduction mot à mot ; \"corps\" = phrase "
+                  "courante → registre normal. "
                   "Si un élément comporte un champ \"consigne\", applique-la "
                   "STRICTEMENT (par exemple une longueur maximale à respecter "
                   "en reformulant, jamais en abrégeant ni en omettant du sens)."
@@ -182,7 +221,19 @@ class TranslatorAI:
                 count = 0
                 for b in batch:
                     if b["id"] in res_dict:
-                        b["translated_text"] = res_dict[b["id"]]
+                        out = res_dict[b["id"]]
+                        # FILET DE SÉCURITÉ des expressions pièges : un rendu
+                        # INTERDIT (« dernières minutes ») est corrigé ici, quoi
+                        # qu'ait produit le modèle. C'est cette passe — pas le
+                        # prompt — qui rend l'erreur impossible.
+                        out, fixed = glossary.enforce(
+                            b["text"], out, support=b.get("support", "corps"),
+                            context=b.get("contexte", ""), tgt=tgt)
+                        if fixed and progress_callback:
+                            progress_callback(
+                                f"glossaire : rendu interdit corrigé "
+                                f"({', '.join(fixed)}) sur {b['id']}.")
+                        b["translated_text"] = out
                         count += 1
 
                 if count == 0 and len(batch) > 0:
@@ -244,6 +295,25 @@ class TranslatorAI:
         "zh-cn": "Simplified Chinese",
         "zh-tw": "Traditional Chinese",
     }
+
+    # Le glossaire est indexé par CODE de langue ('en->fr'), alors que les lots
+    # circulent avec le NOM injecté dans le prompt (« French (Belgium) »). On
+    # revient au code de base : toutes les variantes d'une langue partagent ses
+    # pièges (« dernières minutes » est faux en fr-CA comme en fr-FR).
+    _NAME_TO_CODE = {name.lower(): code.split("-")[0]
+                     for code, name in {
+                         "fr": "French", "en": "English", "es": "Spanish",
+                         "de": "German", "it": "Italian", "pt": "Portuguese",
+                     }.items()}
+
+    @classmethod
+    def _tgt_code(cls, target_lang):
+        """Code de langue cible ('fr') depuis le nom injecté dans le prompt."""
+        t = str(target_lang).strip().lower()
+        for name, code in cls._NAME_TO_CODE.items():
+            if name in t:                       # « Canadian French (Québec…) »
+                return code
+        return t.split("-")[0][:2]
 
     @classmethod
     def lang_name(cls, code):

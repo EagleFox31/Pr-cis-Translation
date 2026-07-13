@@ -5,3 +5,4 @@ translations/
 __pycache__/
 *.pyc
 .env
+_generic_tmp/

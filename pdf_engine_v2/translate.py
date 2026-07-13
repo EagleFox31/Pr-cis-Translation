@@ -34,6 +34,59 @@ if _BACKEND not in sys.path:
     sys.path.insert(0, _BACKEND)
 
 
+def _para_size(el):
+    """Corps dominant d'un paragraphe (la plus grande taille de ses runs)."""
+    return max((r.get("size", 0) or 0
+                for ln in el.get("lines", []) for r in ln.get("runs", [])),
+               default=0.0)
+
+
+def _page_support(page):
+    """Classe chaque paragraphe d'une page en 'titre' ou 'corps'.
+
+    Signal de MISE EN PAGE, pas de contenu (aucune règle liée à un document) :
+    le corps de référence est la taille du texte qui occupe le plus de
+    CARACTÈRES sur la page ; un paragraphe nettement plus gros ET court est un
+    titre / bandeau / affiche. C'est l'information qui manquait au traducteur —
+    « BREAKING NEWS » en 60 pt centré est un bandeau, et un bandeau ne se traduit
+    pas comme une phrase.
+
+    Retourne {id(el): 'titre'|'corps'}.
+    """
+    paras = [e for e in page.get("elements", []) if e.get("type") == "paragraph"]
+    weights = {}
+    for el in paras:
+        s = round(_para_size(el), 1)
+        if s:
+            weights[s] = weights.get(s, 0) + len((el.get("text") or ""))
+    if not weights:
+        return {}
+    body = max(weights, key=weights.get)        # taille la plus « écrite »
+    out = {}
+    for el in paras:
+        s = _para_size(el)
+        txt = (el.get("text") or "").strip()
+        out[id(el)] = ("titre" if s >= 1.5 * body and len(txt) <= 80
+                       else "corps")
+    return out
+
+
+def _page_context(page, el, limit=240):
+    """Voisinage textuel du paragraphe sur SA page (lecture seule) — de quoi
+    lever une ambiguïté d'usage (« live », domaine de presse, etc.). Joint
+    seulement aux fragments qui contiennent un piège, donc à coût négligeable."""
+    bits = []
+    for e in page.get("elements", []):
+        if e.get("type") != "paragraph" or e is el:
+            continue
+        t = (e.get("text") or "").strip()
+        if t:
+            bits.append(t)
+        if sum(len(b) for b in bits) > limit:
+            break
+    return " ".join(bits)[:limit]
+
+
 def translate_extraction(data, target_lang="fr", max_pages=None,
                          batch_size=40, progress=None):
     """Traduit les paragraphes des `max_pages` premières pages de `data` (dict
@@ -53,6 +106,7 @@ def translate_extraction(data, target_lang="fr", max_pages=None,
     # 1) Balisage + collecte des items à traduire (id unique -> paragraphe).
     items, refs = [], {}
     for page in pages:
+        support = _page_support(page)
         for el in page.get("elements", []):
             if el.get("type") != "paragraph":
                 continue
@@ -62,7 +116,11 @@ def translate_extraction(data, target_lang="fr", max_pages=None,
                 el["tr_tagged"] = tagged           # paragraphe vide : rien à faire
                 continue
             _id = f"p{page['page_num']}_e{len(refs)}"
-            items.append({"id": _id, "text": tagged})
+            # `support` / `contexte` : ce que le traducteur ignorait (un bandeau
+            # ne se traduit pas comme une phrase) — cf. backend/glossary.py.
+            items.append({"id": _id, "text": tagged,
+                          "support": support.get(id(el), "corps"),
+                          "contexte": _page_context(page, el)})
             refs[_id] = el
             el["tr_tagged"] = tagged                # repli si la trad échoue
 
@@ -143,13 +201,15 @@ def retranslate_overflows(data, engine, target_lang="fr", max_pages=None,
                 engine._prepare_translated_page(page)
             except Exception:
                 pass
+            support = _page_support(page)
             for el in page.get("elements", []):
                 if el.get("type") != "paragraph" or not el.get("_needs_shorter"):
                     continue
                 fit = engine.translated_fit(el)
                 if fit is None:
                     continue
-                offenders.append((el, fit))
+                offenders.append((el, fit, support.get(id(el), "corps"),
+                                  _page_context(page, el)))
         if not offenders:
             break
         if progress:
@@ -158,7 +218,7 @@ def retranslate_overflows(data, engine, target_lang="fr", max_pages=None,
         shrink = 1.0 - 0.08 * rnd               # budgets resserrés au 2e tour
         batch = []
         refs = {}
-        for k, (el, fit) in enumerate(offenders):
+        for k, (el, fit, support, contexte) in enumerate(offenders):
             src_tagged, _meta = tagging.tag_paragraph(el)
             if not src_tagged.strip():
                 continue
@@ -174,6 +234,7 @@ def retranslate_overflows(data, engine, target_lang="fr", max_pages=None,
                 continue                        # rien à gagner : garder tel quel
             _id = f"c{rnd}_{k}"
             batch.append({"id": _id, "text": src_tagged,
+                          "support": support, "contexte": contexte,
                           "consigne": (f"MAXIMUM {budget} caractères (hors "
                                        "balises), par REFORMULATION uniquement :"
                                        " AUCUNE abréviation, AUCUN sigle absent"

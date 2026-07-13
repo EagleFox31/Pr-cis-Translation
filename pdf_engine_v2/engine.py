@@ -480,13 +480,56 @@ class PDFObjectEngine:
         }
 
     # ── Soulignements (liens) : associer chaque trait au texte au-dessus ─────
+    # Écart max PAR CANAL entre l'encre d'un trait et celle du texte au-dessus
+    # pour les tenir pour la même couleur.
+    _UL_INK_TOL = 0.25
+    # À partir de combien de traits IDENTIQUES sur une page parle-t-on d'une
+    # grille de filets (et non d'une décoration de texte) ?
+    _RULE_FAMILY_MIN = 3
+
+    @staticmethod
+    def _ink(el):
+        """Encre visible d'un trait : sa couleur de trait, sinon son remplissage."""
+        return el.get("stroke_color") or el.get("fill_color")
+
+    @classmethod
+    def _rule_key(cls, el):
+        """Signature d'un filet : empan x, épaisseur, encre. Deux filets de même
+        signature à des hauteurs différentes sont des CLONES."""
+        bb = el["bbox"]
+        ink = cls._ink(el) or ()
+        return (round(bb[0]), round(bb[2]), round(bb[3] - bb[1], 1),
+                tuple(round(float(c), 2) for c in ink))
+
+    @classmethod
+    def _same_ink(cls, a, b):
+        """Deux encres se confondent-elles à l'œil ? Une couleur ABSENTE ne
+        permet pas de trancher : on ne rejette pas sur ce seul motif."""
+        if not a or not b or len(a) < 3 or len(b) < 3:
+            return True
+        return max(abs(float(x) - float(y))
+                   for x, y in zip(a[:3], b[:3])) <= cls._UL_INK_TOL
+
     def _mark_underlines(self, elements):
-        """Détecte les traits de SOULIGNEMENT (fins, horizontaux, sous une ligne
-        de texte et de largeur comparable) et : marque les runs concernés
-        `underline=True` (le rendu traduit les redessine SOUS le texte reflowé) ;
-        marque le trait `_underline_consumed` (non redessiné en mode traduit,
-        sinon il resterait figé sous le texte déplacé). Ne consomme PAS les
-        filets pleine largeur (règles de section) : bien plus larges que le texte."""
+        """Détecte les traits de SOULIGNEMENT et marque les runs concernés
+        (`underline=True` → le rendu traduit les redessine SOUS le texte reflowé)
+        ainsi que le trait (`_underline_consumed` → non redessiné en mode traduit,
+        sinon il resterait figé sous le texte déplacé).
+
+        Le piège : un **filet de section** posé juste sous un titre qui remplit sa
+        colonne a EXACTEMENT la largeur du texte — le seul critère de largeur le
+        laissait passer (démo journal : titre rouge, filet gris, pris pour un
+        soulignement… puis redessiné en ROUGE sous le texte traduit). Deux
+        discriminants, tous deux vérifiés sur les 35 vrais soulignements de mv21
+        et du Handbook :
+
+        1. **L'ENCRE.** Un soulignement est une décoration du TEXTE : il est peint
+           dans SON encre (les 35 vrais : trait et texte exactement de la même
+           couleur). Un trait d'une autre couleur n'appartient pas à ce texte.
+        2. **LES CLONES.** Un filet de la grille du document a des jumeaux ailleurs
+           sur la page (même empan, même encre, même épaisseur — la démo en compte
+           7). Un vrai soulignement est unique : il épouse SON texte.
+        """
         unders = []
         for el in elements:
             if el.get("type") != "drawing":
@@ -499,6 +542,15 @@ class PDFObjectEngine:
                 unders.append(el)
         if not unders:
             return
+
+        # (2) Écarte d'emblée les filets de la grille (traits clonés).
+        from collections import Counter
+        fam = Counter(self._rule_key(u) for u in unders)
+        unders = [u for u in unders
+                  if fam[self._rule_key(u)] < self._RULE_FAMILY_MIN]
+        if not unders:
+            return
+
         for el in elements:
             if el.get("type") != "paragraph":
                 continue
@@ -520,6 +572,9 @@ class PDFObjectEngine:
                             continue                     # ne couvre pas le run
                         if (ub[2] - ub[0]) > 1.4 * rw:
                             continue                     # filet pleine largeur
+                        # (1) L'encre du trait doit être celle du texte.
+                        if not self._same_ink(self._ink(u), r.get("color")):
+                            continue
                         r["underline"] = True
                         u["_underline_consumed"] = True
 
@@ -601,23 +656,168 @@ class PDFObjectEngine:
                 rows.append({"spans": [s], "_base": s["_base"],
                              "_size_ref": s["size"]})
 
-        # 2) Coupe de chaque ligne aux grands écarts (colonnes).
+        # 2) GOUTTIÈRES : corridors blancs VERTICAUX (cf. `_column_gutters`).
+        gutters = self._column_gutters(rows)
+
+        # 3) Coupe de chaque ligne aux grands écarts (colonnes) ET aux gouttières.
         elements = []
         for row in rows:
             row_spans = sorted(row["spans"], key=lambda s: s["bbox"][0])
             gws = sorted(s["_gw"] for s in row_spans if s["_gw"] > 0)
             med_gw = gws[len(gws) // 2] if gws else 1.0
             split_gap = self._COL_SPLIT_FACTOR * med_gw
+            guts = gutters.get(id(row)) or []
+
+            def _in_gutter(a, b):
+                return any(a <= 0.5 * (g0 + g1) <= b for g0, g1 in guts)
+
+            # NB — on a tenté ici de neutraliser la coupe de largeur quand la
+            # ligne porte PLUSIEURS grands blancs de taille voisine (signature
+            # d'une justification lâche : « reshaped ␣␣ how ␣␣ businesses »).
+            # C'est FAUX : une rangée de tableau à 3 cellules présente exactement
+            # la même signature (mv21 p12/p16 : « New York City | Long Island |
+            # Upstate » fusionnés en un seul paragraphe). Les deux cas sont
+            # géométriquement indiscernables à l'échelle de la LIGNE — seul le
+            # corridor vertical, lui, tranche. Ne pas réessayer sans un signal
+            # nouveau (cellules de tableau, régularité inter-lignes).
             segment = [row_spans[0]]
             for prev, cur in zip(row_spans, row_spans[1:]):
-                gap = cur["bbox"][0] - prev["bbox"][2]
-                if gap > split_gap:
+                a, b = prev["bbox"][2], cur["bbox"][0]
+                gap = b - a
+                # Un écart QUELCONQUE qui tombe dans un corridor vertical est une
+                # frontière de colonne, même s'il est trop étroit pour `split_gap`.
+                in_gutter = _in_gutter(a, b)
+                # MARQUEUR DE LISTE : à gauche de l'écart, une PUCE (« • ») ou un
+                # marqueur numéroté (« 1. », « a) ») n'est pas une COLONNE — et
+                # son retrait peut dépasser `split_gap` (le Handbook y échappait
+                # de justesse ; un retrait un peu plus large détachait la puce de
+                # son texte). Même esprit que `_gutter_sides_ok`.
+                #
+                # Le marqueur doit être un SYMBOLE ou un numéro PONCTUÉ : un
+                # NOMBRE NU n'en est pas un — c'est une donnée (le folio à gauche
+                # d'une entrée de sommaire, une cellule de tableau). Sans cette
+                # réserve, le sommaire de mv21 fusionnait « 6 » avec « Chapter 1 –
+                # Driver Licenses » (31 paragraphes perdus).
+                left_w = prev["bbox"][2] - segment[0]["bbox"][0]
+                mtxt = segment[0]["text"].strip()
+                marqueur = (len(segment) == 1
+                            and left_w < self._GUTTER_MIN_SIDE * med_gw
+                            and (_BULLET_RE.match(mtxt + " ")
+                                 or _NUMITEM_RE.match(mtxt + " ")))
+                if marqueur:
+                    segment.append(cur)
+                    continue
+                if gap > split_gap or in_gutter:
                     elements.append(self._make_text_line(segment, med_gw))
                     segment = [cur]
                 else:
                     segment.append(cur)
             elements.append(self._make_text_line(segment, med_gw))
         return elements
+
+    # ── Gouttières de colonnes (corridor blanc VERTICAL) ─────────────────────
+    _GUTTER_MIN_LINES = 5      # un corridor doit persister sur ≥ 5 lignes
+    _GUTTER_MIN_W = 1.2        # largeur minimale, en largeurs de glyphe
+    _GUTTER_MIN_SIDE = 4.0     # texte minimal DE CHAQUE CÔTÉ, en largeurs de glyphe
+
+    @classmethod
+    def _gutter_sides_ok(cls, d, mid):
+        """La ligne `d` a-t-elle du texte SUBSTANTIEL de part et d'autre de `mid` ?
+        C'est ce qui distingue une frontière de COLONNE d'une indentation de PUCE
+        (à gauche du corridor, une puce ne pèse qu'un glyphe)."""
+        need = cls._GUTTER_MIN_SIDE * d["gw"]
+        return (mid - d["x0"]) >= need and (d["x1"] - mid) >= need
+
+    def _column_gutters(self, rows):
+        """Corridors blancs VERTICAUX d'un bloc → {id(row): [(x0, x1), …]}.
+
+        La coupe de l'étape 3 raisonne ligne par ligne, donc sur la seule LARGEUR
+        du blanc. Or dans un texte JUSTIFIÉ, l'espace entre deux mots enfle
+        jusqu'à rivaliser avec la gouttière : dans la démo journal, la gouttière
+        entre les deux encadrés mesure 8,0 pt (2,33 × la largeur de glyphe, SOUS
+        le seuil de 2,5) tandis que des espaces de mot de la même ligne atteignent
+        5,8 pt (1,75 ×). Aucun seuil de largeur ne sépare proprement les deux — et
+        les deux colonnes se retrouvaient entrelacées mot à mot (« Among the
+        standout performers, Software / several leading semiconductor delivered
+        upbeat results, with… »).
+
+        Ce qui les sépare n'est pas la largeur mais la PERSISTANCE : un blanc de
+        justification se DÉPLACE d'une ligne à l'autre (c'est le principe même de
+        la justification), une gouttière reste à la MÊME abscisse sur tout le
+        bloc.
+
+        Depuis chaque blanc candidat, on REMONTE et on DESCEND le long des lignes
+        voisines : le corridor s'arrête net dès qu'une ligne le TRAVERSE (du texte
+        s'y trouve) ou dès que la continuité verticale se rompt. Une ligne trop
+        courte pour l'atteindre ne le confirme ni ne l'infirme : on l'enjambe.
+
+        DEUX GARDE-FOUS, sans lesquels le corridor attrape n'importe quoi :
+
+        - `_GUTTER_MIN_SIDE` — il faut du TEXTE SUBSTANTIEL DES DEUX CÔTÉS sur
+          chaque ligne membre. Sans ça, l'indentation d'une PUCE forme un corridor
+          parfait sur toute une liste (le « • » du Handbook, aligné sur 10 lignes)
+          et se retrouve détaché de son texte. Une colonne a du corps ; un marqueur
+          de liste, non.
+        - `_GUTTER_MIN_LINES` — il en faut BEAUCOUP. Dans une justification lâche
+          (encadré étroit), deux ou trois blancs de mots s'alignent par hasard et
+          feignent une colonne. Une vraie gouttière, elle, court sur toute la
+          hauteur de son bloc.
+        """
+        info = []
+        for row in rows:
+            sp = sorted(row["spans"], key=lambda s: s["bbox"][0])
+            gws = sorted(s["_gw"] for s in sp if s["_gw"] > 0)
+            info.append({
+                "row": row,
+                "x0": sp[0]["bbox"][0], "x1": sp[-1]["bbox"][2],
+                "y0": min(s["bbox"][1] for s in sp),
+                "y1": max(s["bbox"][3] for s in sp),
+                "free": [(a["bbox"][2], b["bbox"][0])
+                         for a, b in zip(sp, sp[1:])
+                         if b["bbox"][0] > a["bbox"][2]],
+                "gw": gws[len(gws) // 2] if gws else 1.0,
+            })
+        info.sort(key=lambda d: d["y0"])
+
+        out = {}
+        for i, d in enumerate(info):
+            min_w = self._GUTTER_MIN_W * d["gw"]
+            for a, b in d["free"]:
+                if b - a < min_w:
+                    continue
+                mid = 0.5 * (a + b)
+                if not self._gutter_sides_ok(d, mid):
+                    continue
+                lo, hi = a, b
+                members = [i]
+                for step in (1, -1):        # descendre puis remonter le bloc
+                    j, prev = i + step, d
+                    while 0 <= j < len(info):
+                        e = info[j]
+                        h = max(prev["y1"] - prev["y0"], 1.0)
+                        vgap = (e["y0"] - prev["y1"] if step == 1
+                                else prev["y0"] - e["y1"])
+                        if vgap > 1.5 * h:
+                            break           # bloc suivant : le corridor s'arrête
+                        if e["x0"] < mid < e["x1"]:
+                            hit = next(((c, f) for c, f in e["free"]
+                                        if c <= mid <= f), None)
+                            if hit is None:
+                                break       # du texte TRAVERSE : pas un corridor
+                            if not self._gutter_sides_ok(e, mid):
+                                break       # puce / marqueur : pas une colonne
+                            lo, hi = max(lo, hit[0]), min(hi, hit[1])
+                            members.append(j)
+                        prev = e            # ligne trop courte : on l'enjambe
+                        j += step
+                if len(members) < self._GUTTER_MIN_LINES or hi - lo < min_w:
+                    continue
+                for k in members:
+                    guts = out.setdefault(id(info[k]["row"]), [])
+                    if not any(abs(g0 - lo) < 1.0 and abs(g1 - hi) < 1.0
+                               for g0, g1 in guts):
+                        guts.append((lo, hi))
+        return out
 
     def _make_text_line(self, seg_spans, med_gw):
         """Construit un objet `text_line` depuis les spans d'un segment."""
@@ -644,12 +844,27 @@ class PDFObjectEngine:
 
     def _compose_line_text(self, seg_spans, med_gw):
         """Texte lisible d'une ligne : concatène les runs en insérant une espace
-        aux écarts significatifs (> `_SPACE_FACTOR × gw`)."""
+        aux écarts significatifs (> `_SPACE_FACTOR × gw`).
+
+        L'écart se mesure LE LONG DE L'AXE D'ÉCRITURE, pas en x : pour un texte
+        vertical, tous les runs partagent la même abscisse, donc l'écart en x est
+        NUL et aucune espace n'était jamais insérée (« APPENDIXSECTION »). mv21
+        masquait le défaut — ses runs portaient une espace de tête (« ␣O ») qui
+        fournissait la frontière de mot. Un titre vertical dont la frontière est
+        purement GÉOMÉTRIQUE, lui, sortait collé.
+        """
         parts = []
         space_gap = self._SPACE_FACTOR * med_gw
         for i, s in enumerate(seg_spans):
             if i > 0:
-                gap = s["bbox"][0] - seg_spans[i - 1]["bbox"][2]
+                p = seg_spans[i - 1]
+                dx, dy = s.get("dir") or (1, 0)
+                if abs(dy) > abs(dx):           # écriture verticale
+                    gap = (s["bbox"][1] - p["bbox"][3] if dy > 0
+                           else p["bbox"][1] - s["bbox"][3])
+                else:
+                    gap = (s["bbox"][0] - p["bbox"][2] if dx >= 0
+                           else p["bbox"][0] - s["bbox"][2])
                 prev_t = parts[-1] if parts else ""
                 if gap > space_gap and prev_t and not prev_t.endswith(" ") \
                         and not s["text"].startswith(" "):
@@ -713,11 +928,60 @@ class PDFObjectEngine:
         return {
             "type": "text_line",
             "bbox": [x0, y0, x1, y1],
-            "text": "".join(s["text"] for s in seg),
-            "gw": 0,
+            "text": self._compose_rotated_text(seg, dx, dy),
+            "gw": self._axis_gw(seg, dx, dy),
             "runs": [self._run_from_span(s) for s in seg],
             "dir": [dx, dy],
         }
+
+    @staticmethod
+    def _axis_span(s, dx, dy):
+        """Empan d'un span LE LONG de son axe d'écriture (bbox axis-aligned :
+        pour un texte vertical, c'est la HAUTEUR, pas la largeur)."""
+        bb = s["bbox"]
+        return (bb[3] - bb[1]) if abs(dy) > abs(dx) else (bb[2] - bb[0])
+
+    @classmethod
+    def _axis_gw(cls, seg, dx, dy):
+        """Largeur de glyphe médiane, mesurée le long de l'axe d'écriture."""
+        gws = sorted(cls._axis_span(s, dx, dy) / max(1, len(s["text"].strip()))
+                     for s in seg if s["text"].strip())
+        return gws[len(gws) // 2] if gws else 1.0
+
+    @classmethod
+    def _compose_rotated_text(cls, seg, dx, dy):
+        """Texte lisible d'une ligne INCLINÉE / VERTICALE.
+
+        La concaténation brute suffisait tant que le PDF portait lui-même
+        l'espace de mot dans le texte d'un run (mv21 : « ␣O »). Un titre vertical
+        dont la frontière de mot est purement GÉOMÉTRIQUE en sortait collé
+        (« APPENDIXSECTION »), et le traducteur recevait un mot inexistant.
+
+        Signal général : dans un titre à lettres espacées, les pas entre LETTRES
+        sont réguliers ; le pas entre MOTS est nettement plus grand. On insère
+        donc une espace là où l'écart, mesuré LE LONG DE L'AXE, dépasse
+        franchement le pas médian — jamais entre les lettres d'un même mot.
+        """
+        if len(seg) < 2:
+            return "".join(s["text"] for s in seg)
+        gaps = []
+        for p, s in zip(seg, seg[1:]):
+            pb, sb = p["bbox"], s["bbox"]
+            if abs(dy) > abs(dx):
+                gaps.append(sb[1] - pb[3] if dy > 0 else pb[1] - sb[3])
+            else:
+                gaps.append(sb[0] - pb[2] if dx >= 0 else pb[0] - sb[2])
+        pos = sorted(g for g in gaps if g > 0)
+        median = pos[len(pos) // 2] if pos else 0.0
+        parts = [seg[0]["text"]]
+        for g, s in zip(gaps, seg[1:]):
+            # Frontière de MOT : un écart franchement supérieur au pas courant.
+            if (median > 0 and g > 1.6 * median
+                    and not parts[-1].endswith(" ")
+                    and not s["text"].startswith(" ")):
+                parts.append(" ")
+            parts.append(s["text"])
+        return "".join(parts)
 
     # ── Numéros ANCRÉS À DROITE (sommaire sans points de conduite) ───────────
     _TRAILNUM_RE = re.compile(r"^\d{1,4}$")
@@ -2158,10 +2422,14 @@ class PDFObjectEngine:
     def _draw_paragraph_translated(self, page, el):
         """Peint la version traduite d'un paragraphe : les segments traduits
         (balises `[[n]]` + styles `tr_segments`) sont coulés dans le polygone
-        `container_lines` par `reflow`, puis peints. Replis : texte incliné /
-        vertical ou parsing vide → rendu original run-par-run (inchangé)."""
+        `container_lines` par `reflow`, puis peints. Un paragraphe INCLINÉ /
+        VERTICAL passe par son propre repère d'écriture (`_draw_paragraph_rotated`).
+        Repli : parsing vide → rendu original run-par-run (inchangé)."""
         lay = self._translated_layout(el)
         if lay is None:
+            d = self._writing_dir(el)
+            if d is not None and self._draw_paragraph_rotated(page, el, d):
+                return
             self._draw_paragraph(page, el)
             return
         res = reflow.reflow_paragraph(lay["segs"], lay["clines"],
@@ -2171,6 +2439,168 @@ class PDFObjectEngine:
                                       force_fit=lay["force_fit"],
                                       fixed_scale=lay["vscale"])
         self._paint_reflow(page, res)
+
+    # ── Traduction du texte INCLINÉ / VERTICAL ────────────────────────────────
+    # Le reflow est purement 2D : il lui suffit d'un conteneur et d'une baseline.
+    # On exprime donc les deux dans le REPÈRE D'ÉCRITURE du paragraphe (X le long
+    # de `dir`, Y vers le bas du texte), on coule normalement, puis on repeint en
+    # tournant chaque glyphe. Sans cela, un titre vertical était bien traduit
+    # (`tr_tagged` était rempli) mais son rendu retombait sur les runs SOURCE :
+    # la traduction était calculée, payée, puis jetée.
+
+    @staticmethod
+    def _writing_dir(el):
+        """Direction d'écriture d'un paragraphe incliné/vertical, ou None s'il
+        est horizontal (chemin normal) ou mêle plusieurs directions."""
+        dirs = set()
+        for ln in el.get("lines", []):
+            for r in ln.get("runs", []):
+                if not (r.get("text") or "").strip():
+                    continue
+                d = r.get("dir") or [1, 0]
+                dirs.add((round(float(d[0]), 2), round(float(d[1]), 2)))
+        if len(dirs) != 1:
+            return None
+        d = dirs.pop()
+        if abs(d[1]) <= 0.01 and d[0] >= 0:
+            return None
+        return d
+
+    @staticmethod
+    def _to_frame(px, py, d):
+        """Page → repère d'écriture. Le « bas » du texte est `p = (-dy, dx)` :
+        pour un texte horizontal (1,0) il vaut (0,1), le bas de page — le repère
+        se confond alors avec celui de la page."""
+        dx, dy = d
+        return (px * dx + py * dy, -px * dy + py * dx)
+
+    @staticmethod
+    def _to_page(fx, fy, d):
+        """Repère d'écriture → page (inverse de `_to_frame`)."""
+        dx, dy = d
+        return (fx * dx - fy * dy, fx * dy + fy * dx)
+
+    def _translated_layout_rotated(self, el, d):
+        """`_translated_layout` exprimé dans le repère d'écriture `d`.
+
+        `_yshift` / `_grow` ne s'appliquent pas : ils récupèrent du blanc
+        VERTICAL de page, notion sans objet pour une bande pivotée (dont la
+        hauteur est imposée par la largeur du fût)."""
+        segs = self._parse_translated_segments(el)
+        if not segs:
+            return None
+        # Conteneur = la bbox PROPRE du paragraphe, jamais `container_lines`.
+        # L'expansion (étape D) élargit vers la DROITE en coordonnées PAGE : pour
+        # un texte vertical, cette direction n'est pas l'axe d'écriture mais la
+        # PERPENDICULAIRE — le conteneur élargi n'offrait donc pas de la longueur,
+        # il offrait des LIGNES SUPPLÉMENTAIRES, et le reflow y renvoyait à la
+        # ligne (« Juridiqu / e » dans un en-tête de tableau pivoté). La bbox
+        # source donne l'empan exact : même longueur d'axe, même nombre de lignes.
+        clines = [el.get("bbox")] if el.get("bbox") else None
+        if not clines or not clines[0]:
+            return None
+        fclines = []
+        for c in clines:
+            pts = [self._to_frame(x, y, d)
+                   for x in (c[0], c[2]) for y in (c[1], c[3])]
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            fclines.append([min(xs), min(ys), max(xs), max(ys)])
+        first_baseline = None
+        for ln in el.get("lines", []):
+            runs = ln.get("runs")
+            if runs and runs[0].get("origin"):
+                o = runs[0]["origin"]
+                first_baseline = self._to_frame(o[0], o[1], d)[1]
+                break
+        return {"segs": segs, "clines": fclines,
+                "first_baseline": first_baseline,
+                "align": el.get("align", "left")}
+
+    def _draw_paragraph_rotated(self, page, el, d):
+        """Peint la traduction d'un paragraphe incliné/vertical. Retourne False
+        si rien n'est exploitable → l'appelant retombe sur le rendu original."""
+        lay = self._translated_layout_rotated(el, d)
+        if lay is None:
+            return False
+        extent = (max(c[2] for c in lay["clines"])
+                  - min(c[0] for c in lay["clines"]))
+        self._respread_letterspacing(lay["segs"], extent)
+        res = reflow.reflow_paragraph(lay["segs"], lay["clines"],
+                                      lang=self.reflow_lang,
+                                      first_baseline=lay["first_baseline"],
+                                      align=lay["align"],
+                                      force_fit=True)   # bande à hauteur imposée
+        if not res.get("lines"):
+            return False
+        self._paint_reflow_rotated(page, res, d)
+        return True
+
+    def _respread_letterspacing(self, segs, extent):
+        """Titre à LETTRES ESPACÉES : re-répartit le tracking sur le texte
+        TRADUIT pour qu'il occupe exactement la bande source (`extent`).
+
+        Le tracking mémorisé au balisage a été mesuré sur le texte SOURCE ;
+        appliqué tel quel à une traduction plus longue, il la fait déborder — le
+        force-fit rapetisse alors tout le titre. Or un titre espacé se rejustifie
+        par son TRACKING, pas par son corps : on garde le corps, on resserre les
+        lettres. Sans effet si le titre n'était pas espacé (`lsp` nul).
+
+        Modèle de largeur identique à celui du reflow : chaque joint de lettre
+        coûte `lsp`, et une espace de mot en coûte 2 de plus.
+        """
+        if not segs or not all((s.get("lsp") or 0) > 0 for s in segs):
+            return
+        text = "".join(s.get("text") or "" for s in segs)
+        letters = len(text.replace(" ", ""))
+        n_sp = text.count(" ")
+        joints = letters + n_sp - 1
+        if joints < 1:
+            return
+        natural = sum(reflow.text_width(s["text"], s["fonts"], s["size"])
+                      for s in segs)
+        lsp = max(0.0, (extent - natural) / joints)
+        for s in segs:
+            size = s.get("size") or 0
+            if size:
+                s["lsp"] = lsp / size
+
+    def _paint_reflow_rotated(self, page, res, d):
+        """`_paint_reflow` pivoté : chaque glyphe est ramené du repère d'écriture
+        en coordonnées page, puis tourné de `atan2(-dy, dx)` autour de son
+        origine — `dir` est en y-vers-le-bas (page) alors que `fitz.Matrix(deg)`
+        attend un angle en y-vers-le-haut (cf. `_write_rotated`)."""
+        deg = math.degrees(math.atan2(-d[1], d[0]))
+        for ln in res.get("lines", []):
+            for r in ln["runs"]:
+                self._paint_run_glyphs_rotated(page, r, ln["baseline"], d, deg)
+
+    def _paint_run_glyphs_rotated(self, page, r, base, d, deg):
+        """Équivalent pivoté de `_paint_run_glyphs` : mêmes avances (chasse du
+        glyphe × `sx`, plus le tracking), mais chaque glyphe est posé en page et
+        tourné. Toujours glyphe par glyphe : les blocs inclinés sont courts
+        (titres, libellés de marge) et le placement colle ainsi exactement à la
+        mesure du reflow."""
+        fonts = r.get("fonts") or []
+        if not fonts:
+            return
+        size, color, sx = r["size"], r["color"], r.get("sx", 1.0)
+        lsp = (r.get("lsp") or 0.0) * size
+        x = r["x"]
+        for ch in r["text"]:
+            gf = reflow.glyph_font(fonts, ch)
+            if ch.strip():
+                pt = fitz.Point(*self._to_page(x, base, d))
+                try:
+                    tw = fitz.TextWriter(page.rect, color=color)
+                    tw.append(pt, ch, font=gf, fontsize=size)
+                    mat = fitz.Matrix(deg)
+                    if abs(sx - 1.0) > 0.001:
+                        mat = fitz.Matrix(sx, 1) * mat
+                    tw.write_text(page, morph=(pt, mat))
+                except Exception:
+                    pass
+            x += reflow.text_width(ch, [(gf, None)], size, sx) + lsp
 
     @staticmethod
     def _is_justified(el):

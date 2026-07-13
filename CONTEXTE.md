@@ -88,7 +88,8 @@ de l'ancien moteur [`backend/pdf_translator_engine.py`](backend/pdf_translator_e
 | [`pdf_engine_v2/engine.py`](pdf_engine_v2/engine.py) | Cœur : `extract()` / `reinject()` (+ `reinject(translated=True)`) |
 | [`pdf_engine_v2/tagging.py`](pdf_engine_v2/tagging.py) | Balisage `[[n]]` par **segment de style** (méthode Word) |
 | [`pdf_engine_v2/reflow.py`](pdf_engine_v2/reflow.py) | **Coulée** du texte traduit dans `container_lines` (cascade + césure + centrage) |
-| [`pdf_engine_v2/translate.py`](pdf_engine_v2/translate.py) | Orchestration traduction (→ `backend/translator_ai.py`, DeepSeek) |
+| [`pdf_engine_v2/translate.py`](pdf_engine_v2/translate.py) | Orchestration traduction (→ `backend/translator_ai.py`, DeepSeek) + **support/contexte** de chaque item |
+| [`backend/glossary.py`](backend/glossary.py) + [`glossary.json`](backend/glossary.json) | **Expressions pièges** : consigne de terminologie + **filet déterministe** sur la sortie du modèle |
 | [`pdf_engine_v2/stream.py`](pdf_engine_v2/stream.py) | **Traduction PROGRESSIVE** page par page (`translate_pdf_progressive`) : extraction→traduction→rendu PAR PAGE, PDF partiel réécrit après chaque page, reprise par cache |
 | [`pdf_engine_v2/cli.py`](pdf_engine_v2/cli.py) | CLI : `extract` / `reinject` / `roundtrip` |
 | [`pdf_engine_v2/__init__.py`](pdf_engine_v2/__init__.py) | Export `PDFObjectEngine` |
@@ -133,7 +134,18 @@ Sortie de référence régénérée : `backend/tests files/The Data Science Hand
 Spans → lignes visuelles : clustering par ligne de base, puis **coupe aux
 colonnes** aux grands écarts horizontaux mesurés **relativement à la largeur de
 glyphe** (`_COL_SPLIT_FACTOR = 2.5`) — distingue un letter-spacing (~1–2×) d'un
-saut de colonne (~3–5×). Le texte **incliné / vertical** (Étape C) est séparé du
+saut de colonne (~3–5×).
+
+**Gouttières** (`_column_gutters`, P13) : la largeur seule ne suffit pas. En texte
+**justifié**, l'espace entre deux mots enfle jusqu'à rivaliser avec la gouttière
+(démo journal : gouttière à 2,33 × la largeur de glyphe, **sous** le seuil, contre
+des espaces de mots à 1,75 ×) — les deux colonnes se retrouvaient entrelacées mot
+à mot. Ce qui les sépare n'est pas la largeur mais la **PERSISTANCE** : un blanc
+de justification se **déplace** d'une ligne à l'autre, une gouttière reste à la
+**même abscisse** sur tout le bloc. On cherche donc un **corridor blanc vertical**
+(≥ 5 lignes, texte substantiel **des deux côtés** — sans quoi l'indentation d'une
+**puce** en forme un) et on coupe les lignes qui l'enjambent, quelle que soit la
+largeur du blanc. Le texte **incliné / vertical** (Étape C) est séparé du
 texte horizontal et regroupé **le long de son axe d'écriture**
 (`_group_rotated_lines`) — ex. « TABLE OF CONTENTS » vertical devient **une** ligne.
 
@@ -296,6 +308,24 @@ Résultat stocké par paragraphe : `tr_tagged` (texte traduit balisé) + `tr_seg
 (style de chaque balise). Décision produit : **compression par reformulation
 seulement**, jamais d'abréviations (le document reste irréprochable).
 
+**Contexte joint à chaque item (P11).** Un fragment partait SEUL — sans voisins,
+sans corps de police — alors que le moteur sait qu'un « BREAKING NEWS » de 60 pt
+est un **bandeau**, et qu'un bandeau ne se traduit pas comme une phrase. Chaque
+item porte donc désormais :
+- **`support`** — `titre` ou `corps`, déduit de la **mise en page** (corps ≥ 1,5×
+  le corps dominant de la page ET texte court) — signal général, aucune règle liée
+  à un document ;
+- **`contexte`** — le voisinage textuel de la page (lecture seule).
+
+**Expressions pièges** (`backend/glossary.json` + `glossary.py`) : les tournures
+dont le calque est *sémantiquement juste mais pragmatiquement faux*. Pour les
+seuls fragments concernés (coût nul ailleurs), une **consigne de terminologie**
+est jointe (rendus autorisés, rendus interdits, et le *pourquoi*). Surtout, un
+**filet déterministe** relit la sortie : `glossary.enforce` corrige tout rendu
+INTERDIT — c'est lui, et non le prompt, qui rend la faute impossible. Ajouter une
+expression = ajouter une entrée JSON, aucun code à toucher.
+Tests hors ligne : `backend/test_glossary.py`.
+
 ### 3. Reflow (`reflow.py`)
 Coule les segments traduits dans le polygone `container_lines` :
 - **Découpe en lignes** gloutonne, chaque ligne clippée à `[gauche(y), droite(y)]`
@@ -322,12 +352,25 @@ Peint la version traduite via reflow au lieu du rendu run-par-run.
   gras/italique). NB : mv21 (ProximaNova) rend déjà tout ; le Handbook
   (Avenir/PTSerif) subit le repli sur accents.
 - **Soulignements de liens** : `_mark_underlines` associe le trait fin horizontal
-  au texte juste au-dessus (largeur comparable ; les **filets pleine largeur** =
-  règles de section sont ignorés). Le run porte `underline` (→ segments → reflow),
+  au texte juste au-dessus. La largeur ne suffit pas à trancher (un titre qui
+  **remplit sa colonne** a exactement la largeur du filet de section qui le suit —
+  P12). Deux discriminants s'y ajoutent, vérifiés sur les 35 vrais soulignements
+  des documents de test : (1) **l'ENCRE** — un soulignement est une décoration du
+  TEXTE, donc peint dans SON encre ; un trait d'une autre couleur ne lui
+  appartient pas ; (2) **les CLONES** — un filet de la grille du document a des
+  jumeaux ailleurs sur la page (même empan, même encre, même épaisseur), là où un
+  vrai soulignement est unique. Le run porte `underline` (→ segments → reflow),
   et le soulignement est **redessiné en continu sous le texte reflowé** ; l'ancien
   trait fixe du source est **supprimé** en mode traduit (sinon figé sous le texte
   déplacé).
-- Texte **incliné/vertical** : laissé en rendu original (pas de reflow).
+- Texte **incliné/vertical** : **traduit et reflowé** dans son **repère d'écriture**
+  (P10). Le reflow étant purement 2D, on lui passe conteneur et baseline
+  transformés par `_to_frame` (X le long de `dir`, Y vers le bas du texte), puis
+  `_paint_reflow_rotated` repeint chaque glyphe tourné de `atan2(-dy, dx)`. Un
+  titre à **lettres espacées** est re-réparti par son **tracking**
+  (`_respread_letterspacing`) pour occuper exactement la bande source — un titre
+  espacé se rejustifie par ses blancs, pas en rapetissant son corps. Avant P10,
+  la traduction de ces blocs était calculée (et payée) puis **jetée** au rendu.
 
 ### Utilisation (traduction, 10 pages, via script de test)
 Le pilote `scratchpad/run_translate10.py` : charge l'extraction, traduit N pages
@@ -421,6 +464,38 @@ fonts{} : nom → [ {ext, b64}, ... ]   (polices embarquées, cmap patchée si C
     lisait pas (`translate_pdf_progressive()` ne reçoit ni modèle ni budget de
     tokens ; la mise en page est toujours préservée). Ces paramètres restent
     acceptés par l'API avec leurs valeurs par défaut.
+
+23. **Texte incliné traduit + registre des bandeaux (2026-07-13)** — voir P10/P11
+    dans [`PROBLEMES_PDF_ENGINE_V2.md`](PROBLEMES_PDF_ENGINE_V2.md).
+    (a) **P10** : le texte incliné/vertical était traduit puis **jeté au rendu**
+    (`_translated_layout` retournait `None`, repli sur les runs SOURCE) → reflow
+    dans le **repère d'écriture** + peinture pivotée + tracking re-réparti
+    (`_respread_letterspacing`) ; `tagging` mesure enfin l'empan **le long de
+    l'axe** (14 pt → 196 pt pour un titre vertical).
+    (b) **P11** : chaque item de traduction porte désormais son **support**
+    (titre/corps, déduit de la mise en page) et son **contexte de page** ;
+    `backend/glossary.*` ajoute les **expressions pièges** (consigne ciblée +
+    **filet déterministe** sur la sortie). Le même « BREAKING NEWS » rend
+    FLASH INFO / EN DIRECT / ALERTE INFO / « Dernières nouvelles » selon le
+    contexte — auparavant les trois cas donnaient le même texte.
+
+## Tests (à rejouer avant toute release)
+
+| Test | Ce qu'il prouve |
+|---|---|
+| [`backend/test_engine_v2_generic.py`](backend/test_engine_v2_generic.py) | **GÉNÉRICITÉ** : un PDF **synthétique** (autre police, autres corps, autres couleurs, autre format) rejoue les structures de P10-P13 → prouve que les correctifs traitent la **classe** du problème, pas les 3 documents qui l'ont révélé. **13/13.** C'est lui qui a débusqué P10-bis et P13-bis, que les vrais documents masquaient. |
+| [`backend/test_glossary.py`](backend/test_glossary.py) | Expressions pièges : résolution + filet déterministe, hors ligne. **18/18.** |
+
+**Invariants de non-régression** (extraction, 24 pages) : mv21 = **614**
+paragraphes · Handbook = **309** · démo = **42**, **aucun mot perdu**.
+Soulignements consommés : mv21 = **27** · Handbook = **6** · démo = **0**.
+Toute dérive est une régression jusqu'à preuve du contraire.
+
+> **Règle de conception** (cf. [`PROBLEMES_PDF_ENGINE_V2.md`](PROBLEMES_PDF_ENGINE_V2.md#-audit-de-généricité-2026-07-13--backendtest_engine_v2_genericpy)) :
+> **aucune heuristique calée sur un document de test.** Un seuil ne se règle pas
+> « pour que mv21 passe » : il doit exprimer une propriété du CONCEPT (un
+> soulignement est peint dans l'encre de son texte ; une gouttière persiste, un
+> blanc de justification se déplace). Le test synthétique est le juge.
 
 ## Toggles (attributs `PDFObjectEngine` + options CLI)
 

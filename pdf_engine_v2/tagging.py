@@ -64,6 +64,38 @@ _SPACE_FACTOR = 0.30
 _ISOLATED_RE = re.compile(r"^\S(?:\s+\S)+\s*$")   # « A D V I C E  A N D … »
 
 
+def _axis(run):
+    """Direction d'écriture d'un run (défaut : horizontale)."""
+    d = run.get("dir") or [1, 0]
+    return (float(d[0]), float(d[1]))
+
+
+def _axis_extent(block):
+    """Empan du bloc LE LONG de son axe d'écriture.
+
+    Les bbox de l'extraction sont axis-aligned : pour un texte VERTICAL, l'empan
+    d'écriture est la HAUTEUR de la bbox, pas sa largeur. Mesuré en x, un titre
+    vertical (« TABLE OF CONTENTS » sur 196 pt) rendait 14 pt — la largeur du
+    fût — d'où un tracking nul et un titre traduit rendu collé.
+    """
+    dx, dy = _axis(block[0])
+    if abs(dy) > abs(dx):
+        lo = min(r["bbox"][1] for r in block)
+        hi = max(r["bbox"][3] for r in block)
+    else:
+        lo = min(r["bbox"][0] for r in block)
+        hi = max(r["bbox"][2] for r in block)
+    return hi - lo
+
+
+def _axis_center(run, d):
+    """Centre de la bbox d'un run PROJETÉ sur l'axe d'écriture — croissant dans
+    le sens de lecture (y compris pour un axe descendant, ex. `dir` = (0,-1))."""
+    cx = (run["bbox"][0] + run["bbox"][2]) / 2.0
+    cy = (run["bbox"][1] + run["bbox"][3]) / 2.0
+    return cx * d[0] + cy * d[1]
+
+
 def _letterspaced_segments(runs, size):
     """Détecte une ligne À LETTRES ESPACÉES et RECONSTRUIT les mots. Deux
     structures existent dans les PDF réels :
@@ -106,7 +138,7 @@ def _letterspaced_segments(runs, size):
         block = vis[i:j]
         raw = [(r.get("text") or "") for r in block]
         strip = [t.strip() for t in raw]
-        width = block[-1]["bbox"][2] - block[0]["bbox"][0]
+        width = _axis_extent(block)
 
         # UNITÉS par glyphe (couvre les 3 formes rencontrées : mono-run
         # « C A R L », run-par-lettre ['C','A','R','L'], et MIXTE
@@ -139,7 +171,8 @@ def _letterspaced_segments(runs, size):
             # aucune frontière textuelle (pas d'espaces de tête).
             if (not any(b for _c, b in units) and len(block) >= 3
                     and all(len(t) == 1 for t in strip)):
-                centers = [(r["bbox"][0] + r["bbox"][2]) / 2.0 for r in block]
+                d = _axis(block[0])
+                centers = [_axis_center(r, d) for r in block]
                 steps = [centers[k + 1] - centers[k]
                          for k in range(len(block) - 1)]
                 srt = sorted(steps)

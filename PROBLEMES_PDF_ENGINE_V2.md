@@ -20,6 +20,136 @@
 | **P8** 🟡 | Texte resté en anglais / styles perdus, en silence | id absents de la réponse jamais re-tentés ; balises mutilées → « style dominant » ; réponse « objet nu » non parsée ; bloc unique tronqué sans extension de budget | Vérification **par item** (id + intégrité des balises) + retry individuel (2 essais) + journalisation des replis ; parseur : objet nu accepté ; budget de sortie doublé (jusqu'à 32 768) sur bloc unique tronqué | mv21 : 5 items récupérés au retry ; « PARTIE UN »/« Règles de la route » traduits |
 | **P9** 🟡 | Filets d'encart orphelins | Conséquence de P1 (débordement du voisin) | Aucun mécanisme nouveau : disparu avec P1 (le texte de la citation reste ancré dans sa boîte) | hb p13/16/18/20 : filets exactement autour des citations |
 
+## ✅ Corrigés & vérifiés — campagne du 2026-07-13
+
+| # | Problème | Cause | Correction | Vérification |
+|---|----------|-------|------------|--------------|
+| **P10** 🔴 | **Texte incliné/vertical jamais traduit** (« TABLE OF CONTENTS » de mv21 reste en anglais) | La traduction était bien faite (`tr_tagged` rempli — l'appel était payé), mais le RENDU la jetait : `_translated_layout` retournait `None` dès qu'un run n'était pas horizontal → repli sur `_draw_paragraph`, c.-à-d. les runs SOURCE. Second défaut : `tagging` mesurait la largeur d'un titre à lettres espacées **en x**, donc 14 pt (la largeur du fût) au lieu des 196 pt de l'empan vertical → tracking nul | Le reflow est **purement 2D** : on lui donne conteneur et baseline dans le **repère d'écriture** du paragraphe (`_to_frame`/`_to_page`, X le long de `dir`), il coule normalement, puis `_paint_reflow_rotated` repeint chaque glyphe tourné de `atan2(-dy,dx)`. `tagging._axis_extent` mesure désormais **le long de l'axe**. `_respread_letterspacing` re-répartit le tracking sur le texte TRADUIT (un titre espacé se rejustifie par son tracking, pas par son corps → pas de force-fit qui rapetisse) | mv21 p4/p5/p6 : « TABLE DES MATIÈRES » et « PARTIE » rendus verticaux, `dir` conservé, occupant **exactement** la bande source (215,3→411,8 pt). **Non-régression : 12 pages rendues, seules les lignes inclinées changent** (tout le texte horizontal est identique au bit près) |
+| **P11** 🟠 | Registre inadapté sur les **titres/bandeaux** : le même « BREAKING NEWS » rendu à l'identique quel que soit le contexte (direct, alerte, phrase) | Chaque paragraphe partait SEUL (`{"id":…, "text":"[[0]]BREAKING NEWS[[/0]]"}`) : ni voisins, ni corps de police — alors que le moteur SAIT que c'est un titre de 60 pt. Le prompt se déclarait en plus « traducteur **technique** ». Le modèle n'avait donc aucun moyen de distinguer les cas | (1) `translate.py` joint à chaque item son **support** (`titre`/`corps`, déduit de la mise en page : corps ≥ 1,5× le corps dominant de la page **et** texte court) et un **contexte de page** ; (2) `backend/glossary.json` + `glossary.py` : base d'expressions pièges → consigne de terminologie jointe **aux seuls fragments concernés** (coût nul ailleurs) ; (3) **filet déterministe** `glossary.enforce` : un rendu INTERDIT (« dernières minutes ») est corrigé après coup, quoi qu'ait produit le modèle | `backend/test_glossary.py` : **18/18** hors ligne. Bout-en-bout DeepSeek : le même « BREAKING NEWS » donne **FLASH INFO** (affiche) · **EN DIRECT** (contexte « live ») · **ALERTE INFO** (évacuation/attentat) · « Dernières nouvelles » (dans une phrase). **Avant : les 3 cas donnaient le même rendu** |
+
+> ### ⚠ P11 — portée EXACTE de la correction (à lire avant d'y toucher)
+>
+> **Le problème général n'est PAS résolu, et il ne peut pas l'être par ce moyen.**
+> Deux couches, aux garanties très inégales :
+>
+> | Couche | Portée | Garantie |
+> |---|---|---|
+> | `support` + contexte + règle de registre du prompt | **toute** expression | **aucune** — probabiliste. Mesurée : effet ~nul sur les libellés isolés (le modèle rendait déjà « Save » → « Enregistrer », « Home » → « Accueil » sans elle). Assurance bon marché, à ne pas survendre. |
+> | `glossary.json` + `enforce` | **seulement** les 16 entrées listées | **totale** — le rendu interdit est impossible à émettre, quel que soit le modèle |
+>
+> Contre-exemple mesuré : **« DEVELOPING STORY » → « EN DIRECT »** (contresens :
+> une affaire qui *évolue* n'est pas une *diffusion en direct*). La couche
+> générale ne l'attrape pas. L'entrée `developing-story` (8 lignes de JSON) le
+> corrige et le verrouille → « SITUATION ÉVOLUTIVE ». **C'est le mode d'emploi :
+> un piège constaté = une entrée, pas une modification de code.**
+>
+> ### 🔬 Banc d'essai des entrées (2026-07-13) — `hint: false`
+>
+> Chaque entrée a été rejouée **sans sa consigne et sans le filet** (mais avec le
+> `support`), **3 essais**. Verdict :
+>
+> - **14 entrées sur 16 sont MUETTES** : le modèle les traduit seul, correctement
+>   et **3/3 à l'identique** (*library* → bibliothèque, *supports* → prend en
+>   charge, *sensible* → judicieux, *ISSUE 42* → NUMÉRO 42 vs *the issue* → le
+>   problème…). Leur consigne ne faisait que **payer des jetons pour un conseil
+>   déjà suivi** → `hint: false`, elles ne parlent plus.
+> - **`breaking-news` PARLE** : seul, le modèle rend **« FLASH INFO » dans les 3
+>   contextes** (affiche, direct, alerte) — il ne fait **aucune** distinction. Et
+>   en *corps* il dérape (« Le flash info a été diffusé à 18h » : l'idiome du
+>   bandeau appliqué dans une phrase). C'est elle qui produit EN DIRECT /
+>   ALERTE INFO / « Dernières nouvelles ».
+> - **`developing-story` PARLE** : contresens « EN DIRECT » **2 fois sur 3**, de
+>   façon **non déterministe** (3e essai : « ENQUÊTE EN COURS »).
+>
+> **Règle d'architecture qui en découle** — une entrée a deux fonctions au coût
+> très inégal, à ne PAS confondre :
+>
+> | Fonction | Coût | Portée |
+> |---|---|---|
+> | **consigne** (`options`, `note`) injectée dans le prompt | des jetons à **chaque** fragment qui matche | réservée aux entrées qui changent la sortie (`hint: true`) |
+> | **filet** (`never`) testé sur la sortie | **zéro jeton** | **toutes** les entrées — assurance gratuite contre un changement de modèle |
+>
+> Vérifié : « librairie », « éventuellement », « supporte » sont toujours corrigés
+> alors que leurs entrées ne coûtent plus un seul jeton de prompt.
+>
+> **⚠ L'erreur signalée (« dernières minutes ») n'a PAS été reproduite.**
+> Testé sur `deepseek-chat`, `deepseek-v4-flash` et `deepseek-reasoner`, seul ou
+> noyé dans un lot : tous rendent « FLASH INFO ». L'occurrence observée venait
+> donc d'un autre chemin (prompt antérieur, tirage à `temperature=0.1`, ou autre
+> support). **C'est précisément pourquoi la correction ne repose pas sur le
+> prompt** : un prompt ne garantit rien contre une faute intermittente. Le filet
+> `enforce` rend le rendu interdit **impossible à émettre**, quelle qu'en soit la
+> cause. Ce qui est en revanche mesuré et corrigé, c'est l'**aveuglement au
+> contexte** : le moteur ne distinguait structurellement pas les trois situations.
+
+| **P12** 🔴 | **Filet de section pris pour un SOULIGNEMENT** (démo journal : le titre « Tech Giants Report… » n'est pas souligné — c'est un filet de séparation qui le suit) — et le faux soulignement était de surcroît **redessiné dans la couleur du TEXTE** (rouge) au lieu de celle du trait (gris) | Le seul garde-fou comparait la largeur du trait à celle du **run** (`> 1.4 × rw` ⇒ rejet). Un titre qui **remplit sa colonne** a exactement la largeur du filet (531,3 pt dans les deux cas) → ratio 1,0, garde-fou inopérant. Le seuil vertical cédait aussi de justesse (trait à 8,0 pt sous la ligne de base, seuil `0.35 × 15,1 + 3 = 8,29`) | Deux discriminants **généraux**, mesurés sur les **35 vrais soulignements** de mv21 + Handbook : (1) **l'ENCRE** — un soulignement est une décoration du TEXTE, donc peint dans SON encre (les 35 vrais : trait et texte de couleur **identique**) ; un trait d'une autre couleur ne lui appartient pas (`_same_ink`, tolérance 0,25/canal) ; (2) **les CLONES** — un filet de la grille du document a des jumeaux ailleurs sur la page (même empan, même encre, même épaisseur) ; un vrai soulignement est unique (`_rule_key` + `_RULE_FAMILY_MIN = 3`). **Corollaire** : puisque l'encre du trait doit désormais égaler celle du texte, le redessiner dans l'encre du texte est exact **par construction** — le bug de couleur disparaît avec le faux positif | Démo : **0** soulignement détecté, le filet gris est **conservé** à sa place (visuel identique à la source). Handbook : 6 → **6** (inchangé). mv21 : 29 → **27** — les 2 « perdus » étaient eux aussi des **faux positifs** (filets de séparation de lignes du tableau p22 : 6 et 15 clones gris `0,39` sous un texte noir `0,13`), que l'ancienne règle **supprimait du tableau** pour les redessiner en noir sous le texte |
+
+| **P13** 🟠 | **Deux colonnes voisines ENTRELACÉES mot à mot** (démo journal : « Among the standout performers, *Software* / several leading semiconductor *delivered upbeat results, with* … ») → les deux encadrés fusionnés en un seul paragraphe, traduits ensemble, rendus l'un sur l'autre | La coupe en colonnes (`_COL_SPLIT_FACTOR`) juge un blanc **ligne par ligne**, donc sur sa seule LARGEUR. Or en texte **justifié**, l'espace entre deux mots enfle jusqu'à rivaliser avec la gouttière : ici la gouttière fait **8,0 pt = 2,33 × la largeur de glyphe** (sous le seuil de 2,5) alors que des espaces de mots de la même ligne atteignent **1,75 ×**. **Aucun seuil de largeur ne sépare les deux** (vérifié : relever le facteur à 3,0 déplace déjà 2 paragraphes du Handbook) | **Corridor blanc VERTICAL** (`_column_gutters`) : ce qui distingue une gouttière d'un blanc de justification n'est pas sa largeur mais sa **PERSISTANCE** — un blanc de justification se DÉPLACE d'une ligne à l'autre, une gouttière reste à la MÊME abscisse. Depuis chaque blanc candidat on remonte/descend le bloc ; le corridor meurt dès qu'une ligne le TRAVERSE. Deux garde-fous indispensables : `_GUTTER_MIN_SIDE` (texte substantiel **des deux côtés** — sinon l'indentation d'une **PUCE** forme un corridor parfait et le « • » du Handbook se détache de son texte) et `_GUTTER_MIN_LINES = 5` (sinon deux blancs de justification alignés par hasard feignent une colonne) | **mv21 : 614 → 614** et **Handbook : 309 → 309 paragraphes, au bit près.** Démo : les 2 encadrés enfin **séparés**, l'encadré gauche parfaitement rendu. **Aucun mot perdu** sur les 3 documents (631 / 10 671 / 8 615 mots identiques) |
+
+> ### ⚠ P13 — la moitié qui RESTE, et pourquoi je ne l'ai pas forcée
+>
+> L'encadré **droit** de la démo demeure en miettes (« Les résul- / tats du
+> logiciel », fragments superposés). Cause **distincte et antérieure** : sa
+> justification est si lâche (« reshaped ␣␣␣ how ␣␣␣ businesses ») que ses blancs
+> de mots dépassent `_COL_SPLIT_FACTOR` et **découpent la ligne elle-même**.
+>
+> Deux remèdes essayés, **tous deux rejetés par la mesure** :
+> 1. **Relever `_COL_SPLIT_FACTOR`** → déplace le Handbook dès 3,0 (309 → 307,
+>    puis 302 à 4,0). Refusé : on n'échange pas une régression sur un document de
+>    référence contre un encadré de démo.
+> 2. **Neutraliser la coupe quand la ligne porte PLUSIEURS grands blancs de taille
+>    voisine** (signature d'une justification lâche) → **FAUX** : une rangée de
+>    tableau à 3 cellules a exactement la même signature. mv21 p12/p16 fusionnait
+>    « New York City | Long Island | Upstate » en un seul paragraphe.
+>
+> **Conclusion : à l'échelle de la LIGNE, une justification lâche et une rangée de
+> tableau sont géométriquement indiscernables.** Il faut un signal d'un autre
+> ordre (cellules `find_tables`, régularité inter-lignes des blancs) — c'est un
+> chantier à part entière, pas un réglage de seuil.
+
+## 🧪 AUDIT DE GÉNÉRICITÉ (2026-07-13) — `backend/test_engine_v2_generic.py`
+
+> **Le problème de fond.** P10-P13 ont été trouvés sur mv21, le Handbook et la
+> démo journal. **Rien ne prouvait qu'ils traitaient la CLASSE du problème plutôt
+> que ces trois fichiers.** Un correctif calé sur ses documents de découverte
+> laisse le défaut ressortir au premier PDF venu — exactement ce qu'on veut éviter.
+>
+> **La preuve.** Un PDF **synthétique**, que le moteur n'a jamais vu (autre police
+> — Times ; autres corps, autres couleurs, autre format — Letter ; autres
+> coordonnées), rejoue les MÊMES STRUCTURES : titre pleine colonne + filet de
+> section · vrai soulignement · deux colonnes à gouttière plus étroite que leurs
+> propres blancs de justification · liste à puces · titre vertical à lettres
+> espacées · en-têtes de tableau pivotés serrés. **13 contrôles, 13 verts.**
+
+**Le test a débusqué deux trous que les 3 documents réels masquaient** — c'est
+précisément ce qu'on lui demandait :
+
+| # | Trou | Pourquoi les vrais documents le masquaient | Correction |
+|---|------|--------------------------------------------|------------|
+| **P10-bis** 🔴 | Titre vertical rendu **collé** (« APPENDIXSECTION ») → le traducteur recevait un mot inexistant | `_make_rotated_line` **concaténait brutalement** les runs. mv21 s'en sortait par chance : ses runs PORTAIENT l'espace dans leur texte (« ␣O »). Un titre dont la frontière de mot est purement **géométrique** sortait collé | `_compose_rotated_text` : espace insérée là où l'écart, mesuré **le long de l'axe**, dépasse franchement le pas médian entre lettres (signal général : le pas entre MOTS est nettement plus grand que le pas entre LETTRES). `_axis_gw` mesure aussi la largeur de glyphe sur l'axe |
+| **P13-bis** 🟠 | **Puce détachée de son texte** dès que le retrait dépasse `_COL_SPLIT_FACTOR` | Le Handbook y échappait **de justesse** (son retrait est un peu plus serré que le seuil). J'avais protégé le CORRIDOR contre les puces, mais **pas la coupe de largeur** | Même garde-fou sur la coupe de largeur. Réserve indispensable : le marqueur doit être une **PUCE** ou un **numéro ponctué** (`_BULLET_RE` / `_NUMITEM_RE`) — un **nombre nu** n'en est pas un, c'est une donnée. Sans cette réserve, le sommaire de mv21 fusionnait « 6 » avec « Chapter 1 – Driver Licenses » (−31 paragraphes) |
+
+### Verdict par correctif
+
+| # | Le signal est-il générique ? | Limite connue |
+|---|------------------------------|---------------|
+| **P10** | ✅ **Oui** — transformation de repère (mathématique pure, toute direction) ; empan et pas mesurés **le long de l'axe** ; conteneur ancré sur la bbox (l'expansion page est *perpendiculaire* pour un vertical). Aucun seuil calé sur un document | Validé sur des rotations à **90°**. Un angle quelconque (45°) passerait par le même code, mais la bbox du conteneur dans le repère tourné serait une **sur-approximation** |
+| **P11** | ✅ **Oui** pour le `support` (corps dominant de la page, ratio 1,5 — aucune constante de document). ⚠️ **Non** par nature pour le glossaire : il est **énumératif**, et c'est assumé (cf. l'encadré P11 — une garantie exige un ensemble décidable) | Les 14 entrées muettes ne garantissent plus que par leur filet ; rejouer le banc à tout changement de modèle |
+| **P12** | ✅ **Oui** — l'encre (un soulignement est peint dans l'encre de SON texte) et les clones (un filet de grille se répète) sont des propriétés **du concept**, pas des documents. Vérifié sur 35 vrais soulignements + le synthétique | Un soulignement d'une couleur **différente** de son texte serait rejeté ; un filet **isolé** de la **même** couleur passerait encore. Levier connu : les annotations `/Link` |
+| **P13** | ✅ **Oui** — la **persistance** du corridor est une propriété du concept (un blanc de justification se déplace, une gouttière non). Garde-fous eux-mêmes génériques (puce = pas de colonne ; ≥ 5 lignes) | `_GUTTER_MIN_LINES = 5` : un bloc à **deux colonnes de moins de 5 lignes** ne sera pas détecté (plancher volontairement conservateur) |
+
+### Batterie de vérification (à rejouer avant toute release)
+
+```bash
+backend/venv/Scripts/python.exe backend/test_glossary.py            # 18/18
+backend/venv/Scripts/python.exe backend/test_engine_v2_generic.py   # 13/13
+```
+Invariants de non-régression sur les documents réels (24 pages chacun) :
+**mv21 = 614 paragraphes · Handbook = 309 · démo = 42**, et **aucun mot perdu**
+(631 / 10 671 / 8 615). Soulignements consommés : **mv21 = 27 · Handbook = 6 ·
+démo = 0**. Toute dérive de ces nombres est une régression jusqu'à preuve du
+contraire.
+
 ## ⏳ Résiduels (documentés, non bloquants)
 
 - **Retraduction compacte mv21 partielle** : la phase compacte a été interrompue
