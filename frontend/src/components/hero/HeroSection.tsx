@@ -1,8 +1,61 @@
-import { useRef } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, useScroll, useTransform } from 'motion/react';
 import { ArrowRight, LayoutTemplate, FileType2, Languages } from 'lucide-react';
 import DocumentDemo from './DocumentDemo';
+
+/** Bornes du corps du titre, en px — garde-fous d'un calcul par ailleurs libre.
+ *  Le plafond doit rester AU-DESSUS du corps qu'exige la ligne la plus courte,
+ *  sinon celle-ci n'atteint pas la mesure et le bord droit ne tombe plus juste.
+ *  La plus courte est l'anglaise (« their layout ») : elle demande ~115px à la
+ *  mesure maximale de 520px. 132 laisse de la marge. */
+const MIN_SIZE = 22;
+const MAX_SIZE = 132;
+
+/**
+ * Justifie le titre : les trois lignes sont amenées à la MÊME largeur.
+ *
+ * On ne peut pas justifier un titre par les espaces (`text-align-last`) : avec
+ * deux ou trois mots par ligne, les blancs s'étirent démesurément et le titre
+ * se lit comme cassé. La justification typographique d'un empilement
+ * d'affichage se fait en ajustant le CORPS de chaque ligne — les lettres ne
+ * sont jamais déformées, seule leur taille change, et les deux bords tombent
+ * juste. La ligne courte (« mise en page ») devient donc la plus grande : la
+ * promesse est aussi ce que l'œil voit en premier.
+ */
+function useJustifiedLines(ref: React.RefObject<HTMLHeadingElement | null>, deps: unknown[]) {
+  const fit = useCallback(() => {
+    const title = ref.current;
+    if (!title) return;
+    const width = title.clientWidth;
+    if (!width) return;
+
+    title.querySelectorAll<HTMLElement>('.hero-line').forEach((line) => {
+      const text = line.querySelector<HTMLElement>('.hero-line-text');
+      if (!text) return;
+      line.style.fontSize = '';                       // repartir du corps hérité
+      const base = parseFloat(getComputedStyle(line).fontSize);
+      // Largeur du texte SEUL : les repères de coupe sont en position absolue,
+      // ils ne comptent pas dans la boîte de l'inline qui les porte.
+      const natural = text.getBoundingClientRect().width;
+      if (!natural) return;
+      const size = base * (width / natural);
+      line.style.fontSize = `${Math.min(MAX_SIZE, Math.max(MIN_SIZE, size))}px`;
+    });
+  }, [ref]);
+
+  useEffect(() => {
+    fit();
+    const ro = new ResizeObserver(fit);
+    if (ref.current) ro.observe(ref.current);
+    // Les polices arrivent après le premier rendu : sans ce second passage, la
+    // mesure serait faite sur la police de repli et les bords ne tomberaient
+    // pas juste une fois Cormorant chargée.
+    document.fonts?.ready.then(fit).catch(() => {});
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fit, ...deps]);
+}
 
 /** Faits vérifiables, tirés du produit — pas de chiffre invérifiable.
  *  Les FORMATS sont des noms techniques : la chasse fixe les rend lisibles
@@ -14,8 +67,13 @@ const PROOFS = [
 ];
 
 export default function HeroSection() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const heroRef = useRef<HTMLElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+
+  // Re-mesuré à chaque changement de langue : « mise en page » et « layout »
+  // n'ont ni la même longueur ni le même nombre de mots.
+  useJustifiedLines(titleRef, [i18n.language]);
 
   const { scrollYProgress } = useScroll({
     target: heroRef,
@@ -51,6 +109,7 @@ export default function HeroSection() {
                 qui se posent un à un. Le mot est donc lui-même mis en page, et
                 son cadre reste intact : la forme dit ce que la phrase promet. */}
           <motion.h1
+            ref={titleRef}
             className="hero-title"
             initial={{ opacity: 0, y: 26 }}
             animate={{ opacity: 1, y: 0 }}
@@ -59,34 +118,41 @@ export default function HeroSection() {
             {/* Les trois lignes sont COUPÉES explicitement : `text-wrap: balance`
                 laissait le navigateur décider et la coupe changeait avec la
                 largeur, la langue et la police. Ici la structure du titre est
-                voulue, donc elle est écrite. */}
-            <span className="hero-line">{t('hero.title_before')}</span>
+                voulue, donc elle est écrite. `.hero-line-text` isole le texte
+                pour que useJustifiedLines le mesure sans les repères. */}
+            <span className="hero-line">
+              <span className="hero-line-text">{t('hero.title_before')}</span>
+            </span>
 
             <span className="hero-line">
-              <span className="hero-underline">
-                {t('hero.title_key')}
-                <motion.span
-                  className="hero-underline-stroke"
-                  initial={{ scaleX: 0 }}
-                  animate={{ scaleX: 1 }}
-                  transition={{ duration: 0.8, delay: 0.7, ease: [0.16, 1, 0.3, 1] }}
-                />
-              </span>{' '}
-              {t('hero.title_mid')}
+              <span className="hero-line-text">
+                <span className="hero-underline">
+                  {t('hero.title_key')}
+                  <motion.span
+                    className="hero-underline-stroke"
+                    initial={{ scaleX: 0 }}
+                    animate={{ scaleX: 1 }}
+                    transition={{ duration: 0.8, delay: 0.7, ease: [0.16, 1, 0.3, 1] }}
+                  />
+                </span>{' '}
+                {t('hero.title_mid')}
+              </span>
             </span>
 
             <span className="hero-line hero-line--key">
-              <span className="hero-key">
-                {t('hero.title_layout')}
-                {(['tl', 'tr', 'bl', 'br'] as const).map((corner, i) => (
-                  <motion.span
-                    key={corner}
-                    className={`hero-key-mark hero-key-mark--${corner}`}
-                    initial={{ opacity: 0, scale: 0.4 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ duration: 0.35, delay: 1.25 + i * 0.08, ease: [0.16, 1, 0.3, 1] }}
-                  />
-                ))}
+              <span className="hero-line-text">
+                <span className="hero-key">
+                  {t('hero.title_layout')}
+                  {(['tl', 'tr', 'bl', 'br'] as const).map((corner, i) => (
+                    <motion.span
+                      key={corner}
+                      className={`hero-key-mark hero-key-mark--${corner}`}
+                      initial={{ opacity: 0, scale: 0.4 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.35, delay: 1.25 + i * 0.08, ease: [0.16, 1, 0.3, 1] }}
+                    />
+                  ))}
+                </span>
               </span>
             </span>
           </motion.h1>

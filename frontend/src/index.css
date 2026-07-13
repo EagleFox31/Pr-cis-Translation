@@ -442,33 +442,37 @@ button { font-family: inherit; cursor: pointer; border: none; }
 }
 .hero-title {
   font-family: var(--font-display);
-  /* Corps calé pour que « Traduisez vos documents » tienne sur UNE ligne à
-     toute largeur. Le plafond (3.4rem) n'est pas esthétique mais géométrique :
-     au-delà de 1720px le hero cesse de s'élargir alors que le corps, lui,
-     continuait de croître — à 3.9rem il ne restait que 2 % de marge et la
-     ligne 1 finissait par passer à la ligne. Marge minimale mesurée : ~14 %. */
+  /* Corps de DÉPART seulement : useJustifiedLines le recalcule ligne par ligne
+     pour amener les trois lignes à la même largeur. Cette valeur reste le
+     repli si le script ne s'exécute pas (titre alors aligné à gauche, ferré). */
   font-size: clamp(1.7rem, 3.1vw, 3.4rem);
   font-weight: 300;
   color: var(--white);
   letter-spacing: -0.02em;
-  margin-bottom: 22px;
-  /* Interligne aéré : les repères de coupe débordent au-dessus de « mise en
-     page » (-0.16em), il leur faut du blanc pour ne pas heurter la ligne du
-     dessus. Le titre n'est plus équilibré automatiquement — ses coupes sont
-     écrites dans le JSX — donc `text-wrap` n'a plus lieu d'être. */
-  line-height: 1.34;
+  margin-bottom: 24px;
+  /* La mesure du titre borne le corps atteint par la ligne la plus courte :
+     sans plafond, « mise en page » (12 signes) grossirait jusqu'à remplir toute
+     la colonne et écraserait le reste du hero. */
+  max-width: min(100%, 520px);
+  /* Les corps diffèrent maintenant d'une ligne à l'autre : l'interligne se
+     calcule sur chacune, il peut donc rester serré (rendu d'affiche). */
+  line-height: 1.1;
 }
 /* Une ligne = un bloc : la coupe est imposée par la structure, pas par le
-   navigateur. Volontairement PAS de `nowrap` : la colonne est en minmax(0,…)
-   et `.hero` est en `overflow: hidden`, donc un texte insécable trop large
-   serait ROGNÉ sans bruit. Le corps du titre (clamp en vw) laisse ~25 % de
-   marge à toutes les largeurs testées ; si elle venait à manquer, le titre
-   passe à la ligne — dégradation visible, jamais silencieuse. */
+   navigateur. `nowrap` est ici SANS RISQUE de rognage — chaque ligne est
+   dimensionnée pour tenir exactement dans la mesure. */
 .hero-line {
   display: block;
+  white-space: nowrap;
+}
+/* Boîte de mesure : `inline-block` pour que sa largeur soit celle du TEXTE.
+   Les repères de coupe, en position absolue, n'y entrent pas — la largeur
+   mesurée est donc bien celle des lettres. */
+.hero-line-text {
+  display: inline-block;
 }
 .hero-line--key {
-  margin-top: 0.1em;   /* dégage le cadre des repères */
+  margin-top: 0.16em;   /* dégage les repères, qui remontent de 0.16em */
 }
 .hero-title em {
   font-style: italic;
