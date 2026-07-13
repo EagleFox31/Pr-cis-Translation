@@ -450,13 +450,9 @@ button { font-family: inherit; cursor: pointer; border: none; }
   color: var(--white);
   letter-spacing: -0.02em;
   margin-bottom: 24px;
-  /* La mesure du titre borne le corps atteint par la ligne la plus courte :
-     sans plafond, « mise en page » (12 signes) grossirait jusqu'à remplir toute
-     la colonne et écraserait le reste du hero. */
+  /* Mesure du titre. C'est elle que les trois lignes viennent remplir. */
   max-width: min(100%, 520px);
-  /* Les corps diffèrent maintenant d'une ligne à l'autre : l'interligne se
-     calcule sur chacune, il peut donc rester serré (rendu d'affiche). */
-  line-height: 1.1;
+  line-height: 1.26;
 }
 /* Une ligne = un bloc : la coupe est imposée par la structure, pas par le
    navigateur. `nowrap` est ici SANS RISQUE de rognage — chaque ligne est
@@ -472,7 +468,7 @@ button { font-family: inherit; cursor: pointer; border: none; }
   display: inline-block;
 }
 .hero-line--key {
-  margin-top: 0.16em;   /* dégage les repères, qui remontent de 0.16em */
+  margin-top: 0.12em;   /* dégage les repères, qui remontent de 0.16em */
 }
 .hero-title em {
   font-style: italic;
@@ -765,7 +761,9 @@ button { font-family: inherit; cursor: pointer; border: none; }
 .hero-underline { position: relative; display: inline-block; white-space: nowrap; }
 .hero-underline-stroke {
   position: absolute;
-  left: 0; right: 0; bottom: 0.04em;
+  /* `--ls` est le blanc que letter-spacing ajoute APRÈS la dernière lettre :
+     sans le reprendre, le trait dépasserait le « e » de « perdre » d'autant. */
+  left: 0; right: var(--ls, 0px); bottom: 0.04em;
   height: 4px;
   border-radius: 2px;
   transform-origin: left center;
@@ -791,10 +789,12 @@ button { font-family: inherit; cursor: pointer; border: none; }
   border: 2px solid rgba(240,217,138,.75);
   pointer-events: none;
 }
-.hero-key-mark--tl { top: -.16em;    left: -.14em;  border-right: 0; border-bottom: 0; }
-.hero-key-mark--tr { top: -.16em;    right: -.14em; border-left: 0;  border-bottom: 0; }
-.hero-key-mark--bl { bottom: -.10em; left: -.14em;  border-right: 0; border-top: 0; }
-.hero-key-mark--br { bottom: -.10em; right: -.14em; border-left: 0;  border-top: 0; }
+/* Les repères de DROITE reprennent `--ls` (le blanc de fin de letter-spacing),
+   sinon ils s'éloigneraient du mot d'autant que l'approche est large. */
+.hero-key-mark--tl { top: -.16em;    left: -.14em;                    border-right: 0; border-bottom: 0; }
+.hero-key-mark--tr { top: -.16em;    right: calc(var(--ls, 0px) - .14em); border-left: 0; border-bottom: 0; }
+.hero-key-mark--bl { bottom: -.10em; left: -.14em;                    border-right: 0; border-top: 0; }
+.hero-key-mark--br { bottom: -.10em; right: calc(var(--ls, 0px) - .14em); border-left: 0; border-top: 0; }
 
 /* Preuves — des faits, pas des chiffres invérifiables */
 .hero-proofs {

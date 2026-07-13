@@ -4,43 +4,69 @@ import { motion, useScroll, useTransform } from 'motion/react';
 import { ArrowRight, LayoutTemplate, FileType2, Languages } from 'lucide-react';
 import DocumentDemo from './DocumentDemo';
 
-/** Bornes du corps du titre, en px — garde-fous d'un calcul par ailleurs libre.
- *  Le plafond doit rester AU-DESSUS du corps qu'exige la ligne la plus courte,
- *  sinon celle-ci n'atteint pas la mesure et le bord droit ne tombe plus juste.
- *  La plus courte est l'anglaise (« their layout ») : elle demande ~115px à la
- *  mesure maximale de 520px. 132 laisse de la marge. */
-const MIN_SIZE = 22;
-const MAX_SIZE = 132;
+/** Légère marge : les trois lignes ne touchent pas tout à fait le bord, ce qui
+ *  laisse aussi respirer les repères de coupe, qui débordent du mot. */
+const SIDE_MARGIN = 10;
 
 /**
- * Justifie le titre : les trois lignes sont amenées à la MÊME largeur.
+ * Justifie le titre : les trois lignes tombent à la MÊME largeur, un même corps
+ * pour toutes, le texte étant approché (letter-spacing) jusqu'à remplir la
+ * mesure — c'est la justification au sens typographique.
  *
- * On ne peut pas justifier un titre par les espaces (`text-align-last`) : avec
- * deux ou trois mots par ligne, les blancs s'étirent démesurément et le titre
- * se lit comme cassé. La justification typographique d'un empilement
- * d'affichage se fait en ajustant le CORPS de chaque ligne — les lettres ne
- * sont jamais déformées, seule leur taille change, et les deux bords tombent
- * juste. La ligne courte (« mise en page ») devient donc la plus grande : la
- * promesse est aussi ce que l'œil voit en premier.
+ * Deux points qu'on ne peut pas confier au CSS :
+ *
+ * • `text-align: justify` n'agit pas ici. Chaque ligne est un bloc, donc chaque
+ *   ligne est une DERNIÈRE ligne — et une dernière ligne n'est jamais justifiée.
+ *   `text-align-last: justify` le forcerait, mais en n'étirant QUE les blancs :
+ *   avec deux ou trois mots, les mots se retrouveraient aux extrémités et le
+ *   titre se lirait comme cassé. On répartit donc l'écart sur TOUTES les
+ *   lettres, ce qui est l'approche (tracking) du typographe.
+ *
+ * • Le corps commun est calé sur la ligne la PLUS LONGUE : elle remplit la
+ *   mesure sans approche, et les autres n'ont plus qu'à s'écarter. Aucune ligne
+ *   n'a donc à se resserrer, ce qui abîmerait le dessin des lettres.
  */
 function useJustifiedLines(ref: React.RefObject<HTMLHeadingElement | null>, deps: unknown[]) {
   const fit = useCallback(() => {
     const title = ref.current;
     if (!title) return;
-    const width = title.clientWidth;
-    if (!width) return;
+    const target = title.clientWidth - SIDE_MARGIN;
+    if (target <= 0) return;
 
-    title.querySelectorAll<HTMLElement>('.hero-line').forEach((line) => {
-      const text = line.querySelector<HTMLElement>('.hero-line-text');
-      if (!text) return;
-      line.style.fontSize = '';                       // repartir du corps hérité
-      const base = parseFloat(getComputedStyle(line).fontSize);
-      // Largeur du texte SEUL : les repères de coupe sont en position absolue,
-      // ils ne comptent pas dans la boîte de l'inline qui les porte.
-      const natural = text.getBoundingClientRect().width;
-      if (!natural) return;
-      const size = base * (width / natural);
-      line.style.fontSize = `${Math.min(MAX_SIZE, Math.max(MIN_SIZE, size))}px`;
+    const lines = [...title.querySelectorAll<HTMLElement>('.hero-line')];
+    const texts = lines.map((l) => l.querySelector<HTMLElement>('.hero-line-text'));
+    if (texts.some((t) => !t)) return;
+
+    // 1) Corps commun, calé sur la ligne la plus longue.
+    title.style.fontSize = '';
+    lines.forEach((l) => { l.style.letterSpacing = '0px'; l.style.setProperty('--ls', '0px'); });
+    const base = parseFloat(getComputedStyle(title).fontSize);
+    const widest = Math.max(...texts.map((t) => t!.getBoundingClientRect().width));
+    if (!widest) return;
+    title.style.fontSize = `${(base * target) / widest}px`;
+
+    // 2) Approche par ligne. Le calcul théorique tombe à quelques pixels près
+    //    (crénage, ligatures) : on corrige sur la mesure réelle, en deux ou
+    //    trois passes, jusqu'à ce que le bord droit tombe juste.
+    lines.forEach((line, i) => {
+      const text = texts[i]!;
+      const chars = (text.textContent ?? '').length;
+      if (chars < 2) return;
+
+      let ls = 0;
+      for (let pass = 0; pass < 4; pass++) {
+        // letter-spacing insère aussi un blanc APRÈS la dernière lettre : la
+        // boîte est donc plus large que les glyphes d'exactement `ls`.
+        const visible = text.getBoundingClientRect().width - ls;
+        const delta = target - visible;
+        if (Math.abs(delta) < 0.4) break;
+        ls += delta / (chars - 1);
+        line.style.letterSpacing = `${ls}px`;
+      }
+      // Ce blanc de fin décalerait vers la droite tout ce qui s'accroche au
+      // bord du texte : le trait sous « sans perdre » et le repère de droite
+      // de « mise en page ». On l'expose en variable, le CSS le reprend.
+      line.style.setProperty('--ls', `${ls}px`);
     });
   }, [ref]);
 
