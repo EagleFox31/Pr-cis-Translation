@@ -5,6 +5,7 @@ import { Mail, ArrowRight, Loader2, ArrowLeft, RefreshCw, Sparkles } from 'lucid
 import AuthBackground from '../components/auth/AuthBackground';
 
 const logo = '/Logo.png';
+const identityImg = '/Identite Precis.png';
 
 /* ── Styles partagés ─────────────────────────────────────────────────── */
 
@@ -100,11 +101,13 @@ export default function LoginPage() {
     <div style={pageStyle}>
       <AuthBackground />
       <div style={{ ...cardStyle, position: 'relative', zIndex: 1 }}>
-        {/* En-tête */}
-        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-          <img src={logo} alt="Précis" style={logoStyle} />
-          <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--gray-900)', margin: '12px 0 2px', letterSpacing: '-0.02em' }}>Précis</h2>
-          <p style={{ fontSize: '13px', color: 'var(--gray-400)', margin: 0 }}>Traduction intelligente</p>
+        {/* En-tête — logo animé à gauche, image identité à droite */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '28px' }}>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <img src={logo} alt="P" style={{ height: '46px', width: 'auto' }} />
+            <span className="animated-logo-text">récis</span>
+          </div>
+          <img src={identityImg} alt="Précis" style={{ height: '48px', width: 'auto', opacity: 0.9 }} />
         </div>
 
         {step === 'email' ? (
