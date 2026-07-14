@@ -130,7 +130,7 @@ export default function DocumentDemo() {
     (async () => {
       const pdfjsLib = (window as any).pdfjsLib;
       if (!pdfjsLib) return;
-      pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
       const draw = async (url: string, canvas: HTMLCanvasElement | null) => {
         if (!canvas) return null;

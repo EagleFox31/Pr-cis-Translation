@@ -28,6 +28,4 @@ backend/tests files/
 *.bak
 *.old
 
-# PDF.js — téléchargés du CDN, volumineux
-frontend/public/pdf.min.js
-frontend/public/pdf.worker.min.js
+
