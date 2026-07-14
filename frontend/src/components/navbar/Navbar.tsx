@@ -1,5 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import MobileMenu from './MobileMenu';
 
 const logo = "/Logo.png";
@@ -17,6 +19,8 @@ export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibr
   const [scrollProgress, setScrollProgress] = useState(0);
   const { t, i18n } = useTranslation();
   const navbarRef = useRef<HTMLElement>(null);
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
 
   const navLinks = [
     { id: 'hero', label: t('nav.home') },
@@ -43,27 +47,22 @@ export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibr
     onNavClick(sectionId);
   };
 
+  // Icône avatar : initiales si pas d'avatar
+  const avatarLetter = user?.name ? user.name[0].toUpperCase() : (user?.email?.[0].toUpperCase() || '?');
+
   return (
     <>
       <nav ref={navbarRef} className={`navbar ${isScrolled ? 'scrolled' : ''}`}>
-        {/* Reading progress bar */}
         <div
           style={{
-            position: 'absolute',
-            bottom: '-1px',
-            left: 0,
-            height: '2px',
+            position: 'absolute', bottom: '-1px', left: 0, height: '2px',
             background: 'linear-gradient(90deg, #1a4dc7, #c9a84c)',
-            width: `${scrollProgress * 100}%`,
-            transition: 'width 0.1s linear',
-            zIndex: 1001,
+            width: `${scrollProgress * 100}%`, transition: 'width 0.1s linear', zIndex: 1001,
           }}
         />
 
         <div className="nav-inner">
-          <a
-            href="#hero"
-            className="nav-logo"
+          <a href="#hero" className="nav-logo"
             onClick={(e) => { e.preventDefault(); handleClick('hero'); }}
             style={{ display: 'flex', alignItems: 'center' }}
           >
@@ -84,11 +83,8 @@ export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibr
                 : (activeSection === link.id || (link.id === 'features' && (activeSection === 'features' || activeSection === 'comparison')));
               return (
                 <li key={link.id}>
-                  <a
-                    href={`#${link.id}`}
-                    className={isActive ? 'active' : ''}
-                    onClick={(e) => { e.preventDefault(); handleClick(link.id); }}
-                  >
+                  <a href={`#${link.id}`} className={isActive ? 'active' : ''}
+                    onClick={(e) => { e.preventDefault(); handleClick(link.id); }}>
                     {link.label}
                   </a>
                 </li>
@@ -97,24 +93,12 @@ export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibr
           </ul>
 
           {/* Bouton bibliothèque */}
-          <button
-            onClick={onLibraryOpen}
-            title="Mes documents traduits"
+          <button onClick={onLibraryOpen} title="Mes documents traduits"
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '6px 12px',
-              borderRadius: '8px',
-              border: '1.5px solid var(--gray-200)',
-              background: 'transparent',
-              cursor: 'pointer',
-              fontSize: '13px',
-              fontWeight: 500,
-              color: 'var(--gray-700)',
-              fontFamily: 'inherit',
-              transition: 'all 0.18s ease',
-              position: 'relative',
+              display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px',
+              borderRadius: '8px', border: '1.5px solid var(--gray-200)', background: 'transparent',
+              cursor: 'pointer', fontSize: '13px', fontWeight: 500, color: 'var(--gray-700)',
+              fontFamily: 'inherit', transition: 'all 0.18s ease', position: 'relative',
             }}
             onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--blue)'; e.currentTarget.style.color = 'var(--blue)'; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--gray-200)'; e.currentTarget.style.color = 'var(--gray-700)'; }}
@@ -125,47 +109,57 @@ export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibr
             <span style={{ display: 'none' }} className="nav-lib-label">{t('nav.library')}</span>
             {docCount > 0 && (
               <span style={{
-                position: 'absolute',
-                top: '-6px',
-                right: '-6px',
-                background: 'var(--blue)',
-                color: 'white',
-                fontSize: '10px',
-                fontWeight: 700,
-                borderRadius: '999px',
-                minWidth: '18px',
-                height: '18px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '0 4px',
-                border: '2px solid white',
+                position: 'absolute', top: '-6px', right: '-6px', background: 'var(--blue)',
+                color: 'white', fontSize: '10px', fontWeight: 700, borderRadius: '999px',
+                minWidth: '18px', height: '18px', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', padding: '0 4px', border: '2px solid white',
               }}>
                 {docCount > 99 ? '99+' : docCount}
               </span>
             )}
           </button>
 
+          {/* Connexion / Compte */}
+          {user ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span
+                style={{
+                  background: 'var(--blue-light)', color: 'var(--blue)',
+                  fontSize: '11px', fontWeight: 600, padding: '3px 8px', borderRadius: '6px',
+                  textTransform: 'uppercase', letterSpacing: '0.03em',
+                }}
+              >{user.plan}</span>
+              <button
+                onClick={() => navigate('/login')}
+                style={{
+                  width: '32px', height: '32px', borderRadius: '999px',
+                  background: 'var(--blue)', color: 'white', border: 'none',
+                  fontWeight: 700, fontSize: '13px', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontFamily: 'inherit',
+                }}
+                title={user.email}
+              >{avatarLetter}</button>
+            </div>
+          ) : (
+            <button
+              onClick={() => navigate('/login')}
+              className="nav-cta"
+              style={{
+                padding: '8px 16px', borderRadius: '8px', border: 'none',
+                background: 'var(--blue)', color: 'white', fontWeight: 600,
+                fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit',
+                transition: 'all 0.18s ease',
+              }}
+            >{t('nav.signIn')}</button>
+          )}
+
           <div className="lang-toggle">
-            <button
-              className={i18n.language === 'fr' ? 'active' : ''}
-              onClick={() => i18n.changeLanguage('fr')}
-            >
-              FR
-            </button>
-            <button
-              className={i18n.language === 'en' ? 'active' : ''}
-              onClick={() => i18n.changeLanguage('en')}
-            >
-              EN
-            </button>
+            <button className={i18n.language === 'fr' ? 'active' : ''} onClick={() => i18n.changeLanguage('fr')}>FR</button>
+            <button className={i18n.language === 'en' ? 'active' : ''} onClick={() => i18n.changeLanguage('en')}>EN</button>
           </div>
 
-          <button
-            className="hamburger"
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-            aria-label="Toggle menu"
-          >
+          <button className="hamburger" onClick={() => setIsMenuOpen(!isMenuOpen)} aria-label="Toggle menu">
             <span style={{ transform: isMenuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' }} />
             <span style={{ opacity: isMenuOpen ? 0 : 1 }} />
             <span style={{ transform: isMenuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none' }} />
@@ -173,13 +167,8 @@ export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibr
         </div>
       </nav>
 
-      <MobileMenu
-        isOpen={isMenuOpen}
-        links={navLinks}
-        activeSection={activeSection}
-        onNavClick={handleClick}
-        onClose={() => setIsMenuOpen(false)}
-      />
+      <MobileMenu isOpen={isMenuOpen} links={navLinks} activeSection={activeSection}
+        onNavClick={handleClick} onClose={() => setIsMenuOpen(false)} />
     </>
   );
 }

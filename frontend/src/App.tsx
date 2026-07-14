@@ -8,15 +8,7 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import VerifyEmailPage from './pages/VerifyEmailPage';
 
-/** Redirige vers /login si pas connecté, affiche un loader pendant la vérification. */
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
-  if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="w-6 h-6 border-2 border-neutral-300 border-t-neutral-900 rounded-full animate-spin" /></div>;
-  if (!user) return <Navigate to="/login" replace />;
-  return <>{children}</>;
-}
-
-/** Redirige vers /home si déjà connecté (pas de double login). */
+/** Redirige vers /home si déjà connecté ( pages auth ). */
 function GuestRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   if (loading) return null;
@@ -36,10 +28,11 @@ export default function App() {
           )}
         </AnimatePresence>
         <Routes>
+          {/* Accès visiteur : la page d'accueil est ouverte à tous */}
+          <Route path="/home" element={<Home />} />
           <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
           <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />
-          <Route path="/home" element={<ProtectedRoute><Home /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
       </AuthProvider>

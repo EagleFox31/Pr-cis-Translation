@@ -5,7 +5,8 @@
     "howItWorks": "How it works",
     "pricing": "Pricing",
     "about": "About",
-    "library": "My docs"
+    "library": "My docs",
+    "signIn": "Sign In"
   },
   "hero": {
     "badge": "Layout engine v2",
