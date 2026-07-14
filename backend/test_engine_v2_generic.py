@@ -112,6 +112,24 @@ def build(path):
         pg.insert_text((45, y), "•", fontname=FONT, fontsize=10, color=NOIR)
         pg.insert_text((63, y), item, fontname=FONT, fontsize=10, color=NOIR)
 
+    # ── P14 : bloc FERRÉ À DROITE (adresse / date d'un courrier) ─────────────
+    # Bord droit à fleur, bord gauche franchement déchiqueté.
+    droite = ["Northern Operations Office", "1420 Harbour Road, Suite 7",
+              "Portsmouth, PO1 3AX", "14 November"]
+    x_fer = 545
+    for i, l in enumerate(droite):
+        pg.insert_text((x_fer - _w(l, 9.5), 400 + i * 12), l, fontname=FONT,
+                       fontsize=9.5, color=NOIR)
+
+    # ── P14 : bloc CENTRÉ multi-lignes (exergue) ────────────────────────────
+    centre = ["Output held firm through the quarter",
+              "across every regional site",
+              "without additional capacity"]
+    cx = 180
+    for i, l in enumerate(centre):
+        pg.insert_text((cx - _w(l, 10) / 2, 400 + i * 13), l, fontname=FONT,
+                       fontsize=10, color=NOIR)
+
     # ── P10 : titre VERTICAL à lettres espacées (marge gauche) ───────────────
     mot = "APPENDIX SECTION"
     y = 640                                   # part du bas, monte (dir = 0,-1)
@@ -197,6 +215,40 @@ def run():
        f"{len(orphelines)} marqueur(s) orphelin(s) ; "
        f"x0 des items = {[round(p['bbox'][0], 1) for p in items]} (attendu ≈ 45)")
 
+    # ── P14 : ALIGNEMENTS ───────────────────────────────────────────────────
+    def _para(frag):
+        return next((p for p in paras if frag in _txt(p)), None)
+
+    # Le bloc d'adresse est LÉGITIMEMENT découpé (ses retours à la ligne sont
+    # volontaires — l'Étape A les sépare) : on vérifie que CHAQUE morceau est
+    # reconnu ferré à droite, qu'il ait plusieurs lignes ou une seule (la pile).
+    morceaux = [p for p in paras
+                if any(k in _txt(p) for k in ("Northern Operations", "Harbour Road",
+                                              "Portsmouth", "14 November"))]
+    p_dr = morceaux[0] if morceaux else None
+    ok("P14  bloc ferré à DROITE détecté (tous ses morceaux)",
+       morceaux and all(p.get("align") == "right" for p in morceaux),
+       f"aligns={[p.get('align') for p in morceaux]}")
+    p_ce = _para("Output held firm through the quarter")
+    ok("P14  bloc CENTRÉ multi-lignes détecté",
+       p_ce is not None and p_ce.get("align") == "center",
+       f"align={(p_ce or {}).get('align')}")
+    p_pu = _para("Capacity was added")
+    ok("P14  une liste à PUCES reste ferrée à gauche",
+       p_pu is not None and p_pu.get("align") == "left",
+       f"align={(p_pu or {}).get('align')}")
+    p_col = _para("Regional plants raised")
+    ok("P14  une colonne de texte au fer à gauche le reste",
+       p_col is not None and p_col.get("align") in ("left", "justify"),
+       f"align={(p_col or {}).get('align')}")
+    if p_dr:
+        cb = p_dr.get("container_bbox") or p_dr["bbox"]
+        ok("P14  le conteneur du bloc DROITE s'étend vers la GAUCHE "
+           "(bord droit figé)",
+           cb[0] < p_dr["bbox"][0] - 1 and cb[2] <= p_dr["bbox"][2] + 1,
+           f"bbox=[{p_dr['bbox'][0]:.0f},{p_dr['bbox'][2]:.0f}] "
+           f"conteneur=[{cb[0]:.0f},{cb[2]:.0f}]")
+
     # ── P10 : le vertical est LU ────────────────────────────────────────────
     def _rot(p):
         return any(abs((r.get("dir") or [1, 0])[1]) > 0.01
@@ -249,6 +301,30 @@ def run():
                if any(k in t for k in ("Région", "Production", "Variation"))]
     ok("P10  un en-tête pivoté serré ne se REPLIE pas sur 2 lignes",
        len(entetes) == 3, f"{len(entetes)} en-tête(s) rendu(s) : {entetes}")
+
+    # ── P14 : le RENDU traduit conserve le fer à droite ─────────────────────
+    horiz = [(ln["bbox"], "".join(s["text"] for s in ln["spans"]))
+             for b in rendu for ln in b.get("lines", [])
+             if abs(ln["dir"][1]) <= 0.01]
+    if morceaux:
+        y0 = min(p["bbox"][1] for p in morceaux) - 3
+        y1 = max(p["bbox"][3] for p in morceaux) + 3
+        src_r = max(p["bbox"][2] for p in morceaux)
+        rendues = [bb for bb, t in horiz
+                   if y0 <= bb[1] <= y1 and bb[0] > 300]   # le bloc de droite seul
+        if len(rendues) >= 2:
+            bords = [bb[2] for bb in rendues]
+            gauches = [bb[0] for bb in rendues]
+            ok("P14  au RENDU, le bloc DROITE reste ferré à droite "
+               "(bords droits alignés, gauches déchiquetés)",
+               max(bords) - min(bords) <= 3.0
+               and max(gauches) - min(gauches) > 8.0
+               and abs(max(bords) - src_r) <= 4.0,
+               f"bords droits={[round(b) for b in bords]} (source {src_r:.0f}) ; "
+               f"gauches={[round(g) for g in gauches]}")
+        else:
+            ok("P14  au RENDU, le bloc DROITE reste ferré à droite",
+               False, f"{len(rendues)} ligne(s) retrouvée(s)")
 
     # ── Rapport ─────────────────────────────────────────────────────────────
     print("=" * 78)

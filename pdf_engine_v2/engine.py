@@ -1172,6 +1172,26 @@ class PDFObjectEngine:
                 if ox0 >= pright - 0.5 and ox0 < right_block:
                     right_block = ox0
 
+            # Objet le plus proche à GAUCHE — symétrique. Il n'existait pas :
+            # l'expansion n'allait jamais vers la gauche, et le conteneur d'un
+            # bloc CENTRÉ partait du bord de colonne sans s'arrêter au premier
+            # objet à sa gauche. Il borne désormais le côté gauche d'un bloc
+            # centré (et, à terme, d'un bloc ferré à droite).
+            left_block = float("-inf")
+            for q in boxed:
+                if q is p:
+                    continue
+                qb = q["bbox"]
+                if qb[3] <= ptop or qb[1] >= pbottom:
+                    continue
+                if qb[2] <= pleft + 0.5 and qb[2] > left_block:
+                    left_block = qb[2]
+            for ox0, oy0, ox1, oy1 in obstacles:
+                if oy1 <= ptop or oy0 >= pbottom:
+                    continue
+                if ox1 <= pleft + 0.5 and ox1 > left_block:
+                    left_block = ox1
+
             # Marges de la COLONNE via les paragraphes qui chevauchent p.
             col_left, col_right = pleft, pright
             has_col_sibling = False
@@ -1187,10 +1207,48 @@ class PDFObjectEngine:
                 if qb[2] >= pright - tol:               # finit à droite → marge gauche
                     col_left = min(col_left, qb[0])
 
-            col_w = max(1.0, col_right - col_left)
-            lg, rg = pleft - col_left, col_right - pright
+            # ── CADRE DE RÉFÉRENCE DE L'ALIGNEMENT ──────────────────────────
+            # Un alignement n'a de sens que DANS UNE BOÎTE. Hiérarchie, du plus
+            # serré au plus lâche : cellule de tableau → boîte contenante
+            # (panneau, encadré) → colonne. Sans elle, une cellule de tableau
+            # prend la LARGEUR DE PAGE pour cadre et son texte paraît centré
+            # (démo : « Fiches produits et avis clients », blancs de 219 et
+            # 227 pt vers les bords de la PAGE → faux centrage).
+            # NB : ce cadre sert au DIAGNOSTIC d'alignement ; l'expansion du
+            # conteneur garde sa propre logique (`ref_right`), déjà bornée par
+            # les cellules et les boîtes plus bas.
+            page_area = (page_w or 1.0) * (ctx.get("height") or 1.0)
+            pcx, pcy = (pleft + pright) / 2, (ptop + pbottom) / 2
+            frame = None
+            frame_dur = False          # cadre AUTORITAIRE (cellule / boîte) ?
+            for cx0, cy0, cx1, cy1 in ctx.get("cells", ()):
+                if cx0 <= pcx <= cx1 and cy0 <= pcy <= cy1:
+                    frame = (cx0 + 2.0, cx1 - 2.0)
+                    frame_dur = True
+                    break
+            if frame is None:
+                box, box_area = None, None
+                for ob in obstacles:
+                    if (ob[0] <= pleft + 2 and ob[1] <= ptop + 2
+                            and ob[2] >= pright - 2 and ob[3] >= pbottom - 2):
+                        area = (max(0.0, ob[2] - ob[0])
+                                * max(0.0, ob[3] - ob[1]))
+                        if area < 0.6 * page_area and (box_area is None
+                                                       or area < box_area):
+                            box, box_area = ob, area
+                if box is not None:
+                    frame = (box[0], box[2])
+                    frame_dur = True
+            if frame is None:
+                frame = (col_left, col_right)
+            f_left, f_right = frame
+            if f_right - f_left < 1.0:                  # cadre dégénéré
+                f_left, f_right = col_left, col_right
+
+            col_w = max(1.0, f_right - f_left)
+            lg, rg = pleft - f_left, f_right - pright
             min_gap = max(14.0, 0.08 * col_w)
-            col_center, para_center = (col_left + col_right) / 2, (pleft + pright) / 2
+            col_center, para_center = (f_left + f_right) / 2, (pleft + pright) / 2
             near_center = abs(para_center - col_center) <= 0.12 * col_w
             # Le vrai signe du CENTRAGE : les bords GAUCHES des lignes varient
             # fortement (chaque ligne recentrée), pas les marges du bloc. Un bloc
@@ -1214,38 +1272,111 @@ class PDFObjectEngine:
 
             lbb = [ln["bbox"] for ln in p.get("lines", [])
                    if ln.get("bbox") and len(ln["bbox"]) >= 4]
+            ferre_droite = False
             if len(lbb) >= 2:
+                # TAXONOMIE PAR VARIANCES — le bord le plus STABLE d'un paragraphe
+                # trahit son alignement :
+                #     vG minimale -> ferré à GAUCHE       vD minimale -> à DROITE
+                #     vC minimale -> CENTRÉ               vG et vD ~0 -> JUSTIFIÉ
+                # Elle est SANS CADRE, donc immunisée à une colonne mal estimée
+                # (un bandeau pleine largeur élargit la « colonne » d'un article
+                # et ruine tout calcul de marge — mesuré sur la démo).
                 lefts = [b[0] for b in lbb]
+                rights = [b[2] for b in lbb]
                 cents = [(b[0] + b[2]) / 2 for b in lbb]
-                left_var = max(lefts) - min(lefts)
-                center_var = max(cents) - min(cents)
-                # FERRÉ À GAUCHE si la majorité des lignes partagent la marge
-                # gauche minimale (un alinéa de 1re ligne ou une dernière ligne
-                # courte ne suffit pas à « centrer »). CENTRÉ = chaque ligne a une
-                # gauche différente (aucune marge gauche dominante).
+                vg = max(lefts) - min(lefts)
+                vd = max(rights) - min(rights)
+                vc = max(cents) - min(cents)
+                largeur = max(1.0, max(rights) - min(lefts))
+                tol_b = max(2.5, 0.25 * size)          # « à fleur » : ~¼ de cadratin
+                # Un bord n'est « franchement déchiqueté » que s'il varie BEAUCOUP.
+                # Sans cette exigence, deux lignes d'un item à puce qui finissent
+                # par hasard au même bord droit passeraient pour ferrées à droite
+                # (mesuré sur mv21) — or c'est le lot de tout texte qui remplit sa
+                # ligne.
+                franc = max(4.0 * tol_b, 0.12 * largeur)
                 min_left = min(lefts)
                 at_left = sum(1 for l in lefts if l - min_left <= 3.0)
                 left_aligned = at_left >= 0.6 * len(lefts)
-                centered = (not wrapped and not left_aligned and left_var > 8.0
-                            and center_var < left_var and near_center)
-                # JUSTIFIÉ (signal géométrique, général) : bloc ferré à gauche
-                # dont les lignes INTÉRIEURES (hors dernière) atteignent toutes le
-                # MÊME bord droit (faible variance) — c'est le fer à droite du
-                # texte justifié. En ferré-à-gauche « en drapeau », ces bords
-                # varient beaucoup. Nécessite ≥ 3 lignes (2 intérieures + dernière).
-                if not centered and left_aligned and len(lbb) >= 3:
+
+                # ORDRE DE DÉCISION — le FER À DROITE se juge EN PREMIER, sinon un
+                # bloc ferré à droite passe pour JUSTIFIÉ : ses bords droits sont
+                # à fleur, et il suffit que deux de ses bords gauches tombent près
+                # l'un de l'autre par hasard pour qu'il paraisse ferré à gauche
+                # (adresse du test synthétique : gauches 438 / 440 / 467 → le
+                # comptage majoritaire concluait « ferré à gauche »). Le VRAI
+                # discriminant est le bord GAUCHE : déchiqueté pour un fer à
+                # droite, à fleur pour un justifié.
+                ferre_droite = (not wrapped and vd <= tol_b and vg >= franc)
+
+                # `near_center` n'intervient PAS ici : il exigerait que le bloc
+                # soit centré sur l'axe de sa COLONNE — or cette colonne est
+                # souvent polluée (un bandeau pleine largeur l'élargit). Des
+                # lignes qui partagent un axe commun (vC ≈ 0) alors que leurs DEUX
+                # bords sont déchiquetés sont centrées, que cet axe coïncide ou
+                # non avec celui de la colonne. La variance se suffit à elle-même ;
+                # le cadre ne sert qu'au mono-ligne, où il n'y a pas de variance.
+                centered = (not ferre_droite and not wrapped
+                            and vc <= tol_b and vg >= franc and vd >= franc)
+
+                # JUSTIFIÉ (inchangé) : ferré à gauche ET lignes INTÉRIEURES au
+                # même bord droit (la dernière est libre). ≥ 3 lignes.
+                if (not ferre_droite and not centered
+                        and left_aligned and len(lbb) >= 3):
                     inner_rights = [b[2] for b in lbb[:-1]]
                     spread = max(inner_rights) - min(inner_rights)
                     justified = spread <= max(0.5 * size, 0.03 * col_w)
                 else:
                     justified = False
             else:
-                # Mono-ligne : exiger des marges SUBSTANTIELLES des deux côtés
-                # (fraction de la colonne), sinon une puce courte ferrée à gauche
-                # (léger retrait ≈ espace droit inutilisé) passerait pour centrée.
-                big = max(min_gap, 0.18 * col_w)
+                # MONO-LIGNE — pas de variance interne : deux signaux distincts.
+                #
+                # (a) CENTRÉ : la SYMÉTRIE des deux blancs dans SON cadre, pas
+                # leur taille. L'ancien seuil (`0.18 × col_w`) rejetait un bloc
+                # parfaitement symétrique parce que ses marges valaient 17,5 % de
+                # la colonne au lieu de 18 % (démo : « BREAKING NEWS », blancs de
+                # 92,8 pt de CHAQUE côté, raté de 2,8 pt). On assouplit la taille
+                # exigée et on DURCIT la symétrie en échange.
+                big = max(min_gap, 0.10 * col_w)
+                sym = max(4.0, 0.03 * col_w)
                 centered = (lg > big and rg > big and near_center
-                            and abs(lg - rg) <= max(6.0, 0.12 * col_w))
+                            and abs(lg - rg) <= sym)
+                # (b) FERRÉ À DROITE : une ligne SEULE ne peut rien dire d'elle-
+                # même — c'est sa PILE qui parle. Un bloc ferré à droite (adresse,
+                # date, colonne de folios) est découpé en lignes autonomes par
+                # l'Étape A, ses retours étant volontaires. On le reconnaît à ce
+                # que ses voisines VERTICALES partagent son bord DROIT tandis que
+                # leurs bords gauches se dispersent.
+                tol_b = max(2.5, 0.25 * size)
+                # Un bloc ferré à droite est ADOSSÉ au bord droit de son cadre —
+                # c'est le sens même de « ferré à droite ». Sans cette exigence,
+                # deux lignes quelconques dont les bords droits coïncident (une
+                # pile de 2 est une preuve mince) suffisaient : l'en-tête courant
+                # de mv21, « 6 | Driver's Manual », collé à la marge GAUCHE de sa
+                # page, passait pour ferré à droite.
+                colle_droite = pright >= f_right - max(2.0 * safety, 0.05 * col_w)
+                if not centered and not wrapped and colle_droite:
+                    pile_r, pile_l = [pright], [pleft]
+                    h = max(1.0, pbottom - ptop)
+                    for q in boxed:
+                        if q is p:
+                            continue
+                        qb = q["bbox"]
+                        if min(qb[2], pright) - max(qb[0], pleft) <= 0.5:
+                            continue                    # pas la même colonne
+                        if qb[1] - pbottom > 2.5 * h or ptop - qb[3] > 2.5 * h:
+                            continue                    # hors de la pile
+                        pile_r.append(qb[2])
+                        pile_l.append(qb[0])
+                    if len(pile_r) >= 2:                # p + au moins 1 voisine
+                        vd_p = max(pile_r) - min(pile_r)
+                        vg_p = max(pile_l) - min(pile_l)
+                        # « Franc » se mesure sur la largeur de LA PILE, pas sur
+                        # celle de la colonne (une pile étroite adossée à la marge
+                        # droite d'une page large ne pourrait jamais l'atteindre).
+                        larg_p = max(1.0, max(pile_r) - min(pile_l))
+                        ferre_droite = (vd_p <= tol_b and vg_p >=
+                                        max(4.0 * tol_b, 0.12 * larg_p))
                 justified = False
 
             # Bord droit de référence. La marge SYMÉTRIQUE n'est un repli que si
@@ -1274,7 +1405,6 @@ class PDFObjectEngine:
             # padding gauche constaté. La plus PETITE boîte contenante gagne
             # (la boîte-cellule avant la boîte-tableau) ; les fonds quasi
             # pleine page sont ignorés.
-            page_area = (page_w or 1.0) * (ctx.get("height") or 1.0)
             best_box, best_area = None, None
             for ob in obstacles:
                 if (ob[0] <= pleft + 2 and ob[1] <= ptop + 2
@@ -1288,11 +1418,58 @@ class PDFObjectEngine:
                 ref_right = min(ref_right, best_box[2] - pad)
             ref_right = max(ref_right, pright)          # jamais rétrécir
 
-            left_edge = col_left if centered else None
-            if centered and right_block != float("inf"):
-                left_edge = pleft                       # bloqué à droite : pas de recentrage large
-                centered = False
+            # Conteneur d'un bloc CENTRÉ : il s'étend des DEUX côtés, borné par le
+            # premier objet de CHAQUE côté (l'« espace disponible » réel).
+            #
+            # Avant, un bloqueur à droite faisait `centered = False` : l'objet ne
+            # bornait pas le conteneur, il DÉTRUISAIT l'alignement. Or dans une
+            # page multi-colonnes tout est borné à droite — donc toute légende,
+            # tout bandeau centré dans sa colonne repassait ferré à gauche (démo :
+            # « Trading floor at the New York Stock Exchange », blancs de 201 pt
+            # de chaque côté, rendu à gauche). Un bloqueur BORNE, il n'annule pas.
+            # Texte INCLINÉ / VERTICAL : toute cette géométrie est mesurée en x,
+            # or pour lui l'axe d'écriture est l'AUTRE. Les blancs gauche/droite
+            # y sont l'espace TRANSVERSE — les interpréter comme un alignement
+            # n'a aucun sens (les en-têtes pivotés de la démo ressortaient
+            # « centrés »). On ne conclut rien : le rendu part de l'origine
+            # source, ce qui est fidèle.
+            if not self._para_is_horizontal(p):
+                centered = justified = ferre_droite = False
+
+            # Bord GAUCHE du conteneur. Il ne bouge que si l'alignement l'exige :
+            #   centré  → s'étend des DEUX côtés (espace disponible réel) ;
+            #   droite  → s'étend vers la GAUCHE (le texte croît vers la gauche) ;
+            #   gauche/justifié → bord gauche FIGÉ (comportement historique).
+            if ferre_droite:
+                # Le texte croît vers la GAUCHE : on lui donne le blanc réel de ce
+                # côté — jusqu'au 1er objet à sa gauche, sinon jusqu'à la marge
+                # SYMÉTRIQUE (miroir exact du `page_w - pleft` dont bénéficie un
+                # bloc ferré à gauche vraiment seul). `col_left` ne convient pas :
+                # il reste collé au bord du bloc quand aucun voisin ne finit à sa
+                # droite (cas d'un bloc adossé à la marge droite de la page).
+                if left_block != float("-inf"):
+                    lo = left_block + safety
+                elif page_w:
+                    lo = max(0.0, page_w - pright)
+                else:
+                    lo = pleft
+                if frame_dur:
+                    lo = max(lo, f_left)                # cellule / boîte : borne dure
+                left_edge = min(lo, pleft)              # jamais rétrécir la ligne
+            elif centered:
+                left_edge = f_left                      # bord gauche de SON cadre
+                if left_block != float("-inf"):
+                    left_edge = max(left_edge, left_block + safety)
+                left_edge = min(left_edge, pleft)       # jamais rétrécir la ligne
+            else:
+                left_edge = None
+            # FERRÉ À DROITE : le bord droit est le point FIXE — on n'étend pas
+            # vers la droite (ce serait déplacer le fer). Symétrique exact du
+            # bord gauche figé d'un texte ferré à gauche.
+            if ferre_droite:
+                ref_right = pright
             align_mode = ("center" if centered
+                          else "right" if ferre_droite
                           else "justify" if justified else "left")
 
             # Bord droit cible PAR LIGNE : chaque bande y s'arrête au 1er
@@ -1540,6 +1717,7 @@ class PDFObjectEngine:
             left, right = it["left"], it["right"]
             # Voisines de colonne (chevauchement horizontal + proximité verticale).
             neigh = [it["right"]]
+            neigh_l = [it["left"]]
             for jt in items:
                 if jt is it:
                     continue
@@ -1548,9 +1726,20 @@ class PDFObjectEngine:
                 if abs(0.5 * (jt["top"] + jt["bottom"]) - cy) > win:
                     continue
                 neigh.append(jt["right"])
+                neigh_l.append(jt["left"])
             max_x1 = max(neigh)
             tol = 0.5 * it["size"]
             at_max = sum(1 for x in neigh if max_x1 - x <= tol)
+            # Une colonne qui COULE est à fleur des DEUX bords. Si les bords
+            # gauches sont déchiquetés alors que les droits s'alignent, ce n'est
+            # pas du texte qui coule : c'est un bloc FERRÉ À DROITE (adresse,
+            # date, signature), dont les retours à la ligne sont VOLONTAIRES.
+            # Sans cette réserve, son bord droit commun le faisait passer pour une
+            # colonne justifiée et ses 4 lignes fusionnaient en un paragraphe —
+            # que le reflow recoulait ensuite en une seule ligne.
+            min_x0 = min(neigh_l)
+            at_min = sum(1 for x in neigh_l if x - min_x0 <= tol)
+            coule = at_max >= 2 and at_min >= 2
             if page_w is None:
                 it["col_margin"] = max_x1
                 continue
@@ -1564,7 +1753,7 @@ class PDFObjectEngine:
             # restant (ce reliquat n'est qu'une gouttière). Sinon = item court
             # dans un espace ouvert (sommaire, liste, numéros) → référence =
             # espace ouvert, pour couper le retour à la ligne volontaire.
-            if at_max >= 2 and content_w >= remaining_open:
+            if coule and content_w >= remaining_open:
                 it["col_margin"] = max_x1
             else:
                 it["col_margin"] = openr

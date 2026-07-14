@@ -107,6 +107,45 @@
 > ordre (cellules `find_tables`, régularité inter-lignes des blancs) — c'est un
 > chantier à part entière, pas un réglage de seuil.
 
+## ✅ P14 — ALIGNEMENTS (2026-07-14) : centré · ferré à droite · cadre de référence
+
+> **Constat de départ.** Le justifié était traité, le centrage l'était mal, le
+> **fer à droite n'existait pas** (`reflow` ne connaissait même pas `align="right"`).
+
+| # | Problème | Cause (mesurée) | Correction |
+|---|----------|-----------------|------------|
+| **P14a** 🔴 | **Un bloqueur à droite ANNULAIT le centrage** — dans une page multi-colonnes tout est borné à droite, donc **toute** légende, tout bandeau centré repassait ferré à gauche (démo : « Trading floor at the New York Stock Exchange », blancs de **201 pt de chaque côté**, rendu à gauche) | `if centered and right_block != inf: centered = False` — l'objet ne bornait pas le conteneur, il **détruisait l'alignement** | Un bloqueur **BORNE**, il n'annule pas. Ajout de `left_block` (**symétrique** du `right_block` : il n'existait aucun bloqueur gauche). Le conteneur d'un bloc centré s'étend des **deux** côtés, jusqu'au 1er objet de chaque côté |
+| **P14b** 🟠 | Bloc **parfaitement symétrique** non centré (démo : « BREAKING NEWS », blancs de **92,8 pt de chaque côté**) | Le seuil mono-ligne exigeait des marges `> 0.18 × col_w` = 95,6 pt → **raté de 2,8 pt** | On assouplit la TAILLE exigée (`0.10 × col_w`) et on **durcit la SYMÉTRIE** en échange : le vrai signal n'est pas la taille des blancs, c'est leur égalité |
+| **P14c** 🔴 | **Cadre de référence faux** : une cellule de tableau prenait la **largeur de PAGE** pour cadre → son texte paraissait centré (démo : « Fiches produits et avis clients », blancs de 219 / 227 pt vers les bords de la page) | Aucune hiérarchie de cadres — `col_left`/`col_right` venaient des voisins, pollués par les blocs pleine largeur | **Hiérarchie** : cellule `find_tables` → boîte contenante (panneau) → colonne. Un alignement n'a de sens que **dans une boîte** |
+| **P14d** 🟠 | Détection multi-ligne par un signal **indirect** (variance des bords gauches), qui manquait des cas | — | **Taxonomie par VARIANCES** : le bord le plus STABLE trahit l'alignement (`vG` min → gauche, `vD` min → droite, `vC` min → centré). **Sans cadre**, donc immunisée à une colonne polluée — c'est ce qui fait échouer toute mesure par les blancs |
+| **P14e** 🔴 | **`align="right"` inexistant** : détection ET rendu | — | `reflow` : offset `right − x` (symétrique exact du centrage). Conteneur : bord droit **FIGÉ**, expansion **vers la GAUCHE** (le CONTEXTE disait « jamais vers la gauche » — ce n'est plus vrai) |
+| **P14f** 🟠 | Un bloc ferré à droite (adresse, date) était **fusionné** par l'Étape A puis recoulé en une seule ligne | La règle « espace restant » protège le « texte qui coule » dès que **≥ 2 lignes partagent le bord droit** — or c'est aussi la signature d'un fer à droite | Une colonne qui coule est à fleur des **DEUX** bords. Si les gauches sont déchiquetées et les droites alignées, les retours sont **VOLONTAIRES** → coupe |
+
+### Ordre de décision (le fer à droite se juge EN PREMIER)
+
+1. **Garde d'ENROULEMENT** (P5) — un bloc qui chevauche partiellement le paragraphe explique des bords variables : **ni centré, ni droite**.
+2. **DROITE** — `vD ≤ tol` **et** `vG ≥ franc`. *Avant justify* : un bloc ferré à droite a ses bords droits à fleur, et il suffit que deux de ses bords gauches tombent près l'un de l'autre par hasard (adresse du test : **438 / 440 / 467**) pour qu'il paraisse ferré à gauche. Le vrai discriminant est le bord **GAUCHE**.
+3. **CENTRÉ** — `vC ≤ tol` et les **deux** bords francs.
+4. **JUSTIFIÉ** — inchangé (ferré à gauche + lignes intérieures au même bord droit).
+5. **GAUCHE** — défaut.
+
+**Mono-ligne** (pas de variance) : centré par la **symétrie** de ses blancs dans son cadre ; ferré à droite par sa **PILE** — une ligne seule ne peut rien dire d'elle-même, ce sont ses voisines verticales qui parlent (elles partagent son bord droit, leurs gauches se dispersent). Garde-fou : **adossé au bord droit de son cadre** — sans lui, l'en-tête courant de mv21 (« 6 | Driver's Manual », collé à la marge **gauche**) passait pour ferré à droite.
+
+**Texte incliné** : aucune inférence — cette géométrie est mesurée en x, or son axe d'écriture est l'autre (les en-têtes pivotés de la démo ressortaient « centrés »).
+
+### Vérification
+
+| | Avant | Après |
+|---|---|---|
+| **mv21** | left 576 · justify 34 · center 4 | left 560 · justify **34** · center **20** |
+| **Handbook** | left 211 · justify 94 · center 4 | left 194 · justify **94** · center 4 · **right 17** |
+| **démo** | left 37 · justify 5 · center **0** | left 35 · justify **5** · center **2** |
+
+- **`justify` strictement inchangé** sur les 3 documents · **segmentation au sha1 près** (614 / 309 / 42).
+- mv21 p3 (affiche du don d'organes) : **entièrement centrée à la traduction** — elle était intégralement rendue au fer à gauche. Démo : « FLASH INFO » centré dans son bandeau, légende de photo centrée.
+- Handbook : les 17 « droite » sont les **folios de page** et une ligne de filigrane — tous légitimes.
+- **Aucun** bloc multi-ligne ferré à droite dans les 3 documents → `align="right"` est validé sur le **document synthétique** (`test_engine_v2_generic.py`, **19/19**).
+
 ## 🧪 AUDIT DE GÉNÉRICITÉ (2026-07-13) — `backend/test_engine_v2_generic.py`
 
 > **Le problème de fond.** P10-P13 ont été trouvés sur mv21, le Handbook et la

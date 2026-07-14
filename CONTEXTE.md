@@ -254,14 +254,43 @@ Bord droit cible :
 - sinon (**vraiment seul**, `has_col_sibling` faux) → **marge symétrique**
   (`page − marge gauche`).
 
-**Texte CENTRÉ** détecté (multi-ligne : chaque ligne a une gauche différente,
-donc **pas de marge gauche dominante** — un simple alinéa de 1re ligne ne compte
-pas ; mono-ligne : marges gauche/droite substantielles et ~égales) → conteneur =
-**colonne entière** et rendu **recentré** (`align=center`), sinon bord gauche figé
-et rendu ferré à gauche. **Garde anti-enroulement (P5)** : un bloc qui chevauche
-PARTIELLEMENT le bbox du paragraphe (encart, photo — pas un fond qui l'englobe)
-explique les gauches variables → jamais centré. `align` est mémorisé sur le
-paragraphe pour le reflow. Ne modifie ni le texte ni sa position d'origine.
+### Alignement (P14) — `left` · `center` · `right` · `justify`
+
+**Cadre de référence.** Un alignement n'a de sens que **dans une boîte**.
+Hiérarchie, du plus serré au plus lâche : **cellule** `find_tables` → **boîte
+contenante** (panneau) → **colonne**. Sans elle, une cellule prend la largeur de
+PAGE pour cadre et son texte paraît centré.
+
+**Taxonomie par VARIANCES** (multi-ligne) : le bord le plus **stable** trahit
+l'alignement — `vG` minimale → gauche, `vD` → droite, `vC` → centré. Elle est
+**sans cadre**, donc immunisée à une colonne polluée (un bandeau pleine largeur
+élargit la « colonne » d'un article et ruine tout calcul de marge).
+
+**Ordre de décision** — enroulement (P5) → **droite** → centré → justifié →
+gauche. Le fer à droite se juge **avant** le justifié : ses bords droits sont à
+fleur, et deux bords gauches proches par hasard suffiraient à le faire passer pour
+ferré à gauche. Le vrai discriminant est le bord **GAUCHE** (déchiqueté à droite,
+à fleur en justifié).
+
+**Mono-ligne** (pas de variance) : centré par la **symétrie** de ses blancs ;
+ferré à droite par sa **PILE** (ses voisines verticales partagent son bord droit,
+leurs gauches se dispersent), à condition d'être **adossé au bord droit de son
+cadre**. **Texte incliné** : aucune inférence (cette géométrie est mesurée en x,
+son axe d'écriture est l'autre).
+
+**Conteneur selon l'alignement** — c'est l'espace RÉELLEMENT disponible :
+- `left` / `justify` : bord gauche **figé**, expansion vers la droite ;
+- `center` : expansion des **deux** côtés, bornée par le 1er objet de chaque côté
+  (`left_block` / `right_block`). Un bloqueur **BORNE**, il n'**annule** pas
+  l'alignement — auparavant un objet à droite faisait `centered = False`, donc
+  toute légende centrée d'une page multi-colonnes repassait ferrée à gauche ;
+- `right` : bord droit **FIGÉ**, expansion vers la **GAUCHE** (jusqu'au
+  `left_block`, sinon marge symétrique).
+
+**Garde anti-enroulement (P5)** : un bloc qui chevauche PARTIELLEMENT le bbox du
+paragraphe (encart, photo — pas un fond qui l'englobe) explique les bords
+variables → jamais centré, jamais à droite. Ne modifie ni le texte ni sa position
+d'origine.
 
 ### Préparation d'une page traduite (P3 — `_prepare_translated_page`)
 Avant de peindre une page traduite : (1) **grow-into-gap** (`grow_into_gap`) —
@@ -339,7 +368,8 @@ Coule les segments traduits dans le polygone `container_lines` :
   **tracking → taille → interligne** (marges infimes), pour faire tenir une
   traduction plus longue. Si rien ne tient au niveau max → `fitted=False`
   (à signaler / re-traduire plus court).
-- **Alignement** : `left` (bord gauche figé) ou `center` (recentrage par ligne).
+- **Alignement** : `left` (bord gauche figé) · `center` (recentrage par ligne) ·
+  `right` (fer à droite, offset `right − x`) · `justify`.
 
 ### 4. Rendu traduit (`engine.reinject(translated=True)`)
 Peint la version traduite via reflow au lieu du rendu run-par-run.

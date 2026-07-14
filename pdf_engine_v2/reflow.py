@@ -214,6 +214,11 @@ def _layout(tokens, container_lines, first_baseline, bottom, size_scale, pitch,
                 if off > 0.5:
                     for rr in cur:
                         rr["x"] += off
+            elif align == "right":              # ferre la ligne sur `right`
+                off = right - x                 # (symétrique exact du centrage)
+                if off > 0.5:
+                    for rr in cur:
+                        rr["x"] += off
             elif align == "justify" and not last:
                 # JUSTIFICATION : répartit le blanc restant sur les espaces
                 # inter-mots (jamais la dernière ligne d'un paragraphe). On ne
