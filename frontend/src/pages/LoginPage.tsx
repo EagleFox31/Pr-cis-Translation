@@ -154,6 +154,10 @@ export default function LoginPage() {
               <p style={{ textAlign: 'center', fontSize: '13px', color: 'var(--gray-400)', margin: 0, lineHeight: 1.5 }}>
                 Pas de mot de passe. Un code à 6 chiffres vous sera envoyé.
               </p>
+
+              <p style={{ textAlign: 'center', fontSize: '14px', margin: 0 }}>
+                <Link to="/register" style={{ color: 'var(--blue)', fontWeight: 600, textDecoration: 'none' }}>Créer un compte</Link>
+              </p>
             </form>
           </>
         ) : (
