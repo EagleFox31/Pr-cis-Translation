@@ -126,6 +126,11 @@ export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibr
             )}
           </button>
 
+          <div className="lang-toggle">
+            <button className={i18n.language === 'fr' ? 'active' : ''} onClick={() => i18n.changeLanguage('fr')}>FR</button>
+            <button className={i18n.language === 'en' ? 'active' : ''} onClick={() => i18n.changeLanguage('en')}>EN</button>
+          </div>
+
           {/* Connexion / Compte */}
           {user ? (
             <div style={{ position: 'relative' }}>
@@ -149,8 +154,6 @@ export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibr
                   <path d="M1 1l4 4 4-4" />
                 </svg>
               </button>
-
-              {/* Menu déroulant */}
               {menuOpen && (
                 <>
                   <div style={{ position: 'fixed', inset: 0, zIndex: 998 }} onClick={() => setMenuOpen(false)} />
@@ -160,7 +163,6 @@ export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibr
                     boxShadow: '0 12px 32px rgba(0,0,0,.08)', zIndex: 999,
                     minWidth: '220px', padding: '6px', fontFamily: 'inherit',
                   }}>
-                    {/* Info utilisateur */}
                     <div style={{ padding: '10px 12px' }}>
                       <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--gray-900)', marginBottom: '1px' }}>
                         {user.name || user.email}
@@ -168,8 +170,6 @@ export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibr
                       <div style={{ fontSize: '12px', color: 'var(--gray-500)' }}>{user.email}</div>
                     </div>
                     <div style={{ height: '1px', background: 'var(--gray-100)', margin: '4px 0' }} />
-
-                    {/* Plan + stockage */}
                     <div style={{ padding: '8px 12px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                         <span style={{ fontSize: '12px', color: 'var(--gray-500)' }}>Forfait</span>
@@ -182,9 +182,7 @@ export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibr
                       <div style={{ fontSize: '12px', color: 'var(--gray-400)' }}>
                         {formatBytes(user.storage_used)} / {formatBytes(user.storage_limit)}
                       </div>
-                      <div style={{
-                        height: '3px', background: 'var(--gray-100)', borderRadius: '2px', marginTop: '5px',
-                      }}>
+                      <div style={{ height: '3px', background: 'var(--gray-100)', borderRadius: '2px', marginTop: '5px' }}>
                         <div style={{
                           height: '3px', borderRadius: '2px', background: 'var(--blue)',
                           width: `${Math.min(100, (user.storage_used / user.storage_limit) * 100)}%`,
@@ -192,10 +190,7 @@ export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibr
                         }} />
                       </div>
                     </div>
-
                     <div style={{ height: '1px', background: 'var(--gray-100)', margin: '4px 0' }} />
-
-                    {/* Actions */}
                     <button
                       onClick={() => { setMenuOpen(false); logout(); }}
                       style={{
@@ -217,13 +212,13 @@ export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibr
               )}
             </div>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
               <button
                 onClick={() => navigate('/login')}
                 style={{
-                  padding: '7px 15px', borderRadius: '8px', border: '1.5px solid var(--gray-200)',
+                  padding: '7px 14px', borderRadius: '8px', border: '1.5px solid var(--gray-200)',
                   background: 'transparent', color: 'var(--gray-700)', fontWeight: 600,
-                  fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit',
+                  fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
                   transition: 'all 0.18s ease',
                 }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--blue)'; e.currentTarget.style.color = 'var(--blue)'; }}
@@ -232,19 +227,14 @@ export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibr
               <button
                 onClick={() => navigate('/register')}
                 style={{
-                  padding: '7px 15px', borderRadius: '8px', border: 'none',
+                  padding: '7px 14px', borderRadius: '8px', border: 'none',
                   background: 'var(--blue)', color: 'white', fontWeight: 600,
-                  fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit',
+                  fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
                   transition: 'all 0.18s ease',
                 }}
               >{t('nav.signUp')}</button>
             </div>
           )}
-
-          <div className="lang-toggle">
-            <button className={i18n.language === 'fr' ? 'active' : ''} onClick={() => i18n.changeLanguage('fr')}>FR</button>
-            <button className={i18n.language === 'en' ? 'active' : ''} onClick={() => i18n.changeLanguage('en')}>EN</button>
-          </div>
 
           <button className="hamburger" onClick={() => setIsMenuOpen(!isMenuOpen)} aria-label="Toggle menu">
             <span style={{ transform: isMenuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' }} />
