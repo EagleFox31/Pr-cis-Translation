@@ -1,0 +1,340 @@
+"""
+Routes d'authentification — register, login, refresh, me, verify-email, google.
+"""
+from __future__ import annotations
+import os
+import secrets
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, status, Body
+from pydantic import BaseModel, EmailStr
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from database import get_db
+from models import User, VerificationCode
+from auth import (
+    hash_password, verify_password, create_access_token,
+    create_refresh_token, rotate_refresh_token, revoke_user_tokens,
+    require_auth,
+)
+from email_service import send_verification_email
+
+router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+VERIFICATION_CODE_EXPIRY_MINUTES = 15
+
+# ── Schémas ──────────────────────────────────────────────────────────────────
+
+class RegisterBody(BaseModel):
+    email: EmailStr
+    password: str
+    name: str | None = None
+
+class LoginBody(BaseModel):
+    email: EmailStr
+    password: str
+
+class RefreshBody(BaseModel):
+    refresh_token: str
+
+class VerifyCodeBody(BaseModel):
+    email: EmailStr
+    code: str
+
+class GoogleBody(BaseModel):
+    credential: str   # id_token JWT Google
+
+class AuthResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    user: dict
+
+
+def _user_response(user: User) -> dict:
+    return {
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "email_verified": user.email_verified,
+        "avatar_url": user.avatar_url,
+        "plan": user.plan,
+        "storage_used": user.storage_used,
+        "storage_limit": user.storage_limit,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+    }
+
+
+async def _generate_verification(db: AsyncSession, user: User) -> VerificationCode:
+    """Crée un code de vérification (6 chiffres + token lien)."""
+    # Invalider les anciens codes non utilisés
+    stmt = select(VerificationCode).where(
+        VerificationCode.user_id == user.id,
+        VerificationCode.used == False,  # noqa: E712
+    )
+    result = await db.execute(stmt)
+    for old in result.scalars().all():
+        old.used = True
+
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    token = secrets.token_urlsafe(32)
+    expires = datetime.now(timezone.utc) + timedelta(minutes=VERIFICATION_CODE_EXPIRY_MINUTES)
+
+    vc = VerificationCode(
+        user_id=user.id, code=code, token=token, expires_at=expires,
+    )
+    db.add(vc)
+    await db.commit()
+    await db.refresh(vc)
+    return vc
+
+
+# ── POST /register ───────────────────────────────────────────────────────────
+
+@router.post("/register", status_code=201)
+async def register(body: RegisterBody, db: AsyncSession = Depends(get_db)):
+    """Inscription : crée le compte, envoie l'email de vérification (code + lien)."""
+    # Email déjà utilisé ?
+    existing = await db.execute(select(User).where(User.email == body.email.lower().strip()))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Cet email est déjà utilisé.")
+
+    if len(body.password) < 8:
+        raise HTTPException(status_code=422, detail="Le mot de passe doit contenir au moins 8 caractères.")
+
+    user = User(
+        email=body.email.lower().strip(),
+        password_hash=hash_password(body.password),
+        name=body.name,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
+    vc = await _generate_verification(db, user)
+    await send_verification_email(user.email, vc.code, vc.token)
+
+    return {"message": "Compte créé. Vérifiez votre email pour activer votre compte."}
+
+
+# ── POST /login ──────────────────────────────────────────────────────────────
+
+@router.post("/login")
+async def login(body: LoginBody, db: AsyncSession = Depends(get_db)):
+    """Connexion email + mot de passe."""
+    stmt = select(User).where(User.email == body.email.lower().strip())
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if user is None or user.password_hash is None or not verify_password(body.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect.")
+
+    if not user.email_verified:
+        raise HTTPException(status_code=403, detail="Veuillez vérifier votre adresse email avant de vous connecter.")
+
+    access_token = create_access_token(user.id, user.email)
+    refresh_token = await create_refresh_token(db, user.id)
+
+    return AuthResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        user=_user_response(user),
+    )
+
+
+# ── POST /refresh ────────────────────────────────────────────────────────────
+
+@router.post("/refresh")
+async def refresh(body: RefreshBody, db: AsyncSession = Depends(get_db)):
+    """Rotation du refresh token → nouveau couple access + refresh."""
+    result = await rotate_refresh_token(db, body.refresh_token)
+    if result is None:
+        raise HTTPException(status_code=401, detail="Refresh token invalide ou expiré.")
+
+    new_refresh, user = result
+    access_token = create_access_token(user.id, user.email)
+
+    return AuthResponse(
+        access_token=access_token,
+        refresh_token=new_refresh,
+        user=_user_response(user),
+    )
+
+
+# ── POST /logout ─────────────────────────────────────────────────────────────
+
+@router.post("/logout")
+async def logout(
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Révoque tous les refresh tokens de l'utilisateur."""
+    await revoke_user_tokens(db, user.id)
+    return {"message": "Déconnecté."}
+
+
+# ── GET /me ──────────────────────────────────────────────────────────────────
+
+@router.get("/me")
+async def me(user: User = Depends(require_auth)):
+    """Profil de l'utilisateur connecté."""
+    return _user_response(user)
+
+
+# ── GET /verify-email (lien) ─────────────────────────────────────────────────
+
+@router.get("/verify-email")
+async def verify_email_link(token: str, db: AsyncSession = Depends(get_db)):
+    """Vérification par lien cliqué dans l'email.
+    Redirige vers le frontend avec le statut."""
+    from fastapi.responses import RedirectResponse
+
+    stmt = select(VerificationCode).where(
+        VerificationCode.token == token,
+        VerificationCode.used == False,  # noqa: E712
+    )
+    result = await db.execute(stmt)
+    vc = result.scalar_one_or_none()
+
+    if vc is None or vc.expires_at < datetime.now(timezone.utc):
+        return RedirectResponse(f"{FRONTEND_URL}/verify-email?error=expired")
+
+    vc.used = True
+    user = await db.get(User, vc.user_id)
+    if user:
+        user.email_verified = True
+    await db.commit()
+
+    return RedirectResponse(f"{FRONTEND_URL}/login?verified=1")
+
+
+# ── POST /verify-email (code) ────────────────────────────────────────────────
+
+@router.post("/verify-email")
+async def verify_email_code(body: VerifyCodeBody, db: AsyncSession = Depends(get_db)):
+    """Vérification par code 6 chiffres saisi manuellement.
+    Connecte directement l'utilisateur."""
+    stmt = select(User).where(User.email == body.email.lower().strip())
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
+
+    stmt = select(VerificationCode).where(
+        VerificationCode.user_id == user.id,
+        VerificationCode.code == body.code.strip(),
+        VerificationCode.used == False,  # noqa: E712
+    )
+    result = await db.execute(stmt)
+    vc = result.scalar_one_or_none()
+
+    if vc is None or vc.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Code invalide ou expiré.")
+
+    vc.used = True
+    user.email_verified = True
+    await db.commit()
+
+    access_token = create_access_token(user.id, user.email)
+    refresh_token = await create_refresh_token(db, user.id)
+
+    return AuthResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        user=_user_response(user),
+    )
+
+
+# ── POST /google ─────────────────────────────────────────────────────────────
+
+@router.post("/google")
+async def google_auth(body: GoogleBody, db: AsyncSession = Depends(get_db)):
+    """Connexion/inscription via Google OAuth."""
+    import google.auth.transport.requests
+    from google.oauth2 import id_token
+
+    google_client_id = os.getenv("GOOGLE_CLIENT_ID", "")
+    if not google_client_id:
+        raise HTTPException(status_code=501, detail="Google OAuth non configuré.")
+
+    try:
+        id_info = id_token.verify_oauth2_token(
+            body.credential,
+            google.auth.transport.requests.Request(),
+            google_client_id,
+        )
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token Google invalide.")
+
+    email = id_info.get("email", "").lower().strip()
+    google_id = id_info.get("sub", "")
+    name = id_info.get("name")
+    picture = id_info.get("picture")
+
+    if not email or not google_id:
+        raise HTTPException(status_code=400, detail="Le token Google est incomplet.")
+
+    # Chercher par google_id d'abord, puis par email
+    stmt = select(User).where(User.google_id == google_id)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        stmt = select(User).where(User.email == email)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+
+    if user is None:
+        # Création
+        user = User(
+            email=email,
+            google_id=google_id,
+            name=name,
+            avatar_url=picture,
+            email_verified=True,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+    else:
+        # Mise à jour
+        if not user.google_id:
+            user.google_id = google_id
+        if not user.avatar_url and picture:
+            user.avatar_url = picture
+        if not user.email_verified:
+            user.email_verified = True
+        await db.commit()
+        await db.refresh(user)
+
+    access_token = create_access_token(user.id, user.email)
+    refresh_token = await create_refresh_token(db, user.id)
+
+    return AuthResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        user=_user_response(user),
+    )
+
+
+# ── POST /resend-verification ────────────────────────────────────────────────
+
+@router.post("/resend-verification", status_code=201)
+async def resend_verification(email: EmailStr = Body(..., embed=True), db: AsyncSession = Depends(get_db)):
+    """Renvoie un email de vérification."""
+    stmt = select(User).where(User.email == email.lower().strip())
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        # Ne pas révéler si l'email existe ou pas
+        return {"message": "Si cet email est enregistré, un code de vérification lui a été envoyé."}
+
+    if user.email_verified:
+        return {"message": "Cet email est déjà vérifié."}
+
+    vc = await _generate_verification(db, user)
+    await send_verification_email(user.email, vc.code, vc.token)
+
+    return {"message": "Un nouveau code de vérification a été envoyé."}

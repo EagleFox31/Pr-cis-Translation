@@ -10,7 +10,7 @@ import hashlib
 import subprocess
 import tempfile
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException, status, Request
+from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException, status, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, Response
 from dotenv import load_dotenv
@@ -179,6 +179,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Routes auth & documents (comptes utilisateurs) ───────────────────────────
+from routes.auth import router as auth_router
+from routes.documents import router as documents_router
+app.include_router(auth_router)
+app.include_router(documents_router)
+
+# ── Route quota stockage ─────────────────────────────────────────────────────
+from auth import require_auth
+from models import User
+from database import get_db
+
+@app.get("/api/user/storage")
+async def user_storage(
+    user: User = Depends(require_auth),
+):
+    return {
+        "used": user.storage_used,
+        "limit": user.storage_limit,
+        "plan": user.plan,
+    }
 
 try:
     from slowapi import Limiter, _rate_limit_exceeded_handler
