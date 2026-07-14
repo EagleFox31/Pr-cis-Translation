@@ -1,7 +1,8 @@
 /**
  * Client HTTP pour l'API backend — gestion automatique du JWT + refresh.
  */
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000';
+// Vide = même origine, le proxy Vite redirige /api vers le backend
+const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 let _accessToken: string | null = null;
 let _refreshToken: string | null = null;
