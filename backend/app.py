@@ -29,8 +29,8 @@ _STARTUP_NOTES: list[tuple[int, str]] = []
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    for level, message in _STARTUP_NOTES:
-        logger.log(level, message)
+    for _level, message in _STARTUP_NOTES:
+        print(message, flush=True)
     yield
 
 FRONTEND_API_KEY = os.getenv("FRONTEND_API_KEY", "precis_frontend_secure_key_2026_xK9mP2vL")
@@ -121,7 +121,7 @@ def _find_soffice():
 
 SOFFICE_PATH = _find_soffice()
 if SOFFICE_PATH:
-    _STARTUP_NOTES.append((logging.INFO, f"LibreOffice : {SOFFICE_PATH}"))
+    _STARTUP_NOTES.append((logging.INFO, f"LibreOffice  ~  {SOFFICE_PATH}"))
 else:
     _STARTUP_NOTES.append((logging.WARNING, "LibreOffice introuvable : l'aperçu des formats non-PDF sera indisponible."))
 
@@ -247,7 +247,7 @@ if ai_active:
     _ready.append("IA")
 if limiter:
     _ready.append("rate-limit")
-_STARTUP_NOTES.append((logging.INFO, "Moteurs : " + " · ".join(_ready)))
+_STARTUP_NOTES.append((logging.INFO, "Moteurs     ~  " + " · ".join(_ready)))
 
 # Deux modes de traduction, choisis par requête via le paramètre `quality` :
 #  • "fast"    → modèle non-raisonnant, ~secondes/page, version stable (défaut) ;

@@ -85,6 +85,8 @@ if __name__ == "__main__":
     # Lancement d'uvicorn en tant que sous-processus.
     # --reload-dir : sans ça le reloader scrute toute la racine du dépôt, donc
     # node_modules/ et backend/venv/ — des milliers de fichiers relus en boucle.
+    # --log-level warning : supprime les messages INFO (watched dirs, reloader,
+    #   process startup). On affiche notre propre ligne de confirmation plus bas.
     uvicorn_args = [
         sys.executable, "-m", "uvicorn",
         "app:app",
@@ -92,6 +94,7 @@ if __name__ == "__main__":
         "--reload",
         "--reload-dir", "backend",
         "--reload-dir", "pdf_engine_v2",
+        "--log-level", "warning",
         "--port", str(port),
     ]
 
@@ -111,6 +114,10 @@ if __name__ == "__main__":
         env=env,
     )
     CHILD_PIDS.add(proc.pid)
+
+    # Ligne de confirmation concise (uvicorn tourne en --log-level warning,
+    # donc ses propres messages INFO sont masqués).
+    print(f"\n  API  ~  http://127.0.0.1:{port}", flush=True)
 
     try:
         proc.wait()
