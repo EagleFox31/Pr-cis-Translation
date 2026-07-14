@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Mail, User, ArrowRight, Loader2, ArrowLeft, RefreshCw, Sparkles } from 'lucide-react';
+import AuthBackground from '../components/auth/AuthBackground';
 
 const logo = '/Logo.png';
 
@@ -62,7 +63,8 @@ export default function RegisterPage() {
 
   return (
     <div style={pageStyle}>
-      <div style={cardStyle}>
+      <AuthBackground />
+      <div style={{ ...cardStyle, position: 'relative', zIndex: 1 }}>
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
           <img src={logo} alt="Précis" style={logoStyle} />
           <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--gray-900)', margin: '12px 0 2px', letterSpacing: '-0.02em' }}>Précis</h2>

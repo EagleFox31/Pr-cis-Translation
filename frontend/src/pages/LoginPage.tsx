@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Mail, ArrowRight, Loader2, ArrowLeft, RefreshCw, Sparkles } from 'lucide-react';
+import AuthBackground from '../components/auth/AuthBackground';
 
 const logo = '/Logo.png';
 
@@ -97,7 +98,8 @@ export default function LoginPage() {
 
   return (
     <div style={pageStyle}>
-      <div style={cardStyle}>
+      <AuthBackground />
+      <div style={{ ...cardStyle, position: 'relative', zIndex: 1 }}>
         {/* En-tête */}
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
           <img src={logo} alt="Précis" style={logoStyle} />

@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Mail, ArrowRight, Loader2, RefreshCw, ArrowLeft, Sparkles } from 'lucide-react';
+import AuthBackground from '../components/auth/AuthBackground';
 
 const logo = '/Logo.png';
 const pageStyle: React.CSSProperties = {
@@ -59,7 +60,8 @@ export default function VerifyEmailPage() {
 
   return (
     <div style={pageStyle}>
-      <div style={cardStyle}>
+      <AuthBackground />
+      <div style={{ ...cardStyle, position: 'relative', zIndex: 1 }}>
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
           <img src={logo} alt="Précis" style={logoStyle} />
           <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--gray-900)', margin: '12px 0 2px', letterSpacing: '-0.02em' }}>Précis</h2>
