@@ -6,6 +6,7 @@ import AuthBackground from '../components/auth/AuthBackground';
 
 const logo = '/Logo.png';
 const identityImg = '/Identite Precis.png';
+
 const pageStyle: React.CSSProperties = {
   minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
   background: 'linear-gradient(160deg, #f8fafc 0%, #eef2ff 40%, #f0f4ff 100%)',
@@ -16,7 +17,6 @@ const cardStyle: React.CSSProperties = {
   borderRadius: '20px', boxShadow: '0 1px 3px rgba(0,0,0,.04), 0 8px 32px rgba(0,0,0,.06)',
   border: '1px solid var(--gray-100)', padding: '36px 28px 32px',
 };
-const logoStyle: React.CSSProperties = { width: '40px', height: '40px', borderRadius: '10px', boxShadow: '0 2px 8px rgba(26,77,199,.15)' };
 const btnPrimary: React.CSSProperties = {
   width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
   gap: '8px', padding: '11px', borderRadius: '10px', border: 'none',
@@ -42,12 +42,13 @@ export default function VerifyEmailPage() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [resent, setResent] = useState(false);
-  const [tokenVerified, setTokenVerified] = useState(false);
 
+  // Vérification par lien → redirection navigateur (pas de fetch, pas de CORS)
   useEffect(() => {
-    if (!token || tokenVerified) return; setTokenVerified(true);
-    (async () => { try { const B = (import.meta as any).env.VITE_API_BASE || 'http://127.0.0.1:8000'; await fetch(`${B}/api/auth/verify-email?token=${encodeURIComponent(token)}`); navigate('/login?verified=1', { replace: true }); } catch { } })();
-  }, [token, tokenVerified, navigate]);
+    if (!token) return;
+    // Le backend redirige vers /login?verified=1 — on laisse le navigateur suivre
+    window.location.href = `/api/auth/verify-email?token=${encodeURIComponent(token)}`;
+  }, [token]);
 
   function h(i: number, v: string) { if (!/^\d?$/.test(v)) return; const n = [...code]; n[i] = v; setCode(n); if (v && i < 5) document.querySelector<HTMLInputElement>(`[data-vi="${i + 1}"]`)?.focus(); }
   function p(e: React.ClipboardEvent) { const x = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6); if (x.length === 6) { setCode(x.split('')); document.querySelector<HTMLInputElement>('[data-vi="5"]')?.focus(); } }
@@ -56,14 +57,14 @@ export default function VerifyEmailPage() {
   async function submit(e: FormEvent) {
     e.preventDefault(); const f = code.join(''); if (f.length !== 6) { setError('6 chiffres requis.'); return; } setError(''); setBusy(true);
     const r = await verifyCode(email, f); setBusy(false);
-    if (r.ok) navigate('/home', { replace: true }); else setError(r.error || 'Code invalide.');
+    if (r.ok) navigate('/home', { replace: true });
+    else setError(typeof r.error === 'string' ? r.error : 'Code invalide ou expiré.');
   }
 
   return (
     <div style={pageStyle}>
       <AuthBackground />
       <div style={{ ...cardStyle, position: 'relative', zIndex: 1 }}>
-        {/* En-tête — logo animé à gauche, image identité à droite */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '28px' }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
             <img src={logo} alt="P" style={{ height: '46px', width: 'auto' }} />
