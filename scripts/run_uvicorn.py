@@ -10,22 +10,33 @@ CHILD_PIDS: set[int] = set()
 
 
 def _kill_children():
-    """Tue tous les processus enfants connus, puis force le nettoyage du port."""
-    import signal as _sig
-    for pid in list(CHILD_PIDS):
-        try:
-            os.kill(pid, _sig.SIGTERM)
-        except (ProcessLookupError, OSError):
-            pass
-    # Laisser un court délai pour l'arrêt propre, puis forcer
+    """Tue tous les processus enfants connus, puis force le nettoyage du port.
+    Silencieuse : appelée depuis atexit et les handlers de signal, ne doit
+    jamais produire de traceback."""
     import time
-    time.sleep(0.5)
-    for pid in list(CHILD_PIDS):
-        try:
-            os.kill(pid, _sig.SIGKILL)
-        except (ProcessLookupError, OSError):
-            pass
-    CHILD_PIDS.clear()
+    try:
+        # Passe 1 : arrêt propre (SIGTERM fonctionne sur Windows et Unix)
+        for pid in list(CHILD_PIDS):
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except Exception:
+                pass
+        time.sleep(0.4)
+        # Passe 2 : force-kill — taskkill /F sur Windows, SIGKILL sur Unix
+        for pid in list(CHILD_PIDS):
+            try:
+                if sys.platform == "win32":
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(pid)],
+                        capture_output=True,
+                    )
+                else:
+                    os.kill(pid, signal.SIGKILL)
+            except Exception:
+                pass
+        CHILD_PIDS.clear()
+    except Exception:
+        pass
 
 
 def _cleanup_port(port: int):
@@ -55,7 +66,10 @@ atexit.register(_kill_children)
 
 # ── Gestion des signaux ───────────────────────────────────────────────────
 def _on_signal(signum, frame):
-    _kill_children()
+    try:
+        _kill_children()
+    except Exception:
+        pass
     sys.exit(0)
 
 
