@@ -1,7 +1,28 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Mail, ArrowRight, Loader2, ArrowLeft, RefreshCw } from 'lucide-react';
+import { Mail, ArrowRight, Loader2, ArrowLeft, RefreshCw, Sparkles } from 'lucide-react';
+
+const logo = '/Logo.png';
+
+/* ── Styles partagés ─────────────────────────────────────────────────── */
+
+const pageStyle: React.CSSProperties = {
+  minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  background: 'linear-gradient(160deg, #f8fafc 0%, #eef2ff 40%, #f0f4ff 100%)',
+  padding: '24px 16px', fontFamily: 'inherit',
+};
+
+const cardStyle: React.CSSProperties = {
+  width: '100%', maxWidth: '400px', background: 'white',
+  borderRadius: '20px', boxShadow: '0 1px 3px rgba(0,0,0,.04), 0 8px 32px rgba(0,0,0,.06)',
+  border: '1px solid var(--gray-100)', padding: '36px 28px 32px',
+};
+
+const logoStyle: React.CSSProperties = {
+  width: '40px', height: '40px', borderRadius: '10px',
+  boxShadow: '0 2px 8px rgba(26,77,199,.15)',
+};
 
 const inputBase: React.CSSProperties = {
   width: '100%', padding: '10px 12px 10px 38px', borderRadius: '10px',
@@ -17,11 +38,20 @@ const btnPrimary: React.CSSProperties = {
 };
 
 const digitBase: React.CSSProperties = {
-  width: '44px', height: '54px', textAlign: 'center', fontSize: '22px',
+  width: '46px', height: '56px', textAlign: 'center', fontSize: '22px',
   fontWeight: 700, borderRadius: '10px', outline: 'none',
   border: '1.5px solid var(--gray-200)', background: 'var(--gray-50)',
   fontFamily: 'inherit', boxSizing: 'border-box',
 };
+
+const focusIn = (e: React.FocusEvent<HTMLInputElement>) => {
+  e.target.style.borderColor = 'var(--blue)'; e.target.style.background = 'white';
+};
+const focusOut = (e: React.FocusEvent<HTMLInputElement>) => {
+  e.target.style.borderColor = 'var(--gray-200)'; e.target.style.background = 'var(--gray-50)';
+};
+
+/* ── Composant ────────────────────────────────────────────────────────── */
 
 export default function LoginPage() {
   const { login, verifyCode, resendVerification } = useAuth();
@@ -29,174 +59,135 @@ export default function LoginPage() {
   const [params] = useSearchParams();
   const verified = params.get('verified') === '1';
 
-  // Étape 1 : email
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [step, setStep] = useState<'email' | 'code'>('email');
-
-  // Étape 2 : code
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const [resent, setResent] = useState(false);
-  const codeRefs = Array.from({ length: 6 }, () => useState<HTMLInputElement | null>(null)[1]);
 
   async function handleEmail(e: FormEvent) {
-    e.preventDefault();
-    setError('');
-    setBusy(true);
-    const res = await login(email); // envoie le code
-    setBusy(false);
-    if (res.ok) setStep('code');
-    else setError(res.error || 'Erreur.');
-    return false;
+    e.preventDefault(); setError(''); setBusy(true);
+    const res = await login(email); setBusy(false);
+    if (res.ok) setStep('code'); else setError(res.error || 'Erreur.');
   }
 
-  function handleCodeInput(i: number, value: string) {
-    if (!/^\d?$/.test(value)) return;
-    const next = [...code];
-    next[i] = value;
-    setCode(next);
-    if (value && i < 5) {
-      const el = document.querySelector<HTMLInputElement>(`[data-code-idx="${i + 1}"]`);
-      el?.focus();
-    }
+  function handleCode(i: number, v: string) {
+    if (!/^\d?$/.test(v)) return;
+    const n = [...code]; n[i] = v; setCode(n);
+    if (v && i < 5) document.querySelector<HTMLInputElement>(`[data-ci="${i + 1}"]`)?.focus();
   }
-
-  function handleCodePaste(e: React.ClipboardEvent) {
-    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    if (pasted.length === 6) {
-      setCode(pasted.split(''));
-      document.querySelector<HTMLInputElement>('[data-code-idx="5"]')?.focus();
-    }
+  function pasteCode(e: React.ClipboardEvent) {
+    const p = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (p.length === 6) { setCode(p.split('')); document.querySelector<HTMLInputElement>('[data-ci="5"]')?.focus(); }
   }
-
-  function handleCodeKey(i: number, e: React.KeyboardEvent) {
-    if (e.key === 'Backspace' && !code[i] && i > 0)
-      document.querySelector<HTMLInputElement>(`[data-code-idx="${i - 1}"]`)?.focus();
+  function keyCode(i: number, e: React.KeyboardEvent) {
+    if (e.key === 'Backspace' && !code[i] && i > 0) document.querySelector<HTMLInputElement>(`[data-ci="${i - 1}"]`)?.focus();
   }
-
-  async function handleCodeSubmit(e: FormEvent) {
+  async function submitCode(e: FormEvent) {
     e.preventDefault();
     const full = code.join('');
     if (full.length !== 6) { setError('Veuillez saisir les 6 chiffres.'); return; }
-    setError('');
-    setBusy(true);
-    const res = await verifyCode(email, full);
-    setBusy(false);
+    setError(''); setBusy(true);
+    const res = await verifyCode(email, full); setBusy(false);
     if (res.ok) navigate('/home', { replace: true });
     else setError(res.error || 'Code invalide ou expiré.');
   }
-
-  async function handleResend() {
-    if (!email) return;
-    await resendVerification(email);
-    setResent(true);
-    setTimeout(() => setResent(false), 3000);
-  }
+  async function doResend() { if (!email) return; await resendVerification(email); setResent(true); setTimeout(() => setResent(false), 3000); }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'white', padding: '0 16px' }}>
-      <div style={{ width: '100%', maxWidth: '380px' }}>
+    <div style={pageStyle}>
+      <div style={cardStyle}>
+        {/* En-tête */}
+        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+          <img src={logo} alt="Précis" style={logoStyle} />
+          <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--gray-900)', margin: '12px 0 2px', letterSpacing: '-0.02em' }}>Précis</h2>
+          <p style={{ fontSize: '13px', color: 'var(--gray-400)', margin: 0 }}>Traduction intelligente</p>
+        </div>
 
         {step === 'email' ? (
           <>
-            <Link to="/home" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '14px', color: 'var(--gray-500)', marginBottom: '32px', textDecoration: 'none' }}>
-              <ArrowLeft size={15} /> Retour
+            <Link to="/home" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '13px', color: 'var(--gray-400)', marginBottom: '20px', textDecoration: 'none' }}>
+              <ArrowLeft size={14} /> Accueil
             </Link>
 
-            <h1 style={{ fontSize: '26px', fontWeight: 700, color: 'var(--gray-900)', margin: '0 0 4px', letterSpacing: '-0.02em' }}>Connexion</h1>
-            <p style={{ fontSize: '14px', color: 'var(--gray-500)', margin: '0 0 32px' }}>
-              Entrez votre email pour recevoir un code de connexion.
+            <h1 style={{ fontSize: '22px', fontWeight: 700, color: 'var(--gray-900)', margin: '0 0 4px' }}>Connexion</h1>
+            <p style={{ fontSize: '14px', color: 'var(--gray-500)', margin: '0 0 ' + (verified ? '12px' : '20px'), lineHeight: 1.5 }}>
+              Recevez un code de connexion par email.
             </p>
 
             {verified && (
-              <div style={{ marginBottom: '20px', padding: '12px', borderRadius: '10px', background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0', fontSize: '14px', fontWeight: 500 }}>
+              <div style={{ marginBottom: '16px', padding: '10px 12px', borderRadius: '10px', background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0', fontSize: '13px', fontWeight: 500 }}>
                 ✅ Email vérifié — connectez-vous.
               </div>
             )}
 
-            <form onSubmit={handleEmail} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {error && (
-                <div style={{ padding: '12px', borderRadius: '10px', background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', fontSize: '14px' }}>{error}</div>
-              )}
+            <form onSubmit={handleEmail} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {error && <div style={{ padding: '10px 12px', borderRadius: '10px', background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', fontSize: '13px' }}>{error}</div>}
 
               <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: 'var(--gray-700)', marginBottom: '6px' }}>Email</label>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: 'var(--gray-700)', marginBottom: '5px' }}>Email</label>
                 <div style={{ position: 'relative' }}>
-                  <Mail size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
+                  <Mail size={15} style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
                   <input type="email" required autoFocus value={email}
                     onChange={e => setEmail(e.target.value)} placeholder="vous@exemple.com"
-                    style={inputBase}
-                    onFocus={e => { e.target.style.borderColor = 'var(--blue)'; e.target.style.background = 'white'; }}
-                    onBlur={e => { e.target.style.borderColor = 'var(--gray-200)'; e.target.style.background = 'var(--gray-50)'; }}
-                  />
+                    style={inputBase} onFocus={focusIn} onBlur={focusOut} />
                 </div>
               </div>
 
               <button type="submit" disabled={busy} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }}>
-                {busy ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <ArrowRight size={16} />}
+                {busy ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <ArrowRight size={15} />}
                 Recevoir le code
               </button>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '8px 0' }}>
-                <div style={{ flex: 1, height: '1px', background: 'var(--gray-200)' }} />
-                <span style={{ fontSize: '12px', color: 'var(--gray-400)' }}>ou</span>
-                <div style={{ flex: 1, height: '1px', background: 'var(--gray-200)' }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '4px 0' }}>
+                <div style={{ flex: 1, height: '1px', background: 'var(--gray-200)' }} /><span style={{ fontSize: '11px', color: 'var(--gray-400)' }}>ou</span><div style={{ flex: 1, height: '1px', background: 'var(--gray-200)' }} />
               </div>
 
               <div id="google-signin-button" style={{ display: 'flex', justifyContent: 'center' }} />
 
-              <p style={{ textAlign: 'center', fontSize: '13px', color: 'var(--gray-400)', margin: 0 }}>
-                Pas de mot de passe nécessaire — un code sera envoyé à votre adresse.
+              <p style={{ textAlign: 'center', fontSize: '13px', color: 'var(--gray-400)', margin: 0, lineHeight: 1.5 }}>
+                Pas de mot de passe. Un code à 6 chiffres vous sera envoyé.
               </p>
             </form>
           </>
         ) : (
           <>
             <button onClick={() => setStep('email')}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '14px', color: 'var(--gray-500)', marginBottom: '32px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}>
-              <ArrowLeft size={15} /> Modifier l'email
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '13px', color: 'var(--gray-400)', marginBottom: '20px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}>
+              <ArrowLeft size={14} /> Modifier l'email
             </button>
 
-            <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-              <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '48px', height: '48px', borderRadius: '12px', background: 'var(--blue)', color: 'white', marginBottom: '16px' }}>
-                <Mail size={22} />
+            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '44px', height: '44px', borderRadius: '12px', background: 'var(--blue)', color: 'white', marginBottom: '12px' }}>
+                <Sparkles size={20} />
               </div>
-              <h1 style={{ fontSize: '26px', fontWeight: 700, color: 'var(--gray-900)', margin: '0 0 8px', letterSpacing: '-0.02em' }}>Vérifiez votre email</h1>
-              <p style={{ fontSize: '14px', color: 'var(--gray-500)', margin: 0, lineHeight: 1.6 }}>
-                Code envoyé à{' '}
-                <span style={{ fontWeight: 600, color: 'var(--gray-700)' }}>{email}</span>
+              <h1 style={{ fontSize: '22px', fontWeight: 700, color: 'var(--gray-900)', margin: '0 0 4px' }}>Vérification</h1>
+              <p style={{ fontSize: '14px', color: 'var(--gray-500)', margin: 0, lineHeight: 1.5 }}>
+                Code envoyé à <span style={{ fontWeight: 600, color: 'var(--gray-700)' }}>{email}</span>
               </p>
             </div>
 
-            <form onSubmit={handleCodeSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              {error && (
-                <div style={{ padding: '12px', borderRadius: '10px', background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', fontSize: '14px' }}>{error}</div>
-              )}
+            <form onSubmit={submitCode} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              {error && <div style={{ padding: '10px 12px', borderRadius: '10px', background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', fontSize: '13px' }}>{error}</div>}
 
-              <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }} onPaste={handleCodePaste}>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }} onPaste={pasteCode}>
                 {code.map((d, i) => (
-                  <input key={i} data-code-idx={i}
-                    type="text" inputMode="numeric" maxLength={1} value={d}
-                    onChange={e => handleCodeInput(i, e.target.value)}
-                    onKeyDown={e => handleCodeKey(i, e)}
-                    onFocus={e => { e.target.style.borderColor = 'var(--blue)'; e.target.style.background = 'white'; }}
-                    onBlur={e => { e.target.style.borderColor = 'var(--gray-200)'; e.target.style.background = 'var(--gray-50)'; }}
-                    style={digitBase}
-                    autoFocus={i === 0}
-                  />
+                  <input key={i} data-ci={i} type="text" inputMode="numeric" maxLength={1} value={d}
+                    onChange={e => handleCode(i, e.target.value)} onKeyDown={e => keyCode(i, e)}
+                    onFocus={focusIn} onBlur={focusOut} style={digitBase} autoFocus={i === 0} />
                 ))}
               </div>
 
               <button type="submit" disabled={busy} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }}>
-                {busy ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <ArrowRight size={16} />}
+                {busy ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <ArrowRight size={15} />}
                 Se connecter
               </button>
 
               <div style={{ textAlign: 'center' }}>
-                <button type="button" onClick={handleResend}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '14px', color: 'var(--gray-500)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
-                  <RefreshCw size={14} style={resent ? { animation: 'spin 1s linear infinite' } : undefined} />
+                <button type="button" onClick={doResend}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '13px', color: 'var(--gray-400)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  <RefreshCw size={13} style={resent ? { animation: 'spin 1s linear infinite' } : undefined} />
                   {resent ? 'Code renvoyé !' : 'Renvoyer le code'}
                 </button>
               </div>
