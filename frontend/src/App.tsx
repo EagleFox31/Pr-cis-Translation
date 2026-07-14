@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AnimatePresence } from 'motion/react';
+import { GoogleOAuthProvider } from '@react-oauth/google';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import SplashScreen from './components/SplashScreen';
 import Home from './pages/Home';
@@ -16,10 +17,13 @@ function GuestRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+const GOOGLE_CLIENT_ID = (import.meta as any).env.VITE_GOOGLE_CLIENT_ID || '';
+
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
 
   return (
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
     <BrowserRouter>
       <AuthProvider>
         <AnimatePresence mode="wait">
@@ -37,5 +41,6 @@ export default function App() {
         </Routes>
       </AuthProvider>
     </BrowserRouter>
+    </GoogleOAuthProvider>
   );
 }

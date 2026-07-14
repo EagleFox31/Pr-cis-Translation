@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Mail, ArrowRight, Loader2, ArrowLeft, RefreshCw, Sparkles } from 'lucide-react';
+import { GoogleLogin } from '@react-oauth/google';
 import AuthBackground from '../components/auth/AuthBackground';
 
 const logo = '/Logo.png';
@@ -56,7 +57,7 @@ const focusOut = (e: React.FocusEvent<HTMLInputElement>) => {
 /* ── Composant ────────────────────────────────────────────────────────── */
 
 export default function LoginPage() {
-  const { login, verifyCode, resendVerification } = useAuth();
+  const { login, verifyCode, resendVerification, googleAuth } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const verified = params.get('verified') === '1';
@@ -149,7 +150,21 @@ export default function LoginPage() {
                 <div style={{ flex: 1, height: '1px', background: 'var(--gray-200)' }} /><span style={{ fontSize: '11px', color: 'var(--gray-400)' }}>ou</span><div style={{ flex: 1, height: '1px', background: 'var(--gray-200)' }} />
               </div>
 
-              <div id="google-signin-button" style={{ display: 'flex', justifyContent: 'center' }} />
+              <GoogleLogin
+                onSuccess={async (res) => {
+                  setError(''); setBusy(true);
+                  const r = await googleAuth(res.credential!);
+                  setBusy(false);
+                  if (r.ok) navigate('/home', { replace: true });
+                  else setError(r.error || 'Erreur Google.');
+                }}
+                onError={() => setError('Erreur lors de la connexion Google.')}
+                theme="outline"
+                size="large"
+                text="continue_with"
+                shape="pill"
+                width="400"
+              />
 
               <p style={{ textAlign: 'center', fontSize: '13px', color: 'var(--gray-400)', margin: 0, lineHeight: 1.5 }}>
                 Pas de mot de passe. Un code à 6 chiffres vous sera envoyé.
@@ -207,3 +222,5 @@ export default function LoginPage() {
     </div>
   );
 }
+
+

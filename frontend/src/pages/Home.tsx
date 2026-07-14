@@ -150,7 +150,6 @@ export default function Home() {
       <Navbar
         activeSection={activeSection}
         onNavClick={handleNavClick}
-        docCount={documents.length}
         onLibraryOpen={() => setShowLibrary(true)}
       />
 
