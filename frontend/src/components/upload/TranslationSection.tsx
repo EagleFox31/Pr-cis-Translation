@@ -1,233 +1,387 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation as useI18n } from 'react-i18next';
-import { useTranslation } from '../../hooks/useTranslation';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
+import {
+  Check, ArrowRight, Loader2, Languages, Wand2, FileText,
+  SlidersHorizontal, ChevronDown, ScanSearch, Info,
+} from 'lucide-react';
 import FileUploader from './FileUploader';
-import LanguageSelector from './LanguageSelector';
-import FormatSelector from './FormatSelector';
-import type { FormatOption } from './FormatSelector';
-import { showToast } from '../ui/Toast';
+import LanguagePicker from './LanguagePicker';
+import { findLang, isLangAvailable } from '../../lib/languages';
 
-export interface FormatOptions {
-  mode: 'auto_fit' | 'preserve' | 'optimize' | 'adjust_margins' | 'compact';
-  fontSizeScale: number;
-  lineHeightScale: number;
-  marginScale: number;
+export interface TranslateConfig {
+  file: File;
+  targetLang: string;
+  /** Plage de pages ('1-5, 8'), vide = tout le document. PDF uniquement. */
+  pages: string;
+  /** Mode structure : rend les contours de blocs sans traduire (diagnostic). */
+  debug: boolean;
 }
 
 interface TranslationSectionProps {
-  onTranslationComplete?: (result: { blob: Blob; filename: string; file: File; targetLang: string }) => void;
+  /** Démarre la traduction (le parent ouvre l'aperçu et gère le streaming). */
+  onStartTranslate: (config: TranslateConfig) => void;
+  isTranslating: boolean;
+  onLibraryOpen?: () => void;
 }
 
-const formatOptions: FormatOption[] = [
-  { key: 'preserve', label: 'Préserver la mise en page', desc: 'Conserve exactement la disposition originale', icon: '📐' },
-  { key: 'auto_fit', label: 'Ajustement automatique', desc: 'Adapte la mise en page au texte traduit', icon: '✨' },
-  { key: 'optimize', label: 'Optimiser l\'espacement', desc: 'Réduit les espaces pour un rendu compact', icon: '📏' },
-  { key: 'adjust_margins', label: 'Ajuster les marges', desc: 'Adapte les marges au nouveau contenu', icon: '📄' },
-  { key: 'compact', label: 'Compact', desc: 'Mise en page ultra-compacte', icon: '📦' },
-];
+const LABEL_STYLE: React.CSSProperties = {
+  display: 'block',
+  fontSize: '12px',
+  fontWeight: 600,
+  color: 'var(--gray-700)',
+  marginBottom: '7px',
+};
 
-export default function TranslationSection({ onTranslationComplete }: TranslationSectionProps) {
+/** Puce d'étape numérotée — donne au formulaire une progression lisible. */
+function StepBadge({ n, done }: { n: number; done?: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: '19px', height: '19px', borderRadius: '50%', flexShrink: 0,
+        background: done ? 'var(--blue)' : 'var(--gray-200)',
+        color: done ? 'var(--white)' : 'var(--gray-600)',
+        fontSize: '10.5px', fontWeight: 700,
+        transition: 'background 0.2s, color 0.2s',
+      }}
+    >
+      {done ? <Check size={11} strokeWidth={3.2} /> : n}
+    </span>
+  );
+}
+
+export default function TranslationSection({
+  onStartTranslate, isTranslating, onLibraryOpen,
+}: TranslationSectionProps) {
   const { t } = useI18n();
-  const { translateFile, isTranslating, error } = useTranslation();
 
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [sourceLang, setSourceLang] = useState('auto');
-  const [targetLang, setTargetLang] = useState('en');
-  const [formatMode, setFormatMode] = useState('preserve');
-  const [result, setResult] = useState<{ blob: Blob; filename: string } | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [targetLang, setTargetLang] = useState('en-US');
+  const [pages, setPages] = useState('');
+  const [structureMode, setStructureMode] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [justReset, setJustReset] = useState(false);
 
-  const handleTranslate = async () => {
-    if (!selectedFile) return;
+  const ext = file?.name.split('.').pop()?.toLowerCase() ?? '';
+  const isPdf = ext === 'pdf';
 
-    try {
-      const formatOpts = {
-        mode: formatMode as any,
-        fontSizeScale: 1,
-        lineHeightScale: 1,
-        marginScale: 1,
-      };
-      const res = await translateFile(selectedFile, targetLang, formatOpts);
-      setResult(res);
-      onTranslationComplete?.({ ...res, file: selectedFile, targetLang });
-      showToast('success', 'Traduction terminée !', `Fichier prêt : ${res.filename}`);
-    } catch (err) {
-      showToast('error', 'Erreur de traduction', err instanceof Error ? err.message : 'Une erreur est survenue');
-    }
+  // Une langue rendable en DOCX peut ne pas l'être en PDF (CJK, arabe : aucune
+  // police du document ne porte ces glyphes). Si le document choisi rend la
+  // cible courante impossible, on retombe sur l'anglais plutôt que de lancer
+  // une traduction qui produirait des pages vides.
+  useEffect(() => {
+    const lang = findLang(targetLang);
+    if (file && lang && !isLangAvailable(lang, ext)) setTargetLang('en-US');
+  }, [file, ext, targetLang]);
+
+  const handleFile = (f: File | null) => {
+    setFile(f);
+    setPages('');          // une plage est propre à un document
+    if (f) setJustReset(false);
   };
 
-  const handleReset = () => {
-    setSelectedFile(null);
-    setResult(null);
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!file || isTranslating) return;
+    onStartTranslate({
+      file,
+      targetLang,
+      pages: isPdf ? pages.trim() : '',
+      debug: isPdf && structureMode,
+    });
   };
 
-  const isReady = !!selectedFile && !isTranslating;
+  const ready = !!file && !isTranslating;
+  const advancedCount = (pages.trim() ? 1 : 0) + (structureMode ? 1 : 0);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* File Upload */}
-      <FileUploader selectedFile={selectedFile} onFileSelect={setSelectedFile} />
+    <form
+      onSubmit={submit}
+      style={{ display: 'flex', flexDirection: 'column', gap: '18px', flex: 1, width: '100%' }}
+    >
+      {/* En-tête — ancre le formulaire : le titre reste fixe quel que soit
+          l'état, et annonce ce que fait la carte. */}
+      <header style={{
+        display: 'flex', alignItems: 'center', gap: '11px',
+        paddingBottom: '16px', borderBottom: '1px solid var(--gray-100)',
+      }}>
+        <span style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          width: '36px', height: '36px', borderRadius: '10px', flexShrink: 0,
+          background: 'var(--blue-light)', color: 'var(--blue)',
+        }}>
+          <FileText size={18} strokeWidth={2} />
+        </span>
+        <div style={{ minWidth: 0 }}>
+          <h3 style={{
+            margin: 0, fontSize: '15px', fontWeight: 700,
+            color: 'var(--navy)', lineHeight: 1.3,
+          }}>
+            {t('story.form_title')}
+          </h3>
+          <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--gray-500)', lineHeight: 1.4 }}>
+            {t('story.form_subtitle')}
+          </p>
+        </div>
+      </header>
 
-      {/* Language Selection */}
-      <LanguageSelector
-        sourceLang={sourceLang}
-        targetLang={targetLang}
-        onSourceChange={setSourceLang}
-        onTargetChange={setTargetLang}
-        onSwap={() => {
-          if (sourceLang !== 'auto') {
-            setSourceLang(targetLang);
-            setTargetLang(sourceLang);
-          }
-        }}
-        showSource={true}
-      />
-
-      {/* Format Options */}
-      <FormatSelector
-        options={formatOptions}
-        current={formatMode}
-        onChange={setFormatMode}
-      />
-
-      {/* Translate Button */}
-      <motion.button
-        whileHover={isReady ? { scale: 1.01 } : {}}
-        whileTap={isReady ? { scale: 0.99 } : {}}
-        onClick={handleTranslate}
-        disabled={!isReady}
-        style={{
-          width: '100%',
-          padding: '13px',
-          borderRadius: '10px',
-          border: 'none',
-          background: isReady
-            ? 'linear-gradient(135deg, var(--blue) 0%, #1d4ed8 100%)'
-            : 'var(--gray-300)',
-          color: 'white',
-          fontWeight: 600,
-          fontSize: '14px',
-          cursor: isReady ? 'pointer' : 'not-allowed',
-          transition: 'all 0.2s ease',
-          boxShadow: isReady ? '0 4px 16px rgba(37,99,235,0.3)' : 'none',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '8px',
-          fontFamily: 'inherit',
-        }}
-      >
-        {isTranslating ? (
-          <>
-            <motion.span
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-              style={{ display: 'inline-flex' }}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '18px' }}>
+        {/* Confirmation après sauvegarde en bibliothèque */}
+        <AnimatePresence>
+          {justReset && !file && (
+            <motion.div
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px',
+                padding: '10px 14px', borderRadius: '10px',
+                background: '#f0fdf4', border: '1px solid #86efac',
+                color: '#166534', fontSize: '13px',
+              }}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <circle cx="12" cy="12" r="10" opacity="0.25" />
-                <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
-              </svg>
-            </motion.span>
-            Traduction en cours...
-          </>
-        ) : (
-          <>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M5 8l6 6" /><path d="M11 8v8" /><path d="M4 16h8" /><path d="M13 8h3a3 3 0 0 1 3 3v0a3 3 0 0 1-3 3h-3" />
-            </svg>
-            Traduire
-          </>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '7px' }}>
+                <Check size={15} strokeWidth={2.5} />
+                {t('story.saved_to_library')}
+              </span>
+              {onLibraryOpen && (
+                <button
+                  type="button"
+                  onClick={onLibraryOpen}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '3px',
+                    background: 'none', border: 'none', color: '#16a34a',
+                    cursor: 'pointer', fontSize: '12px', fontWeight: 600,
+                    padding: 0, fontFamily: 'inherit', whiteSpace: 'nowrap',
+                  }}
+                >
+                  {t('library.view_action')}
+                  <ArrowRight size={13} strokeWidth={2.5} />
+                </button>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Étape 1 — Document */}
+        <div>
+          <span style={{ ...LABEL_STYLE, display: 'flex', alignItems: 'center', gap: '7px' }}>
+            <StepBadge n={1} done={!!file} />
+            {t('story.step_document', 'Votre document')}
+          </span>
+          <FileUploader selectedFile={file} onFileSelect={handleFile} disabled={isTranslating} />
+        </div>
+
+        {/* Étape 2 — Langue cible. La source est détectée par le modèle : aucun
+            choix à faire, donc aucun champ à afficher. */}
+        <div>
+          <label htmlFor="target-lang" style={{ ...LABEL_STYLE, display: 'flex', alignItems: 'center', gap: '7px' }}>
+            <StepBadge n={2} done={!!file} />
+            {t('story.step_target', 'Traduire vers')}
+          </label>
+          <div id="target-lang">
+            <LanguagePicker
+              value={targetLang}
+              onChange={setTargetLang}
+              ext={ext}
+              disabled={isTranslating}
+            />
+          </div>
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: '5px',
+            marginTop: '7px', fontSize: '11.5px', color: 'var(--gray-500)',
+          }}>
+            <Wand2 size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
+            {t('story.source_auto', 'La langue du document est détectée automatiquement.')}
+          </span>
+        </div>
+
+        {/* Options avancées — repliées : elles ne concernent que le PDF et ne
+            servent qu'à des cas particuliers (extrait, diagnostic). */}
+        <AnimatePresence>
+          {isPdf && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              style={{ overflow: 'hidden' }}
+            >
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((v) => !v)}
+                aria-expanded={showAdvanced}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
+                  padding: '9px 2px', background: 'none', border: 'none',
+                  cursor: 'pointer', fontFamily: 'inherit',
+                  fontSize: '12px', fontWeight: 600, color: 'var(--gray-600)',
+                }}
+              >
+                <SlidersHorizontal size={13} strokeWidth={2.2} />
+                {t('story.advanced', 'Options avancées')}
+                {advancedCount > 0 && (
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    minWidth: '16px', height: '16px', padding: '0 4px', borderRadius: '999px',
+                    background: 'var(--blue-light)', color: 'var(--blue)',
+                    fontSize: '10px', fontWeight: 700,
+                  }}>
+                    {advancedCount}
+                  </span>
+                )}
+                <span style={{ flex: 1 }} />
+                <motion.span
+                  animate={{ rotate: showAdvanced ? 180 : 0 }}
+                  transition={{ duration: 0.18 }}
+                  style={{ display: 'inline-flex', color: 'var(--gray-400)' }}
+                >
+                  <ChevronDown size={15} strokeWidth={2.2} />
+                </motion.span>
+              </button>
+
+              <AnimatePresence>
+                {showAdvanced && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+                    style={{ overflow: 'hidden' }}
+                  >
+                    <div style={{
+                      display: 'flex', flexDirection: 'column', gap: '16px',
+                      padding: '14px', marginTop: '2px',
+                      borderRadius: '12px', border: '1px solid var(--gray-200)',
+                      background: 'var(--gray-50)',
+                    }}>
+                      {/* Plage de pages */}
+                      <div>
+                        <label htmlFor="pages" style={LABEL_STYLE}>
+                          {t('story.pages_label')}
+                        </label>
+                        <input
+                          id="pages"
+                          type="text"
+                          inputMode="numeric"
+                          value={pages}
+                          onChange={(e) => setPages(e.target.value.replace(/[^0-9,\-\s]/g, ''))}
+                          disabled={isTranslating}
+                          placeholder={t('story.pages_placeholder')}
+                          aria-describedby="pages-hint"
+                          style={{
+                            width: '100%', boxSizing: 'border-box',
+                            padding: '10px 12px', borderRadius: '9px',
+                            border: '1px solid var(--gray-300)', background: 'var(--white)',
+                            fontSize: '13px', fontFamily: 'inherit', color: 'var(--gray-800)',
+                            outline: 'none',
+                          }}
+                        />
+                        <span id="pages-hint" style={{
+                          display: 'block', marginTop: '6px',
+                          fontSize: '11px', color: 'var(--gray-500)', lineHeight: 1.45,
+                        }}>
+                          {t('story.pages_hint')}
+                        </span>
+                      </div>
+
+                      {/* Mode structure (diagnostic) */}
+                      <label
+                        htmlFor="structure"
+                        style={{
+                          display: 'flex', alignItems: 'flex-start', gap: '10px',
+                          cursor: isTranslating ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        <input
+                          id="structure"
+                          type="checkbox"
+                          checked={structureMode}
+                          onChange={(e) => setStructureMode(e.target.checked)}
+                          disabled={isTranslating}
+                          style={{
+                            width: '16px', height: '16px', marginTop: '1px',
+                            accentColor: 'var(--blue)', flexShrink: 0, cursor: 'inherit',
+                          }}
+                        />
+                        <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '6px',
+                            fontSize: '12.5px', fontWeight: 600, color: 'var(--gray-800)',
+                          }}>
+                            <ScanSearch size={13} strokeWidth={2.2} />
+                            {t('story.structure_label')}
+                          </span>
+                          <span style={{ fontSize: '11px', color: 'var(--gray-500)', lineHeight: 1.45 }}>
+                            {t('story.structure_desc')}
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Action */}
+      <div style={{ position: 'sticky', bottom: 0, background: 'inherit', paddingTop: '8px' }}>
+        <motion.button
+          type="submit"
+          whileHover={ready ? { scale: 1.01 } : {}}
+          whileTap={ready ? { scale: 0.99 } : {}}
+          disabled={!ready}
+          style={{
+            width: '100%',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '9px',
+            padding: '14px', borderRadius: '12px', border: 'none',
+            background: ready
+              ? 'linear-gradient(135deg, var(--blue) 0%, #1d4ed8 100%)'
+              : 'var(--gray-300)',
+            color: 'white', fontWeight: 600, fontSize: '14px', fontFamily: 'inherit',
+            cursor: ready ? 'pointer' : 'not-allowed',
+            boxShadow: ready ? '0 4px 16px rgba(37,99,235,0.28)' : 'none',
+            transition: 'background 0.2s, box-shadow 0.2s',
+          }}
+        >
+          {isTranslating ? (
+            <>
+              <motion.span
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                style={{ display: 'inline-flex' }}
+              >
+                <Loader2 size={16} strokeWidth={2.5} />
+              </motion.span>
+              {t('story.translating')}
+            </>
+          ) : structureMode ? (
+            <>
+              <ScanSearch size={16} strokeWidth={2.2} />
+              {t('story.btn_structure', 'Analyser la structure')}
+            </>
+          ) : (
+            <>
+              <Languages size={16} strokeWidth={2.2} />
+              {t('story.btn_translate')}
+            </>
+          )}
+        </motion.button>
+
+        {/* Le bouton désactivé dit POURQUOI il l'est. */}
+        {!file && !isTranslating && (
+          <span style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+            marginTop: '8px', fontSize: '11.5px', color: 'var(--gray-500)',
+          }}>
+            <Info size={12} strokeWidth={2} />
+            {t('story.cta_hint', 'Choisissez un document pour commencer.')}
+          </span>
         )}
-      </motion.button>
-
-      {error && (
-        <motion.div
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          style={{
-            padding: '10px 14px',
-            borderRadius: '8px',
-            background: '#fef2f2',
-            border: '1px solid #fecaca',
-            color: '#dc2626',
-            fontSize: '13px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <span>⚠</span> {error}
-        </motion.div>
-      )}
-
-      {/* Result Actions */}
-      {result && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          style={{
-            display: 'flex',
-            gap: '8px',
-            marginTop: '4px',
-          }}
-        >
-          <button
-            onClick={() => {
-              if (result.blob) {
-                const url = URL.createObjectURL(result.blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = result.filename;
-                document.body.appendChild(a);
-                a.click();
-                URL.revokeObjectURL(url);
-                document.body.removeChild(a);
-              }
-            }}
-            style={{
-              flex: 1,
-              padding: '10px',
-              borderRadius: '8px',
-              border: 'none',
-              background: 'var(--blue)',
-              color: 'white',
-              fontWeight: 600,
-              fontSize: '13px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              fontFamily: 'inherit',
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 5v14" /><path d="M19 12l-7 7-7-7" />
-            </svg>
-            Télécharger
-          </button>
-          <button
-            onClick={handleReset}
-            style={{
-              padding: '10px 16px',
-              borderRadius: '8px',
-              border: '1px solid var(--gray-300)',
-              background: 'var(--white)',
-              color: 'var(--gray-700)',
-              fontWeight: 500,
-              fontSize: '13px',
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-              transition: 'all 0.15s',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = '#f8fafc'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'white'; }}
-          >
-            Nouvelle traduction
-          </button>
-        </motion.div>
-      )}
-    </div>
+      </div>
+    </form>
   );
 }

@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+*_objects.json
+*_objects_assets/
+*_reconstitue.pdf

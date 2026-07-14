@@ -20,12 +20,20 @@ from lxml import etree
 # ── Namespace WordprocessingML ────────────────────────────────────────────────
 W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 A = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+# Markup Compatibility : encapsule deux représentations du MÊME contenu —
+# mc:Choice (moderne, rendu par Word/LibreOffice) et mc:Fallback (VML legacy,
+# jamais rendu). Les deux portent un w:txbxContent → sans filtrage on extrait et
+# on réinjecte le texte deux fois (texte « fantôme » dédoublé à l'écran).
+MC = 'http://schemas.openxmlformats.org/markup-compatibility/2006'
 
 def _w(tag):
     return f'{{{W}}}{tag}'
 
 def _a(tag):
     return f'{{{A}}}{tag}'
+
+def _mc(tag):
+    return f'{{{MC}}}{tag}'
 
 
 class DOCXTranslatorEngine:
@@ -62,6 +70,16 @@ class DOCXTranslatorEngine:
 
     def _parse_xml(self, path):
         return etree.parse(str(path))
+
+    def _strip_fallbacks(self, root):
+        """Retire les blocs mc:Fallback de l'arbre en mémoire. Ce sont des copies
+        non rendues du mc:Choice : les conserver provoque une double
+        extraction/réinjection du même texte. Appelé À L'IDENTIQUE en extraction
+        et en injection pour garder l'alignement des id (même parcours)."""
+        for fb in root.findall(f'.//{_mc("Fallback")}'):
+            parent = fb.getparent()
+            if parent is not None:
+                parent.remove(fb)
 
     def _save_xml(self, tree, path):
         with open(path, 'wb') as f:
@@ -206,6 +224,7 @@ class DOCXTranslatorEngine:
         doc_xml = temp_path / 'word' / 'document.xml'
         tree = self._parse_xml(doc_xml)
         root = tree.getroot()
+        self._strip_fallbacks(root)
 
         body = root.find(f'.//{_w("body")}')
         if body is None: body = root
@@ -230,10 +249,12 @@ class DOCXTranslatorEngine:
             word_dir = self._get_temp_dir() / 'word'
             for xml_file in sorted(word_dir.glob('header*.xml')):
                 hroot = self._parse_xml(xml_file).getroot()
+                self._strip_fallbacks(hroot)
                 for p in hroot.findall(f'.//{_w("p")}'):
                     self._process_paragraph(p, f'hdr_{xml_file.stem}_{next_id("h")}', extraction['document']['headers'], types_used['document'], 'header')
             for xml_file in sorted(word_dir.glob('footer*.xml')):
                 froot = self._parse_xml(xml_file).getroot()
+                self._strip_fallbacks(froot)
                 for p in froot.findall(f'.//{_w("p")}'):
                     self._process_paragraph(p, f'ftr_{xml_file.stem}_{next_id("f")}', extraction['document']['footers'], types_used['document'], 'footer')
 
@@ -282,6 +303,7 @@ class DOCXTranslatorEngine:
         doc_xml = temp_path / 'word' / 'document.xml'
         tree = self._parse_xml(doc_xml)
         root = tree.getroot()
+        self._strip_fallbacks(root)
         body = root.find(f'.//{_w("body")}')
         if body is None:
             body = root
@@ -313,6 +335,7 @@ class DOCXTranslatorEngine:
         word_dir = self._get_temp_dir() / 'word'
         for xml_file in sorted(word_dir.glob('header*.xml')):
             htree = self._parse_xml(xml_file)
+            self._strip_fallbacks(htree.getroot())
             h_mod = False; counters['h'] = 0
             for p in htree.getroot().findall(f'.//{_w("p")}'):
                 eid = f'hdr_{xml_file.stem}_{next_id("h")}'
@@ -321,6 +344,7 @@ class DOCXTranslatorEngine:
 
         for xml_file in sorted(word_dir.glob('footer*.xml')):
             ftree = self._parse_xml(xml_file)
+            self._strip_fallbacks(ftree.getroot())
             f_mod = False; counters['f'] = 0
             for p in ftree.getroot().findall(f'.//{_w("p")}'):
                 eid = f'ftr_{xml_file.stem}_{next_id("f")}'

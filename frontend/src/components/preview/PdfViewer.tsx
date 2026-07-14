@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
+import { Loader2, Hourglass, Lock } from 'lucide-react';
 
 interface PdfViewerProps {
-  sourceFile?: File | null;
+  sourceFile?: Blob | null;
   translatedBlob?: Blob | null;
   demoSource?: string;
   demoTarget?: string;
@@ -11,20 +13,36 @@ interface PdfViewerProps {
   isTrialMode: boolean;
   onPagesLoaded?: (numPages: number) => void;
   className?: string;
+  /** La page courante est-elle traduite (streaming) ? Sinon on affiche un
+      placeholder à la place du canevas traduit. */
+  translatedPageReady?: boolean;
+  translatedPageStatus?: string;
+  /** Libellés des panneaux (langue source détectée / langue cible). */
+  sourceLabel?: string;
+  targetLabel?: string;
 }
 
 export default function PdfViewer({
   sourceFile,
   translatedBlob,
-  demoSource = '/CV_Mbowou_Ibrahim_Pigier.pdf',
-  demoTarget = '/CV_Mbowou_Ibrahim_Pigier_TRADUIT.pdf',
+  // Vitrine : la page de journal montre les cas qui comptent (colonnes,
+  // manchette, encadrés, filets) là où un CV n'en montrait aucun.
+  demoSource = '/demo_journal_avant.pdf',
+  demoTarget = '/demo_journal_apres.pdf',
   currentPage,
   zoom,
   isTrialMode,
   onPagesLoaded,
   className,
+  translatedPageReady = true,
+  translatedPageStatus,
+  sourceLabel,
+  targetLabel,
 }: PdfViewerProps) {
+  const { t } = useTranslation();
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
+  // True quand le canevas traduit affiche RÉELLEMENT la page courante.
+  const [translatedShown, setTranslatedShown] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -44,30 +62,42 @@ export default function PdfViewer({
 
       try {
         let pdfSourceOrig: any;
-        let pdfSourceTrad: any;
+        let pdfSourceTrad: any = null;
 
-        if (translatedBlob && sourceFile) {
+        // Le document CHOISI prime toujours. La démo (CV) ne sert que quand
+        // aucun document n'est chargé (vitrine). Auparavant, l'absence de
+        // traduction — cas normal au DÉMARRAGE du streaming — faisait basculer
+        // les DEUX panneaux sur le CV de démo.
+        if (sourceFile) {
           // Données passées directement à pdf.js (PAS d'URL blob : l'effet se
           // relance à chaque changement de page/zoom et le cleanup révoquait
           // l'URL pendant que le worker la chargeait encore → blob introuvable).
-          const [origBuf, tradBuf] = await Promise.all([
-            sourceFile.arrayBuffer(),
-            translatedBlob.arrayBuffer(),
-          ]);
+          const origBuf = await sourceFile.arrayBuffer();
           if (!active) return;
           pdfSourceOrig = pdfjsLib.getDocument({ data: origBuf });
+          if (translatedBlob) {
+            const tradBuf = await translatedBlob.arrayBuffer();
+            if (!active) return;
+            pdfSourceTrad = pdfjsLib.getDocument({ data: tradBuf });
+          }
+        } else if (translatedBlob) {
+          // Aperçu depuis la bibliothèque : pas d'original, seulement le traduit.
+          const tradBuf = await translatedBlob.arrayBuffer();
+          if (!active) return;
           pdfSourceTrad = pdfjsLib.getDocument({ data: tradBuf });
+          pdfSourceOrig = pdfjsLib.getDocument(demoSource);
         } else {
           pdfSourceOrig = pdfjsLib.getDocument(demoSource);
           pdfSourceTrad = pdfjsLib.getDocument(demoTarget);
         }
-        loadingTasks.push(pdfSourceOrig, pdfSourceTrad);
+        loadingTasks.push(pdfSourceOrig);
+        if (pdfSourceTrad) loadingTasks.push(pdfSourceTrad);
 
         const pdfOrig = await pdfSourceOrig.promise;
         if (!active) return;
         onPagesLoaded?.(pdfOrig.numPages);
 
-        const pdfTrad = await pdfSourceTrad.promise;
+        const pdfTrad = pdfSourceTrad ? await pdfSourceTrad.promise : null;
         if (!active) return;
 
         const renderPage = async (pdf: any, canvasId: string, pageNum: number) => {
@@ -104,10 +134,29 @@ export default function PdfViewer({
         };
 
         await renderPage(pdfOrig, 'pdf-canvas-original', currentPage);
-        await renderPage(pdfTrad, 'pdf-canvas-translated', currentPage);
 
-        if (isTrialMode) {
-          await renderPage(pdfTrad, 'pdf-canvas-translated-clear', currentPage);
+        // Panneau TRADUIT : n'affiche la page que si le PDF traduit existe, que
+        // la page est prête ET présente dedans (sinon le viewer clamperait sur
+        // une autre page).
+        const tradHasPage = !!pdfTrad && translatedPageReady && currentPage <= pdfTrad.numPages;
+        if (tradHasPage) {
+          await renderPage(pdfTrad, 'pdf-canvas-translated', currentPage);
+          if (isTrialMode) {
+            await renderPage(pdfTrad, 'pdf-canvas-translated-clear', currentPage);
+          }
+          if (active) setTranslatedShown(true);
+        } else {
+          // Page pas encore traduite : on efface le canevas et on montre le
+          // placeholder (dimensionné comme l'original pour un cadre stable).
+          if (active) setTranslatedShown(false);
+          const canvas = document.getElementById('pdf-canvas-translated') as HTMLCanvasElement;
+          const origCanvas = document.getElementById('pdf-canvas-original') as HTMLCanvasElement;
+          if (canvas && origCanvas) {
+            canvas.width = origCanvas.width;
+            canvas.height = origCanvas.height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) { ctx.fillStyle = '#f8fafc'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+          }
         }
       } catch (error) {
         if (error instanceof Error && error.name === 'RenderingCancelledException') return;
@@ -134,7 +183,7 @@ export default function PdfViewer({
         }
       });
     };
-  }, [currentPage, zoom, translatedBlob, sourceFile, isTrialMode, demoSource, demoTarget, onPagesLoaded]);
+  }, [currentPage, zoom, translatedBlob, sourceFile, isTrialMode, demoSource, demoTarget, onPagesLoaded, translatedPageReady]);
 
   const [isHovering, setIsHovering] = useState(false);
 
@@ -151,7 +200,7 @@ export default function PdfViewer({
     >
       {/* Original Panel */}
       <div className="cv-wrap" style={{ flexShrink: 0 }}>
-        <span className="cv-lang-badge fr">FR — Original</span>
+        <span className="cv-lang-badge fr">{sourceLabel ?? t('preview.source_label')}</span>
         <div className="cv" id="cv-fr">
           <canvas
             id="pdf-canvas-original"
@@ -176,7 +225,7 @@ export default function PdfViewer({
           className="cv-lang-badge en"
           style={{ background: '#f0fdf4', color: '#15803d' }}
         >
-          EN — Traduction
+          {targetLabel ?? t('preview.target_label')}
         </span>
         <div
           className="cv trial-viewer"
@@ -206,10 +255,52 @@ export default function PdfViewer({
               display: 'block',
               height: 'auto',
               margin: '0 auto',
-              filter: isTrialMode ? 'brightness(15%) grayscale(100%)' : 'none',
-              opacity: isTrialMode ? 0.85 : 1,
+              filter: isTrialMode && translatedShown ? 'brightness(15%) grayscale(100%)' : 'none',
+              opacity: isTrialMode && translatedShown ? 0.85 : 1,
             }}
           />
+
+          {/* Placeholder « page en cours / en attente » (streaming) */}
+          {!translatedShown && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '12px',
+                background: 'rgba(248,250,252,0.75)',
+                backdropFilter: 'blur(1px)',
+                color: 'var(--gray-500)',
+                textAlign: 'center',
+                padding: '20px',
+              }}
+            >
+              {translatedPageStatus && translatedPageStatus !== 'waiting' ? (
+                <>
+                  <motion.span
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                    style={{ display: 'inline-flex', color: '#2563eb' }}
+                  >
+                    <Loader2 size={30} strokeWidth={2.2} />
+                  </motion.span>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--gray-700)' }}>
+                    {translatedPageStatus === 'extracting' && t('preview.status_extracting')}
+                    {translatedPageStatus === 'translating' && t('preview.status_translating')}
+                    {translatedPageStatus === 'rendering' && t('preview.status_rendering')}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Hourglass size={26} strokeWidth={1.8} style={{ opacity: 0.55 }} />
+                  <span style={{ fontSize: '13px' }}>{t('preview.page_pending')}</span>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Clear canvas (visible under cursor in trial mode) */}
           {isTrialMode && (
@@ -279,13 +370,16 @@ export default function PdfViewer({
                 backdropFilter: 'blur(4px)',
               }}
             >
-              🔒 Version d'essai — Survolez pour apercevoir ·{' '}
-              <a
-                href="#pricing"
-                style={{ color: '#93c5fd', textDecoration: 'underline' }}
-              >
-                Acheter pour télécharger
-              </a>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                <Lock size={13} strokeWidth={2.2} />
+                {t('preview.trial_hover')} ·{' '}
+                <a
+                  href="#pricing"
+                  style={{ color: '#93c5fd', textDecoration: 'underline' }}
+                >
+                  {t('preview.trial_buy')}
+                </a>
+              </span>
             </motion.div>
           )}
         </div>

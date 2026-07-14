@@ -20,3 +20,10 @@ backend/fonts/*.ttc
 
 # Outils locaux
 .claude/
+.reasonix/
+
+# Corpus et artefacts de test du moteur (PDF sources, extractions JSON,
+# sorties traduites, caches) — volumineux et regenerables localement.
+backend/tests files/
+*.bak
+*.old

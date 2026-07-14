@@ -1,14 +1,31 @@
 import { useTranslation } from 'react-i18next';
+import { motion } from 'motion/react';
+import {
+  ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
+  Download, Loader2, CheckCircle2, ArrowRight, Lock,
+} from 'lucide-react';
+
+const LANG_LABELS: Record<string, string> = {
+  'fr-FR': 'FR', 'fr': 'FR',
+  'en-US': 'EN', 'en': 'EN',
+  'es': 'ES', 'de': 'DE', 'it': 'IT',
+  'pt-BR': 'PT', 'pt': 'PT',
+  'ar': 'AR', 'zh': 'ZH', 'ja': 'JA',
+};
 
 interface ViewerToolbarProps {
   zoom: number;
   currentPage: number;
   numPages: number;
   isTrialMode: boolean;
-  formattingOption: string;
+  sourceFilename?: string;
+  translatedFilename?: string;
+  targetLang?: string;
+  /** Progression du streaming : pages traduites / total. */
+  isTranslating?: boolean;
+  doneCount?: number;
   onZoomChange: (zoom: number) => void;
   onPageChange: (page: number) => void;
-  onFormattingChange: (opt: string) => void;
   onBack: () => void;
   onDownload: () => void;
 }
@@ -18,106 +35,179 @@ export default function ViewerToolbar({
   currentPage,
   numPages,
   isTrialMode,
-  formattingOption,
+  sourceFilename,
+  translatedFilename,
+  targetLang,
+  isTranslating = false,
+  doneCount = 0,
   onZoomChange,
   onPageChange,
-  onFormattingChange,
   onBack,
   onDownload,
 }: ViewerToolbarProps) {
   const { t } = useTranslation();
 
+  const pct = numPages > 0 ? Math.round((doneCount / numPages) * 100) : 0;
+  const isComplete = !isTranslating && doneCount > 0 && doneCount >= numPages;
+  const canDownload = !isTranslating;
+
   return (
     <div className="docbar">
-      {/* Back */}
       <button
         onClick={onBack}
         className="tb-btn ghost"
-        aria-label="Retour"
-        title="Retour"
+        aria-label={t('viewer.back', 'Retour')}
+        title={t('viewer.back', 'Retour')}
         style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
       >
-        <i className="ti ti-arrow-left" style={{ fontSize: '14px' }} aria-hidden="true" />
-        <span>Retour</span>
+        <ArrowLeft size={15} strokeWidth={2.2} />
+        <span>{t('viewer.back', 'Retour')}</span>
       </button>
 
       {/* Zoom */}
-      <button
-        onClick={() => onZoomChange(zoom >= 2.0 ? 1.0 : +(zoom + 0.5).toFixed(1))}
-        className="tb-btn ghost"
-        aria-label="Zoom"
-        title="Zoom"
-        style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-      >
-        <i className="ti ti-zoom-in" style={{ fontSize: '14px' }} aria-hidden="true" />
-        <span>{Math.round(zoom * 100)}%</span>
-      </button>
-
-      {/* Formatting */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          borderLeft: '1px solid var(--color-border-secondary)',
-          paddingLeft: '12px',
-          marginLeft: '6px',
-        }}
-      >
-        <i
-          className="ti ti-settings"
-          style={{ fontSize: '14px', color: 'var(--color-text-secondary)' }}
-          aria-hidden="true"
-        />
-        <select
-          value={formattingOption}
-          onChange={(e) => onFormattingChange(e.target.value)}
-          aria-label="Options de mise en forme"
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--color-text-primary)',
-            fontSize: '13px',
-            fontWeight: 500,
-            outline: 'none',
-            cursor: 'pointer',
-            paddingRight: '8px',
-            fontFamily: 'inherit',
-          }}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '2px',
+        borderLeft: '1px solid var(--color-border-secondary)',
+        paddingLeft: '10px', marginLeft: '4px',
+      }}>
+        <button
+          onClick={() => onZoomChange(Math.max(0.5, +(zoom - 0.25).toFixed(2)))}
+          className="tb-btn ghost"
+          disabled={zoom <= 0.5}
+          aria-label={t('viewer.zoom_out', 'Dézoomer')}
+          title={t('viewer.zoom_out', 'Dézoomer')}
+          style={{ display: 'flex', alignItems: 'center', padding: '6px' }}
         >
-          <option value="auto-fit">{t('viewer.fmt_auto_fit')}</option>
-          <option value="preserve">{t('viewer.fmt_preserve')}</option>
-          <option value="optimize-spacing">{t('viewer.fmt_optimize')}</option>
-          <option value="adjust-margins">{t('viewer.fmt_adjust_margins')}</option>
-        </select>
+          <ZoomOut size={15} strokeWidth={2.2} />
+        </button>
+        <span style={{
+          fontSize: '12px', fontWeight: 600, minWidth: '42px',
+          textAlign: 'center', color: 'var(--color-text-secondary)',
+          fontVariantNumeric: 'tabular-nums',
+        }}>
+          {Math.round(zoom * 100)}%
+        </span>
+        <button
+          onClick={() => onZoomChange(Math.min(3, +(zoom + 0.25).toFixed(2)))}
+          className="tb-btn ghost"
+          disabled={zoom >= 3}
+          aria-label={t('viewer.zoom_in', 'Zoomer')}
+          title={t('viewer.zoom_in', 'Zoomer')}
+          style={{ display: 'flex', alignItems: 'center', padding: '6px' }}
+        >
+          <ZoomIn size={15} strokeWidth={2.2} />
+        </button>
       </div>
 
-      <div className="spacer" />
+      {/* Fil du document : source → traduction */}
+      {(sourceFilename || translatedFilename) ? (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '7px',
+          borderLeft: '1px solid var(--color-border-secondary)', paddingLeft: '12px', marginLeft: '6px',
+          flex: 1, overflow: 'hidden', minWidth: 0,
+        }}>
+          {sourceFilename && (
+            <span style={{
+              fontSize: '12px', color: 'var(--color-text-secondary)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '130px',
+            }} title={sourceFilename}>
+              {sourceFilename}
+            </span>
+          )}
+          {sourceFilename && translatedFilename && (
+            <ArrowRight size={13} strokeWidth={2} style={{ flexShrink: 0, opacity: 0.4 }} />
+          )}
+          {translatedFilename && (
+            <span style={{
+              fontSize: '12px', fontWeight: 600, color: 'var(--color-text-primary)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '150px',
+            }} title={translatedFilename}>
+              {translatedFilename}
+            </span>
+          )}
+          {targetLang && (
+            <span style={{
+              fontSize: '10px', fontWeight: 700, letterSpacing: '0.03em',
+              background: 'var(--blue-light, #eff6ff)', color: 'var(--blue)',
+              padding: '2px 7px', borderRadius: '999px', flexShrink: 0,
+            }}>
+              {LANG_LABELS[targetLang] ?? targetLang.toUpperCase()}
+            </span>
+          )}
+        </div>
+      ) : (
+        <div className="spacer" />
+      )}
 
-      {/* Page controls */}
+      {/* Progression du streaming (pages traduites / total) */}
+      {(isTranslating || isComplete) && numPages > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '9px',
+          borderLeft: '1px solid var(--color-border-secondary)',
+          paddingLeft: '12px', marginLeft: '2px', flexShrink: 0,
+        }}>
+          {isTranslating ? (
+            <motion.span
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+              style={{ display: 'inline-flex', color: 'var(--blue)' }}
+            >
+              <Loader2 size={14} strokeWidth={2.5} />
+            </motion.span>
+          ) : (
+            <CheckCircle2 size={14} strokeWidth={2.2} style={{ color: '#16a34a' }} />
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', minWidth: '96px' }}>
+            <span style={{
+              fontSize: '11px', fontWeight: 600,
+              color: isTranslating ? 'var(--blue)' : '#16a34a',
+              fontVariantNumeric: 'tabular-nums',
+            }}>
+              {isTranslating
+                ? t('viewer.pages_done', '{{done}}/{{total}} pages', { done: doneCount, total: numPages })
+                : t('viewer.translation_done', 'Traduction terminée')}
+            </span>
+            <span style={{
+              display: 'block', height: '3px', borderRadius: '999px',
+              background: 'var(--gray-200, #e2e8f0)', overflow: 'hidden',
+            }}>
+              <motion.span
+                animate={{ width: `${isComplete ? 100 : pct}%` }}
+                transition={{ duration: 0.4, ease: 'easeOut' }}
+                style={{
+                  display: 'block', height: '100%', borderRadius: '999px',
+                  background: isTranslating ? 'var(--blue)' : '#16a34a',
+                }}
+              />
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Pagination */}
       <div className="pg-ctrl">
         <button
           className="pg-arrow"
           onClick={() => onPageChange(Math.max(1, currentPage - 1))}
           disabled={currentPage <= 1}
-          aria-label="Page précédente"
+          aria-label={t('viewer.prev_page', 'Page précédente')}
         >
-          <i className="ti ti-chevron-left" style={{ fontSize: '12px' }} />
+          <ChevronLeft size={14} strokeWidth={2.4} />
         </button>
-        <span className="pg-num">
+        <span className="pg-num" style={{ fontVariantNumeric: 'tabular-nums' }}>
           {currentPage} / {numPages}
         </span>
         <button
           className="pg-arrow"
           onClick={() => onPageChange(Math.min(numPages, currentPage + 1))}
           disabled={currentPage >= numPages}
-          aria-label="Page suivante"
+          aria-label={t('viewer.next_page', 'Page suivante')}
         >
-          <i className="ti ti-chevron-right" style={{ fontSize: '12px' }} />
+          <ChevronRight size={14} strokeWidth={2.4} />
         </button>
       </div>
 
-      {/* Download */}
+      {/* Téléchargement — indisponible tant que la traduction n'est pas finie */}
       <button
         onClick={() => {
           if (isTrialMode) {
@@ -127,11 +217,22 @@ export default function ViewerToolbar({
           onDownload();
         }}
         className="tb-btn ghost"
-        aria-label="Télécharger la traduction"
-        title="Télécharger la traduction"
-        style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+        disabled={!canDownload && !isTrialMode}
+        aria-label={t('viewer.download', 'Télécharger la traduction')}
+        title={
+          isTrialMode
+            ? t('viewer.download_locked', 'Version d’essai — débloquez le téléchargement')
+            : canDownload
+              ? t('viewer.download', 'Télécharger la traduction')
+              : t('viewer.download_wait', 'Disponible à la fin de la traduction')
+        }
+        style={{
+          display: 'flex', alignItems: 'center', gap: '6px',
+          opacity: !canDownload && !isTrialMode ? 0.45 : 1,
+          cursor: !canDownload && !isTrialMode ? 'not-allowed' : 'pointer',
+        }}
       >
-        <i className="ti ti-download" style={{ fontSize: '14px' }} aria-hidden="true" />
+        {isTrialMode ? <Lock size={15} strokeWidth={2.2} /> : <Download size={15} strokeWidth={2.2} />}
       </button>
     </div>
   );

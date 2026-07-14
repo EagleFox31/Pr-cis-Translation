@@ -1,28 +1,20 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import Navbar from '../components/navbar/Navbar';
 import HeroSection from '../components/hero/HeroSection';
 import FeaturesGrid from '../components/features/FeaturesGrid';
-import ComparisonTable from '../components/comparison/ComparisonTable';
 import StorySection from '../components/story/StorySection';
 import PricingSection from '../components/pricing/PricingSection';
 import AboutSection from '../components/about/AboutSection';
 import ToastContainer, { showToast } from '../components/ui/Toast';
-import { useTranslation } from '../hooks/useTranslation';
-import type { LayoutMode, ShrinkScope } from '../components/preview/LayoutStrategyBar';
-
-/** Construit la spec `layout` envoyée au backend à partir des choix par page. */
-function buildLayoutSpec(perPage: Record<number, LayoutMode>, scope: ShrinkScope) {
-  const pages: Record<string, LayoutMode> = {};
-  for (const [p, m] of Object.entries(perPage)) {
-    if (m && m !== 'auto') pages[p] = m;
-  }
-  return { default: 'auto' as const, pages, shrink_scope: scope };
-}
+import DocumentLibrary from '../components/library/DocumentLibrary';
+import { useDocumentLibrary } from '../hooks/useDocumentLibrary';
+import { useStreamingTranslation } from '../hooks/useStreamingTranslation';
+import type { TranslateConfig } from '../components/upload/TranslationSection';
 
 export default function Home() {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { t } = useTranslation();
   const [isAnnual, setIsAnnual] = useState(true);
-  const [formattingOption, setFormattingOption] = useState('auto-fit');
   const [activeSection, setActiveSection] = useState('hero');
   const [showPreview, setShowPreview] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -32,30 +24,19 @@ export default function Home() {
   const [translatedBlob, setTranslatedBlob] = useState<Blob | null>(null);
   const [translatedFilename, setTranslatedFilename] = useState<string>('');
   const [isTrialMode, setIsTrialMode] = useState(true);
-
-  // ---- Per-page layout strategy (chosen after the first conversion) ----
-  const { translateFile } = useTranslation();
+  const [showLibrary, setShowLibrary] = useState(false);
   const [targetLang, setTargetLang] = useState('en');
-  const [perPageMode, setPerPageMode] = useState<Record<number, LayoutMode>>({});
-  const [shrinkScope, setShrinkScope] = useState<ShrinkScope>('page');
-  const [appliedSig, setAppliedSig] = useState('');
-  const [isRegenerating, setIsRegenerating] = useState(false);
 
-  const currentSig = useMemo(
-    () => JSON.stringify(buildLayoutSpec(perPageMode, shrinkScope)),
-    [perPageMode, shrinkScope]
-  );
-  const layoutDirty = currentSig !== appliedSig;
-  const shrinkUsed = useMemo(
-    () => Object.values(perPageMode).some((m) => m === 'shrink'),
-    [perPageMode]
-  );
-  const currentPageMode: LayoutMode = perPageMode[currentPage] || 'auto';
+  // ---- Traduction PROGRESSIVE (page par page) ----
+  const stream = useStreamingTranslation();
+
+  // ---- Document library ----
+  const { documents, saveDocument, getBlob, deleteDocument, clearAll } = useDocumentLibrary();
 
   // ---- Scroll spy ----
   useEffect(() => {
     const sections = document.querySelectorAll('section[id]');
-    const observerOptions = { root: null, rootMargin: '-50% 0px', threshold: 0 };
+    const observerOptions = { root: null, rootMargin: '-10% 0px -60% 0px', threshold: 0 };
 
     const observer = new IntersectionObserver((entries) => {
       entries.forEach((entry) => {
@@ -88,57 +69,59 @@ export default function Home() {
     }
   }, []);
 
-  // ---- Translation complete ----
-  const handleTranslateComplete = useCallback(
-    (result: { blob: Blob; filename: string; file: File; targetLang: string }) => {
-      setTranslatedBlob(result.blob);
-      setTranslatedFilename(result.filename);
-      setSelectedFile(result.file);
-      setTargetLang(result.targetLang);
-      // First render uses the default "auto" layout everywhere → reset per-page
-      // choices and mark the current (empty) layout as the applied one.
-      setPerPageMode({});
-      setShrinkScope('page');
-      setAppliedSig(JSON.stringify(buildLayoutSpec({}, 'page')));
+  // ---- Démarrage de la traduction : l'aperçu s'ouvre IMMÉDIATEMENT, les pages
+  //      traduites y apparaissent au fil de l'eau (streaming page par page). ----
+  const handleStartTranslate = useCallback(
+    (config: TranslateConfig) => {
+      // Le catalogue ne propose que des codes de base ('en', 'fr'…) : plus de
+      // variante régionale à réduire avant l'envoi.
+      const { file, targetLang, pages, debug } = config;
+      setSelectedFile(file);
+      setTargetLang(targetLang);
+      setTranslatedBlob(null);
+      setTranslatedFilename('');
+      setCurrentPage(1);
+      setShowPreview(true);
+
+      stream
+        .start(file, targetLang, pages, debug)
+        .then((result) => {
+          setTranslatedBlob(result.blob);
+          setTranslatedFilename(result.filename);
+          const ext = result.filename.split('.').pop()?.toLowerCase() ?? 'pdf';
+          saveDocument(result.blob, result.filename, {
+            originalName: file.name,
+            targetLang,
+            ext,
+          });
+          showToast('success', t('story.success_done'), result.filename);
+        })
+        .catch((err) => {
+          const msg = err instanceof Error ? err.message : '';
+          showToast('error', t('story.error_default'), msg || undefined);
+        });
+    },
+    [stream, saveDocument, t],
+  );
+
+  // ---- Library preview ----
+  const handleLibraryPreview = useCallback(
+    (blob: Blob, filename: string, _ext: string) => {
+      stream.reset();
+      setTranslatedBlob(blob);
+      setTranslatedFilename(filename);
+      setSelectedFile(null);
+      setShowLibrary(false);
       setShowPreview(true);
     },
-    []
+    [stream],
   );
 
-  // ---- Apply per-page layout strategy → re-generate (no re-translation) ----
-  const handleApplyLayout = useCallback(async () => {
-    if (!selectedFile || !layoutDirty || isRegenerating) return;
-    setIsRegenerating(true);
-    try {
-      const res = await translateFile(selectedFile, targetLang, {
-        mode: 'preserve' as any,
-        fontSizeScale: 1,
-        lineHeightScale: 1,
-        marginScale: 1,
-        layout: buildLayoutSpec(perPageMode, shrinkScope),
-      } as any);
-      setTranslatedBlob(res.blob);
-      setTranslatedFilename(res.filename);
-      setAppliedSig(currentSig);
-      showToast('success', 'Mise en page appliquée', 'Aperçu mis à jour.');
-    } catch (err) {
-      showToast('error', 'Échec de la régénération', err instanceof Error ? err.message : 'Erreur inconnue');
-    } finally {
-      setIsRegenerating(false);
-    }
-  }, [selectedFile, layoutDirty, isRegenerating, translateFile, targetLang, perPageMode, shrinkScope, currentSig]);
-
-  const handlePageModeChange = useCallback(
-    (mode: LayoutMode) => {
-      setPerPageMode((prev) => ({ ...prev, [currentPage]: mode }));
-    },
-    [currentPage]
-  );
-
-  // ---- Download ----
+  // ---- Download (le résultat complet, une fois la traduction terminée) ----
   const handleDownload = useCallback(() => {
-    if (translatedBlob && translatedFilename) {
-      const url = URL.createObjectURL(translatedBlob);
+    const blob = stream.result?.blob ?? translatedBlob;
+    if (blob && translatedFilename) {
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = translatedFilename;
@@ -147,54 +130,140 @@ export default function Home() {
       URL.revokeObjectURL(url);
       document.body.removeChild(a);
     }
-  }, [translatedBlob, translatedFilename]);
+  }, [stream.result, translatedBlob, translatedFilename]);
 
   // ---- Back from preview ----
   const handleBack = useCallback(() => {
+    stream.cancel();
     setShowPreview(false);
-  }, []);
+  }, [stream]);
+
+  // Aperçu du panneau « traduit » : blob final si dispo, sinon PDF partiel
+  // (pages déjà prêtes), mis à jour au fil de l'eau pendant le streaming.
+  const previewTranslatedBlob = translatedBlob ?? stream.partialBlob;
+  const effectiveNumPages = stream.totalPages ?? numPages;
 
   return (
     <div className="min-h-screen bg-white text-gray-900 font-body">
       <ToastContainer />
 
-      <Navbar activeSection={activeSection} onNavClick={handleNavClick} />
+      <Navbar
+        activeSection={activeSection}
+        onNavClick={handleNavClick}
+        docCount={documents.length}
+        onLibraryOpen={() => setShowLibrary(true)}
+      />
+
+      {/* Fixed lang lines overlay — stays in viewport across all sections */}
+      <div className="page-bg-lang-lines">
+        <div className="hero-lang-lines">
+          <div className="lang-line lang-line-left">
+            {[1, 2, 3].map((i) => (
+              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
+                <span>Translation</span><span>•</span>
+                <span>Traduction</span><span>•</span>
+                <span>Traducción</span><span>•</span>
+                <span>Übersetzung</span><span>•</span>
+                <span>Traduzione</span><span>•</span>
+                <span>Overzetting</span><span>•</span>
+                <span>翻訳</span><span>•</span>
+                <span>번역</span><span>•</span>
+                <span>翻译</span><span>•</span>
+                <span>ترجمة</span><span>•</span>
+                <span>Перевод</span><span>•</span>
+              </span>
+            ))}
+          </div>
+          <div className="lang-line lang-line-right">
+            {[1, 2, 3].map((i) => (
+              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
+                <span>Documents</span><span>•</span>
+                <span>Actes</span><span>•</span>
+                <span>Certificats</span><span>•</span>
+                <span>Contrats</span><span>•</span>
+                <span>Diplômes</span><span>•</span>
+                <span>書類</span><span>•</span>
+                <span>문서</span><span>•</span>
+                <span>文档</span><span>•</span>
+                <span>عقود</span><span>•</span>
+                <span>Справки</span><span>•</span>
+              </span>
+            ))}
+          </div>
+          <div className="lang-line lang-line-left">
+            {[1, 2, 3].map((i) => (
+              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
+                <span>Precision</span><span>•</span>
+                <span>Précision</span><span>•</span>
+                <span>Precisión</span><span>•</span>
+                <span>Präzision</span><span>•</span>
+                <span>Precisione</span><span>•</span>
+                <span>Precisie</span><span>•</span>
+                <span>精度</span><span>•</span>
+                <span>정밀도</span><span>•</span>
+                <span>精确</span><span>•</span>
+                <span>دقة</span><span>•</span>
+                <span>Точность</span><span>•</span>
+              </span>
+            ))}
+          </div>
+          <div className="lang-line lang-line-right">
+            {[1, 2, 3].map((i) => (
+              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
+                <span>AI &amp; Human</span><span>•</span>
+                <span>IA &amp; Humain</span><span>•</span>
+                <span>IA y Humano</span><span>•</span>
+                <span>KI &amp; Mensch</span><span>•</span>
+                <span>IA &amp; Umano</span><span>•</span>
+                <span>AI &amp; Mens</span><span>•</span>
+                <span>AI &amp; 人間</span><span>•</span>
+                <span>AI &amp; 인간</span><span>•</span>
+                <span>AI &amp; 人类</span><span>•</span>
+                <span>ذكاء بشري واصطناعي</span><span>•</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <DocumentLibrary
+        isOpen={showLibrary}
+        onClose={() => setShowLibrary(false)}
+        documents={documents}
+        onPreview={handleLibraryPreview}
+        onDelete={deleteDocument}
+        onClearAll={clearAll}
+        getBlob={getBlob}
+      />
 
       <main>
         <HeroSection />
 
         <FeaturesGrid />
 
-        <ComparisonTable />
-
-        <PricingSection isAnnual={isAnnual} onAnnualChange={setIsAnnual} />
-
         <StorySection
           showPreview={showPreview}
-          translatedBlob={translatedBlob}
+          translatedBlob={previewTranslatedBlob}
           translatedFilename={translatedFilename}
           selectedFile={selectedFile}
           currentPage={currentPage}
-          numPages={numPages}
+          numPages={effectiveNumPages}
           zoom={zoom}
-          formattingOption={formattingOption}
           isTrialMode={isTrialMode}
-          onTranslateComplete={handleTranslateComplete}
+          targetLang={targetLang}
+          isTranslating={stream.isTranslating}
+          pageStatuses={stream.pageStatuses}
+          renderedUpTo={stream.renderedUpTo}
+          onStartTranslate={handleStartTranslate}
           onBack={handleBack}
           onZoomChange={setZoom}
           onPageChange={setCurrentPage}
-          onFormattingChange={setFormattingOption}
           onDownload={handleDownload}
           onPagesLoaded={setNumPages}
-          pageMode={currentPageMode}
-          shrinkScope={shrinkScope}
-          shrinkUsed={shrinkUsed}
-          layoutDirty={layoutDirty}
-          isRegenerating={isRegenerating}
-          onPageModeChange={handlePageModeChange}
-          onScopeChange={setShrinkScope}
-          onApplyLayout={handleApplyLayout}
+          onLibraryOpen={() => setShowLibrary(true)}
         />
+
+        <PricingSection isAnnual={isAnnual} onAnnualChange={setIsAnnual} />
 
         <AboutSection />
       </main>

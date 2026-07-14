@@ -1,273 +1,299 @@
-import { useRef } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, useScroll, useTransform } from 'motion/react';
-import AnimatedCounter from '../ui/AnimatedCounter';
+import { ArrowRight, LayoutTemplate, FileType2, Languages } from 'lucide-react';
+import DocumentDemo from './DocumentDemo';
 
-const mascot = "/Identite Precis.png";
+/** Légère marge : les lignes ne touchent pas tout à fait le bord, ce qui laisse
+ *  aussi respirer les repères de coupe, qui débordent du mot. */
+const SIDE_MARGIN = 10;
+
+/** Blanc AJOUTÉ entre les mots, en em. Le blanc naturel de la police vaut
+ *  ~0.25em : on aboutit donc à ~0.5em, soit deux fois le naturel — assez pour
+ *  aérer, trop peu pour qu'on le remarque. Cf. le commentaire ci-dessous. */
+const WORD_EXTRA_EM = 0.25;
+
+/** Garde-fous du corps. */
+const MIN_SIZE = 20;
+const MAX_SIZE = 120;
+
+/** Air laissé entre l'encre du mot et le cadre, en em. */
+const FRAME_PAD_EM = 0.13;
+
+/** « mise en page » est la ligne la plus courte, donc la plus grosse. On la
+ *  rabat très légèrement — la largeur perdue est reprise par ses blancs, si
+ *  bien qu'elle tombe toujours à la mesure exacte. */
+const KEY_SHRINK = 0.93;
+
+/**
+ * Cale les repères de coupe sur l'ENCRE du mot, pas sur sa boîte.
+ *
+ * La boîte d'une ligne réserve toute la hauteur d'ascendante de la police,
+ * qu'il y ait ou non des capitales. « mise en page » n'en a aucune — pas même
+ * une hampe, hormis le point du « i » — donc son encre flotte tout en bas de sa
+ * boîte : un cadre posé sur les bords de la boîte paraît haut et décentré, avec
+ * un grand blanc au-dessus et les jambages qui touchent en dessous.
+ *
+ * On mesure donc l'encre réelle (`actualBoundingBox…`) et on en déduit la
+ * position du cadre par rapport aux bords de la boîte. Le calcul se refait à
+ * chaque rendu, donc il suit la langue : « their layout » a des hampes (t, h, l)
+ * là où « mise en page » n'en a pas, et son cadre montera d'autant.
+ */
+function frameKeyWord(title: HTMLElement) {
+  const key = title.querySelector<HTMLElement>('.hero-key');
+  const ctx = document.createElement('canvas').getContext('2d');
+  if (!key || !ctx) return;
+
+  const cs = getComputedStyle(key);
+  const size = parseFloat(cs.fontSize);
+  ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${size}px ${cs.fontFamily}`;
+  const m = ctx.measureText(key.textContent ?? '');
+
+  const fAsc = m.fontBoundingBoxAscent;    // ce que la MISE EN PAGE réserve
+  const fDesc = m.fontBoundingBoxDescent;
+  const iAsc = m.actualBoundingBoxAscent;  // ce que l'ENCRE occupe vraiment
+  const iDesc = m.actualBoundingBoxDescent;
+  if (![fAsc, fDesc, iAsc, iDesc].every(Number.isFinite)) return;   // repli CSS
+
+  // Demi-interligne : écart entre la boîte de ligne et la zone de contenu.
+  const lineH = parseFloat(cs.lineHeight) || size;
+  const half = (lineH - (fAsc + fDesc)) / 2;
+  const pad = FRAME_PAD_EM * size;
+
+  // Distance du bord de la boîte au bord de l'encre, moins l'air voulu.
+  key.style.setProperty('--frame-top', `${fAsc + half - iAsc - pad}px`);
+  key.style.setProperty('--frame-bottom', `${fDesc + half - iDesc - pad}px`);
+}
+
+/**
+ * Justifie le titre : les trois lignes tombent à la MÊME largeur.
+ *
+ * L'écart de longueur entre « Traduisez vos documents » (23 signes) et « mise
+ * en page » (12) doit être absorbé par quelque chose. Deux leviers existent, et
+ * ils sont TRÈS inégaux — mesuré sur la police du titre :
+ *
+ *     blanc visé   corps des 3 lignes   écart de corps
+ *       0.25em      50 / 81 / 98 px         ×1.95      (blanc naturel)
+ *       0.50em      48 / 75 / 89 px         ×1.86
+ *       1.00em      44 / 65 / 76 px         ×1.74      (blanc ×4 : déjà voyant)
+ *       2.72em      34 / 45 / 50 px         ×1.49      (mots éparpillés)
+ *
+ * Autrement dit : QUADRUPLER les blancs ne réduit l'écart de corps que de 1.95
+ * à 1.74. Les blancs sont un levier presque nul ; le corps est le seul vrai
+ * levier. Tout miser sur eux — ce que faisait la version précédente — éparpille
+ * les mots sans même égaliser les corps.
+ *
+ * On se place donc au point d'équilibre : un blanc de ~0.5em (deux fois le
+ * naturel, invisible), et c'est le CORPS de chaque ligne qui comble le reste.
+ * Les mots gardent leur dessin exact — aucune lettre n'est écartée — et la
+ * ligne la plus courte devient la plus grande : « mise en page », la promesse,
+ * est aussi ce que l'œil voit en premier.
+ */
+function useJustifiedLines(ref: React.RefObject<HTMLHeadingElement | null>, deps: unknown[]) {
+  const fit = useCallback(() => {
+    const title = ref.current;
+    if (!title) return;
+    const target = title.clientWidth - SIDE_MARGIN;
+    if (target <= 0) return;
+
+    const lines = [...title.querySelectorAll<HTMLElement>('.hero-line')];
+
+    lines.forEach((line) => {
+      const text = line.querySelector<HTMLElement>('.hero-line-text');
+      if (!text) return;
+
+      line.style.fontSize = '';
+      let size = parseFloat(getComputedStyle(line).fontSize);
+
+      // La largeur est LINÉAIRE en `size` — le blanc ajouté est lui aussi
+      // exprimé en em, donc il grandit avec le corps. Une règle de trois suffit
+      // ; la seconde passe ne rattrape que les arrondis (crénage, sous-pixel).
+      for (let pass = 0; pass < 3; pass++) {
+        line.style.fontSize = `${size}px`;
+        line.style.wordSpacing = `${WORD_EXTRA_EM * size}px`;
+        const w = text.getBoundingClientRect().width;
+        if (!w) return;
+        if (Math.abs(target - w) < 0.4) break;
+        size = Math.min(MAX_SIZE, Math.max(MIN_SIZE, (size * target) / w));
+      }
+
+      // La ligne-clé est rabattue d'un cran, puis ses BLANCS reprennent la
+      // largeur perdue : elle reste donc calée sur la mesure, au pixel près.
+      if (line.classList.contains('hero-line--key')) {
+        const gaps = ((text.textContent ?? '').match(/\s/g) ?? []).length;
+        if (!gaps) return;
+        line.style.fontSize = `${size * KEY_SHRINK}px`;
+        let ws = WORD_EXTRA_EM * size * KEY_SHRINK;
+        for (let pass = 0; pass < 3; pass++) {
+          line.style.wordSpacing = `${ws}px`;
+          const delta = target - text.getBoundingClientRect().width;
+          if (Math.abs(delta) < 0.4) break;
+          ws += delta / gaps;
+        }
+      }
+    });
+
+    frameKeyWord(title);   // le cadre suit le corps définitif de la ligne-clé
+  }, [ref]);
+
+  useEffect(() => {
+    fit();
+    const ro = new ResizeObserver(fit);
+    if (ref.current) ro.observe(ref.current);
+    // Les polices arrivent après le premier rendu : sans ce second passage, la
+    // mesure serait faite sur la police de repli et les bords ne tomberaient
+    // pas juste une fois Cormorant chargée.
+    document.fonts?.ready.then(fit).catch(() => {});
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fit, ...deps]);
+}
+
+/** Faits vérifiables, tirés du produit — pas de chiffre invérifiable.
+ *  Les FORMATS sont des noms techniques : la chasse fixe les rend lisibles
+ *  d'un coup d'œil et distingue la donnée du discours. */
+const PROOFS = [
+  { key: 'layout', Icon: LayoutTemplate, mono: false },
+  { key: 'formats', Icon: FileType2, mono: true },
+  { key: 'langs', Icon: Languages, mono: false },
+];
 
 export default function HeroSection() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const heroRef = useRef<HTMLElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
 
-  const { scrollYProgress: heroScrollProgress } = useScroll({
+  // Re-mesuré à chaque changement de langue : « mise en page » et « layout »
+  // n'ont ni la même longueur ni le même nombre de mots.
+  useJustifiedLines(titleRef, [i18n.language]);
+
+  const { scrollYProgress } = useScroll({
     target: heroRef,
     offset: ['start start', 'end start'],
   });
-  const heroBgY = useTransform(heroScrollProgress, [0, 1], [0, 120]);
-  const heroGridY = useTransform(heroScrollProgress, [0, 1], [0, 80]);
+  // La grille de fond défile plus lentement que le contenu (profondeur), et le
+  // hero s'estompe en sortant — la transition vers la section suivante est
+  // continue au lieu d'être une coupure.
+  const gridY = useTransform(scrollYProgress, [0, 1], [0, 90]);
+  const contentY = useTransform(scrollYProgress, [0, 1], [0, -40]);
+  const contentOpacity = useTransform(scrollYProgress, [0, 0.75], [1, 0]);
 
   return (
     <section className="hero" id="hero" ref={heroRef}>
-      {/* Parallax Background */}
-      <motion.div className="hero-parallax-bg" style={{ y: heroBgY }}>
-        <div className="hero-lang-lines">
-          <div className="lang-line lang-line-left">
-            {[1, 2, 3].map((i) => (
-              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
-                <span>Translation</span><span>•</span>
-                <span>Traduction</span><span>•</span>
-                <span>Traducción</span><span>•</span>
-                <span>Übersetzung</span><span>•</span>
-                <span>Traduzione</span><span>•</span>
-                <span>Overzetting</span><span>•</span>
-                <span>翻訳</span><span>•</span>
-                <span>번역</span><span>•</span>
-                <span>翻译</span><span>•</span>
-                <span>ترجمة</span><span>•</span>
-                <span>Перевод</span><span>•</span>
-              </span>
-            ))}
-          </div>
-          <div className="lang-line lang-line-right">
-            {[1, 2, 3].map((i) => (
-              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
-                <span>Documents</span><span>•</span>
-                <span>Actes</span><span>•</span>
-                <span>Certificats</span><span>•</span>
-                <span>Contrats</span><span>•</span>
-                <span>Diplômes</span><span>•</span>
-                <span>書類</span><span>•</span>
-                <span>문서</span><span>•</span>
-                <span>文档</span><span>•</span>
-                <span>عقود</span><span>•</span>
-                <span>Справки</span><span>•</span>
-              </span>
-            ))}
-          </div>
-          <div className="lang-line lang-line-left">
-            {[1, 2, 3].map((i) => (
-              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
-                <span>Precision</span><span>•</span>
-                <span>Précision</span><span>•</span>
-                <span>Precisión</span><span>•</span>
-                <span>Präzision</span><span>•</span>
-                <span>Precisione</span><span>•</span>
-                <span>Precisie</span><span>•</span>
-                <span>精度</span><span>•</span>
-                <span>정밀도</span><span>•</span>
-                <span>精确</span><span>•</span>
-                <span>دقة</span><span>•</span>
-                <span>Точность</span><span>•</span>
-              </span>
-            ))}
-          </div>
-          <div className="lang-line lang-line-right">
-            {[1, 2, 3].map((i) => (
-              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
-                <span>AI &amp; Human</span><span>•</span>
-                <span>IA &amp; Humain</span><span>•</span>
-                <span>IA y Humano</span><span>•</span>
-                <span>KI &amp; Mensch</span><span>•</span>
-                <span>IA &amp; Umano</span><span>•</span>
-                <span>AI &amp; Mens</span><span>•</span>
-                <span>AI &amp; 人間</span><span>•</span>
-                <span>AI &amp; 인간</span><span>•</span>
-                <span>AI &amp; 人类</span><span>•</span>
-                <span>ذكاء بشري واصطناعي</span><span>•</span>
-              </span>
-            ))}
-          </div>
-        </div>
-      </motion.div>
-      <motion.div className="hero-grid" style={{ y: heroGridY }} />
-      <div className="hero-particles">
-        <div className="particle" style={{ left: '10%', animationDelay: '0s', animationDuration: '8s' }} />
-        <div className="particle" style={{ left: '30%', animationDelay: '2s', animationDuration: '12s' }} />
-        <div className="particle" style={{ left: '50%', animationDelay: '1s', animationDuration: '10s' }} />
-        <div className="particle" style={{ left: '70%', animationDelay: '4s', animationDuration: '14s' }} />
-        <div className="particle" style={{ left: '90%', animationDelay: '3s', animationDuration: '9s' }} />
-      </div>
+      <motion.div className="hero-grid" style={{ y: gridY }} />
       <div className="hero-glow" />
 
-      <div className="hero-content">
+      <motion.div className="hero-content" style={{ y: contentY, opacity: contentOpacity }}>
         <div>
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            className="hero-badge"
+            initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
           >
-            <div className="hero-badge">
-              <div className="hero-badge-dot" />
-              {t('hero.badge')}
-            </div>
+            <span className="hero-badge-dot" />
+            {t('hero.badge')}
           </motion.div>
 
+          {/* Deux traitements, chacun porteur de sens :
+              — « sans perdre » se souligne d'un trait qui se trace ;
+              — « mise en page » est en italique doré, cerné de REPÈRES DE COUPE
+                qui se posent un à un. Le mot est donc lui-même mis en page, et
+                son cadre reste intact : la forme dit ce que la phrase promet. */}
           <motion.h1
+            ref={titleRef}
             className="hero-title"
-            dangerouslySetInnerHTML={{ __html: t('hero.title') }}
-            initial={{ opacity: 0, y: 30 }}
+            initial={{ opacity: 0, y: 26 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.15, ease: [0.16, 1, 0.3, 1] }}
-          />
+            transition={{ duration: 0.7, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
+          >
+            {/* Les trois lignes sont COUPÉES explicitement : `text-wrap: balance`
+                laissait le navigateur décider et la coupe changeait avec la
+                largeur, la langue et la police. Ici la structure du titre est
+                voulue, donc elle est écrite. `.hero-line-text` isole le texte
+                pour que useJustifiedLines le mesure sans les repères. */}
+            <span className="hero-line">
+              <span className="hero-line-text">{t('hero.title_before')}</span>
+            </span>
+
+            {/* Plus de soulignement sous « sans perdre » : le corps croissant
+                conduit déjà l'œil vers la dernière ligne, et le trait venait
+                buter contre les repères de coupe qui la surmontent. */}
+            <span className="hero-line">
+              <span className="hero-line-text">
+                {t('hero.title_key')} {t('hero.title_mid')}
+              </span>
+            </span>
+
+            <span className="hero-line hero-line--key">
+              <span className="hero-line-text">
+                <span className="hero-key">
+                  {t('hero.title_layout')}
+                  {(['tl', 'tr', 'bl', 'br'] as const).map((corner, i) => (
+                    <motion.span
+                      key={corner}
+                      className={`hero-key-mark hero-key-mark--${corner}`}
+                      initial={{ opacity: 0, scale: 0.4 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.35, delay: 1.25 + i * 0.08, ease: [0.16, 1, 0.3, 1] }}
+                    />
+                  ))}
+                </span>
+              </span>
+            </span>
+          </motion.h1>
 
           <motion.p
             className="hero-subtitle"
-            initial={{ opacity: 0, y: 30 }}
+            initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.3, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 0.7, delay: 0.25, ease: [0.16, 1, 0.3, 1] }}
           >
             {t('hero.subtitle')}
           </motion.p>
 
+          {/* Une action dominante : traduire. La secondaire reste un lien —
+              plusieurs boutons de même poids diluent la conversion. */}
           <motion.div
             className="hero-actions"
-            initial={{ opacity: 0, y: 30 }}
+            initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.45, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 0.7, delay: 0.4, ease: [0.16, 1, 0.3, 1] }}
           >
-            <a href="#pricing" className="btn-primary">
-              {t('hero.btn_discover')}
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-              </svg>
+            <a href="#story" className="btn-primary">
+              {t('hero.btn_start')}
+              <ArrowRight size={18} strokeWidth={2.4} />
             </a>
-            <a href="#story" className="btn-outline">{t('hero.btn_start')}</a>
+            <a href="#features" className="btn-ghost">
+              {t('hero.btn_how')}
+            </a>
           </motion.div>
 
-          <motion.div
-            className="hero-stats"
-            initial={{ opacity: 0, y: 30 }}
+          <motion.ul
+            className="hero-proofs"
+            initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.6, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 0.7, delay: 0.55, ease: [0.16, 1, 0.3, 1] }}
           >
-            <div>
-              <div className="hero-stat-num">
-                <AnimatedCounter value="99%" />
-              </div>
-              <div className="hero-stat-label">{t('hero.stat_precision')}</div>
-            </div>
-            <div>
-              <div className="hero-stat-num">
-                <AnimatedCounter value="24/7" duration={1500} />
-              </div>
-              <div className="hero-stat-label">Disponibilité</div>
-            </div>
-            <div>
-              <div className="hero-stat-num">
-                <AnimatedCounter value="50+" />
-              </div>
-              <div className="hero-stat-label">Langues</div>
-            </div>
-          </motion.div>
+            {PROOFS.map(({ key, Icon, mono }, i) => (
+              <motion.li
+                key={key}
+                className={mono ? 'hero-proof--mono' : undefined}
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5, delay: 0.65 + i * 0.09 }}
+              >
+                <Icon size={15} strokeWidth={2} />
+                {t(`hero.proof_${key}`)}
+              </motion.li>
+            ))}
+          </motion.ul>
         </div>
 
-        {/* Hero Visual - Carousel */}
         <div className="hero-visual">
-          <div className="doc-mockup carousel-slide-1">
-            <div className="doc-card">
-              <div className="doc-header">
-                <div className="doc-dot red" />
-                <div className="doc-dot yellow" />
-                <div className="doc-dot green" />
-                <div className="doc-filename">document_original.docx</div>
-              </div>
-              <div className="doc-body">
-                <div className="doc-panel">
-                  <div className="doc-panel-label">Source</div>
-                  <canvas id="pdf-canvas-hero-source" style={{ width: '100%', height: 'auto', display: 'block' }} />
-                </div>
-                <div className="doc-arrow">→</div>
-                <div className="doc-panel">
-                  <div className="doc-panel-label right">Traduction</div>
-                  <canvas id="pdf-canvas-hero-translated" style={{ width: '100%', height: 'auto', display: 'block' }} />
-                </div>
-              </div>
-              <div className="doc-progress">
-                <div className="doc-progress-bar" />
-              </div>
-              <div className="doc-badge-formats">
-                <span className="fmt-badge">DOCX</span>
-                <span className="fmt-badge highlighted">PDF</span>
-                <span className="fmt-badge">XLSX</span>
-              </div>
-            </div>
-            <div className="floating-label tl">
-              <div className="fl-icon blue">A</div>
-              <div className="fl-text">
-                <strong>Traduction IA</strong>
-                <span>Optimisée</span>
-              </div>
-            </div>
-            <div className="floating-label br">
-              <div className="fl-icon gold">✓</div>
-              <div className="fl-text">
-                <strong>Relecture Humaine</strong>
-                <span>Certifiée</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="mascot-slide carousel-slide-2">
-            <div
-              style={{
-                backgroundColor: 'white',
-                padding: '40px',
-                borderRadius: '20px',
-                boxShadow: 'var(--shadow-2xl)',
-                border: '1px solid var(--gray-100)',
-                width: '100%',
-                maxWidth: '560px',
-                minHeight: '420px',
-                textAlign: 'center',
-                position: 'relative',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-            >
-              <img src={mascot} alt="Mascotte Précis" style={{ width: '180px', height: 'auto', marginBottom: '20px' }} />
-              <div style={{ fontSize: '12px', color: 'var(--blue)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em' }}>
-                Intelligence Artificielle
-              </div>
-              <div style={{ fontSize: '20px', color: 'var(--navy)', fontWeight: 700, marginTop: '5px' }}>
-                L'intelligence au service du sens
-              </div>
-              <p style={{ fontSize: '14px', color: 'var(--gray-500)', marginTop: '10px', lineHeight: 1.6, maxWidth: '400px' }}>
-                Une compréhension contextuelle profonde qui surpasse les traducteurs classiques.
-              </p>
-              <div className="floating-label tl">
-                <div className="fl-icon blue" style={{ color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
-                  AI
-                </div>
-                <div className="fl-text">
-                  <strong>IA Avancée</strong>
-                  <span>Haute Précision</span>
-                </div>
-              </div>
-              <div className="floating-label br">
-                <div className="fl-icon gold" style={{ color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
-                  ✓
-                </div>
-                <div className="fl-text">
-                  <strong>Sécurité</strong>
-                  <span>RGPD Garanti</span>
-                </div>
-              </div>
-            </div>
-          </div>
+          <DocumentDemo />
         </div>
-      </div>
+      </motion.div>
     </section>
   );
 }

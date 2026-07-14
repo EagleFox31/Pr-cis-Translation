@@ -3,12 +3,12 @@
   "version": "1.0.0",
   "description": "Precis Translator root project configuration",
   "scripts": {
-    "dev:frontend": "npm run dev --prefix frontend",
+    "dev": "concurrently --names \"backend,frontend\" --prefix-colors \"cyan,magenta\" --kill-others \"npm run --silent dev:backend\" \"npm run --silent dev:frontend\"",
     "dev:backend": "backend\\venv\\Scripts\\python scripts/run_uvicorn.py 8000",
-    "dev": "concurrently --names \"BACKEND,FRONTEND\" --prefix-colors \"cyan,magenta\" --kill-others --kill-others-on-fail \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:frontend": "npm --prefix frontend run --silent dev",
     "stop": "scripts\\stop.cmd"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^9.1.2"
   }
 }
