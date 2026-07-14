@@ -30,6 +30,7 @@ PLAN_STORAGE: dict[str, int] = {
     "starter":    524_288_000,    # 500 Mo
     "pro":        2_147_483_648,  # 2 Go
     "enterprise": 10_737_418_240, # 10 Go
+    "admin":      10_737_418_240, # 10 Go (affiche « illimité »)
 }
 
 PLAN_LABELS: dict[str, str] = {
@@ -37,6 +38,7 @@ PLAN_LABELS: dict[str, str] = {
     "starter":    "Starter",
     "pro":        "Pro",
     "enterprise": "Enterprise",
+    "admin":      "Admin",
 }
 
 def get_plan_storage(plan: str) -> int:

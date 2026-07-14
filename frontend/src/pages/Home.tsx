@@ -75,7 +75,7 @@ export default function Home() {
     (config: TranslateConfig) => {
       // Le catalogue ne propose que des codes de base ('en', 'fr'…) : plus de
       // variante régionale à réduire avant l'envoi.
-      const { file, targetLang, pages, debug } = config;
+      const { file, targetLang, pages, debug, precise } = config;
       setSelectedFile(file);
       setTargetLang(targetLang);
       setTranslatedBlob(null);
@@ -84,7 +84,7 @@ export default function Home() {
       setShowPreview(true);
 
       stream
-        .start(file, targetLang, pages, debug)
+        .start(file, targetLang, pages, debug, precise)
         .then((result) => {
           setTranslatedBlob(result.blob);
           setTranslatedFilename(result.filename);

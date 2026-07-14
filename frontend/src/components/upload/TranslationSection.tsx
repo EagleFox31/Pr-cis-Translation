@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import FileUploader from './FileUploader';
 import LanguagePicker from './LanguagePicker';
+import { useAuth } from '../../contexts/AuthContext';
 import { findLang, isLangAvailable } from '../../lib/languages';
 
 export interface TranslateConfig {
@@ -16,6 +17,8 @@ export interface TranslateConfig {
   pages: string;
   /** Mode structure : rend les contours de blocs sans traduire (diagnostic). */
   debug: boolean;
+  /** Mode précis : utilise le modèle de raisonnement (admin uniquement). */
+  precise: boolean;
 }
 
 interface TranslationSectionProps {
@@ -61,7 +64,9 @@ export default function TranslationSection({
   const [targetLang, setTargetLang] = useState('en-US');
   const [pages, setPages] = useState('');
   const [structureMode, setStructureMode] = useState(false);
+  const { user } = useAuth();
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [preciseMode, setPreciseMode] = useState(false);
   const [justReset, setJustReset] = useState(false);
 
   const ext = file?.name.split('.').pop()?.toLowerCase() ?? '';
@@ -90,11 +95,13 @@ export default function TranslationSection({
       targetLang,
       pages: isPdf ? pages.trim() : '',
       debug: isPdf && structureMode,
+      precise: isPdf && preciseMode,
     });
   };
 
   const ready = !!file && !isTranslating;
-  const advancedCount = (pages.trim() ? 1 : 0) + (structureMode ? 1 : 0);
+  const isAdmin = user?.plan === 'admin';
+  const advancedCount = (pages.trim() ? 1 : 0) + (structureMode ? 1 : 0) + (preciseMode ? 1 : 0);
 
   return (
     <form
@@ -285,6 +292,46 @@ export default function TranslationSection({
                           {t('story.pages_hint')}
                         </span>
                       </div>
+
+                      {/* Mode précis (admin) */}
+                      {isAdmin && (
+                        <label
+                          htmlFor="precise"
+                          style={{
+                            display: 'flex', alignItems: 'flex-start', gap: '10px',
+                            cursor: isTranslating ? 'not-allowed' : 'pointer',
+                            padding: '12px', borderRadius: '10px',
+                            background: preciseMode ? '#fef9c3' : 'transparent',
+                            border: preciseMode ? '1px solid #facc15' : '1px solid transparent',
+                            transition: 'all 0.2s',
+                          }}
+                        >
+                          <input
+                            id="precise"
+                            type="checkbox"
+                            checked={preciseMode}
+                            onChange={(e) => setPreciseMode(e.target.checked)}
+                            disabled={isTranslating}
+                            style={{
+                              width: '16px', height: '16px', marginTop: '1px',
+                              accentColor: '#ca8a04', flexShrink: 0, cursor: 'inherit',
+                            }}
+                          />
+                          <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '6px',
+                              fontSize: '12.5px', fontWeight: 600,
+                              color: preciseMode ? '#854d0e' : 'var(--gray-800)',
+                            }}>
+                              <Wand2 size={13} strokeWidth={2.2} />
+                              Mode précis (admin)
+                            </span>
+                            <span style={{ fontSize: '11px', color: 'var(--gray-500)', lineHeight: 1.45 }}>
+                              Utilise le modèle de raisonnement — plus lent (~2 min/page) mais plus fiable sur les mises en page complexes.
+                            </span>
+                          </span>
+                        </label>
+                      )}
 
                       {/* Mode structure (diagnostic) */}
                       <label

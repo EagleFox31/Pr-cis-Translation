@@ -578,6 +578,7 @@ async def translate_endpoint(
     target_lang: str = Form("en"),
     format_options: str = Form("{}"),
     quality: str = Form("fast"),
+    precise: str = Form(""),
     pages: str = Form(""),
     debug: str = Form(""),
     x_api_key: str = Header(None),
@@ -586,6 +587,10 @@ async def translate_endpoint(
     Le client peut ensuite écouter /api/translate/events/{job_id} (SSE)
     pour suivre la progression, puis télécharger via /api/translate/result/{job_id}."""
     verify_api_key(x_api_key)
+
+    # Le flag 'precise' du frontend force le mode raisonnement (admin)
+    if precise == "1":
+        quality = "precise"
 
     filename = file.filename or ""
     ext = filename.split(".")[-1].lower() if "." in filename else ""

@@ -88,6 +88,7 @@ export function useStreamingTranslation() {
       targetLang: string,
       pages: string = '',
       debug: boolean = false,
+      precise: boolean = false,
     ): Promise<{ blob: Blob; filename: string }> => {
       return new Promise(async (resolve, reject) => {
         setState({ ...EMPTY, isTranslating: true });
@@ -103,6 +104,7 @@ export function useStreamingTranslation() {
           formData.append('file', file);
           formData.append('target_lang', targetLang);
           if (debug) formData.append('debug', '1');
+          if (precise) formData.append('precise', '1');
           if (pages && pages.trim()) formData.append('pages', pages.trim());
 
           const startRes = await fetch(`${API_BASE}/api/translate`, {

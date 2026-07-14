@@ -11,6 +11,7 @@ const PLAN_LABELS: Record<string, string> = {
   starter: 'Starter',
   pro: 'Pro',
   enterprise: 'Enterprise',
+  admin: 'Admin',
 };
 
 interface NavbarProps {
@@ -200,6 +201,10 @@ export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibr
                             }} />
                           </div>
                         </>
+                      ) : user.plan === 'admin' ? (
+                        <div style={{ fontSize: '11px', color: 'var(--gray-400)' }}>
+                          {formatBytes(user.storage_used)} · Illimité
+                        </div>
                       ) : (
                         <div style={{ fontSize: '11px', color: 'var(--gray-400)', fontStyle: 'italic' }}>
                           Traduction seule
