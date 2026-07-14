@@ -25,7 +25,11 @@ DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql+asyncpg://postgres:postgres@localhost:5432/precis",
 )
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+# configparser interprète les `%` → on les échappe pour éviter ValueError
+try:
+    config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
+except ValueError:
+    pass  # déjà protégé, ou URL sans %
 
 target_metadata = Base.metadata
 
