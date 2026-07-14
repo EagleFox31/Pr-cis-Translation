@@ -29,17 +29,21 @@ import { ArrowRight, Check, ScanLine, Sparkles, LayoutTemplate } from 'lucide-re
 const SOURCE_PDF = '/demo_journal_avant.pdf';   // Global Tribune, en anglais
 const TARGET_PDF = '/demo_journal_apres.pdf';   // Tribune Mondiale, en français
 
-type Phase = 'scan' | 'skeleton' | 'reveal' | 'done';
+type Phase = 'scan' | 'hold1' | 'skeleton' | 'hold2' | 'reveal' | 'done';
 
 /** Barre de squelette, en % de la page (donc indépendante de la taille écran). */
 interface Bar { x: number; y: number; w: number; h: number }
 
-/** Étapes du cycle : durée de chacune, en ms. */
+/** Étapes du cycle : durée de chacune, en ms.
+ *  hold1 = pause après le scan (blocs détectés visibles).
+ *  hold2 = pause après le squelette (géométrie en place avant la traduction). */
 const TIMINGS: Record<Phase, number> = {
-  scan: 1500,
-  skeleton: 900,
-  reveal: 2000,
-  done: 2600,
+  scan: 2400,
+  hold1: 1000,
+  skeleton: 1600,
+  hold2: 1200,
+  reveal: 3200,
+  done: 4200,
 };
 
 /**
@@ -168,7 +172,7 @@ export default function DocumentDemo() {
     };
   }, []);
 
-  // ── Séquence : scan → squelette → révélation → pause → boucle ─────────────
+  // ── Séquence : scan → pause → squelette → pause → révélation → pause → boucle
   useEffect(() => {
     if (!loaded) return;
 
@@ -185,29 +189,30 @@ export default function DocumentDemo() {
     setPhase('scan');
     setReveal(0);
 
-    timers.push(window.setTimeout(() => setPhase('skeleton'), TIMINGS.scan));
+    const t0 = TIMINGS.scan;
+    const t1 = t0 + TIMINGS.hold1;
+    const t2 = t1 + TIMINGS.skeleton;
+    const t3 = t2 + TIMINGS.hold2;
+    const t4 = t3 + TIMINGS.reveal;
+    const tEnd = t4 + TIMINGS.done;
 
+    timers.push(window.setTimeout(() => setPhase('hold1'), t0));
+    timers.push(window.setTimeout(() => setPhase('skeleton'), t1));
+    timers.push(window.setTimeout(() => setPhase('hold2'), t2));
     timers.push(window.setTimeout(() => {
       setPhase('reveal');
-      const t0 = performance.now();
+      const start = performance.now();
       const step = (now: number) => {
-        const p = Math.min(1, (now - t0) / TIMINGS.reveal);
-        // Adouci en fin de course : le front ralentit au lieu de s'arrêter net.
-        setReveal(1 - Math.pow(1 - p, 3));
+        const p = Math.min(1, (now - start) / TIMINGS.reveal);
+        // Easing sinusoidal : départ progressif, décélération douce en fin.
+        setReveal(Math.sin((p * Math.PI) / 2));
         if (p < 1) raf = requestAnimationFrame(step);
       };
       raf = requestAnimationFrame(step);
-    }, TIMINGS.scan + TIMINGS.skeleton));
+    }, t3));
 
-    timers.push(window.setTimeout(
-      () => setPhase('done'),
-      TIMINGS.scan + TIMINGS.skeleton + TIMINGS.reveal,
-    ));
-
-    timers.push(window.setTimeout(
-      () => setCycle((c) => c + 1),
-      TIMINGS.scan + TIMINGS.skeleton + TIMINGS.reveal + TIMINGS.done,
-    ));
+    timers.push(window.setTimeout(() => setPhase('done'), t4));
+    timers.push(window.setTimeout(() => setCycle((c) => c + 1), tEnd));
 
     return () => {
       timers.forEach(clearTimeout);
@@ -231,16 +236,21 @@ export default function DocumentDemo() {
   const onLeave = useCallback(() => { mx.set(0); my.set(0); }, [mx, my]);
 
   const status =
-    phase === 'scan' ? { Icon: ScanLine, text: t('hero.demo_analyzing') }
-    : phase === 'skeleton' ? { Icon: Sparkles, text: t('hero.demo_translating') }
-    : phase === 'reveal' ? { Icon: Sparkles, text: t('hero.demo_rebuilding') }
+    phase === 'scan' || phase === 'hold1'
+      ? { Icon: ScanLine, text: t('hero.demo_analyzing') }
+    : phase === 'skeleton' || phase === 'hold2'
+      ? { Icon: Sparkles, text: t('hero.demo_translating') }
+    : phase === 'reveal'
+      ? { Icon: Sparkles, text: t('hero.demo_rebuilding') }
     : { Icon: LayoutTemplate, text: t('hero.demo_done') };
 
   // Progression affichée : continue sur tout le cycle, pas seulement le reveal.
   const progress =
-    phase === 'scan' ? 0.15
-    : phase === 'skeleton' ? 0.3
-    : phase === 'reveal' ? 0.3 + reveal * 0.7
+    phase === 'scan' ? 0.1
+    : phase === 'hold1' ? 0.18
+    : phase === 'skeleton' ? 0.28
+    : phase === 'hold2' ? 0.35
+    : phase === 'reveal' ? 0.35 + reveal * 0.65
     : 1;
 
   return (
@@ -286,7 +296,7 @@ export default function DocumentDemo() {
               )}
 
               {/* Contours des blocs détectés — « je comprends ta mise en page » */}
-              {(phase === 'scan' || phase === 'skeleton') && bars.map((b, i) => (
+              {(phase === 'scan' || phase === 'hold1' || phase === 'skeleton') && bars.map((b, i) => (
                 <motion.span
                   key={i}
                   className="hd-block"
@@ -323,7 +333,7 @@ export default function DocumentDemo() {
               {/* Squelette : la géométrie vient du document SOURCE — donc la
                   mise en page est déjà là avant le texte. Chaque barre
                   disparaît quand le front de révélation la dépasse. */}
-              {phase !== 'scan' && bars.map((b, i) => {
+              {phase !== 'scan' && phase !== 'hold1' && bars.map((b, i) => {
                 const passed = b.y + b.h <= reveal * 100;
                 return (
                   <motion.span
