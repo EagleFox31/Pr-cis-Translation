@@ -3,6 +3,19 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Eye, EyeOff, Mail, Lock, LogIn, Loader2, ArrowLeft } from 'lucide-react';
 
+const inputBase: React.CSSProperties = {
+  width: '100%', padding: '10px 12px 10px 38px', borderRadius: '10px',
+  fontSize: '14px', outline: 'none', border: '1.5px solid var(--gray-200)',
+  background: 'var(--gray-50)', fontFamily: 'inherit', boxSizing: 'border-box',
+};
+
+const btnPrimary: React.CSSProperties = {
+  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  gap: '8px', padding: '11px', borderRadius: '10px', border: 'none',
+  background: 'var(--blue)', color: 'white', fontWeight: 600, fontSize: '14px',
+  cursor: 'pointer', fontFamily: 'inherit',
+};
+
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -26,47 +39,33 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-white px-4">
-      <div className="w-full max-w-sm">
-        {/* Retour */}
-        <Link to="/home"
-          className="inline-flex items-center gap-1.5 text-sm mb-8"
-          style={{ color: 'var(--gray-500)' }}
-        >
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'white', padding: '0 16px' }}>
+      <div style={{ width: '100%', maxWidth: '380px' }}>
+        <Link to="/home" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '14px', color: 'var(--gray-500)', marginBottom: '32px', textDecoration: 'none' }}>
           <ArrowLeft size={15} /> Retour
         </Link>
 
-        <h1 className="text-2xl font-bold tracking-tight mb-1" style={{ color: 'var(--gray-900)' }}>
-          Connexion
-        </h1>
-        <p className="text-sm mb-8" style={{ color: 'var(--gray-500)' }}>
-          Accédez à votre espace de traduction.
-        </p>
+        <h1 style={{ fontSize: '26px', fontWeight: 700, color: 'var(--gray-900)', margin: '0 0 4px', letterSpacing: '-0.02em' }}>Connexion</h1>
+        <p style={{ fontSize: '14px', color: 'var(--gray-500)', margin: '0 0 32px' }}>Accédez à votre espace de traduction.</p>
 
         {verified && (
-          <div className="mb-5 p-3 rounded-lg text-sm font-medium"
-            style={{ background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0' }}>
+          <div style={{ marginBottom: '20px', padding: '12px', borderRadius: '10px', background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0', fontSize: '14px', fontWeight: 500 }}>
             ✅ Email vérifié — connectez-vous.
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {error && (
-            <div className="p-3 rounded-lg text-sm"
-              style={{ background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca' }}>
-              {error}
-            </div>
+            <div style={{ padding: '12px', borderRadius: '10px', background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', fontSize: '14px' }}>{error}</div>
           )}
 
           <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--gray-700)' }}>Email</label>
-            <div className="relative">
-              <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--gray-400)' }} />
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: 'var(--gray-700)', marginBottom: '6px' }}>Email</label>
+            <div style={{ position: 'relative' }}>
+              <Mail size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
               <input type="email" required autoFocus value={email}
-                onChange={e => setEmail(e.target.value)}
-                className="w-full pl-10 pr-3 py-2.5 rounded-lg text-sm outline-none transition-colors"
-                style={{ border: '1.5px solid var(--gray-200)', background: 'var(--gray-50)' }}
-                placeholder="vous@exemple.com"
+                onChange={e => setEmail(e.target.value)} placeholder="vous@exemple.com"
+                style={inputBase}
                 onFocus={e => { e.target.style.borderColor = 'var(--blue)'; e.target.style.background = 'white'; }}
                 onBlur={e => { e.target.style.borderColor = 'var(--gray-200)'; e.target.style.background = 'var(--gray-50)'; }}
               />
@@ -74,42 +73,38 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--gray-700)' }}>Mot de passe</label>
-            <div className="relative">
-              <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--gray-400)' }} />
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: 'var(--gray-700)', marginBottom: '6px' }}>Mot de passe</label>
+            <div style={{ position: 'relative' }}>
+              <Lock size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
               <input type={showPw ? 'text' : 'password'} required value={password}
-                onChange={e => setPassword(e.target.value)}
-                className="w-full pl-10 pr-10 py-2.5 rounded-lg text-sm outline-none transition-colors"
-                style={{ border: '1.5px solid var(--gray-200)', background: 'var(--gray-50)' }}
-                placeholder="••••••••"
+                onChange={e => setPassword(e.target.value)} placeholder="••••••••"
+                style={{ ...inputBase, paddingRight: '38px' }}
                 onFocus={e => { e.target.style.borderColor = 'var(--blue)'; e.target.style.background = 'white'; }}
                 onBlur={e => { e.target.style.borderColor = 'var(--gray-200)'; e.target.style.background = 'var(--gray-50)'; }}
               />
               <button type="button" onClick={() => setShowPw(!showPw)}
-                className="absolute right-3 top-1/2 -translate-y-1/2"
-                style={{ color: 'var(--gray-400)' }}>
+                style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gray-400)', padding: 0 }}>
                 {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
           </div>
 
-          <button type="submit" disabled={busy}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition-all"
-            style={{ background: 'var(--blue)', color: 'white', opacity: busy ? 0.6 : 1 }}>
-            {busy ? <Loader2 size={16} className="animate-spin" /> : <LogIn size={16} />}
+          <button type="submit" disabled={busy} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }}>
+            {busy ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <LogIn size={16} />}
             Se connecter
           </button>
 
-          <div className="relative my-5">
-            <div className="absolute inset-0 flex items-center"><div className="w-full border-t" style={{ borderColor: 'var(--gray-200)' }} /></div>
-            <div className="relative flex justify-center text-xs"><span className="bg-white px-2" style={{ color: 'var(--gray-400)' }}>ou</span></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '8px 0' }}>
+            <div style={{ flex: 1, height: '1px', background: 'var(--gray-200)' }} />
+            <span style={{ fontSize: '12px', color: 'var(--gray-400)' }}>ou</span>
+            <div style={{ flex: 1, height: '1px', background: 'var(--gray-200)' }} />
           </div>
 
-          <div id="google-signin-button" className="flex justify-center" />
+          <div id="google-signin-button" style={{ display: 'flex', justifyContent: 'center' }} />
 
-          <p className="text-center text-sm" style={{ color: 'var(--gray-500)' }}>
+          <p style={{ textAlign: 'center', fontSize: '14px', color: 'var(--gray-500)', margin: 0 }}>
             Pas encore de compte ?{' '}
-            <Link to="/register" style={{ color: 'var(--blue)', fontWeight: 600 }}>S'inscrire</Link>
+            <Link to="/register" style={{ color: 'var(--blue)', fontWeight: 600, textDecoration: 'none' }}>S'inscrire</Link>
           </p>
         </form>
       </div>

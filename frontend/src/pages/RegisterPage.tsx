@@ -3,6 +3,26 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Eye, EyeOff, Mail, Lock, User, UserPlus, Loader2, ArrowLeft } from 'lucide-react';
 
+const inputBase: React.CSSProperties = {
+  width: '100%', padding: '10px 12px 10px 38px', borderRadius: '10px',
+  fontSize: '14px', outline: 'none', border: '1.5px solid var(--gray-200)',
+  background: 'var(--gray-50)', fontFamily: 'inherit', boxSizing: 'border-box',
+};
+
+const btnPrimary: React.CSSProperties = {
+  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  gap: '8px', padding: '11px', borderRadius: '10px', border: 'none',
+  background: 'var(--blue)', color: 'white', fontWeight: 600, fontSize: '14px',
+  cursor: 'pointer', fontFamily: 'inherit',
+};
+
+const focusIn = (e: React.FocusEvent<HTMLInputElement>) => {
+  e.target.style.borderColor = 'var(--blue)'; e.target.style.background = 'white';
+};
+const focusOut = (e: React.FocusEvent<HTMLInputElement>) => {
+  e.target.style.borderColor = 'var(--gray-200)'; e.target.style.background = 'var(--gray-50)';
+};
+
 export default function RegisterPage() {
   const { register } = useAuth();
   const navigate = useNavigate();
@@ -17,108 +37,71 @@ export default function RegisterPage() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
-    if (password.length < 8) {
-      setError('Le mot de passe doit contenir au moins 8 caractères.');
-      return;
-    }
+    if (password.length < 8) { setError('Le mot de passe doit contenir au moins 8 caractères.'); return; }
     setBusy(true);
     const res = await register(email, password, name || undefined);
     setBusy(false);
-    if (res.ok) {
-      navigate(`/verify-email?email=${encodeURIComponent(email)}`, { replace: true });
-    } else {
-      setError(res.error || "Erreur lors de l'inscription.");
-    }
+    if (res.ok) navigate(`/verify-email?email=${encodeURIComponent(email)}`, { replace: true });
+    else setError(res.error || "Erreur lors de l'inscription.");
   }
 
-  const inputClass = "w-full pl-10 pr-3 py-2.5 rounded-lg text-sm outline-none transition-colors";
-  const inputStyle = (e: React.FocusEvent<HTMLInputElement>) => {
-    e.target.style.borderColor = 'var(--blue)'; e.target.style.background = 'white';
-  };
-  const inputBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-    e.target.style.borderColor = 'var(--gray-200)'; e.target.style.background = 'var(--gray-50)';
-  };
-
   return (
-    <div className="min-h-screen flex items-center justify-center bg-white px-4">
-      <div className="w-full max-w-sm">
-        <Link to="/home"
-          className="inline-flex items-center gap-1.5 text-sm mb-8"
-          style={{ color: 'var(--gray-500)' }}
-        >
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'white', padding: '0 16px' }}>
+      <div style={{ width: '100%', maxWidth: '380px' }}>
+        <Link to="/home" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '14px', color: 'var(--gray-500)', marginBottom: '32px', textDecoration: 'none' }}>
           <ArrowLeft size={15} /> Retour
         </Link>
 
-        <h1 className="text-2xl font-bold tracking-tight mb-1" style={{ color: 'var(--gray-900)' }}>
-          Créer un compte
-        </h1>
-        <p className="text-sm mb-8" style={{ color: 'var(--gray-500)' }}>
-          Sauvegardez vos traductions et débloquez plus de fonctionnalités.
-        </p>
+        <h1 style={{ fontSize: '26px', fontWeight: 700, color: 'var(--gray-900)', margin: '0 0 4px', letterSpacing: '-0.02em' }}>Créer un compte</h1>
+        <p style={{ fontSize: '14px', color: 'var(--gray-500)', margin: '0 0 32px' }}>Sauvegardez vos traductions et débloquez plus de fonctionnalités.</p>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {error && (
-            <div className="p-3 rounded-lg text-sm"
-              style={{ background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca' }}>
-              {error}
-            </div>
+            <div style={{ padding: '12px', borderRadius: '10px', background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', fontSize: '14px' }}>{error}</div>
           )}
 
           <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--gray-700)' }}>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: 'var(--gray-700)', marginBottom: '6px' }}>
               Nom <span style={{ color: 'var(--gray-400)', fontWeight: 400 }}>(optionnel)</span>
             </label>
-            <div className="relative">
-              <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--gray-400)' }} />
+            <div style={{ position: 'relative' }}>
+              <User size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
               <input type="text" value={name} autoFocus onChange={e => setName(e.target.value)}
-                className={inputClass} style={{ border: '1.5px solid var(--gray-200)', background: 'var(--gray-50)' }}
-                placeholder="Jean Dupont"
-                onFocus={inputStyle} onBlur={inputBlur}
-              />
+                placeholder="Jean Dupont" style={inputBase} onFocus={focusIn} onBlur={focusOut} />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--gray-700)' }}>Email</label>
-            <div className="relative">
-              <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--gray-400)' }} />
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: 'var(--gray-700)', marginBottom: '6px' }}>Email</label>
+            <div style={{ position: 'relative' }}>
+              <Mail size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
               <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
-                className={inputClass} style={{ border: '1.5px solid var(--gray-200)', background: 'var(--gray-50)' }}
-                placeholder="vous@exemple.com"
-                onFocus={inputStyle} onBlur={inputBlur}
-              />
+                placeholder="vous@exemple.com" style={inputBase} onFocus={focusIn} onBlur={focusOut} />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--gray-700)' }}>Mot de passe</label>
-            <div className="relative">
-              <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--gray-400)' }} />
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: 'var(--gray-700)', marginBottom: '6px' }}>Mot de passe</label>
+            <div style={{ position: 'relative' }}>
+              <Lock size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
               <input type={showPw ? 'text' : 'password'} required value={password}
-                onChange={e => setPassword(e.target.value)}
-                className="w-full pl-10 pr-10 py-2.5 rounded-lg text-sm outline-none transition-colors"
-                style={{ border: '1.5px solid var(--gray-200)', background: 'var(--gray-50)' }}
-                placeholder="8 caractères minimum"
-                onFocus={inputStyle} onBlur={inputBlur}
-              />
+                onChange={e => setPassword(e.target.value)} placeholder="8 caractères minimum"
+                style={{ ...inputBase, paddingRight: '38px' }} onFocus={focusIn} onBlur={focusOut} />
               <button type="button" onClick={() => setShowPw(!showPw)}
-                className="absolute right-3 top-1/2 -translate-y-1/2"
-                style={{ color: 'var(--gray-400)' }}>
+                style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gray-400)', padding: 0 }}>
                 {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
           </div>
 
-          <button type="submit" disabled={busy}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition-all"
-            style={{ background: 'var(--blue)', color: 'white', opacity: busy ? 0.6 : 1 }}>
-            {busy ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} />}
+          <button type="submit" disabled={busy} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }}>
+            {busy ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <UserPlus size={16} />}
             Créer mon compte
           </button>
 
-          <p className="text-center text-sm" style={{ color: 'var(--gray-500)' }}>
+          <p style={{ textAlign: 'center', fontSize: '14px', color: 'var(--gray-500)', margin: 0 }}>
             Déjà un compte ?{' '}
-            <Link to="/login" style={{ color: 'var(--blue)', fontWeight: 600 }}>Se connecter</Link>
+            <Link to="/login" style={{ color: 'var(--blue)', fontWeight: 600, textDecoration: 'none' }}>Se connecter</Link>
           </p>
         </form>
       </div>

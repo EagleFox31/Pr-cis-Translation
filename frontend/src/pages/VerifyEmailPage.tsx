@@ -3,6 +3,20 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Mail, ArrowRight, Loader2, RefreshCw, ArrowLeft } from 'lucide-react';
 
+const digitBase: React.CSSProperties = {
+  width: '44px', height: '54px', textAlign: 'center', fontSize: '22px',
+  fontWeight: 700, borderRadius: '10px', outline: 'none',
+  border: '1.5px solid var(--gray-200)', background: 'var(--gray-50)',
+  fontFamily: 'inherit', boxSizing: 'border-box',
+};
+
+const btnPrimary: React.CSSProperties = {
+  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  gap: '8px', padding: '11px', borderRadius: '10px', border: 'none',
+  background: 'var(--blue)', color: 'white', fontWeight: 600, fontSize: '14px',
+  cursor: 'pointer', fontFamily: 'inherit',
+};
+
 export default function VerifyEmailPage() {
   const { verifyCode, resendVerification } = useAuth();
   const navigate = useNavigate();
@@ -17,13 +31,12 @@ export default function VerifyEmailPage() {
   const [tokenVerified, setTokenVerified] = useState(false);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  // Lien cliqué → vérification automatique
   useEffect(() => {
     if (!token || tokenVerified) return;
     setTokenVerified(true);
     (async () => {
       try {
-        const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000';
+        const API_BASE = (import.meta as any).env.VITE_API_BASE || 'http://127.0.0.1:8000';
         await fetch(`${API_BASE}/api/auth/verify-email?token=${encodeURIComponent(token)}`);
         navigate('/login?verified=1', { replace: true });
       } catch { /* le backend redirige */ }
@@ -40,16 +53,11 @@ export default function VerifyEmailPage() {
 
   function handlePaste(e: React.ClipboardEvent) {
     const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    if (pasted.length === 6) {
-      setCode(pasted.split(''));
-      inputRefs.current[5]?.focus();
-    }
+    if (pasted.length === 6) { setCode(pasted.split('')); inputRefs.current[5]?.focus(); }
   }
 
   function handleKeyDown(i: number, e: React.KeyboardEvent) {
-    if (e.key === 'Backspace' && !code[i] && i > 0) {
-      inputRefs.current[i - 1]?.focus();
-    }
+    if (e.key === 'Backspace' && !code[i] && i > 0) inputRefs.current[i - 1]?.focus();
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -71,78 +79,58 @@ export default function VerifyEmailPage() {
     setTimeout(() => setResent(false), 3000);
   }
 
-  const digitStyle = (focused: boolean) => ({
-    border: focused ? '1.5px solid var(--blue)' : '1.5px solid var(--gray-200)',
-    background: focused ? 'white' : 'var(--gray-50)',
-  });
-
   return (
-    <div className="min-h-screen flex items-center justify-center bg-white px-4">
-      <div className="w-full max-w-sm">
-        <Link to="/home"
-          className="inline-flex items-center gap-1.5 text-sm mb-8"
-          style={{ color: 'var(--gray-500)' }}
-        >
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'white', padding: '0 16px' }}>
+      <div style={{ width: '100%', maxWidth: '380px' }}>
+        <Link to="/home" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '14px', color: 'var(--gray-500)', marginBottom: '32px', textDecoration: 'none' }}>
           <ArrowLeft size={15} /> Retour
         </Link>
 
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl mb-4"
-            style={{ background: 'var(--blue)', color: 'white' }}>
+        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '48px', height: '48px', borderRadius: '12px', background: 'var(--blue)', color: 'white', marginBottom: '16px' }}>
             <Mail size={22} />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight" style={{ color: 'var(--gray-900)' }}>
-            Vérifiez votre email
-          </h1>
-          <p className="text-sm mt-2" style={{ color: 'var(--gray-500)' }}>
+          <h1 style={{ fontSize: '26px', fontWeight: 700, color: 'var(--gray-900)', margin: '0 0 8px', letterSpacing: '-0.02em' }}>Vérifiez votre email</h1>
+          <p style={{ fontSize: '14px', color: 'var(--gray-500)', margin: 0, lineHeight: 1.6 }}>
             Un code à 6 chiffres a été envoyé à{' '}
-            <span className="font-semibold" style={{ color: 'var(--gray-700)' }}>
-              {email || 'votre adresse'}
-            </span>
+            <span style={{ fontWeight: 600, color: 'var(--gray-700)' }}>{email || 'votre adresse'}</span>
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {error && (
-            <div className="p-3 rounded-lg text-sm"
-              style={{ background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca' }}>
-              {error}
-            </div>
+            <div style={{ padding: '12px', borderRadius: '10px', background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', fontSize: '14px' }}>{error}</div>
           )}
 
-          <div className="flex justify-center gap-2" onPaste={handlePaste}>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }} onPaste={handlePaste}>
             {code.map((d, i) => (
               <input key={i} ref={el => { inputRefs.current[i] = el; }}
                 type="text" inputMode="numeric" maxLength={1} value={d}
                 onChange={e => handleInput(i, e.target.value)}
                 onKeyDown={e => handleKeyDown(i, e)}
-                onFocus={e => Object.assign(e.target.style, digitStyle(true))}
-                onBlur={e => Object.assign(e.target.style, digitStyle(false))}
-                className="w-11 h-14 text-center text-xl font-bold rounded-lg outline-none transition-colors"
-                style={digitStyle(i === 0)}
+                onFocus={e => { e.target.style.borderColor = 'var(--blue)'; e.target.style.background = 'white'; }}
+                onBlur={e => { e.target.style.borderColor = 'var(--gray-200)'; e.target.style.background = 'var(--gray-50)'; }}
+                style={{ ...digitBase, borderColor: i === 0 && !d ? 'var(--gray-200)' : undefined }}
                 autoFocus={i === 0}
               />
             ))}
           </div>
 
-          <button type="submit" disabled={busy}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition-all"
-            style={{ background: 'var(--blue)', color: 'white', opacity: busy ? 0.6 : 1 }}>
-            {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
+          <button type="submit" disabled={busy} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }}>
+            {busy ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <ArrowRight size={16} />}
             Vérifier
           </button>
 
-          <div className="text-center">
+          <div style={{ textAlign: 'center' }}>
             <button type="button" onClick={handleResend}
-              className="inline-flex items-center gap-1.5 text-sm transition-colors"
-              style={{ color: 'var(--gray-500)' }}>
-              <RefreshCw size={14} className={resent ? 'animate-spin' : ''} />
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '14px', color: 'var(--gray-500)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
+              <RefreshCw size={14} style={resent ? { animation: 'spin 1s linear infinite' } : undefined} />
               {resent ? 'Code renvoyé !' : 'Renvoyer le code'}
             </button>
           </div>
 
-          <p className="text-center text-sm" style={{ color: 'var(--gray-400)' }}>
-            <Link to="/login" style={{ color: 'var(--gray-500)' }}>Retour à la connexion</Link>
+          <p style={{ textAlign: 'center', fontSize: '14px', color: 'var(--gray-400)', margin: 0 }}>
+            <Link to="/login" style={{ color: 'var(--gray-500)', textDecoration: 'none' }}>Retour à la connexion</Link>
           </p>
         </form>
       </div>
