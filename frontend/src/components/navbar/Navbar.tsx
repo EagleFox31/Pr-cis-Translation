@@ -6,6 +6,13 @@ import MobileMenu from './MobileMenu';
 
 const logo = "/Logo.png";
 
+const PLAN_LABELS: Record<string, string> = {
+  free: 'Gratuit',
+  starter: 'Starter',
+  pro: 'Pro',
+  enterprise: 'Enterprise',
+};
+
 interface NavbarProps {
   activeSection: string;
   onNavClick: (sectionId: string) => void;
@@ -174,21 +181,30 @@ export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibr
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                         <span style={{ fontSize: '12px', color: 'var(--gray-500)' }}>Forfait</span>
                         <span style={{
-                          background: 'var(--blue-light)', color: 'var(--blue)',
+                          background: user.plan === 'free' ? 'var(--gray-100)' : 'var(--blue-light)',
+                          color: user.plan === 'free' ? 'var(--gray-500)' : 'var(--blue)',
                           fontSize: '10px', fontWeight: 700, padding: '2px 7px',
                           borderRadius: '5px', textTransform: 'uppercase', letterSpacing: '0.04em',
-                        }}>{user.plan}</span>
+                        }}>{PLAN_LABELS[user.plan] || user.plan}</span>
                       </div>
-                      <div style={{ fontSize: '12px', color: 'var(--gray-400)' }}>
-                        {formatBytes(user.storage_used)} / {formatBytes(user.storage_limit)}
-                      </div>
-                      <div style={{ height: '3px', background: 'var(--gray-100)', borderRadius: '2px', marginTop: '5px' }}>
-                        <div style={{
-                          height: '3px', borderRadius: '2px', background: 'var(--blue)',
-                          width: `${Math.min(100, (user.storage_used / user.storage_limit) * 100)}%`,
-                          transition: 'width 0.3s ease',
-                        }} />
-                      </div>
+                      {user.storage_limit > 0 ? (
+                        <>
+                          <div style={{ fontSize: '12px', color: 'var(--gray-400)' }}>
+                            {formatBytes(user.storage_used)} / {formatBytes(user.storage_limit)}
+                          </div>
+                          <div style={{ height: '3px', background: 'var(--gray-100)', borderRadius: '2px', marginTop: '5px' }}>
+                            <div style={{
+                              height: '3px', borderRadius: '2px', background: 'var(--blue)',
+                              width: `${Math.min(100, (user.storage_used / user.storage_limit) * 100)}%`,
+                              transition: 'width 0.3s ease',
+                            }} />
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{ fontSize: '11px', color: 'var(--gray-400)', fontStyle: 'italic' }}>
+                          Traduction seule
+                        </div>
+                      )}
                     </div>
                     <div style={{ height: '1px', background: 'var(--gray-100)', margin: '4px 0' }} />
                     <button

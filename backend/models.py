@@ -23,6 +23,27 @@ class Base(DeclarativeBase):
     pass
 
 
+# ── Plans & quotas ───────────────────────────────────────────────────────────
+
+PLAN_STORAGE: dict[str, int] = {
+    "free":       0,              # traduction seule, pas de stockage
+    "starter":    524_288_000,    # 500 Mo
+    "pro":        2_147_483_648,  # 2 Go
+    "enterprise": 10_737_418_240, # 10 Go
+}
+
+PLAN_LABELS: dict[str, str] = {
+    "free":       "Gratuit",
+    "starter":    "Starter",
+    "pro":        "Pro",
+    "enterprise": "Enterprise",
+}
+
+def get_plan_storage(plan: str) -> int:
+    """Retourne la limite de stockage pour un plan donné, 0 par défaut."""
+    return PLAN_STORAGE.get(plan, 0)
+
+
 # ── User ────────────────────────────────────────────────────────────────────
 
 class User(Base):
@@ -37,7 +58,7 @@ class User(Base):
     avatar_url:    Mapped[str | None] = mapped_column(String(512), nullable=True)
     plan:          Mapped[str] = mapped_column(String(20), default="free", nullable=False)
     storage_used:  Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
-    storage_limit: Mapped[int] = mapped_column(BigInteger, default=104_857_600, nullable=False)
+    storage_limit: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     created_at:    Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at:    Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow,

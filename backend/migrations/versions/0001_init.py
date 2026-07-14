@@ -27,7 +27,7 @@ def upgrade() -> None:
         sa.Column("avatar_url", sa.String(512), nullable=True),
         sa.Column("plan", sa.String(20), nullable=False, server_default="free"),
         sa.Column("storage_used", sa.BigInteger(), nullable=False, server_default="0"),
-        sa.Column("storage_limit", sa.BigInteger(), nullable=False, server_default="104857600"),
+        sa.Column("storage_limit", sa.BigInteger(), nullable=False, server_default="0"),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
     )
