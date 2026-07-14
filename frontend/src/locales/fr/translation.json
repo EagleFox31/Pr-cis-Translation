@@ -6,7 +6,9 @@
     "pricing": "Tarifs",
     "about": "À Propos",
     "library": "Mes docs",
-    "signIn": "Connexion"
+    "signIn": "Se connecter",
+    "signUp": "S'inscrire",
+    "logout": "Déconnexion"
   },
   "hero": {
     "badge": "Moteur de mise en page v2",

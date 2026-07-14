@@ -15,6 +15,7 @@ interface NavbarProps {
 
 export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibraryOpen }: NavbarProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
   const { t, i18n } = useTranslation();
@@ -49,6 +50,12 @@ export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibr
 
   // Icône avatar : initiales si pas d'avatar
   const avatarLetter = user?.name ? user.name[0].toUpperCase() : (user?.email?.[0].toUpperCase() || '?');
+
+  function formatBytes(bytes: number): string {
+    if (bytes >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(1)} Go`;
+    if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(0)} Mo`;
+    return `${(bytes / 1024).toFixed(0)} Ko`;
+  }
 
   return (
     <>
@@ -121,37 +128,117 @@ export default function Navbar({ activeSection, onNavClick, docCount = 0, onLibr
 
           {/* Connexion / Compte */}
           {user ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setMenuOpen(!menuOpen)}
                 style={{
-                  background: 'var(--blue-light)', color: 'var(--blue)',
-                  fontSize: '11px', fontWeight: 600, padding: '3px 8px', borderRadius: '6px',
-                  textTransform: 'uppercase', letterSpacing: '0.03em',
+                  display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px 4px 4px',
+                  borderRadius: '999px', border: '1.5px solid var(--gray-200)', background: 'white',
+                  cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.18s ease',
                 }}
-              >{user.plan}</span>
+                onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--blue)'}
+                onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--gray-200)'}
+              >
+                <span style={{
+                  width: '28px', height: '28px', borderRadius: '999px',
+                  background: 'var(--blue)', color: 'white', fontWeight: 700,
+                  fontSize: '12px', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', flexShrink: 0,
+                }}>{avatarLetter}</span>
+                <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="var(--gray-500)" strokeWidth="1.5" strokeLinecap="round">
+                  <path d="M1 1l4 4 4-4" />
+                </svg>
+              </button>
+
+              {/* Menu déroulant */}
+              {menuOpen && (
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 998 }} onClick={() => setMenuOpen(false)} />
+                  <div style={{
+                    position: 'absolute', top: 'calc(100% + 8px)', right: 0,
+                    background: 'white', borderRadius: '12px', border: '1px solid var(--gray-200)',
+                    boxShadow: '0 12px 32px rgba(0,0,0,.08)', zIndex: 999,
+                    minWidth: '220px', padding: '6px', fontFamily: 'inherit',
+                  }}>
+                    {/* Info utilisateur */}
+                    <div style={{ padding: '10px 12px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--gray-900)', marginBottom: '1px' }}>
+                        {user.name || user.email}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--gray-500)' }}>{user.email}</div>
+                    </div>
+                    <div style={{ height: '1px', background: 'var(--gray-100)', margin: '4px 0' }} />
+
+                    {/* Plan + stockage */}
+                    <div style={{ padding: '8px 12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                        <span style={{ fontSize: '12px', color: 'var(--gray-500)' }}>Forfait</span>
+                        <span style={{
+                          background: 'var(--blue-light)', color: 'var(--blue)',
+                          fontSize: '10px', fontWeight: 700, padding: '2px 7px',
+                          borderRadius: '5px', textTransform: 'uppercase', letterSpacing: '0.04em',
+                        }}>{user.plan}</span>
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--gray-400)' }}>
+                        {formatBytes(user.storage_used)} / {formatBytes(user.storage_limit)}
+                      </div>
+                      <div style={{
+                        height: '3px', background: 'var(--gray-100)', borderRadius: '2px', marginTop: '5px',
+                      }}>
+                        <div style={{
+                          height: '3px', borderRadius: '2px', background: 'var(--blue)',
+                          width: `${Math.min(100, (user.storage_used / user.storage_limit) * 100)}%`,
+                          transition: 'width 0.3s ease',
+                        }} />
+                      </div>
+                    </div>
+
+                    <div style={{ height: '1px', background: 'var(--gray-100)', margin: '4px 0' }} />
+
+                    {/* Actions */}
+                    <button
+                      onClick={() => { setMenuOpen(false); logout(); }}
+                      style={{
+                        width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
+                        padding: '8px 12px', borderRadius: '7px', border: 'none',
+                        background: 'transparent', cursor: 'pointer', fontFamily: 'inherit',
+                        fontSize: '13px', color: 'var(--gray-600)', transition: 'all 0.12s ease',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--gray-50)'; e.currentTarget.style.color = '#dc2626'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--gray-600)'; }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4m7 14l5-5-5-5m5 5H9" />
+                      </svg>
+                      {t('nav.logout')}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button
                 onClick={() => navigate('/login')}
                 style={{
-                  width: '32px', height: '32px', borderRadius: '999px',
-                  background: 'var(--blue)', color: 'white', border: 'none',
-                  fontWeight: 700, fontSize: '13px', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontFamily: 'inherit',
+                  padding: '7px 15px', borderRadius: '8px', border: '1.5px solid var(--gray-200)',
+                  background: 'transparent', color: 'var(--gray-700)', fontWeight: 600,
+                  fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit',
+                  transition: 'all 0.18s ease',
                 }}
-                title={user.email}
-              >{avatarLetter}</button>
+                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--blue)'; e.currentTarget.style.color = 'var(--blue)'; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--gray-200)'; e.currentTarget.style.color = 'var(--gray-700)'; }}
+              >{t('nav.signIn')}</button>
+              <button
+                onClick={() => navigate('/register')}
+                style={{
+                  padding: '7px 15px', borderRadius: '8px', border: 'none',
+                  background: 'var(--blue)', color: 'white', fontWeight: 600,
+                  fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit',
+                  transition: 'all 0.18s ease',
+                }}
+              >{t('nav.signUp')}</button>
             </div>
-          ) : (
-            <button
-              onClick={() => navigate('/login')}
-              className="nav-cta"
-              style={{
-                padding: '8px 16px', borderRadius: '8px', border: 'none',
-                background: 'var(--blue)', color: 'white', fontWeight: 600,
-                fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit',
-                transition: 'all 0.18s ease',
-              }}
-            >{t('nav.signIn')}</button>
           )}
 
           <div className="lang-toggle">

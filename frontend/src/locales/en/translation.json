@@ -6,7 +6,9 @@
     "pricing": "Pricing",
     "about": "About",
     "library": "My docs",
-    "signIn": "Sign In"
+    "signIn": "Sign In",
+    "signUp": "Sign Up",
+    "logout": "Log out"
   },
   "hero": {
     "badge": "Layout engine v2",
