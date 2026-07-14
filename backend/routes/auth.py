@@ -14,9 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models import User, VerificationCode
 from auth import (
-    hash_password, verify_password, create_access_token,
-    create_refresh_token, rotate_refresh_token, revoke_user_tokens,
-    require_auth,
+    create_access_token, create_refresh_token,
+    rotate_refresh_token, revoke_user_tokens, require_auth,
 )
 from email_service import send_verification_email
 
@@ -27,14 +26,9 @@ VERIFICATION_CODE_EXPIRY_MINUTES = 15
 
 # ── Schémas ──────────────────────────────────────────────────────────────────
 
-class RegisterBody(BaseModel):
+class EmailBody(BaseModel):
     email: EmailStr
-    password: str
     name: str | None = None
-
-class LoginBody(BaseModel):
-    email: EmailStr
-    password: str
 
 class RefreshBody(BaseModel):
     refresh_token: str
@@ -93,21 +87,14 @@ async def _generate_verification(db: AsyncSession, user: User) -> VerificationCo
 # ── POST /register ───────────────────────────────────────────────────────────
 
 @router.post("/register", status_code=201)
-async def register(body: RegisterBody, db: AsyncSession = Depends(get_db)):
-    """Inscription : crée le compte, envoie l'email de vérification (code + lien)."""
-    # Email déjà utilisé ?
-    existing = await db.execute(select(User).where(User.email == body.email.lower().strip()))
+async def register(body: EmailBody, db: AsyncSession = Depends(get_db)):
+    """Inscription sans mot de passe : crée le compte, envoie le code de vérification."""
+    email = body.email.lower().strip()
+    existing = await db.execute(select(User).where(User.email == email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Cet email est déjà utilisé.")
 
-    if len(body.password) < 8:
-        raise HTTPException(status_code=422, detail="Le mot de passe doit contenir au moins 8 caractères.")
-
-    user = User(
-        email=body.email.lower().strip(),
-        password_hash=hash_password(body.password),
-        name=body.name,
-    )
+    user = User(email=email, name=body.name)
     db.add(user)
     await db.commit()
     await db.refresh(user)
@@ -115,32 +102,37 @@ async def register(body: RegisterBody, db: AsyncSession = Depends(get_db)):
     vc = await _generate_verification(db, user)
     await send_verification_email(user.email, vc.code, vc.token)
 
-    return {"message": "Compte créé. Vérifiez votre email pour activer votre compte."}
+    return {"message": "Code envoyé. Vérifiez votre email pour continuer.", "email": email}
 
 
 # ── POST /login ──────────────────────────────────────────────────────────────
 
-@router.post("/login")
-async def login(body: LoginBody, db: AsyncSession = Depends(get_db)):
-    """Connexion email + mot de passe."""
-    stmt = select(User).where(User.email == body.email.lower().strip())
+@router.post("/login", status_code=201)
+async def login(body: EmailBody, db: AsyncSession = Depends(get_db)):
+    """Connexion sans mot de passe : envoie un code de vérification.
+    Si l'utilisateur n'existe pas, le crée automatiquement (inscription implicite)."""
+    email = body.email.lower().strip()
+
+    stmt = select(User).where(User.email == email)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 
-    if user is None or user.password_hash is None or not verify_password(body.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect.")
+    if user is None:
+        # Inscription implicite
+        user = User(email=email, name=body.name)
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
 
-    if not user.email_verified:
-        raise HTTPException(status_code=403, detail="Veuillez vérifier votre adresse email avant de vous connecter.")
+    vc = await _generate_verification(db, user)
+    await send_verification_email(user.email, vc.code, vc.token)
 
-    access_token = create_access_token(user.id, user.email)
-    refresh_token = await create_refresh_token(db, user.id)
-
-    return AuthResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        user=_user_response(user),
-    )
+    is_new = not user.email_verified
+    return {
+        "message": "Code envoyé. Vérifiez votre email pour continuer.",
+        "email": email,
+        "is_new": is_new,
+    }
 
 
 # ── POST /refresh ────────────────────────────────────────────────────────────

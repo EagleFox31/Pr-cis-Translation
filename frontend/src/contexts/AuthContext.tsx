@@ -18,8 +18,8 @@ export interface AuthUser {
 interface AuthState {
   user: AuthUser | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
-  register: (email: string, password: string, name?: string) => Promise<{ ok: boolean; error?: string }>;
+  login: (email: string) => Promise<{ ok: boolean; error?: string }>;
+  register: (email: string, name?: string) => Promise<{ ok: boolean; error?: string }>;
   verifyCode: (email: string, code: string) => Promise<{ ok: boolean; error?: string }>;
   resendVerification: (email: string) => Promise<void>;
   googleAuth: (credential: string) => Promise<{ ok: boolean; error?: string }>;
@@ -73,20 +73,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const res = await api.post('/api/auth/login', { email, password });
-    if (!res.ok) return { ok: false, error: (res.data as any)?.detail || 'Email ou mot de passe incorrect.' };
-    const d = res.data as any;
-    saveTokens(d.access_token, d.refresh_token);
-    setTokens(d.access_token, d.refresh_token);
-    setUser(d.user);
-    return { ok: true };
+  const login = useCallback(async (email: string) => {
+    const res = await api.post('/api/auth/login', { email });
+    if (!res.ok) return { ok: false, error: (res.data as any)?.detail || 'Erreur.' };
+    return { ok: true }; // code envoyé, pas encore connecté
   }, []);
 
-  const register = useCallback(async (email: string, password: string, name?: string) => {
-    const res = await api.post('/api/auth/register', { email, password, name });
+  const register = useCallback(async (email: string, name?: string) => {
+    const res = await api.post('/api/auth/register', { email, name });
     if (!res.ok) return { ok: false, error: (res.data as any)?.detail || "Erreur lors de l'inscription." };
-    return { ok: true };
+    return { ok: true }; // code envoyé
   }, []);
 
   const verifyCode = useCallback(async (email: string, code: string) => {
