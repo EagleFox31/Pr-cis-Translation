@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
 import { useAuth } from '../../contexts/AuthContext';
-import { HardDrive, Check } from 'lucide-react';
+import { Check } from 'lucide-react';
 
 interface PricingCardsProps {
   isAnnual: boolean;
@@ -42,12 +42,6 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
             style={isActive ? { border: '2px solid var(--blue)', boxShadow: '0 0 0 4px rgba(26,77,199,0.12)' } : undefined}
           >
             {isPopular && <div className="popular-badge">{t('pricing.recommended')}</div>}
-            {isActive && (
-              <div className="popular-badge" style={{ background: 'var(--blue)', color: 'white' }}>
-                <Check size={12} strokeWidth={3} style={{ marginRight: '3px' }} />
-                Votre forfait
-              </div>
-            )}
 
             <div className="pricing-plan">{t(`pricing.plan_${plan.index}_name`)}</div>
 
@@ -70,19 +64,25 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
               )}
             </div>
 
-            {/* Stockage */}
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center',
-              marginTop: '6px', fontSize: '13px', color: 'var(--gray-600)', fontWeight: 500,
-            }}>
-              <HardDrive size={13} style={{ color: 'var(--gray-400)' }} />
-              {plan.planKey === 'free' ? 'Sans stockage' : `${plan.storage} de stockage`}
-            </div>
-
             <p className="pricing-desc">{t(`pricing.plan_${plan.index}_desc`)}</p>
             <div className="pricing-divider" />
 
             <ul className="pricing-features">
+              {/* Stockage — premier dans la liste pour chaque plan */}
+              <li style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {plan.planKey === 'free' ? (
+                  <>
+                    <span style={{ color: '#dc2626', fontWeight: 700, fontSize: '14px' }}>✕</span>
+                    <span style={{ color: '#dc2626' }}>Aucun stockage</span>
+                  </>
+                ) : (
+                  <>
+                    <Check size={14} strokeWidth={2.5} style={{ color: '#16a34a' }} />
+                    <span>{plan.storage} de stockage</span>
+                  </>
+                )}
+              </li>
+
               {plan.planKey === 'free' && (
                 <>
                   <li>{t('pricing.plan_1_words')}</li>
@@ -117,7 +117,7 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
             </ul>
 
             <a href="#" className="btn-pricing" onClick={(e) => e.preventDefault()}
-              style={isActive ? { background: 'var(--green-500, #22c55e)', borderColor: 'var(--green-500, #22c55e)', cursor: 'default' } : undefined}>
+              style={isActive ? { background: 'var(--gray-200)', borderColor: 'var(--gray-300)', color: 'var(--gray-500)', cursor: 'default', pointerEvents: 'none' } : undefined}>
               {isActive ? 'Forfait actif' : (
                 plan.planKey === 'free' ? t('pricing.btn_start')
                 : plan.planKey === 'pro' ? t('pricing.btn_choose_pro')
