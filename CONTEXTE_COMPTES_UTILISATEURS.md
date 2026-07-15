@@ -1,246 +1,246 @@
 # CONTEXTE — Comptes utilisateurs, authentification & stockage
 
-_Dernière mise à jour : 2026-07-15._
+_Dernière mise à jour : 2026-07-15 — fin de session._
 
 > Ce document est le **contexte de référence** pour la fonctionnalité « comptes
-> utilisateurs ». Il doit permettre à n'importe quel modèle ou agent de
-> reprendre l'implémentation là où elle s'est arrêtée.
+> utilisateurs ». Tout est implémenté, testé et fonctionnel.
 
 ---
 
-## But
+## Bilan de la session
 
-Ajouter une authentification complète (email + Google OAuth) avec gestion des
-documents traduits par utilisateur, remplacement du stockage local
-(IndexedDB/localStorage) par du stockage backend, et quotas par abonnement.
+### Authentification
+- ✅ **Passwordless** : email → code 6 chiffres → connexion (pas de mot de passe)
+- ✅ **Google OAuth** : bouton « Continuer avec Google » fonctionnel
+- ✅ **Double canal** vérification : lien cliqué OU code saisi manuellement
+- ✅ **JWT** : access token (60 min) + refresh token (30 jours) avec rotation
+- ✅ **Email** : Gmail SMTP (`smtp.gmail.com:587`), template HTML branded Précis, no-reply
+
+### Base de données (PostgreSQL)
+- ✅ SQLAlchemy 2.0 async + asyncpg, migrations Alembic
+- ✅ Tables : `users`, `documents`, `refresh_tokens`, `verification_codes`
+- ✅ Compte admin seed : `mbowouibrah@gmail.com` (plan `admin`, illimité)
+
+### Forfaits & quotas
+- ✅ **Gratuit** : 1 page/mois, 0 Mo stockage, pas de téléchargement
+- ✅ **Starter** : pages illimitées, 500 Mo stockage
+- ✅ **Pro** : pages illimitées, 2 Go stockage
+- ✅ **Enterprise** : pages illimitées, 10 Go stockage
+- ✅ **Admin** : tout illimité, mode précis (deepseek-v4-flash)
+
+### Interface
+- ✅ **Visiteur** : landing page complète, formulaire visible, clic Traduire → /login
+- ✅ **Navbar** : avatar ouvre la sidebar (plus de dropdown), boutons Connexion/Inscription
+- ✅ **Sidebar unifiée** : profil (avatar, plan, stockage, déconnexion) + documents
+- ✅ **Pages auth** : design cohérent (logo animé, fond dégradé, AuthBackground multilingue)
+- ✅ **Tarifs** : cartes avec stockage, badge actif, bouton grisé, ✕ rouge pour restrictions
+- ✅ **Formulaire** : mode précis admin (checkbox jaune dans options avancées)
+
+### Stockage documents
+- ✅ **localStorage/IndexedDB supprimés** — visiteurs = mémoire volatile
+- ✅ **Connectés** : documents sauvegardés en base, fetch API `/api/documents`
+- ✅ **Quota** : vérifié avant traduction, erreur 402 si dépassé
+
+### Console & logs
+- ✅ Logs de démarrage propres (4 lignes au lieu de 15)
+- ✅ `SIGKILL` Windows corrigé
+- ✅ Animation hero ralentie avec pauses
 
 ---
 
-## Architecture cible
+## Architecture
 
 ```
-┌─ Frontend (React 19 + Vite + Tailwind) ──────────────────────────┐
-│  React Router : /login  /register  /verify-email  /home          │
-│  AuthContext : JWT en mémoire, refresh automatique               │
-│  useDocumentLibrary : fetch API backend (plus d'IndexedDB)       │
-│  Google OAuth : @react-oauth/google (bouton)                     │
-└───────────────────────────────┬──────────────────────────────────┘
+┌─ Frontend (React 19 + Vite + Tailwind) ──────────────────────────────┐
+│  React Router : /login  /register  /verify-email  /home              │
+│  AuthContext : JWT, login/logout/register/verify/google              │
+│  useDocumentLibrary : API backend (plus d'IndexedDB)                 │
+│  Google OAuth : @react-oauth/google (GoogleLogin component)          │
+│  Sidebar unifiée : profil (haut) + documents (bas)                   │
+│  PricingCards : forfaits avec stockage, badge actif, bouton grisé    │
+└───────────────────────────────┬──────────────────────────────────────┘
                                 │ JWT Bearer
-┌─ Backend (FastAPI Python) ────┴──────────────────────────────────┐
-│  /api/auth/*     : register, login, refresh, verify-email, google│
-│  /api/documents/*: CRUD documents utilisateur                    │
-│  /api/translate  : protégé par require_auth (middleware JWT)     │
-│  /api/user/storage : quota                                        │
-│                                                                   │
-│  Middleware : verify_jwt → injecte current_user                   │
-│  Email      : SMTP (aiosmtplib), template HTML, code 6 chiffres  │
-│  Stockage   : backend/translations/{user_id}/{doc_id}/...        │
-└───────────────────────────────┬──────────────────────────────────┘
+┌─ Backend (FastAPI Python) ────┴──────────────────────────────────────┐
+│  /api/auth/*        : register, login, refresh, verify, google, me   │
+│  /api/documents/*   : CRUD documents utilisateur                     │
+│  /api/translate     : JWT détecté → Document en base, quota vérifié  │
+│  /api/user/storage  : quota                                          │
+│                                                                       │
+│  Freemium : 1 page/mois (compteur par mois calendaire, 402 si atteint)│
+│  Admin    : mode précis (checkbox → quality=precise → deepseek-v4)   │
+└───────────────────────────────┬──────────────────────────────────────┘
                                 │
-┌─ PostgreSQL ──────────────────┴──────────────────────────────────┐
-│  Tables : users, documents, refresh_tokens, verification_codes   │
-│  ORM    : SQLAlchemy 2.0 async + asyncpg                         │
-│  Migrations : Alembic                                            │
-└──────────────────────────────────────────────────────────────────┘
+┌─ PostgreSQL ──────────────────┴──────────────────────────────────────┐
+│  Tables : users, documents, refresh_tokens, verification_codes       │
+│  ORM    : SQLAlchemy 2.0 async + asyncpg                             │
+│  Migrations : Alembic                                                │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Modèles de données
+## Modèles de données (état final)
 
 ### User
 | Colonne | Type | Notes |
 |---|---|---|
-| `id` | UUID | PK, généré côté serveur |
+| `id` | String(32) | PK, hex UUID |
 | `email` | String(255) | UNIQUE, NOT NULL, lowercased |
-| `password_hash` | String(255) | nullable (Google OAuth = pas de mdp) |
+| `password_hash` | String(255) | nullable (passwordless, Google OAuth) |
 | `name` | String(255) | nullable |
 | `email_verified` | Boolean | default False |
 | `google_id` | String(255) | nullable, UNIQUE |
 | `avatar_url` | String(512) | nullable |
-| `plan` | Enum(`free`, `pro`, `enterprise`) | default `free` |
-| `storage_used` | BigInteger | default 0 (octets) |
-| `storage_limit` | BigInteger | default 104857600 (100 Mo pour `free`) |
-| `created_at` | DateTime | default now |
-| `updated_at` | DateTime | auto-update |
+| `plan` | String(20) | `free`/`starter`/`pro`/`enterprise`/`admin` |
+| `storage_used` | BigInteger | default 0 |
+| `storage_limit` | BigInteger | default 0 (free), selon plan |
+| `created_at` | DateTime | |
+| `updated_at` | DateTime | |
 
 ### Document
 | Colonne | Type | Notes |
 |---|---|---|
-| `id` | UUID | PK |
-| `user_id` | UUID | FK → User |
-| `original_name` | String(512) | nom du fichier source |
-| `source_lang` | String(10) | auto-détecté |
-| `target_lang` | String(10) | choisi par l'utilisateur |
-| `original_path` | String(1024) | chemin disque backend |
-| `translated_path` | String(1024) | nullable, rempli quand prêt |
-| `size_bytes` | BigInteger | taille du fichier source |
-| `status` | Enum(`pending`, `translating`, `done`, `error`) | |
+| `id` | String(32) | PK |
+| `user_id` | String(32) | FK → User |
+| `original_name` | String(512) | |
+| `source_lang` | String(10) | |
+| `target_lang` | String(10) | |
+| `original_path` | String(1024) | |
+| `translated_path` | String(1024) | nullable |
+| `size_bytes` | BigInteger | |
+| `status` | String(20) | `pending`/`translating`/`done`/`error` |
 | `page_count` | Integer | nullable |
 | `created_at` | DateTime | |
 | `updated_at` | DateTime | |
 
-### RefreshToken
-| Colonne | Type | Notes |
-|---|---|---|
-| `id` | UUID | PK |
-| `user_id` | UUID | FK → User |
-| `token_hash` | String(255) | UNIQUE, SHA256 du token |
-| `expires_at` | DateTime | 30 jours |
-| `created_at` | DateTime | |
+---
 
-### VerificationCode
-| Colonne | Type | Notes |
-|---|---|---|
-| `id` | UUID | PK |
-| `user_id` | UUID | FK → User |
-| `code` | String(6) | 6 chiffres |
-| `token` | String(255) | UNIQUE, pour le lien cliquable |
-| `expires_at` | DateTime | 15 minutes |
-| `used` | Boolean | default False |
-| `created_at` | DateTime | |
+## Forfaits (PLAN_STORAGE / PLAN_PAGE_LIMIT)
+
+| Plan | Stockage | Pages | Badge |
+|---|---|---|---|
+| `free` | 0 Mo | 1 page/mois | Gratuit (gris) |
+| `starter` | 500 Mo | Illimité | Starter (bleu) |
+| `pro` | 2 Go | Illimité | Pro (bleu) |
+| `enterprise` | 10 Go | Illimité | Enterprise (bleu) |
+| `admin` | Illimité | Illimité | Admin (bleu) |
 
 ---
 
-## Flux d'authentification
+## Flux d'authentification (passwordless)
 
-### Inscription email
-1. `POST /api/auth/register` → `{email, password, name?}`
-2. Backend : crée User (`email_verified=False`), génère `VerificationCode` (code 6 chiffres + token lien)
-3. Envoie email avec **les deux** : code + lien `{FRONTEND_URL}/verify-email?token=xxx`
-4. Retourne `{message: "Vérifiez votre email"}` (PAS de JWT)
-
-### Vérification — double canal
-
-**Canal 1 — Lien cliqué :**
-1. `GET /api/auth/verify-email?token=abc123`
-2. Backend : vérifie token, marque `email_verified=True`, `used=True`
-3. Redirect → `{FRONTEND_URL}/login?verified=1`
-
-**Canal 2 — Code saisi manuellement :**
-1. `POST /api/auth/verify-email` → `{email, code}`
-2. Backend : vérifie code (6 chiffres, expire 15 min), marque `email_verified=True`
-3. Retourne `{access_token, refresh_token, user}` → connecté directement
-
-### Connexion email
-1. `POST /api/auth/login` → `{email, password}`
-2. Vérifie `email_verified=True` sinon erreur « Vérifiez votre email »
-3. Retourne `{access_token, refresh_token, user}`
-
-### Google OAuth
-1. Frontend : Google Identity Services → `credential` (id_token JWT Google)
-2. `POST /api/auth/google` → `{credential}`
-3. Backend : vérifie token Google (`google-auth`), extrait `email`, `sub`, `name`, `picture`
-4. Si User existe par `google_id` → connexion
-5. Si User existe par `email` mais sans `google_id` → lie `google_id`, connexion
-6. Sinon → création User (`email_verified=True`, `google_id`, `name`, `avatar_url`)
-7. Retourne `{access_token, refresh_token, user}`
-
-### Refresh token
-1. `POST /api/auth/refresh` → `{refresh_token}`
-2. Vérifie hash + expiration, génère nouveau JWT
-3. Rotation : ancien refresh token invalidé, nouveau émis
+1. **Login** : `POST /api/auth/login {email}` → code envoyé → `POST /api/auth/verify-email {email, code}` → JWT
+2. **Register** : `POST /api/auth/register {email, name?}` → code envoyé → idem
+3. **Google** : `POST /api/auth/google {credential}` → vérifie token → JWT
+4. **Refresh** : `POST /api/auth/refresh {refresh_token}` → nouveau couple
+5. **Vérification lien** : `GET /api/auth/verify-email?token=xxx` → redirect `/login?verified=1`
 
 ---
 
-## Middleware auth (FastAPI)
+## Flux visiteur / connecté
 
-```python
-# backend/auth.py
-from fastapi import Depends, HTTPException
-from fastapi.security import HTTPBearer
+```
+Visiteur (non connecté) :
+  → Landing page, formulaire visible
+  → Clic « Traduire » → redirection /login
+  → Aucun forfait actif, carte Freemium → bouton « Commencer » → /login
 
-security = HTTPBearer()
+Connecté (free) :
+  → 1 page/mois, pas de téléchargement, pas de stockage
+  → Toast « Passez à Starter » après traduction
+  → 402 si quota atteint
 
-async def require_auth(credentials = Depends(security)) -> User:
-    payload = verify_jwt(credentials.credentials)
-    user = await get_user_by_id(payload["sub"])
-    if not user:
-        raise HTTPException(401)
-    return user
+Connecté (payant) :
+  → Pages illimitées, stockage selon plan
+  → Documents sauvegardés en base, visibles dans la sidebar
 ```
 
-Appliqué sur toutes les routes `/api/documents/*` et `/api/translate/*`.
+---
+
+## Comptes spéciaux
+
+| Email | Plan | Notes |
+|---|---|---|
+| `mbowouibrah@gmail.com` | admin | Stockage illimité, mode précis activable |
+| `toujoursmoi237@gmail.com` | free | Compte test |
+
+Seed : `backend/seed_admin.py` (usage unique, promeut `mbowouibrah` en admin).
 
 ---
 
-## Quotas de stockage
+## Fichiers clés
 
-| Plan | Stockage |
-|---|---|
-| `free` | 100 Mo |
-| `pro` | 1 Go |
-| `enterprise` | 10 Go |
-
-Vérifié avant upload ET avant lancement de traduction. Si dépassement → erreur 402.
-
----
-
-## Fichiers modifiés / créés
-
-### Backend — nouveaux
+### Backend
 | Fichier | Rôle |
 |---|---|
-| `backend/database.py` | Engine SQLAlchemy async, session factory |
-| `backend/models.py` | Modèles ORM : User, Document, RefreshToken, VerificationCode |
-| `backend/auth.py` | JWT, bcrypt, middleware `require_auth` |
-| `backend/routes/auth.py` | Routes auth (register, login, refresh, verify, google) |
-| `backend/routes/documents.py` | CRUD documents utilisateur |
-| `backend/email_service.py` | Envoi email vérification (SMTP async) |
-| `backend/migrations/` | Alembic (init + migrations) |
+| `backend/database.py` | Engine SQLAlchemy async |
+| `backend/models.py` | Modèles + plans/quotas |
+| `backend/auth.py` | JWT, bcrypt, require_auth |
+| `backend/routes/auth.py` | Endpoints auth |
+| `backend/routes/documents.py` | CRUD documents |
+| `backend/email_service.py` | Gmail SMTP, template HTML |
+| `backend/app.py` | Routes, limite freemium, sauvegarde Document |
+| `backend/migrations/versions/0001_init.py` | Migration initiale |
+| `backend/seed_admin.py` | Seed compte admin |
 
-### Backend — modifiés
-| Fichier | Changement |
-|---|---|
-| `backend/requirements.txt` | + sqlalchemy, asyncpg, alembic, pyjwt, bcrypt, google-auth, aiosmtplib |
-| `backend/app.py` | Routes auth/documents, dépendance `require_auth` |
-| `backend/.env.example` | + DATABASE_URL, JWT_SECRET, SMTP_*, GOOGLE_CLIENT_ID |
-
-### Frontend — nouveaux
+### Frontend
 | Fichier | Rôle |
 |---|---|
+| `frontend/src/App.tsx` | React Router, AuthProvider, GoogleOAuthProvider |
+| `frontend/src/services/api.ts` | Client HTTP avec refresh JWT auto |
 | `frontend/src/contexts/AuthContext.tsx` | Contexte auth (JWT, user, login/logout) |
-| `frontend/src/pages/LoginPage.tsx` | Formulaire connexion |
-| `frontend/src/pages/RegisterPage.tsx` | Formulaire inscription |
-| `frontend/src/pages/VerifyEmailPage.tsx` | Page vérification (code + lien auto) |
+| `frontend/src/pages/LoginPage.tsx` | Connexion passwordless + Google |
+| `frontend/src/pages/RegisterPage.tsx` | Inscription |
+| `frontend/src/pages/VerifyEmailPage.tsx` | Vérification code + lien |
+| `frontend/src/pages/Home.tsx` | Page principale, toast freemium |
+| `frontend/src/components/navbar/Navbar.tsx` | Avatar → sidebar, boutons auth |
+| `frontend/src/components/library/DocumentLibrary.tsx` | Sidebar profil + documents |
+| `frontend/src/components/pricing/PricingCards.tsx` | Cartes tarifs avec stockage, badge actif |
+| `frontend/src/components/upload/TranslationSection.tsx` | Formulaire, redirection /login visiteur, mode précis |
+| `frontend/src/components/auth/AuthBackground.tsx` | Fond animé multilingue |
+| `frontend/src/hooks/useDocumentLibrary.ts` | Bibliothèque (API backend / mémoire) |
+| `frontend/src/hooks/useStreamingTranslation.ts` | Streaming SSE + flag `precise` |
 
-### Frontend — modifiés
-| Fichier | Changement |
+### Supprimés
+| Fichier | Raison |
 |---|---|
-| `frontend/src/App.tsx` | React Router, AuthContext provider |
-| `frontend/src/hooks/useDocumentLibrary.ts` | Refonte : API backend au lieu d'IndexedDB |
-| `frontend/src/utils/idbStore.ts` | **Supprimé** |
+| `frontend/src/utils/idbStore.ts` | Remplacé par API backend |
 
 ---
 
-## Ordre d'implémentation (8 étapes)
-
-1. ✅ **Base de données** : `database.py` + `models.py` + Alembic init
-2. **Auth backend** : `auth.py` (JWT, bcrypt) + `routes/auth.py` (register, login, refresh, me)
-3. **Email + vérification** : `email_service.py` + double canal (lien + code)
-4. **Documents backend** : `routes/documents.py` + réorganisation stockage
-5. **Google OAuth** : backend + frontend
-6. **Frontend auth** : AuthContext, pages, routing
-7. **Frontend documents** : refonte useDocumentLibrary → API
-8. **Abonnements** : quotas, middleware
-
----
-
-## Environnement
+## Environnement (.env)
 
 ```bash
-# backend/.env — nouvelles variables
-DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/precis
-JWT_SECRET=votre-secret-jwt-64-chars-min
+# backend/.env
+DATABASE_URL=postgresql+asyncpg://postgres:***RETIRE***@127.0.0.1:5432/precis
+JWT_SECRET=***RETIRE***
 JWT_EXPIRY_MINUTES=60
 REFRESH_TOKEN_EXPIRY_DAYS=30
-
-SMTP_HOST=smtp.example.com
-SMTP_PORT=587
-SMTP_USER=
-SMTP_PASSWORD=
-SMTP_FROM=noreply@precis.app
-
 FRONTEND_URL=http://localhost:3000
-GOOGLE_CLIENT_ID=votre-google-client-id.apps.googleusercontent.com
+EMAIL_ENABLED=true
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=toujoursmoi237@gmail.com
+SMTP_PASSWORD=***RETIRE***
+GOOGLE_CLIENT_ID=130716245882-d2b9m4gp2ig8mtfkutg9mq5peeukc16o.apps.googleusercontent.com
+
+# frontend/.env
+VITE_API_KEY=precis_frontend_secure_key_2026_xK9mP2vL
+VITE_API_BASE=
+VITE_GOOGLE_CLIENT_ID=130716245882-d2b9m4gp2ig8mtfkutg9mq5peeukc16o.apps.googleusercontent.com
+```
+
+---
+
+## Commandes utiles
+
+```bash
+# Démarrage
+npm run dev
+
+# Base de données (première fois)
+backend\venv\Scripts\python.exe backend\seed_admin.py
+
+# Tests email
+curl -X POST http://127.0.0.1:8000/api/auth/login -H "Content-Type: application/json" -d "{\"email\":\"test@precis.app\"}"
 ```
