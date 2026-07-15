@@ -99,7 +99,7 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
               )}
 
               {/* Stockage — en dernier, avant la réduction annuelle */}
-              <li style={plan.planKey === 'free' ? { color: '#dc2626' } : undefined}>
+              <li className={plan.planKey === 'free' ? 'unavailable' : ''}>
                 {plan.planKey === 'free' ? 'Aucun stockage' : `${plan.storage} de stockage`}
               </li>
 

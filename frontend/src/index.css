@@ -1351,6 +1351,12 @@ section {
   background: rgba(255,255,255,.15);
   color: var(--white);
 }
+.pricing-features li.unavailable { color: #dc2626; }
+.pricing-features li.unavailable::before {
+  content: '✕';
+  background: #fef2f2;
+  color: #dc2626;
+}
 .btn-pricing {
   display: block;
   text-align: center;
