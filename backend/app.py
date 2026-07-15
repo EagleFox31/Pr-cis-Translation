@@ -666,6 +666,43 @@ async def translate_endpoint(
     # dans toutes les clés de cache pour qu'une plage donnée ne réutilise jamais
     # le résultat d'une autre plage (ni du document entier).
     pages_set = parse_page_range(pages) if ext in ("pdf", "pptx") else None
+
+    # ── Limite de pages freemium ──────────────────────────────────────────
+    page_limit = 1  # défaut freemium = 1 page
+    try:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            from auth import verify_access_token
+            from models import get_plan_page_limit
+            token = auth_header.split(" ", 1)[1]
+            payload = verify_access_token(token)
+            from database import async_session as _asm2
+            from models import User as _U
+            async def _get_plan():
+                async with _asm2() as db:
+                    u = await db.get(_U, payload["sub"])
+                    return u.plan if u else "free"
+            import asyncio as _aio2
+            try:
+                loop = _aio2.get_event_loop()
+                if loop.is_running():
+                    fut = _aio2.run_coroutine_threadsafe(_get_plan(), loop)
+                    plan = fut.result(timeout=3)
+                else:
+                    plan = _aio2.run(_get_plan())
+            except Exception:
+                plan = "free"
+            limit = get_plan_page_limit(plan)
+            page_limit = limit if limit is not None else 999_999
+    except Exception:
+        page_limit = 1  # visiteur = 1 page
+
+    # Appliquer la limite : si pages spécifiées, on ne garde que la première ;
+    # si aucune page spécifiée, on limite à la page 1.
+    if pages_set and len(pages_set) > page_limit:
+        pages_set = {min(pages_set)}  # on ne garde que la 1re page demandée
+    elif not pages_set and ext == "pdf" and page_limit == 1:
+        pages_set = {1}              # force page 1 uniquement
     ptok = pages_token(pages_set)
     psuffix = f"_{ptok}" if ptok else ""
 

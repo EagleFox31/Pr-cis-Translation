@@ -8,10 +8,10 @@ interface PricingCardsProps {
 }
 
 const PLANS = [
-  { index: 1, planKey: 'free', storage: '0 Mo', storageBytes: 0 },
-  { index: 2, planKey: 'starter', storage: '500 Mo', storageBytes: 524_288_000 },
-  { index: 3, planKey: 'pro', storage: '2 Go', storageBytes: 2_147_483_648 },
-  { index: 4, planKey: 'enterprise', storage: '10 Go', storageBytes: 10_737_418_240 },
+  { index: 1, planKey: 'free', storage: '0 Mo', storageBytes: 0, pages: '1 page' },
+  { index: 2, planKey: 'starter', storage: '500 Mo', storageBytes: 524_288_000, pages: 'Illimité' },
+  { index: 3, planKey: 'pro', storage: '2 Go', storageBytes: 2_147_483_648, pages: 'Illimité' },
+  { index: 4, planKey: 'enterprise', storage: '10 Go', storageBytes: 10_737_418_240, pages: 'Illimité' },
 ];
 
 function formatBytes(bytes: number): string {
@@ -27,7 +27,8 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
   return (
     <div className="pricing-grid">
       {PLANS.map((plan, idx) => {
-        const isActive = user?.plan === plan.planKey;
+        // Visiteur = freemium par défaut ; Connecté = son plan
+        const isActive = user ? user.plan === plan.planKey : plan.planKey === 'free';
         const isPopular = plan.planKey === 'pro';
 
         return (
@@ -97,6 +98,11 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
                   <li>{t('pricing.feat_excess_rate')}</li>
                 </>
               )}
+
+              {/* Pages traduisibles */}
+              <li className={plan.planKey === 'free' ? 'unavailable' : ''}>
+                {plan.planKey === 'free' ? '1 seule page' : 'Pages illimitées'}
+              </li>
 
               {/* Stockage — en dernier, avant la réduction annuelle */}
               <li className={plan.planKey === 'free' ? 'unavailable' : ''}>

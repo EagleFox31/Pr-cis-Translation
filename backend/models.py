@@ -33,6 +33,19 @@ PLAN_STORAGE: dict[str, int] = {
     "admin":      10_737_418_240, # 10 Go (affiche « illimité »)
 }
 
+# Nombre MAX de pages traduisibles (None = illimité)
+PLAN_PAGE_LIMIT: dict[str, int | None] = {
+    "free":       1,
+    "starter":    None,
+    "pro":        None,
+    "enterprise": None,
+    "admin":      None,
+}
+
+def get_plan_page_limit(plan: str) -> int | None:
+    """Retourne la limite de pages pour un plan, None = illimité."""
+    return PLAN_PAGE_LIMIT.get(plan, 1)  # défaut = 1 page (freemium)
+
 PLAN_LABELS: dict[str, str] = {
     "free":       "Gratuit",
     "starter":    "Starter",
