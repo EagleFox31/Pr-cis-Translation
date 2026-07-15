@@ -134,7 +134,51 @@ export default function TranslationSection({
         </div>
       </header>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '18px' }}>
+      {/* Visiteur non connecté → invitation à créer un compte */}
+      {!user && (
+        <div style={{
+          flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
+          justifyContent: 'center', textAlign: 'center', gap: '16px', padding: '20px 0',
+        }}>
+          <div style={{
+            width: '48px', height: '48px', borderRadius: '12px',
+            background: 'var(--blue-light)', color: 'var(--blue)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Languages size={22} strokeWidth={2} />
+          </div>
+          <div>
+            <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--gray-900)', margin: '0 0 4px' }}>
+              Connectez-vous pour traduire
+            </h4>
+            <p style={{ fontSize: '13px', color: 'var(--gray-500)', margin: 0, lineHeight: 1.5 }}>
+              Créez un compte gratuit pour traduire jusqu'à 1 page par document, ou choisissez un forfait pour débloquer la traduction complète.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+            <a href="/login" onClick={(e) => { e.preventDefault(); window.location.href = '/login'; }}
+              style={{
+                padding: '10px 22px', borderRadius: '10px',
+                background: 'var(--blue)', color: 'white', fontWeight: 600,
+                fontSize: '14px', textDecoration: 'none', fontFamily: 'inherit',
+              }}>
+              Se connecter
+            </a>
+            <a href="/register" onClick={(e) => { e.preventDefault(); window.location.href = '/register'; }}
+              style={{
+                padding: '10px 22px', borderRadius: '10px',
+                border: '1.5px solid var(--gray-200)', background: 'white',
+                color: 'var(--gray-700)', fontWeight: 600,
+                fontSize: '14px', textDecoration: 'none', fontFamily: 'inherit',
+              }}>
+              S'inscrire
+            </a>
+          </div>
+        </div>
+      )}
+
+      {user ? (
+      <><div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '18px' }}>
         {/* Confirmation après sauvegarde en bibliothèque */}
         <AnimatePresence>
           {justReset && !file && (
@@ -429,6 +473,63 @@ export default function TranslationSection({
           </span>
         )}
       </div>
+
+      {/* Action */}
+      <div style={{ position: 'sticky', bottom: 0, background: 'inherit', paddingTop: '8px' }}>
+        <motion.button
+          type="submit"
+          whileHover={ready ? { scale: 1.01 } : {}}
+          whileTap={ready ? { scale: 0.99 } : {}}
+          disabled={!ready}
+          style={{
+            width: '100%',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '9px',
+            padding: '14px', borderRadius: '12px', border: 'none',
+            background: ready
+              ? 'linear-gradient(135deg, var(--blue) 0%, #1d4ed8 100%)'
+              : 'var(--gray-300)',
+            color: 'white', fontWeight: 600, fontSize: '14px', fontFamily: 'inherit',
+            cursor: ready ? 'pointer' : 'not-allowed',
+            boxShadow: ready ? '0 4px 16px rgba(37,99,235,0.28)' : 'none',
+            transition: 'background 0.2s, box-shadow 0.2s',
+          }}
+        >
+          {isTranslating ? (
+            <>
+              <motion.span
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                style={{ display: 'inline-flex' }}
+              >
+                <Loader2 size={16} strokeWidth={2.5} />
+              </motion.span>
+              {t('story.translating')}
+            </>
+          ) : structureMode ? (
+            <>
+              <ScanSearch size={16} strokeWidth={2.2} />
+              {t('story.btn_structure', 'Analyser la structure')}
+            </>
+          ) : (
+            <>
+              <Languages size={16} strokeWidth={2.2} />
+              {t('story.btn_translate')}
+            </>
+          )}
+        </motion.button>
+
+        {!file && !isTranslating && (
+          <span style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+            marginTop: '8px', fontSize: '11.5px', color: 'var(--gray-500)',
+          }}>
+            <Info size={12} strokeWidth={2} />
+            {t('story.cta_hint', 'Choisissez un document pour commencer.')}
+          </span>
+        )}
+      </div>
+      </>
+      ) : null}
     </form>
   );
 }
