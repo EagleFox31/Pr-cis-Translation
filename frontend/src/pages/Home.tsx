@@ -8,6 +8,7 @@ import PricingSection from '../components/pricing/PricingSection';
 import AboutSection from '../components/about/AboutSection';
 import ToastContainer, { showToast } from '../components/ui/Toast';
 import DocumentLibrary from '../components/library/DocumentLibrary';
+import { useAuth } from '../contexts/AuthContext';
 import { useDocumentLibrary } from '../hooks/useDocumentLibrary';
 import { useStreamingTranslation } from '../hooks/useStreamingTranslation';
 import type { TranslateConfig } from '../components/upload/TranslationSection';
@@ -29,6 +30,7 @@ export default function Home() {
 
   // ---- Traduction PROGRESSIVE (page par page) ----
   const stream = useStreamingTranslation();
+  const { user } = useAuth();
 
   // ---- Document library ----
   const { documents, saveDocument, getBlob, deleteDocument, clearAll } = useDocumentLibrary();
@@ -94,11 +96,15 @@ export default function Home() {
             targetLang,
             ext,
           });
-          showToast('success', t('story.success_done'), result.filename);
+          // Forfait freemium = 1 page max, on invite à upgrader
+          if (user?.plan === 'free') {
+            showToast('success', 'Forfait Gratuit — 1 page traduite', 'Passez à Starter pour débloquer les documents complets.');
+          } else {
+            showToast('success', t('story.success_done'), result.filename);
+          }
         })
         .catch((err) => {
-          const msg = err instanceof Error ? err.message : '';
-          showToast('error', t('story.error_default'), msg || undefined);
+          showToast('error', t('story.error_default'), undefined);
         });
     },
     [stream, saveDocument, t],
