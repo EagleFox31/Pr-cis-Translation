@@ -149,11 +149,8 @@ export default function TranslationSection({
           </div>
           <div>
             <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--gray-900)', margin: '0 0 4px' }}>
-              Connectez-vous pour traduire
+              Connectez-vous pour débloquer l'offre Freemium
             </h4>
-            <p style={{ fontSize: '13px', color: 'var(--gray-500)', margin: 0, lineHeight: 1.5 }}>
-              Créez un compte gratuit pour traduire jusqu'à 1 page par document, ou choisissez un forfait pour débloquer la traduction complète.
-            </p>
           </div>
           <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
             <a href="/login" onClick={(e) => { e.preventDefault(); window.location.href = '/login'; }}

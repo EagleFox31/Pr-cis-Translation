@@ -27,8 +27,8 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
   return (
     <div className="pricing-grid">
       {PLANS.map((plan, idx) => {
-        // Visiteur = freemium par défaut ; Connecté = son plan
-        const isActive = user ? user.plan === plan.planKey : plan.planKey === 'free';
+        // Visiteur = aucun forfait actif ; Connecté = son plan
+        const isActive = user ? user.plan === plan.planKey : false;
         const isPopular = plan.planKey === 'pro';
 
         return (
@@ -116,9 +116,12 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
               )}
             </ul>
 
-            <a href="#" className="btn-pricing" onClick={(e) => e.preventDefault()}
+            <a
+              href={!user && plan.planKey === 'free' ? '/login' : '#'}
+              className="btn-pricing"
+              onClick={(e) => { if (!(!user && plan.planKey === 'free')) e.preventDefault(); }}
               style={isActive ? { background: 'var(--gray-200)', borderColor: 'var(--gray-300)', color: 'var(--gray-500)', cursor: 'default', pointerEvents: 'none' } : undefined}>
-              {isActive ? 'Forfait actif' : (
+              {!user && plan.planKey === 'free' ? 'Commencer' : isActive ? 'Forfait actif' : (
                 plan.planKey === 'free' ? t('pricing.btn_start')
                 : plan.planKey === 'pro' ? t('pricing.btn_choose_pro')
                 : t('pricing.btn_choose')
