@@ -99,11 +99,6 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
                 </>
               )}
 
-              {/* Pages traduisibles */}
-              <li className={plan.planKey === 'free' ? 'unavailable' : ''}>
-                {plan.planKey === 'free' ? '1 seule page' : 'Pages illimitées'}
-              </li>
-
               {/* Stockage — en dernier, avant la réduction annuelle */}
               <li className={plan.planKey === 'free' ? 'unavailable' : ''}>
                 {plan.planKey === 'free' ? 'Aucun stockage' : `${plan.storage} de stockage`}
