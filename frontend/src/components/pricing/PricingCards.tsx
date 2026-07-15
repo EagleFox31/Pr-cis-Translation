@@ -8,7 +8,7 @@ interface PricingCardsProps {
 }
 
 const PLANS = [
-  { index: 1, planKey: 'free', storage: '0 Mo', storageBytes: 0, pages: '1 page' },
+  { index: 1, planKey: 'free', storage: '0 Mo', storageBytes: 0, pages: '1 page / mois' },
   { index: 2, planKey: 'starter', storage: '500 Mo', storageBytes: 524_288_000, pages: 'Illimité' },
   { index: 3, planKey: 'pro', storage: '2 Go', storageBytes: 2_147_483_648, pages: 'Illimité' },
   { index: 4, planKey: 'enterprise', storage: '10 Go', storageBytes: 10_737_418_240, pages: 'Illimité' },

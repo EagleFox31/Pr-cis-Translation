@@ -98,7 +98,7 @@ export default function Home() {
           });
           // Forfait freemium = 1 page max, on invite à upgrader
           if (user?.plan === 'free') {
-            showToast('success', 'Forfait Gratuit — 1 page traduite', 'Passez à Starter pour débloquer les documents complets.');
+            showToast('success', 'Forfait Gratuit — 1 page / mois', 'Passez à Starter pour traduire des documents complets.');
           } else {
             showToast('success', t('story.success_done'), result.filename);
           }
