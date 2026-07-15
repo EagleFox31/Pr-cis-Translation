@@ -571,6 +571,43 @@ async def preview_pdf_endpoint(
     return Response(content=pdf_bytes, media_type="application/pdf")
 
 
+def _save_document_for_user(request: Request, job_id: str, filename: str,
+                            target_lang: str, original_path: str, size: int):
+    """Si la requête porte un JWT valide, crée un Document en base."""
+    try:
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return
+        token = auth_header.split(" ", 1)[1]
+        from auth import verify_access_token
+        payload = verify_access_token(token)
+
+        async def _save():
+            from database import async_session as _asm
+            from models import User as U, Document as D, get_plan_storage
+            async with _asm() as db:
+                u = await db.get(U, payload["sub"])
+                if u is None:
+                    return
+                limit = get_plan_storage(u.plan) if u.plan != "admin" else 10_737_418_240
+                if u.plan != "admin" and u.storage_used + size > limit:
+                    return
+                doc = D(user_id=u.id, original_name=filename, source_lang="auto",
+                        target_lang=target_lang, original_path=original_path,
+                        size_bytes=size, status="translating")
+                db.add(doc)
+                u.storage_used += size
+                await db.commit()
+        import asyncio as _aio, threading as _th
+        _loop = _aio.get_event_loop()
+        if _loop.is_running():
+            _th.Thread(target=lambda: _aio.run_coroutine_threadsafe(_save(), _loop), daemon=True).start()
+        else:
+            _aio.run(_save())
+    except Exception:
+        pass
+
+
 @app.post("/api/translate")
 async def translate_endpoint(
     request: Request,
@@ -678,6 +715,10 @@ async def translate_endpoint(
             daemon=True,
         )
     thread.start()
+
+    # ── Document en base si l'utilisateur est connecté (JWT) ─────────────
+    _save_document_for_user(request, job_id, filename, target_lang,
+                            original_path, len(file_bytes))
 
     logger.info(f"Job {job_id} started for '{filename}' -> {target_lang}")
     return JSONResponse({"job_id": job_id})
