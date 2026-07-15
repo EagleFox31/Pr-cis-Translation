@@ -90,6 +90,7 @@ export default function TranslationSection({
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!file || isTranslating) return;
+    if (!user) { window.location.href = '/login'; return; }
     onStartTranslate({
       file,
       targetLang,
@@ -134,48 +135,7 @@ export default function TranslationSection({
         </div>
       </header>
 
-      {/* Visiteur non connecté → invitation à créer un compte */}
-      {!user && (
-        <div style={{
-          flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-          justifyContent: 'center', textAlign: 'center', gap: '16px', padding: '20px 0',
-        }}>
-          <div style={{
-            width: '48px', height: '48px', borderRadius: '12px',
-            background: 'var(--blue-light)', color: 'var(--blue)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <Languages size={22} strokeWidth={2} />
-          </div>
-          <div>
-            <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--gray-900)', margin: '0 0 4px' }}>
-              Connectez-vous pour débloquer l'offre Freemium
-            </h4>
-          </div>
-          <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
-            <a href="/login" onClick={(e) => { e.preventDefault(); window.location.href = '/login'; }}
-              style={{
-                padding: '10px 22px', borderRadius: '10px',
-                background: 'var(--blue)', color: 'white', fontWeight: 600,
-                fontSize: '14px', textDecoration: 'none', fontFamily: 'inherit',
-              }}>
-              Se connecter
-            </a>
-            <a href="/register" onClick={(e) => { e.preventDefault(); window.location.href = '/register'; }}
-              style={{
-                padding: '10px 22px', borderRadius: '10px',
-                border: '1.5px solid var(--gray-200)', background: 'white',
-                color: 'var(--gray-700)', fontWeight: 600,
-                fontSize: '14px', textDecoration: 'none', fontFamily: 'inherit',
-              }}>
-              S'inscrire
-            </a>
-          </div>
-        </div>
-      )}
-
-      {user ? (
-      <><div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '18px' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '18px' }}>
         {/* Confirmation après sauvegarde en bibliothèque */}
         <AnimatePresence>
           {justReset && !file && (
@@ -525,8 +485,6 @@ export default function TranslationSection({
           </span>
         )}
       </div>
-      </>
-      ) : null}
     </form>
   );
 }
