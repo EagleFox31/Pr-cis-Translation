@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
 import { useAuth } from '../../contexts/AuthContext';
-import { Check } from 'lucide-react';
+
 
 interface PricingCardsProps {
   isAnnual: boolean;
@@ -68,21 +68,6 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
             <div className="pricing-divider" />
 
             <ul className="pricing-features">
-              {/* Stockage — premier dans la liste pour chaque plan */}
-              <li style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                {plan.planKey === 'free' ? (
-                  <>
-                    <span style={{ color: '#dc2626', fontWeight: 700, fontSize: '14px' }}>✕</span>
-                    <span style={{ color: '#dc2626' }}>Aucun stockage</span>
-                  </>
-                ) : (
-                  <>
-                    <Check size={14} strokeWidth={2.5} style={{ color: '#16a34a' }} />
-                    <span>{plan.storage} de stockage</span>
-                  </>
-                )}
-              </li>
-
               {plan.planKey === 'free' && (
                 <>
                   <li>{t('pricing.plan_1_words')}</li>
@@ -95,7 +80,6 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
                   <li>{t('pricing.plan_2_words')}</li>
                   <li>{t('pricing.feat_download_included')}</li>
                   <li>{t('pricing.feat_support_standard')}</li>
-                  {isAnnual && <li style={{ color: 'var(--blue)', fontWeight: 'bold' }}>{t('pricing.feat_discount_included')}</li>}
                 </>
               )}
               {plan.planKey === 'pro' && (
@@ -103,7 +87,6 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
                   <li>{t('pricing.plan_3_words')}</li>
                   <li>{t('pricing.feat_support_priority')}</li>
                   <li>{t('pricing.feat_trial_text')}</li>
-                  {isAnnual && <li style={{ color: 'var(--blue)', fontWeight: 'bold' }}>{t('pricing.feat_save_text')}</li>}
                 </>
               )}
               {plan.planKey === 'enterprise' && (
@@ -113,6 +96,17 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
                   <li>{t('pricing.feat_sla_guaranteed')}</li>
                   <li>{t('pricing.feat_excess_rate')}</li>
                 </>
+              )}
+
+              {/* Stockage — en dernier, avant la réduction annuelle */}
+              <li style={plan.planKey === 'free' ? { color: '#dc2626' } : undefined}>
+                {plan.planKey === 'free' ? 'Aucun stockage' : `${plan.storage} de stockage`}
+              </li>
+
+              {isAnnual && plan.planKey !== 'free' && plan.planKey !== 'enterprise' && (
+                <li style={{ color: 'var(--blue)', fontWeight: 'bold' }}>
+                  {plan.planKey === 'starter' ? t('pricing.feat_discount_included') : t('pricing.feat_save_text')}
+                </li>
               )}
             </ul>
 
