@@ -71,8 +71,8 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
             <ul className="pricing-features">
               {plan.planKey === 'free' && (
                 <>
-                  <li className="unavailable">{t('pricing.plan_1_words')}</li>
-                  <li className="unavailable">{t('pricing.feat_preview_only')}</li>
+                  <li>{t('pricing.plan_1_words')}</li>
+                  <li>{t('pricing.feat_preview_only')}</li>
                   <li className="unavailable">{t('pricing.feat_no_download')}</li>
                 </>
               )}
