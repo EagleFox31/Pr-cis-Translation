@@ -104,7 +104,8 @@ export default function Home() {
           }
         })
         .catch((err) => {
-          showToast('error', t('story.error_default'), undefined);
+          const msg = err instanceof Error ? err.message : '';
+          showToast('error', t('story.error_default'), msg || undefined);
         });
     },
     [stream, saveDocument, t],

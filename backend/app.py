@@ -703,6 +703,40 @@ async def translate_endpoint(
         pages_set = {min(pages_set)}  # on ne garde que la 1re page demandée
     elif not pages_set and ext == "pdf" and page_limit == 1:
         pages_set = {1}              # force page 1 uniquement
+
+    # ── Freemium : max 1 document traduit au total ─────────────────────────
+    if page_limit == 1:
+        try:
+            auth_header2 = request.headers.get("Authorization", "")
+            if auth_header2.startswith("Bearer "):
+                from auth import verify_access_token as _vat
+                from database import async_session as _asm3
+                from models import User as _U2, Document as _D2
+                token2 = auth_header2.split(" ", 1)[1]
+                payload2 = _vat(token2)
+                async def _count_docs():
+                    async with _asm3() as db:
+                        from sqlalchemy import select, func
+                        r = await db.execute(
+                            select(func.count()).where(_D2.user_id == payload2["sub"])
+                        )
+                        return r.scalar() or 0
+                import asyncio as _aio3
+                loop3 = _aio3.get_event_loop()
+                if loop3.is_running():
+                    fut3 = _aio3.run_coroutine_threadsafe(_count_docs(), loop3)
+                    doc_count = fut3.result(timeout=3)
+                else:
+                    doc_count = _aio3.run(_count_docs())
+                if doc_count >= 1:
+                    raise HTTPException(
+                        status_code=402,
+                        detail="Forfait Gratuit : 1 seul document. Passez à Starter pour traduire plus."
+                    )
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # si la vérification échoue, on laisse passer
     ptok = pages_token(pages_set)
     psuffix = f"_{ptok}" if ptok else ""
 
