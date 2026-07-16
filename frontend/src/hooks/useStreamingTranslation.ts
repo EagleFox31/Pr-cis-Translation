@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { authHeader } from '../services/api';
 
 const API_KEY = import.meta.env.VITE_API_KEY || 'precis_frontend_secure_key_2026_xK9mP2vL';
 const API_BASE = import.meta.env.VITE_API_BASE || '';
@@ -107,9 +108,14 @@ export function useStreamingTranslation() {
           if (precise) formData.append('precise', '1');
           if (pages && pages.trim()) formData.append('pages', pages.trim());
 
+          // `authHeader()` est INDISPENSABLE ici, pas décoratif : le backend lit
+          // l'utilisateur via `optional_auth`. Sans token il voit un visiteur
+          // anonyme, n'enregistre AUCUN `Document` (la bibliothèque reste vide)
+          // et n'applique pas le quota freemium. Un visiteur envoie `{}` et
+          // reste anonyme, comme avant.
           const startRes = await fetch(`${API_BASE}/api/translate`, {
             method: 'POST',
-            headers: { 'X-API-Key': API_KEY },
+            headers: { 'X-API-Key': API_KEY, ...authHeader() },
             body: formData,
           });
           if (!startRes.ok) {

@@ -11,6 +11,7 @@ import DocumentLibrary from '../components/library/DocumentLibrary';
 import { useAuth } from '../contexts/AuthContext';
 import { useDocumentLibrary } from '../hooks/useDocumentLibrary';
 import { useStreamingTranslation } from '../hooks/useStreamingTranslation';
+import { isTrialFor } from '../lib/plans';
 import type { TranslateConfig } from '../components/upload/TranslationSection';
 
 export default function Home() {
@@ -24,13 +25,18 @@ export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [translatedBlob, setTranslatedBlob] = useState<Blob | null>(null);
   const [translatedFilename, setTranslatedFilename] = useState<string>('');
-  const [isTrialMode, setIsTrialMode] = useState(true);
   const [showLibrary, setShowLibrary] = useState(false);
   const [targetLang, setTargetLang] = useState('en');
 
   // ---- Traduction PROGRESSIVE (page par page) ----
   const stream = useStreamingTranslation();
   const { user } = useAuth();
+
+  // Mode ESSAI : DÉRIVÉ du plan, jamais stocké. C'était un `useState(true)`
+  // dont le setter n'était appelé nulle part — l'aperçu restait donc assombri
+  // et le téléchargement verrouillé pour TOUT LE MONDE, abonnés et admin
+  // compris. Un état qui ne change jamais n'est pas un état : c'est un calcul.
+  const isTrialMode = isTrialFor(user);
 
   // ---- Document library ----
   const { documents, saveDocument, getBlob, deleteDocument, clearAll } = useDocumentLibrary();

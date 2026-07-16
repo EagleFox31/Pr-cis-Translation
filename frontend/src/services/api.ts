@@ -22,6 +22,42 @@ export function onForceLogout(fn: () => void) {
   _onForceLogout = fn;
 }
 
+/**
+ * En-tête d'authentification pour les appels qui NE passent PAS par `request()`
+ * — upload multipart, téléchargement de blob, EventSource.
+ *
+ * À utiliser plutôt que de relire `localStorage` : après un refresh, le token
+ * en mémoire est le bon et celui du storage peut être en retard d'un tour.
+ * Renvoie `{}` pour un visiteur, ce qui laisse l'appel anonyme.
+ */
+export function authHeader(): Record<string, string> {
+  return _accessToken ? { Authorization: `Bearer ${_accessToken}` } : {};
+}
+
+/** Y a-t-il une session ? (sans exposer le token lui-même) */
+export function hasSession(): boolean {
+  return _accessToken !== null;
+}
+
+/**
+ * `fetch` authentifié pour les réponses NON-JSON (blob, flux). Rejoue l'appel
+ * une fois après refresh sur 401, comme `request()` — sans quoi un token expiré
+ * ferait échouer un téléchargement alors que la session est valide.
+ */
+export async function authFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
+  const send = () => fetch(url, {
+    ...init,
+    headers: { ...(init.headers as Record<string, string> | undefined), ...authHeader() },
+  });
+  let res = await send();
+  if (res.status === 401 && _refreshToken) {
+    const t = await refreshAccessToken();
+    if (t) res = await send();
+  }
+  return res;
+}
+
 async function refreshAccessToken(): Promise<string | null> {
   if (!_refreshToken) return null;
   try {

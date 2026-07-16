@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import api from '../services/api';
+import api, { authFetch } from '../services/api';
 
 export interface DocMeta {
   id: string;
@@ -88,19 +88,18 @@ export function useDocumentLibrary() {
     return id;
   }, [user]);
 
-  /** Récupérer le blob d'un document. Connecté = download API, Visiteur = mémoire. */
+  /** Récupérer le blob d'un document. Connecté = download API, Visiteur = mémoire.
+   *
+   *  `authFetch` et pas `api.get` : ce dernier fait `res.json()` et ne peut donc
+   *  JAMAIS rendre un blob (`res.data instanceof Blob` était toujours faux, le
+   *  premier appel était perdu à chaque fois). Le repli lisait le token dans
+   *  `localStorage` — donc l'ANCIEN après un refresh, d'où des 401 sur une
+   *  session pourtant valide. `authFetch` prend le token en mémoire et rejoue
+   *  l'appel après refresh. */
   const getBlob = useCallback(async (id: string): Promise<Blob | undefined> => {
     if (user) {
-      const res = await api.get(`/api/documents/${id}/download`);
-      if (res.ok && res.data instanceof Blob) return res.data;
-      // Si la réponse n'est pas un blob, on tente un fetch direct
-      const API_BASE = (import.meta as any).env?.VITE_API_BASE || '';
-      const tokens = JSON.parse(localStorage.getItem('precis_tokens') || '{}');
-      const fetchRes = await fetch(`${API_BASE}/api/documents/${id}/download`, {
-        headers: tokens.access_token ? { Authorization: `Bearer ${tokens.access_token}` } : {},
-      });
-      if (fetchRes.ok) return fetchRes.blob();
-      return undefined;
+      const res = await authFetch(`/api/documents/${id}/download`);
+      return res.ok ? res.blob() : undefined;
     }
     return documents.find(d => d.id === id)?._blob;
   }, [user, documents]);
