@@ -158,6 +158,7 @@ def build(path):
     _build_p16(doc.new_page(width=W, height=H))
     _build_p17(doc.new_page(width=W, height=H))
     _build_p18(doc.new_page(width=W, height=H))
+    _build_p19(doc.new_page(width=W, height=H))
 
     doc.save(path)
     doc.close()
@@ -305,6 +306,63 @@ def _build_p18(pg):
     leg = "Northern terminals during the quarter"
     pg.insert_text(((x0 + x1) / 2 - _w(leg, 7) / 2, P18_LEG_Y), leg,
                    fontname=FONT, fontsize=7, color=NOIR)
+
+
+# P19 — CONTRE-ÉPREUVE de P18 : sous une photo, ce n'est PAS toujours une
+# légende. Le cadre-photo ne connaît aucun test « est-ce une légende ? » : il se
+# déclenche sur tout paragraphe collé sous un bloc contenant. Il faut donc
+# prouver qu'il ne déforme pas le TEXTE COURANT qui reprend sous une photo.
+P19_GCOL = (60, 300)                   # colonne gauche : la photo en fait la largeur
+P19_DCOL = (340, 560)                  # colonne droite : la photo y est plus ÉTROITE
+P19_DPHOTO = (340, 460)
+
+
+def _build_p19(pg):
+    """Page 6 : du TEXTE COURANT — pas une légende — reprend sous une photo.
+
+    C'est le cas que le cadre-photo pourrait confondre : rien ne distingue
+    formellement une légende d'un paragraphe qui continue sous une illustration.
+    La page est EMPOISONNÉE comme la démo (titre pleine largeur qui donne la PAGE
+    pour colonne), sans quoi le cadre-photo ne se déclencherait pas du tout et le
+    test passerait à vide.
+
+    Deux colonnes, deux pièges différents :
+
+      • GAUCHE — la photo fait EXACTEMENT la largeur de la colonne (cas normal :
+        une illustration se cale sur sa colonne). Le cadre-photo se déclenche sur
+        le corps qui reprend dessous. Il doit alors retrouver la VRAIE colonne :
+        le texte reste au fer à gauche, son conteneur est celui de la colonne.
+        Le cadre-photo ne doit rien inventer.
+
+      • DROITE — la photo est plus ÉTROITE que sa colonne. Si le cadre-photo
+        s'appliquait, il ÉCRASERAIT le corps à la largeur de la photo (460 au
+        lieu de 560) et le ferait déborder à la traduction. Il ne doit pas
+        s'appliquer : le corps n'est pas contenu par la photo.
+    """
+    # Le poison : titre pleine largeur, loin au-dessus, qui chevauche tout.
+    pg.insert_text((45, 70), "Quarterly Freight Volumes Across Every Corridor",
+                   fontname=FONT, fontsize=15.5, color=ENCRE_TITRE)
+
+    corps = ("Freight volumes across the northern corridor rose again this "
+             "quarter as operators added capacity on the busiest routes and "
+             "shippers brought forward orders ahead of the seasonal peak. "
+             "Terminal handlers reported steadier turnaround times despite "
+             "the heavier flow of containers moving inland.")
+
+    # ── GAUCHE : photo À LA LARGEUR de la colonne, corps collé dessous ───────
+    gx0, gx1 = P19_GCOL
+    pg.draw_rect(fitz.Rect(gx0, 120, gx1, 220), color=ENCRE_FILET,
+                 fill=(0.88, 0.88, 0.88), width=0.5)
+    # 232 - 220 = 12 pt < 1.5 x 9 : le corps est COLLÉ -> le cadre-photo se
+    # déclenche. C'est bien le cas adverse qu'on veut éprouver.
+    _pave(pg, gx0, 232, corps, 9, gx1 - gx0, 11.0)
+
+    # ── DROITE : photo PLUS ÉTROITE que la colonne, corps collé dessous ──────
+    dx0, dx1 = P19_DCOL
+    px0, px1 = P19_DPHOTO
+    pg.draw_rect(fitz.Rect(px0, 120, px1, 220), color=ENCRE_FILET,
+                 fill=(0.88, 0.88, 0.88), width=0.5)
+    _pave(pg, dx0, 232, corps, 9, dx1 - dx0, 11.0)
 
 
 def _rangees(eng, page):
@@ -697,6 +755,44 @@ def run():
            abs((cb[0] + cb[2]) / 2 - (px0 + px1) / 2) <= 2.0,
            f"axe conteneur={(cb[0]+cb[2])/2:.1f} · axe photo={(px0+px1)/2:.1f} "
            f"· axe page={W/2:.1f}")
+
+    # ── P19 : sous une photo, ce n'est PAS toujours une légende ─────────────
+    pd6 = eng.extract_page_data(doc, 5, doc[5], embed_images=True)
+    corps6 = [e for e in pd6["elements"] if e.get("type") == "paragraph"
+              and "Freight volumes" in (e.get("text") or "")]
+    gauche = next((e for e in corps6 if e["bbox"][0] < 320), None)
+    droite = next((e for e in corps6 if e["bbox"][0] >= 320), None)
+
+    # Le cadre-photo ne sait PAS ce qu'est une légende : il se déclenche aussi
+    # sur ce corps de texte (vérifié : cadre déduit [45;358] -> [60;300]). Ce
+    # qu'il faut prouver n'est donc pas qu'il s'abstient, mais qu'il ne DÉFORME
+    # rien — mieux : qu'il RÉPARE la colonne empoisonnée du corps comme celle
+    # d'une légende. Même règle, même bénéfice, aucune notion de « légende ».
+    if gauche:
+        cb = gauche.get("container_bbox") or gauche["bbox"]
+        gx0, gx1 = P19_GCOL
+        ok("P19  photo à la largeur de la colonne : le corps retrouve sa colonne",
+           abs(cb[0] - gx0) <= 3.0 and abs(cb[2] - gx1) <= 3.0,
+           f"conteneur=[{cb[0]:.1f},{cb[2]:.1f}] attendu=[{gx0},{gx1}] — sans le "
+           f"cadre-photo, le titre pleine largeur donne [45;358] pour colonne")
+
+    # Photo PLUS ÉTROITE que sa colonne : le cadre-photo doit DÉCLINER, sinon il
+    # écraserait le corps à la largeur de la photo. Contrôle EN BOÎTE BLANCHE :
+    # une assertion sur le conteneur passerait à vide ici — un paragraphe
+    # justifié garde sa marge droite par un tout autre chemin, qui masquerait la
+    # panne. On interroge donc la règle elle-même.
+    pg6 = doc[5]
+    d6 = eng._extract_drawings(pg6)
+    i6 = eng._extract_images(doc, pg6, 5, False, None)
+    ctx6 = eng._build_page_ctx(pg6, eng._extract_text(pg6, d6, i6), d6, i6)
+    if droite:
+        b = droite["bbox"]
+        cadre = eng._overhead_frame(b[0], b[2], b[1], droite.get("size") or 9.0,
+                                    ctx6["obstacles"], P19_DCOL)
+        ok("P19  une photo plus étroite que la colonne ne CAPTURE pas le corps",
+           cadre is None,
+           f"cadre-photo={cadre} — le corps serait écrasé à la largeur de la "
+           f"photo {P19_DPHOTO} au lieu de sa colonne {P19_DCOL}")
 
     # ── Rapport ─────────────────────────────────────────────────────────────
     print("=" * 78)

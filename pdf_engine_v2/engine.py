@@ -2067,10 +2067,21 @@ class PDFObjectEngine:
         bandeau pleine largeur n'y gagne rien, il ne serre rien. Le plus serré
         gagne.
 
-        LIMITE : si une photo était plus ÉTROITE que sa colonne, la légende
-        serait centrée sur la photo plutôt que sur la colonne. Les deux
-        conventions existent en typographie, et aucun document de référence ne
-        tranche — mais c'est un choix, pas une preuve.
+        Aucun test « est-ce une légende ? » ici, et c'est VOULU : rien ne
+        distingue formellement une légende d'un paragraphe qui reprend sous une
+        illustration. La règle se déclenche donc aussi sur du texte courant — et
+        c'est très bien, car elle ne prétend pas reconnaître une légende, mais
+        RÉVÉLER UNE COLONNE. Le corps y gagne autant : page 6 du test générique,
+        un corps collé sous sa photo retrouve sa colonne [60 ; 300] là où le
+        titre pleine largeur lui donnait [45 ; 358]. La contenance protège le
+        cas inverse : une photo trop étroite ne capture pas le corps qui la
+        déborde.
+
+        LIMITE : une photo DÉCENTRÉE dans sa colonne (plus étroite ET ferrée
+        d'un côté) donnerait un axe faux à sa légende. Une photo simplement plus
+        étroite mais centrée ne pose PAS de problème : son axe est celui de sa
+        colonne, les deux conventions coïncident. Aucun document de référence ne
+        tranche le cas décentré — c'est un choix, pas une preuve.
         """
         best = None
         larg = frame[1] - frame[0]
