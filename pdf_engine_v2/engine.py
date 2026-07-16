@@ -1556,6 +1556,32 @@ class PDFObjectEngine:
                     frame_dur = True
             if frame is None:
                 frame = (col_left, col_right)
+            # LÉGENDE (P18) — l'illustration COLLÉE AU-DESSUS révèle la colonne.
+            #
+            # Une légende se pose SOUS sa photo, jamais dedans : la boîte
+            # contenante ci-dessus ne la voit donc pas, et elle retombe sur sa
+            # « colonne ». Or celle-ci se déduit des paragraphes qui la
+            # chevauchent, SANS aucune fenêtre verticale : le titre pleine
+            # largeur « Tech Giants Report… » [32 ; 563], à 480 pt au-dessus,
+            # chevauche la légende « Shoppers return » [87 ; 232] et commence à
+            # sa gauche — il lui imposait donc `col_right = 563`. La « colonne »
+            # d'une légende, c'était la PAGE : d'où son centrage manqué (blancs
+            # de 55 contre 331) ET son conteneur débordant sur la colonne
+            # voisine. « Trading floor » ne s'en tirait que par HASARD : son
+            # panneau est centré sur la page.
+            #
+            # Corriger l'estimation de colonne elle-même (fenêtre verticale) a
+            # été tenté : trop large. 410 conteneurs bougeaient et des cas réglés
+            # cassaient — privé de ses voisins, l'en-tête courant de mv21
+            # (« 6 | Driver's Manual ») repassait ferré à droite et son conteneur
+            # doublait. On ne touche donc PAS à `col_left`/`col_right` : on ajoute
+            # seulement un cadre plus SERRÉ là où un objet le prouve.
+            over_frame = None
+            if not frame_dur:
+                over_frame = self._overhead_frame(pleft, pright, ptop, size,
+                                                  obstacles, frame)
+                if over_frame is not None:
+                    frame, frame_dur = over_frame, True
             f_left, f_right = frame
             if f_right - f_left < 1.0:                  # cadre dégénéré
                 f_left, f_right = col_left, col_right
@@ -1731,6 +1757,15 @@ class PDFObjectEngine:
             if best_box is not None:
                 pad = max(2.0, min(pleft - best_box[0], 8.0))
                 ref_right = min(ref_right, best_box[2] - pad)
+            # LÉGENDE : son illustration la borne aussi À DROITE. Un cadre ne
+            # vaut que si ses DEUX bords tiennent : sans cela le conteneur
+            # héritait du bord GAUCHE de la photo mais gardait un bord droit posé
+            # par le voisin (démo, « Shoppers return » : [32 ; 351,9] sous une
+            # photo [32 ; 287,6]) → le texte se recentrait sur 191,9 au lieu de
+            # 159,8, donc DE TRAVERS sous sa photo, et débordait sur la colonne
+            # d'à côté.
+            if over_frame is not None:
+                ref_right = min(ref_right, over_frame[1])
             ref_right = max(ref_right, pright)          # jamais rétrécir
 
             # Conteneur d'un bloc CENTRÉ : il s'étend des DEUX côtés, borné par le
@@ -2006,6 +2041,51 @@ class PDFObjectEngine:
                 if x0 <= cx <= x1 and y0 <= cy <= y1:
                     it["cell"] = i
                     break
+
+    # Écart vertical maximal (× corps) entre une illustration et sa légende :
+    # une légende est COLLÉE à sa photo.
+    _CAPTION_GAP_FACTOR = 1.5
+
+    @classmethod
+    def _overhead_frame(cls, pleft, pright, ptop, size, obstacles, frame):
+        """Cadre révélé par l'objet **collé au-dessus** du paragraphe.
+
+        Une légende est centrée sur SA COLONNE, et l'illustration qui la
+        surplombe occupe justement la largeur de cette colonne : elle en est donc
+        le témoin le plus sûr — bien plus que la « colonne » déduite de
+        paragraphes lointains. L'objet doit :
+
+          - être un **BLOC** — au moins un corps de texte de haut ET de large.
+            Un filet, une règle, un soulignement ne sont pas des illustrations ;
+          - **toucher** le paragraphe (écart ≤ `_CAPTION_GAP_FACTOR × corps`) ;
+          - le **contenir** horizontalement ;
+          - et **SERRER** le cadre courant.
+
+        Ce dernier point est le garde-fou : la règle ne peut que resserrer,
+        jamais élargir. Elle prolonge donc la hiérarchie existante (cellule →
+        boîte → colonne), où le cadre le plus serré l'emporte toujours ; un
+        bandeau pleine largeur n'y gagne rien, il ne serre rien. Le plus serré
+        gagne.
+
+        LIMITE : si une photo était plus ÉTROITE que sa colonne, la légende
+        serait centrée sur la photo plutôt que sur la colonne. Les deux
+        conventions existent en typographie, et aucun document de référence ne
+        tranche — mais c'est un choix, pas une preuve.
+        """
+        best = None
+        larg = frame[1] - frame[0]
+        for ox0, oy0, ox1, oy1 in obstacles:
+            if oy1 > ptop + 1.0 or ptop - oy1 > cls._CAPTION_GAP_FACTOR * size:
+                continue                    # pas immédiatement au-dessus
+            if oy1 - oy0 < size or ox1 - ox0 < size:
+                continue                    # filet : pas une illustration
+            if ox0 > pleft + 1.0 or ox1 < pright - 1.0:
+                continue                    # ne contient pas la légende
+            if ox1 - ox0 >= larg:
+                continue                    # ne serre pas : sans intérêt
+            if best is None or ox1 - ox0 < best[1] - best[0]:
+                best = (ox0, ox1)
+        return best
 
     def _assign_column_margins(self, items, ctx=None):
         """Attribue à chaque ligne sa `col_margin` = bord droit de référence pour

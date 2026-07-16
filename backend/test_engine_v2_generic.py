@@ -157,6 +157,7 @@ def build(path):
     _build_p15(doc.new_page(width=W, height=H))
     _build_p16(doc.new_page(width=W, height=H))
     _build_p17(doc.new_page(width=W, height=H))
+    _build_p18(doc.new_page(width=W, height=H))
 
     doc.save(path)
     doc.close()
@@ -274,6 +275,36 @@ def _build_p17(pg):
     _pave(pg, P17_X, 90, chapo, 11, 522, 14)
     for k in range(4):
         _pave(pg, P17_X + k * P17_PAS, P17_Y, corps, 9, P17_W, 10.2)
+
+
+# P18 — photo DÉCENTRÉE sur la page et sa légende (page 5).
+P18_PHOTO = (60, 300)                  # empan x de la photo
+P18_LEG_Y = 300                        # ligne de base de la légende
+
+
+def _build_p18(pg):
+    """Page 5 : une légende centrée sous une photo DÉCENTRÉE dans la page.
+
+    Le piège est le bandeau : un TITRE pleine largeur, posé loin au-dessus,
+    chevauche la légende et commence à sa gauche. La « colonne » de la légende,
+    déduite des paragraphes qui la chevauchent, devient donc la PAGE ENTIÈRE —
+    et une légende centrée sur sa photo n'y paraît plus centrée du tout (blancs
+    très inégaux). C'est le cas de la démo journal.
+
+    La photo est délibérément DÉCENTRÉE dans la page : une légende centrée sur
+    la page passerait le test par hasard, comme « Trading floor » le faisait.
+    Ici l'axe de la photo (180) et celui de la page (306) sont bien distincts.
+    """
+    # Le titre pleine largeur qui empoisonne l'estimation de colonne.
+    pg.insert_text((45, 70), "Regional Output Beats Every Published Forecast",
+                   fontname=FONT, fontsize=15.5, color=ENCRE_TITRE)
+    # La photo, décentrée, et sa légende centrée SUR ELLE.
+    x0, x1 = P18_PHOTO
+    pg.draw_rect(fitz.Rect(x0, 200, x1, 292), color=ENCRE_FILET,
+                 fill=(0.88, 0.88, 0.88), width=0.5)
+    leg = "Northern terminals during the quarter"
+    pg.insert_text(((x0 + x1) / 2 - _w(leg, 7) / 2, P18_LEG_Y), leg,
+                   fontname=FONT, fontsize=7, color=NOIR)
 
 
 def _rangees(eng, page):
@@ -644,6 +675,28 @@ def run():
     ok("P17  les 4 colonnes restent distinctes et à leur fer",
        trouves == attendus,
        f"fers gauches trouvés={trouves}, attendus={attendus}")
+
+    # ── P18 : légende sous une photo décentrée (page 5) ──────────────────────
+    pd5 = eng.extract_page_data(doc, 4, doc[4], embed_images=True)
+    p_leg = next((e for e in pd5["elements"] if e.get("type") == "paragraph"
+                  and "Northern terminals" in (e.get("text") or "")), None)
+    ok("P18  la légende sous une photo est reconnue CENTRÉE",
+       p_leg is not None and p_leg.get("align") == "center",
+       f"align={(p_leg or {}).get('align')!r} — le titre pleine largeur a fait "
+       f"passer la PAGE pour sa colonne")
+    if p_leg:
+        cb = p_leg.get("container_bbox") or p_leg["bbox"]
+        px0, px1 = P18_PHOTO
+        # Le contrôle décisif : le conteneur doit être celui de la PHOTO, sur les
+        # DEUX bords. Un bord droit resté au voisin recentrerait la légende de
+        # travers et la ferait déborder.
+        ok("P18  son conteneur est celui de la PHOTO (deux bords)",
+           abs(cb[0] - px0) <= 2.0 and abs(cb[2] - px1) <= 2.0,
+           f"conteneur=[{cb[0]:.1f},{cb[2]:.1f}] attendu=[{px0},{px1}]")
+        ok("P18  la légende est centrée sur l'axe de la PHOTO, pas de la page",
+           abs((cb[0] + cb[2]) / 2 - (px0 + px1) / 2) <= 2.0,
+           f"axe conteneur={(cb[0]+cb[2])/2:.1f} · axe photo={(px0+px1)/2:.1f} "
+           f"· axe page={W/2:.1f}")
 
     # ── Rapport ─────────────────────────────────────────────────────────────
     print("=" * 78)

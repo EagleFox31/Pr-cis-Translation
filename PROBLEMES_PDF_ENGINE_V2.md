@@ -1,7 +1,7 @@
 # Problèmes identifiés — pdf_engine_v2
 
 _Campagne 20 pages du 2026-07-10 (corrigés les 2026-07-10/11), puis P12-P14
-(07-13/14) et **P15-P17 (2026-07-16)**._
+(07-13/14) et **P15-P18 (2026-07-16)**._
 
 > Constats issus de 20 pages traduites (FR) + debug pour `mv21.pdf` et
 > `The Data Science Handbook.pdf` (`backend/tests files/`), causes établies dans
@@ -194,6 +194,55 @@ colonne n'est pas la preuve de son absence.*
   32 → 563 et **soude les 4 colonnes** (14 lignes d'inventaire ravagées). À **2**,
   identique à 3 sur les 51 pages. On garde **3** (marge).
 
+## ✅ P18 — LÉGENDE : centrage manqué + débordement sur la colonne (2026-07-16)
+
+> **Le symptôme** (démo journal, signalé sur le rendu) : la légende
+> « Les consommateurs retournent dans les centres-villes… » n'est pas centrée
+> sous sa photo et **déborde sur la colonne voisine**. Deux symptômes, **une
+> seule cause**.
+>
+> **La cause.** Une légende se pose **SOUS** sa photo, jamais dedans : la « boîte
+> contenante » (P14) ne la voit donc pas, et elle retombe sur sa *colonne*. Or
+> la colonne se déduit des paragraphes qui chevauchent le bloc, **sans aucune
+> fenêtre verticale** : le titre pleine largeur « Tech Giants Report… »
+> [32 ; 563], à **480 pt au-dessus**, chevauche la légende [87 ; 232] et commence
+> à sa gauche → il lui impose `col_right = 563`. **La « colonne » d'une légende,
+> c'était la PAGE.**
+
+| Légende | Cadre retenu | lg / rg | Verdict |
+|---|---|---|---|
+| Trading floor | page [32 ; 563] | 201 / 201 | ✅ centrée… **par pur hasard** (son panneau est centré sur la page) |
+| Shoppers return | page [32 ; 563] | 55 / **331** | ❌ `left`, conteneur [87 ; **351,9**] → déborde (photo : [32 ; 287,6]) |
+| Federal Reserve | page [32 ; 563] | **332** / 56 | ❌ `left` |
+
+**Correction** — `_overhead_frame` : l'**illustration collée au-dessus** révèle la
+colonne de la légende (elle en occupe la largeur). L'objet doit être un **BLOC**
+(≥ 1 corps de haut *et* de large — un filet n'est pas une illustration),
+**toucher** la légende (≤ `_CAPTION_GAP_FACTOR = 1.5 × corps`), la **contenir**
+horizontalement, et **SERRER** le cadre courant. Ce dernier point est le
+garde-fou : la règle ne peut que resserrer — elle prolonge la hiérarchie
+existante (cellule → boîte → colonne), où le plus serré gagne ; un bandeau
+pleine largeur n'y gagne rien. Le cadre borne **aussi `ref_right`** : un cadre ne
+vaut que si ses **deux** bords tiennent, sinon la légende se recentre de travers
+(191,9 au lieu de 159,8) et déborde quand même.
+
+### 🔴 Piste ÉCARTÉE : corriger l'estimation de colonne (fenêtre verticale)
+
+C'est la cause *racine*, et c'était tentant. **Mesuré : trop large.** Ajouter une
+fenêtre verticale (+ les objets) au balayage de colonne touche **410 conteneurs
+sur 886** (écart médian 5,7 pt, max 345,7) et **casse des cas déjà réglés** :
+privé de ses voisins, l'en-tête courant de mv21 « 6 | Driver's Manual » repassait
+**ferré à droite** — le bug même qu'un commentaire du code documente comme
+corrigé — et son conteneur doublait (190,8 → 377,8) ; « Sold to » (hb p1) perdait
+son fer à droite. Le correctif retenu, lui, touche **exactement 3 paragraphes sur
+886** : les 3 légendes. Ne pas rouvrir sans un plan pour l'en-tête courant.
+
+**Vérification** : 3 paragraphes changent sur 51 pages (les 3 légendes) ; au
+rendu, avec les vraies légendes françaises (plus longues), les 3 tombent sur
+l'axe de leur photo à **±0,0 pt**. Test P18 (page 5 synthétique) : photo
+**décentrée** dans la page (axe 180 vs 306) pour qu'un centrage-page ne puisse
+pas passer par hasard, + titre pleine largeur qui empoisonne la colonne.
+
 ## 🧪 AUDIT DE GÉNÉRICITÉ (2026-07-13) — `backend/test_engine_v2_generic.py`
 
 > **Le problème de fond.** P10-P13 ont été trouvés sur mv21, le Handbook et la
@@ -208,10 +257,11 @@ colonne n'est pas la preuve de son absence.*
 > propres blancs de justification · liste à puces · titre vertical à lettres
 > espacées · en-têtes de tableau pivotés serrés. **13 contrôles, 13 verts.**
 >
-> _Étendu le 2026-07-16 à **4 pages / 28 contrôles** (P15-P17) : colonne étroite
+> _Étendu le 2026-07-16 à **5 pages / 31 contrôles** (P15-P18) : colonne étroite
 > justifiée · citation enjambée par le corps voisin (contre-épreuve hb p20) ·
 > filet vertical dans le blanc · corridor fantôme nourri par le vide · chapô
-> pleine largeur au-dessus de 4 colonnes. Le texte justifié y est **composé**
+> pleine largeur au-dessus de 4 colonnes · légende sous une photo décentrée.
+> Le texte justifié y est **composé**
 > (coupe au plus juste puis étirement des blancs), et non posé à la main : les
 > lignes lâches apparaissent d'elles-mêmes, comme dans un vrai document._
 
@@ -239,7 +289,7 @@ précisément ce qu'on lui demandait :
 
 ```bash
 backend/venv/Scripts/python.exe backend/test_glossary.py            # 18/18
-backend/venv/Scripts/python.exe backend/test_engine_v2_generic.py   # 28/28
+backend/venv/Scripts/python.exe backend/test_engine_v2_generic.py   # 31/31
 ```
 Invariants de non-régression sur les documents réels (24 pages chacun) :
 **mv21 = 614 paragraphes · Handbook = 309 · démo = 38** (42 avant P15 : les 4
@@ -250,7 +300,8 @@ de ces nombres est une régression jusqu'à preuve du contraire.
 
 > **Les contrôles négatifs sont la moitié du test** (2026-07-16). Chaque règle de
 > P15-P17 a son script qui la **désarme seule** ; le check visé DOIT alors tomber :
-> recollage 25/28 · encre 27/28 · bordant 27/28 · colonne-étroite 27/28. Sans eux,
+> recollage 28/31 · encre 30/31 · bordant 30/31 · colonne-étroite 30/31 ·
+> cadre-légende 28/31. Sans eux,
 > **trois assertions passaient à vide** (elles ne prouvaient rien) — dont le
 > contrôle « le piège est armé », qui mesurait les lignes *après* réparation et
 > dépendait donc du correctif qu'il devait juger. Un test qui ne tombe jamais ne

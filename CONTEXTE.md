@@ -538,7 +538,7 @@ fonts{} : nom → [ {ext, b64}, ... ]   (polices embarquées, cmap patchée si C
 
 | Test | Ce qu'il prouve |
 |---|---|
-| [`backend/test_engine_v2_generic.py`](backend/test_engine_v2_generic.py) | **GÉNÉRICITÉ** : un PDF **synthétique** (autre police, autres corps, autres couleurs, autre format) rejoue les structures de P10-P17 → prouve que les correctifs traitent la **classe** du problème, pas les 3 documents qui l'ont révélé. **28/28** (4 pages). C'est lui qui a débusqué P10-bis, P13-bis, puis **P17** (le chapô pleine largeur qui soudait les colonnes — un bug introduit par P15). |
+| [`backend/test_engine_v2_generic.py`](backend/test_engine_v2_generic.py) | **GÉNÉRICITÉ** : un PDF **synthétique** (autre police, autres corps, autres couleurs, autre format) rejoue les structures de P10-P18 → prouve que les correctifs traitent la **classe** du problème, pas les 3 documents qui l'ont révélé. **31/31** (5 pages). C'est lui qui a débusqué P10-bis, P13-bis, puis **P17** (le chapô pleine largeur qui soudait les colonnes — un bug introduit par P15). |
 | [`backend/test_glossary.py`](backend/test_glossary.py) | Expressions pièges : résolution + filet déterministe, hors ligne. **18/18.** |
 
 **Invariants de non-régression** (extraction, 24 pages) : mv21 = **614**
@@ -547,7 +547,7 @@ sont les fragments **recollés** de la 3ᵉ colonne), **aucun mot perdu**.
 Soulignements consommés : mv21 = **27** · Handbook = **6** · démo = **0**.
 Toute dérive est une régression jusqu'à preuve du contraire.
 
-> **Un test qui ne tombe jamais ne teste rien.** Chaque règle de P15-P17 a un
+> **Un test qui ne tombe jamais ne teste rien.** Chaque règle de P15-P18 a un
 > **contrôle négatif** qui la désarme seule ; le check visé doit alors échouer.
 > Sans eux, trois assertions passaient **à vide** — dont un contrôle « le piège
 > est armé » qui mesurait l'état *après* réparation, donc dépendait du correctif
