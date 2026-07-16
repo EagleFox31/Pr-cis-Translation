@@ -538,7 +538,7 @@ fonts{} : nom → [ {ext, b64}, ... ]   (polices embarquées, cmap patchée si C
 
 | Test | Ce qu'il prouve |
 |---|---|
-| [`backend/test_engine_v2_generic.py`](backend/test_engine_v2_generic.py) | **GÉNÉRICITÉ** : un PDF **synthétique** (autre police, autres corps, autres couleurs, autre format) rejoue les structures de P10-P18 → prouve que les correctifs traitent la **classe** du problème, pas les 3 documents qui l'ont révélé. **31/31** (5 pages). C'est lui qui a débusqué P10-bis, P13-bis, puis **P17** (le chapô pleine largeur qui soudait les colonnes — un bug introduit par P15). |
+| [`backend/test_engine_v2_generic.py`](backend/test_engine_v2_generic.py) | **GÉNÉRICITÉ** : un PDF **synthétique** (autre police, autres corps, autres couleurs, autre format) rejoue les structures de P10-P20 → prouve que les correctifs traitent la **classe** du problème, pas les 3 documents qui l'ont révélé. **38/38** (7 pages). C'est lui qui a débusqué P10-bis, P13-bis, puis **P17** (le chapô pleine largeur qui soudait les colonnes — un bug introduit par P15). Pages 6 (P19) et 7 (P20) : le cadre-photo ne déforme pas le texte courant ; une liste à alinéa négatif que l'orthographe ne sait pas découper. |
 | [`backend/test_glossary.py`](backend/test_glossary.py) | Expressions pièges : résolution + filet déterministe, hors ligne. **18/18.** |
 
 **Invariants de non-régression** (extraction, 24 pages) : mv21 = **614**

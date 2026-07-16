@@ -27,6 +27,7 @@ tient que sur les documents d'origine.
 """
 
 import os
+import re
 import sys
 
 import fitz
@@ -159,6 +160,7 @@ def build(path):
     _build_p17(doc.new_page(width=W, height=H))
     _build_p18(doc.new_page(width=W, height=H))
     _build_p19(doc.new_page(width=W, height=H))
+    _build_p20(doc.new_page(width=W, height=H))
 
     doc.save(path)
     doc.close()
@@ -363,6 +365,79 @@ def _build_p19(pg):
     pg.draw_rect(fitz.Rect(px0, 120, px1, 220), color=ENCRE_FILET,
                  fill=(0.88, 0.88, 0.88), width=0.5)
     _pave(pg, dx0, 232, corps, 9, dx1 - dx0, 11.0)
+
+
+# P20 — liste numérotée à ALINÉA NÉGATIF dans une colonne étroite.
+P20_X, P20_W = 60, 150                 # colonne de la liste
+P20_IND = 9.0                          # alinéa négatif (marqueur -> texte)
+P20_CX = 340                           # colonne de la CONTRE-ÉPREUVE
+P20_SZ, P20_IL = 8, 10.0
+
+
+def _item(pg, marqueur, texte, y, x=P20_X, largeur=P20_W):
+    """Item de liste à ALINÉA NÉGATIF : le marqueur seul à `x`, le texte et
+    toutes ses continuations à `x + P20_IND` — la géométrie de tout manuel.
+    Retourne le y de la ligne suivante."""
+    pg.insert_text((x, y), marqueur, fontname=FONT, fontsize=P20_SZ, color=NOIR)
+    esp = _w(" ", P20_SZ)
+    lg = largeur - P20_IND
+    lignes, cur = [], []
+    for mot in texte.split():
+        essai = cur + [mot]
+        if cur and (sum(_w(m, P20_SZ) for m in essai)
+                    + esp * (len(essai) - 1)) > lg:
+            lignes.append(cur)
+            cur = [mot]
+        else:
+            cur = essai
+    if cur:
+        lignes.append(cur)
+    for i, mots in enumerate(lignes):
+        pg.insert_text((x + P20_IND, y + i * P20_IL), " ".join(mots),
+                       fontname=FONT, fontsize=P20_SZ, color=NOIR)
+    return y + len(lignes) * P20_IL
+
+
+def _build_p20(pg):
+    """Page 7 : une liste numérotée que l'ORTHOGRAPHE ne sait pas découper.
+
+    Le moteur coupait déjà sur « 1. », mais seulement si la ligne précédente
+    FINISSAIT UNE PHRASE. Deux tournures très banales désarment ce garde-fou, et
+    elles sont toutes deux ici :
+
+      • l'intro finit par « : » — qui ne finit pas une phrase ;
+      • l'item 5 finit par « or » — mot non terminal, donc « continuation
+        certaine ».
+
+    Résultat avant correctif (mesuré sur mv21 p12) : « …of your: 1. Parent » et
+    « 5. …; or 6. Anyone who… » soudés en prose. Le vrai signal est GÉOMÉTRIQUE :
+    six marqueurs au MÊME bord gauche, aux rangs qui se SUIVENT.
+
+    CONTRE-ÉPREUVE à droite : deux lignes numérotées au même bord gauche mais de
+    rangs NON ADJACENTS (1. puis 7.). Ce n'est pas une liste — rien ne prouve
+    qu'elles s'enchaînent. Elles ne doivent PAS être marquées, sinon la règle
+    couperait n'importe quel nombre en tête de ligne.
+    """
+    y = 100
+    lignes = _pave(pg, P20_X, y, "You must drive only under the immediate "
+                                 "supervision of your:", P20_SZ, P20_W, P20_IL)
+    y += len(lignes) * P20_IL + 4
+    y = _item(pg, "1.", "Parent", y)
+    y = _item(pg, "2.", "Guardian", y)
+    y = _item(pg, "3.", "Person in loco parentis", y)
+    y = _item(pg, "4.", "Driver Education Teacher", y)
+    # Item 5 : finit par « or », mot NON TERMINAL -> désarme l'ancienne règle.
+    y = _item(pg, "5.", "Driving School Instructor; or", y)
+    y = _item(pg, "6.", "Anyone who has been designated in writing by the "
+                        "parent, guardian, or person in loco parentis.", y)
+
+    # ── CONTRE-ÉPREUVE : rangs NON ADJACENTS, même bord gauche ──────────────
+    yc = 100
+    _pave(pg, P20_CX, yc, "The fee schedule below applies to every renewal "
+                          "filed after the cutoff:", P20_SZ, P20_W, P20_IL)
+    yc += 3 * P20_IL + 4
+    _item(pg, "1.", "Standard renewal", yc, x=P20_CX)
+    _item(pg, "7.", "Late renewal surcharge", yc + P20_IL, x=P20_CX)
 
 
 def _rangees(eng, page):
@@ -793,6 +868,52 @@ def run():
            cadre is None,
            f"cadre-photo={cadre} — le corps serait écrasé à la largeur de la "
            f"photo {P19_DPHOTO} au lieu de sa colonne {P19_DCOL}")
+
+    # ── P20 : liste à alinéa négatif que l'orthographe ne sait pas couper ───
+    pd7 = eng.extract_page_data(doc, 6, doc[6], embed_images=True)
+    par7 = [e for e in pd7["elements"] if e.get("type") == "paragraph"]
+    txt7 = [(e["bbox"][0], " ".join((e.get("text") or "").split()))
+            for e in par7]
+
+    def _existe(attendu, x_min, x_max):
+        return any(t == attendu and x_min <= x <= x_max for x, t in txt7)
+
+    # 1. L'intro finit par « : » : elle ne doit PAS avaler l'item 1.
+    ok("P20  l'intro finissant par « : » n'avale pas l'item 1",
+       _existe("You must drive only under the immediate supervision of your:",
+               P20_X - 3, P20_X + 3),
+       f"intro soudée — trouvé : "
+       f"{[t for x, t in txt7 if t.startswith('You must')]}")
+
+    # 2. Les 6 items sont 6 paragraphes distincts.
+    items = [t for x, t in txt7 if P20_X - 3 <= x <= P20_X + 3
+             and re.match(r"^\d\.", t)]
+    ok("P20  les 6 items de la liste sont 6 paragraphes distincts",
+       len(items) == 6, f"{len(items)} item(s) : {items}")
+
+    # 3. L'item 5 finit par « or » (mot NON TERMINAL) : il garde son « or »
+    #    sans avaler l'item 6.
+    ok("P20  l'item finissant par « or » n'avale pas le suivant",
+       _existe("5. Driving School Instructor; or", P20_X - 3, P20_X + 3),
+       f"item 5 = {[t for x, t in txt7 if t.startswith('5.')]}")
+
+    # 4. CONTRE-ÉPREUVE, en boîte blanche : des rangs NON ADJACENTS au même bord
+    #    ne sont pas une liste. Une assertion sur le découpage passerait à vide
+    #    (d'autres règles coupent déjà ces lignes) — on interroge la preuve
+    #    elle-même.
+    pg7 = doc[6]
+    d7 = eng._extract_drawings(pg7)
+    im7 = eng._extract_images(doc, pg7, 6, False, None)
+    lignes7 = [eng._line_metrics(ln) for ln in eng._extract_text(pg7, d7, im7)]
+    eng._tag_list_markers(lignes7)
+    marq = {round(m["left"]): m.get("list_marker", False) for m in lignes7
+            if eng._list_ordinal(m["text"])}
+    vrais = [x for x, v in marq.items() if v and abs(x - P20_X) <= 3]
+    faux = [x for x, v in marq.items() if v and abs(x - P20_CX) <= 3]
+    ok("P20  la liste 1..6 est PROUVÉE par ses rangs qui se suivent",
+       len(vrais) >= 1, f"aucun marqueur prouvé à x={P20_X}")
+    ok("P20  des rangs NON adjacents (1. puis 7.) ne font pas une liste",
+       not faux, f"marqueurs faussement prouvés à x={P20_CX} : {faux}")
 
     # ── Rapport ─────────────────────────────────────────────────────────────
     print("=" * 78)

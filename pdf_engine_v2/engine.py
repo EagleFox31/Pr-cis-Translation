@@ -1374,6 +1374,7 @@ class PDFObjectEngine:
         items = [self._line_metrics(ln) for ln in lines]
         self._assign_column_margins(items, ctx)
         self._tag_cells(items, ctx)
+        self._tag_list_markers(items)
         items.sort(key=lambda it: (round(it["top"], 1), it["left"]))
 
         paras = []
@@ -1894,6 +1895,73 @@ class PDFObjectEngine:
             "bold": (bold_chars / total) >= 0.6,
         }
 
+    # Tolérance sur le bord gauche de deux marqueurs de liste tenus pour ALIGNÉS.
+    _LIST_X_TOL = 1.5
+
+    @staticmethod
+    def _list_ordinal(txt):
+        """Rang d'un énumérateur en tête de ligne : ('d', 5) pour « 5. », ('a',
+        98) pour « b) ». None si la ligne n'ouvre pas d'item."""
+        m = _NUMITEM_RE.match(txt or "")
+        if not m:
+            return None
+        tok = m.group(0).strip().lstrip("(").rstrip(".) \t")
+        if tok.isdigit():
+            return ("d", int(tok))
+        if len(tok) == 1 and tok.isalpha():
+            return ("a", ord(tok.lower()))
+        return None
+
+    @classmethod
+    def _tag_list_markers(cls, items):
+        """Marque les lignes qui ouvrent un item de liste PROUVÉ.
+
+        Le moteur savait déjà couper sur « 1. », mais seulement si la ligne
+        précédente FINISSAIT UNE PHRASE — on demandait à l'ORTHOGRAPHE de
+        prouver une STRUCTURE. Les deux cas les plus courants la désarment :
+
+          « …supervision of your: »  ->  « : » ne finit pas une phrase
+          « 5. Driving School Instructor; / or »  ->  « or » est non terminal
+
+        et la liste se recollait en prose (mv21 p12 : « …of your: 1. Parent »,
+        « 5. …; or 6. Anyone who… »). Les items 2 à 4 n'étaient sauvés que par
+        la règle « espace restant », par chance.
+
+        Le vrai signal est GÉOMÉTRIQUE : un marqueur est prouvé par un VOISIN
+        ADJACENT DANS LA NUMÉROTATION, au MÊME bord gauche (mv21 : six marqueurs
+        à x=146,1 pile, continuations à x=155,1). C'est la discipline de P15/P16
+        — une structure n'existe que par la RÉPÉTITION.
+
+        Le voisin doit être adjacent (n±1), pas seulement présent : une liste qui
+        REPART à 1 (1,2,3 puis 1,2) reste couverte, chaque membre trouvant son
+        voisin. Et un « 1. » ISOLÉ au fil d'une phrase (« …atteint 1. Puis… »)
+        n'a aucun voisin : il n'est pas marqué et retombe sur l'ancienne règle
+        orthographique, plus prudente. Le VIDE n'est pas une preuve.
+        """
+        cand = []
+        for it in items:
+            o = cls._list_ordinal(it["text"])
+            if o is not None:
+                cand.append((it, o))
+        # Regroupement par bord gauche : deux colonnes ont des x différents,
+        # deux items d'une même liste ont le MÊME x.
+        groupes = []
+        for it, o in cand:
+            for g in groupes:
+                if abs(g["x"] - it["left"]) <= cls._LIST_X_TOL:
+                    g["membres"].append((it, o))
+                    break
+            else:
+                groupes.append({"x": it["left"], "membres": [(it, o)]})
+        for g in groupes:
+            m = sorted(g["membres"], key=lambda p: p[0]["top"])
+            for j, (it, o) in enumerate(m):
+                prec = m[j - 1][1] if j > 0 else None
+                suiv = m[j + 1][1] if j + 1 < len(m) else None
+                if ((prec and prec[0] == o[0] and o[1] == prec[1] + 1)
+                        or (suiv and suiv[0] == o[0] and suiv[1] == o[1] + 1)):
+                    it["list_marker"] = True
+
     def _para_break(self, parent, it, ctx=None):
         """True si `it` doit démarrer un NOUVEAU paragraphe (coupe).
 
@@ -1926,6 +1994,12 @@ class PDFObjectEngine:
 
         # ── 1. Signaux DURS ─────────────────────────────────────────────────
         if _BULLET_RE.match(it["text"]):               # puce → toujours coupe
+            return True
+        # Item de liste PROUVÉ par ses voisins de numérotation, au même bord
+        # gauche : preuve STRUCTURELLE, elle prime sur les gardes orthographiques
+        # ci-dessous (« : » non terminal, « or » non terminal) qui les
+        # désarmaient. Cf. _tag_list_markers.
+        if it.get("list_marker"):
             return True
         # Numéro/lettre en tête = vrai item de liste SEULEMENT si la phrase
         # précédente est finie ; sinon c'est un nombre du texte (« age is 16. »,

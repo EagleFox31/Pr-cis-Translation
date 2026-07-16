@@ -285,16 +285,78 @@ précisément ce qu'on lui demandait :
 | **P16** | ✅ **Oui** — « le vide n'est pas une preuve » est une règle de raisonnement, pas un réglage. Une rangée sans texte bordant est **enjambée**, comme une ligne trop courte | Le corridor reste jugé sur des rangées **page-entière** : la cause structurelle (pas de notion de bloc dans `_column_gutters`) n'est pas traitée, seul son amplificateur l'est |
 | **P17** | ✅ **Oui** — « la colonne la plus étroite gagne » découle de la définition d'une gouttière. **Leçon** : l'auto-cohérence d'une preuve ne vaut que pour **le bloc qui la fournit** ; un témoin venu d'un autre bloc n'autorise rien | Repose sur le fait que les colonnes voisines soient elles-mêmes **avérées** (≥ 3 lignes intactes chacune). Des colonnes courtes surmontées d'un chapô pleine largeur resteraient exposées |
 
+## P20 — liste numérotée recollée en prose (mv21 p12)
+
+**Symptôme** — dans le tableau « Regional Restrictions », la liste des personnes
+autorisées revenait en prose à la traduction : « …sous la supervision directe
+de : **1. Parent** », « 4. Enseignant d'éducation routiè-re **5. Moniteur
+d'auto-école** ». Et la colonne du milieu était rendue **justifiée** alors que
+l'original est au drapeau.
+
+**Cause — UNE seule pour les deux symptômes.** Le moteur savait déjà couper sur
+« 1. », mais seulement `if _NUMITEM_RE.match(...) and not parent_continues and
+_ends_sentence(last_txt)` : on demandait à l'**ORTHOGRAPHE** de prouver une
+**STRUCTURE**. Deux tournures banales la désarment, et les deux sont là :
+
+| ligne précédente | garde-fou déclenché | effet |
+|---|---|---|
+| `…supervision of your:` | « : » ne finit pas une phrase | intro **avale** l'item 1 |
+| `5. Driving School Instructor; / or` | « or » est **non terminal** | item 5 **avale** l'item 6 |
+
+Les items 2 à 4 n'étaient sauvés que par la règle « espace restant » — **par
+chance**. Et la fusion FABRIQUE le second symptôme : « You must drive only under
+the / immediate supervision of your: / **1. Parent** » fait 3 lignes dont les 2
+premières atteignent la marge et la dernière est courte — **signature exacte
+d'un texte justifié**. D'où les blancs étirés.
+
+**Correctif** (`_tag_list_markers`) — le vrai signal est **géométrique** : un
+marqueur est prouvé par un **VOISIN ADJACENT DANS LA NUMÉROTATION, au MÊME bord
+gauche** (mv21 : six marqueurs à x = 146,1 **pile**, continuations à x = 155,1).
+C'est la discipline de P15/P16 — *une structure n'existe que par la RÉPÉTITION*.
+Ce signal est **dur** : il prime sur les gardes orthographiques qui le
+désarmaient. L'adjacence (n±1), et non la simple présence d'un voisin, couvre
+une liste qui **repart à 1** et refuse deux nombres sans rapport.
+
+**Le vide n'est pas une preuve** : un « 1. » **isolé** n'a aucun voisin → il
+n'est pas marqué et retombe sur l'ancienne règle, plus prudente.
+
+**Preuves**
+- Rayon d'action sur tout le corpus : **4908 → 4915 paragraphes (+7)**, dont
+  **0 alignement changé à bbox identique** (aucun dégât collatéral) ; les **5**
+  fusions défaites sont **toutes sur mv21 p11**, la page signalée. La mesure a
+  révélé une 3ᵉ fusion non repérée à l'œil : `3. Person "in loco parentis"
+  4. Driver Education Teacher 5. Driv…` en `justify`.
+- **Hypothèse confirmée** : les 4 intros « supervision of » repassent à `left`
+  sans qu'on touche à la détection de justification. Une cause, deux symptômes
+  — comme P18.
+- Invariants : mv21 **614 → 621** paragraphes, **10 937 → 10 937 mots** (aucun
+  mot perdu) ; Handbook et démo **strictement inchangés**.
+- Test générique page 7 + 2 contrôles négatifs (cf. ci-dessous).
+
+**Reste ouvert (séparé)** — la **coupure de mots** : « routiè-re », « com-mandes »
+sont fautives en français (on couperait « rou-tière »). La source contient des
+traits d'union conditionnels (U+00AD : `desig\xad nated`). Deux pistes opposées
+— ils fuient de la source, ou notre reflow coupe lui-même — **non tranché, non
+mesuré**. À traiter à part.
+
 ### Batterie de vérification (à rejouer avant toute release)
 
 ```bash
 backend/venv/Scripts/python.exe backend/test_glossary.py            # 18/18
-backend/venv/Scripts/python.exe backend/test_engine_v2_generic.py   # 31/31
+backend/venv/Scripts/python.exe backend/test_engine_v2_generic.py   # 38/38
 ```
 Invariants de non-régression sur les documents réels (24 pages chacun) :
-**mv21 = 614 paragraphes · Handbook = 309 · démo = 38** (42 avant P15 : les 4
-paragraphes en moins sont les **fragments recollés** de la 3ᵉ colonne — c'est le
-correctif, pas une perte), et **aucun mot perdu** (631 / 10 671 / 8 615).
+**mv21 = 621 paragraphes · Handbook = 309 · démo = 38** (mv21 : 614 avant P20 —
+les 7 de plus sont les **items de liste rendus à leur autonomie** ; démo : 42
+avant P15 — les 4 de moins sont les **fragments recollés** de la 3ᵉ colonne.
+Dans les deux cas c'est le correctif, pas une perte), et **aucun mot perdu**
+(démo 631 · mv21 10 937 · Handbook 8 448).
+
+> ⚠️ Les comptes de mots affichés ici jusqu'au 16/07 (10 671 / 8 615) **ne se
+> reproduisent pas** : mesure faite **avant comme après** P20, on obtient
+> 10 937 / 8 448. Ils étaient donc périmés ou pris par une autre méthode — ce
+> n'est pas une régression de P20 (le compte est identique des deux côtés du
+> correctif). Les valeurs ci-dessus sont celles réellement mesurées.
 Soulignements consommés : **mv21 = 27 · Handbook = 6 · démo = 0**. Toute dérive
 de ces nombres est une régression jusqu'à preuve du contraire.
 
