@@ -144,6 +144,7 @@ class VerificationCode(Base):
     token:      Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used:       Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    attempts:   Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     user: Mapped[User] = relationship("User", back_populates="verification_codes")

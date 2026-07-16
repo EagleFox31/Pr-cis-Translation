@@ -23,6 +23,18 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 VERIFICATION_CODE_EXPIRY_MINUTES = 15
+# Anti-bombing : un email de code au maximum toutes les N secondes par compte.
+RESEND_THROTTLE_SECONDS = 45
+# Anti-brute-force : nombre d'essais erronés tolérés avant invalidation du code.
+MAX_CODE_ATTEMPTS = 5
+
+
+def _aware(dt):
+    """Normalise un datetime en UTC-aware (asyncpg peut renvoyer naïf selon la
+    config), pour des soustractions sûres."""
+    if dt is None:
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 # ── Schémas ──────────────────────────────────────────────────────────────────
 
@@ -61,7 +73,27 @@ def _user_response(user: User) -> dict:
 
 
 async def _generate_verification(db: AsyncSession, user: User) -> VerificationCode:
-    """Crée un code de vérification (6 chiffres + token lien)."""
+    """Crée un code de vérification (6 chiffres + token lien).
+
+    Throttle anti-bombing : refuse (429) si un code a été émis pour ce compte il y
+    a moins de `RESEND_THROTTLE_SECONDS`. Sans cela, `login`/`register` (qui créent
+    un compte à la volée pour n'importe quel email) permettaient d'inonder une
+    boîte de messages en boucle."""
+    last = await db.execute(
+        select(VerificationCode)
+        .where(VerificationCode.user_id == user.id)
+        .order_by(VerificationCode.created_at.desc())
+        .limit(1)
+    )
+    prev = last.scalar_one_or_none()
+    if prev is not None:
+        age = (datetime.now(timezone.utc) - _aware(prev.created_at)).total_seconds()
+        if age < RESEND_THROTTLE_SECONDS:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Un code vient d'être envoyé. Réessayez dans "
+                       f"{int(RESEND_THROTTLE_SECONDS - age) + 1}s.",
+            )
     # Invalider les anciens codes non utilisés
     stmt = select(VerificationCode).where(
         VerificationCode.user_id == user.id,
@@ -213,16 +245,40 @@ async def verify_email_code(body: VerifyCodeBody, db: AsyncSession = Depends(get
     if user is None:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
 
-    stmt = select(VerificationCode).where(
-        VerificationCode.user_id == user.id,
-        VerificationCode.code == body.code.strip(),
-        VerificationCode.used == False,  # noqa: E712
+    # On récupère le code ACTIF le plus récent (indépendamment de la valeur
+    # saisie) pour pouvoir COMPTER les essais erronés : sans cela, un code à
+    # 6 chiffres (1 M combinaisons, fenêtre 15 min) était brute-forçable sans
+    # aucune limite.
+    stmt = (
+        select(VerificationCode)
+        .where(
+            VerificationCode.user_id == user.id,
+            VerificationCode.used == False,  # noqa: E712
+        )
+        .order_by(VerificationCode.created_at.desc())
+        .limit(1)
     )
     result = await db.execute(stmt)
     vc = result.scalar_one_or_none()
 
-    if vc is None or vc.expires_at < datetime.now(timezone.utc):
+    if vc is None or _aware(vc.expires_at) < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="Code invalide ou expiré.")
+
+    if vc.code != body.code.strip():
+        vc.attempts += 1
+        if vc.attempts >= MAX_CODE_ATTEMPTS:
+            vc.used = True                      # trop d'essais → code condamné
+            await db.commit()
+            raise HTTPException(
+                status_code=429,
+                detail="Trop de tentatives. Demandez un nouveau code.",
+            )
+        remaining = MAX_CODE_ATTEMPTS - vc.attempts
+        await db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Code invalide. {remaining} essai(s) restant(s).",
+        )
 
     vc.used = True
     user.email_verified = True

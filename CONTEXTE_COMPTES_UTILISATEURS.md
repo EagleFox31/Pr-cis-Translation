@@ -1,9 +1,84 @@
 # CONTEXTE — Comptes utilisateurs, authentification & stockage
 
-_Dernière mise à jour : 2026-07-15 — fin de session._
+_Dernière mise à jour : 2026-07-16 — correctifs 4-6 vérifiés sur le Postgres réel._
 
 > Ce document est le **contexte de référence** pour la fonctionnalité « comptes
-> utilisateurs ». Tout est implémenté, testé et fonctionnel.
+> utilisateurs ».
+
+---
+
+## ⚠️ Correctifs 2026-07-14 (audit après reprise)
+
+L'audit du code a révélé **trois bugs critiques** (le doc les disait « testés et
+fonctionnels » — ils ne l'étaient pas). Corrigés et vérifiés sur le Postgres réel
+(8/8, cf. `scratchpad/verif_comptes.py`) :
+
+1. **Deadlock à chaque traduction connectée** (`app.py`, `translate_endpoint`).
+   L'endpoint est `async` mais interrogeait la DB via
+   `run_coroutine_threadsafe(coro, loop)` **sur la boucle qui l'exécute**, puis
+   `fut.result(timeout=3)` bloquait cette boucle → coroutine jamais exécutée →
+   timeout 3 s → repli silencieux `plan="free"`. Effet : **tout compte payant
+   rétrogradé en gratuit** (1 page) + **3–6 s de latence** par requête.
+   → Corrigé : `Depends(optional_auth)` + `Depends(get_db)`, requêtes en `await`
+   direct. Plus aucun `run_coroutine_threadsafe`/`get_event_loop`.
+
+2. **Quota freemium jamais appliqué.** Le compteur mensuel compte les `Document`,
+   mais `_save_document_for_user` n'en créait **aucun** pour un plan `free`
+   (stockage 0 → `used+size>0` toujours vrai → `return`). Compteur = 0 pour
+   toujours → « 1 page/mois » inopérant.
+   → Corrigé : le `Document` est le **registre d'usage** ; il est créé pour tout
+   compte authentifié (`free` compris), le stockage n'étant facturé que si le
+   plan en offre.
+
+3. **Perte de données à la suppression** (`routes/documents.py`).
+   `delete_document` faisait `rmtree(dirname(original_path))`, or ce dossier est
+   le **cache partagé par hash** commun à tous les comptes → supprimer un doc
+   effaçait les traductions d'autrui.
+   → Corrigé : on n'efface que les fichiers strictement sous
+   `translations/<user_id>/` (garde-fou `commonpath`).
+
+### Correctifs 2026-07-16 (2ᵉ passe — reste des bugs comptes)
+4. **Anti-brute-force** (`verify-email` code). Le code à 6 chiffres (1 M
+   combinaisons, fenêtre 15 min) n'avait ni compteur ni verrou.
+   → Colonne `VerificationCode.attempts` (migration `0002_verif_attempts`) ;
+   `verify_email_code` récupère le code actif, incrémente `attempts` à chaque
+   erreur, condamne le code après `MAX_CODE_ATTEMPTS = 5` (429). Vérifié DB (6/6).
+5. **Email-bombing** (`login`/`register`/`resend`). Un mail était envoyé pour
+   n'importe quel email sans throttle.
+   → `_generate_verification` refuse (429) si un code a été émis il y a moins de
+   `RESEND_THROTTLE_SECONDS = 45`. Vérifié DB.
+6. **`translated_path`/`status` jamais mis à jour** → téléchargement servait
+   l'ORIGINAL. Le job tourne dans un thread séparé.
+   → Lien `job_id → document_id` posé à la création ; `_job_done`/`_job_error`
+   reportent `status=done|error` et `translated_path` via `_sync_document_status`
+   (moteur dédié `NullPool` — sûr depuis un thread worker, pas de réutilisation
+   du pool lié à la boucle principale). Vérifié DB (4/4).
+
+### Re-vérification indépendante (2026-07-16, avant consolidation)
+
+Rejouée **sur le Postgres réel** (`127.0.0.1:5432/precis`), utilisateurs jetables
+créés puis supprimés :
+
+| Vérification | Résultat |
+|---|---|
+| `app.py` s'importe, 20 routes exposées | ✅ |
+| Migration `0002_verif_attempts` **appliquée** (`alembic_version = 0002`), colonne `attempts` présente | ✅ |
+| Anti-brute-force : 5 essais faux → `attempts` 1→5, messages « N essai(s) restant(s) », puis **429** et code condamné (`used=True`) ; **le bon code est ensuite refusé** | ✅ 6/6 |
+| Freemium : compte `free` + 1 doc ce mois → **402** avec le message clair | ✅ |
+| **Deadlock (correctif 1)** : compte `pro` + 1 doc ce mois → **200** (accepté). L'ancien code retombait sur `free` après timeout et l'aurait refusé en 402 | ✅ |
+
+> ⚠️ **La migration `0002_verif_attempts` doit être appliquée à tout
+> environnement** (elle était appliquée en local mais le fichier n'était pas
+> suivi par git — désormais commité). Sans elle, `verify_email_code` casse :
+> le code attend `verification_codes.attempts`.
+> ```bash
+> cd backend && venv/Scripts/python.exe -m alembic upgrade head
+> ```
+
+### Recommandation restante (hors périmètre code)
+- **Secrets committés** (`.env` reproduit dans ce doc) : mot de passe SMTP,
+  `JWT_SECRET` de dev. À révoquer / rotationner avant toute mise en prod —
+  action manuelle côté propriétaire du compte. **Non traité à ce jour.**
 
 ---
 

@@ -189,9 +189,12 @@ app.include_router(auth_router)
 app.include_router(documents_router)
 
 # ── Route quota stockage ─────────────────────────────────────────────────────
-from auth import require_auth
-from models import User
+from auth import require_auth, optional_auth
+from models import User, Document, get_plan_page_limit, get_plan_storage
 from database import get_db
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime, timezone
 
 @app.get("/api/user/storage")
 async def user_storage(
@@ -317,6 +320,46 @@ def _job_emit(job_id: str, event_type: str, payload: dict):
     if job:
         job["q"].put({"type": event_type, **payload})
 
+def _sync_document_status(job_id: str, status: str, translated_path: str | None = None):
+    """Reporte l'état d'un job sur le Document en base (si l'utilisateur était
+    connecté). Appelé depuis un THREAD worker (hors boucle asyncio) → on ouvre
+    une boucle jetable via `asyncio.run`. Sans ce report, le Document restait
+    éternellement `translating` et `translated_path` NULL : le téléchargement
+    servait alors l'ORIGINAL au lieu de la traduction."""
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        doc_id = job.get("document_id") if job else None
+    if not doc_id:
+        return
+
+    async def _update():
+        # Moteur DÉDIÉ à connexion NON poolée : on tourne dans une boucle jetable
+        # (thread worker), or le pool du moteur global est lié à la boucle
+        # principale d'uvicorn — y réutiliser une connexion lèverait « Event loop
+        # is closed ». NullPool ouvre une connexion neuve sur CETTE boucle et la
+        # ferme avec le moteur.
+        from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+        from sqlalchemy.pool import NullPool
+        from database import DATABASE_URL
+        from models import Document as _D
+        eng = create_async_engine(DATABASE_URL, poolclass=NullPool)
+        try:
+            async with AsyncSession(eng) as db:
+                doc = await db.get(_D, doc_id)
+                if doc is None:
+                    return
+                doc.status = status
+                if translated_path:
+                    doc.translated_path = translated_path
+                await db.commit()
+        finally:
+            await eng.dispose()
+    try:
+        import asyncio as _aio
+        _aio.run(_update())
+    except Exception:
+        pass
+
 def _job_done(job_id: str, result_path: str, filename: str):
     with _jobs_lock:
         job = _jobs.get(job_id)
@@ -325,6 +368,7 @@ def _job_done(job_id: str, result_path: str, filename: str):
         job["result_filename"] = filename
         job["state"] = "done"
         job["q"].put({"type": "done", "filename": filename})
+    _sync_document_status(job_id, "done", translated_path=result_path)
 
 def _job_error(job_id: str, message: str):
     with _jobs_lock:
@@ -333,6 +377,7 @@ def _job_error(job_id: str, message: str):
         job["error"] = message
         job["state"] = "error"
         job["q"].put({"type": "error", "message": message})
+    _sync_document_status(job_id, "error")
 
 def _make_progress_cb(job_id: str, step: str, total: int | None = None):
     """Retourne un progress_callback lié à un job et à une étape."""
@@ -571,41 +616,40 @@ async def preview_pdf_endpoint(
     return Response(content=pdf_bytes, media_type="application/pdf")
 
 
-def _save_document_for_user(request: Request, job_id: str, filename: str,
-                            target_lang: str, original_path: str, size: int):
-    """Si la requête porte un JWT valide, crée un Document en base."""
-    try:
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
-            return
-        token = auth_header.split(" ", 1)[1]
-        from auth import verify_access_token
-        payload = verify_access_token(token)
+async def _save_document_for_user(user: "User | None", db: "AsyncSession",
+                                  job_id: str, filename: str, target_lang: str,
+                                  original_path: str, size: int):
+    """Enregistre un Document pour l'utilisateur connecté.
 
-        async def _save():
-            from database import async_session as _asm
-            from models import User as U, Document as D, get_plan_storage
-            async with _asm() as db:
-                u = await db.get(U, payload["sub"])
-                if u is None:
-                    return
-                limit = get_plan_storage(u.plan) if u.plan != "admin" else 10_737_418_240
-                if u.plan != "admin" and u.storage_used + size > limit:
-                    return
-                doc = D(user_id=u.id, original_name=filename, source_lang="auto",
-                        target_lang=target_lang, original_path=original_path,
-                        size_bytes=size, status="translating")
-                db.add(doc)
-                u.storage_used += size
-                await db.commit()
-        import asyncio as _aio, threading as _th
-        _loop = _aio.get_event_loop()
-        if _loop.is_running():
-            _th.Thread(target=lambda: _aio.run_coroutine_threadsafe(_save(), _loop), daemon=True).start()
-        else:
-            _aio.run(_save())
+    Le Document est AUSSI le registre d'usage mensuel (compteur freemium) : on
+    l'insère donc pour TOUT utilisateur authentifié, plan `free` compris — sinon
+    la limite « 1 page/mois » ne pourrait jamais s'appuyer sur rien (bug : un
+    plan `free` a 0 Mo de stockage, l'ancien code refusait alors la création et
+    le compteur restait éternellement à 0). Le stockage n'est facturé que si le
+    plan en offre ET que le quota le permet ; sinon `charge = 0` (l'usage est
+    tout de même journalisé)."""
+    if user is None:
+        return
+    try:
+        plan_storage = (10_737_418_240 if user.plan == "admin"
+                        else get_plan_storage(user.plan))
+        charge = size if plan_storage > 0 else 0
+        if charge and user.storage_used + charge > plan_storage:
+            charge = 0                      # quota plein : on journalise sans facturer
+        doc = Document(user_id=user.id, original_name=filename, source_lang="auto",
+                       target_lang=target_lang, original_path=original_path,
+                       size_bytes=size, status="translating")
+        db.add(doc)
+        user.storage_used += charge
+        await db.commit()
+        # Lien job → Document : permet à `_job_done`/`_job_error` de reporter
+        # `status`/`translated_path` à la fin du traitement (thread worker).
+        with _jobs_lock:
+            j = _jobs.get(job_id)
+            if j is not None:
+                j["document_id"] = doc.id
     except Exception:
-        pass
+        await db.rollback()
 
 
 @app.post("/api/translate")
@@ -619,6 +663,8 @@ async def translate_endpoint(
     pages: str = Form(""),
     debug: str = Form(""),
     x_api_key: str = Header(None),
+    current_user: "User | None" = Depends(optional_auth),
+    db: "AsyncSession" = Depends(get_db),
 ):
     """Démarre un job de traduction et retourne immédiatement un job_id.
     Le client peut ensuite écouter /api/translate/events/{job_id} (SSE)
@@ -667,35 +713,15 @@ async def translate_endpoint(
     # le résultat d'une autre plage (ni du document entier).
     pages_set = parse_page_range(pages) if ext in ("pdf", "pptx") else None
 
-    # ── Limite de pages freemium ──────────────────────────────────────────
-    page_limit = 1  # défaut freemium = 1 page
-    try:
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            from auth import verify_access_token
-            from models import get_plan_page_limit
-            token = auth_header.split(" ", 1)[1]
-            payload = verify_access_token(token)
-            from database import async_session as _asm2
-            from models import User as _U
-            async def _get_plan():
-                async with _asm2() as db:
-                    u = await db.get(_U, payload["sub"])
-                    return u.plan if u else "free"
-            import asyncio as _aio2
-            try:
-                loop = _aio2.get_event_loop()
-                if loop.is_running():
-                    fut = _aio2.run_coroutine_threadsafe(_get_plan(), loop)
-                    plan = fut.result(timeout=3)
-                else:
-                    plan = _aio2.run(_get_plan())
-            except Exception:
-                plan = "free"
-            limit = get_plan_page_limit(plan)
-            page_limit = limit if limit is not None else 999_999
-    except Exception:
-        page_limit = 1  # visiteur = 1 page
+    # ── Limite de pages selon le plan ─────────────────────────────────────
+    # On est dans un endpoint ASYNC : la session `db` et l'utilisateur
+    # (`optional_auth`) sont déjà résolus par FastAPI. On interroge donc la base
+    # par `await` direct — l'ancien code planifiait la coroutine sur la boucle
+    # qui l'exécutait puis attendait le résultat en la bloquant (deadlock →
+    # timeout 3 s → repli `free`), ce qui rétrogradait tout compte payant.
+    plan = current_user.plan if current_user else None
+    limit = get_plan_page_limit(plan) if plan else 1     # visiteur = 1 page
+    page_limit = limit if limit is not None else 999_999
 
     # Appliquer la limite : si pages spécifiées, on ne garde que la première ;
     # si aucune page spécifiée, on limite à la page 1.
@@ -704,45 +730,21 @@ async def translate_endpoint(
     elif not pages_set and ext == "pdf" and page_limit == 1:
         pages_set = {1}              # force page 1 uniquement
 
-    # ── Freemium : max 1 page par mois ─────────────────────────────────────
-    if page_limit == 1:
-        try:
-            auth_header2 = request.headers.get("Authorization", "")
-            if auth_header2.startswith("Bearer "):
-                from auth import verify_access_token as _vat
-                from database import async_session as _asm3
-                from models import User as _U2, Document as _D2
-                from sqlalchemy import select, func
-                from datetime import datetime as _dt, timezone as _tz
-                token2 = auth_header2.split(" ", 1)[1]
-                payload2 = _vat(token2)
-                async def _count_monthly():
-                    async with _asm3() as db:
-                        now = _dt.now(_tz.utc)
-                        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-                        r = await db.execute(
-                            select(func.count()).where(
-                                _D2.user_id == payload2["sub"],
-                                _D2.created_at >= month_start,
-                            )
-                        )
-                        return r.scalar() or 0
-                import asyncio as _aio3
-                loop3 = _aio3.get_event_loop()
-                if loop3.is_running():
-                    fut3 = _aio3.run_coroutine_threadsafe(_count_monthly(), loop3)
-                    doc_count = fut3.result(timeout=3)
-                else:
-                    doc_count = _aio3.run(_count_monthly())
-                if doc_count >= 1:
-                    raise HTTPException(
-                        status_code=402,
-                        detail="Forfait Gratuit : 1 page par mois. Passez à Starter pour traduire plus."
-                    )
-        except HTTPException:
-            raise
-        except Exception:
-            pass
+    # ── Freemium : 1 page par mois calendaire (compteur = Documents du mois) ──
+    if page_limit == 1 and current_user is not None:
+        month_start = datetime.now(timezone.utc).replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0)
+        r = await db.execute(
+            select(func.count()).select_from(Document).where(
+                Document.user_id == current_user.id,
+                Document.created_at >= month_start,
+            )
+        )
+        if (r.scalar() or 0) >= 1:
+            raise HTTPException(
+                status_code=402,
+                detail="Forfait Gratuit : 1 page par mois. Passez à Starter pour traduire plus.",
+            )
     ptok = pages_token(pages_set)
     psuffix = f"_{ptok}" if ptok else ""
 
@@ -794,8 +796,8 @@ async def translate_endpoint(
     thread.start()
 
     # ── Document en base si l'utilisateur est connecté (JWT) ─────────────
-    _save_document_for_user(request, job_id, filename, target_lang,
-                            original_path, len(file_bytes))
+    await _save_document_for_user(current_user, db, job_id, filename,
+                                  target_lang, original_path, len(file_bytes))
 
     logger.info(f"Job {job_id} started for '{filename}' -> {target_lang}")
     return JSONResponse({"job_id": job_id})

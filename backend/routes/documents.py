@@ -3,7 +3,6 @@ Routes documents — CRUD par utilisateur.
 """
 from __future__ import annotations
 import os
-import shutil
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -110,15 +109,30 @@ async def delete_document(
         raise HTTPException(status_code=404, detail="Document introuvable.")
 
     size = doc.size_bytes
+    original_path = doc.original_path
+    translated_path = doc.translated_path
     await db.delete(doc)
 
     # Libérer le quota
     user.storage_used = max(0, user.storage_used - size)
     await db.commit()
 
-    # Nettoyer les fichiers sur disque
-    doc_dir = os.path.dirname(doc.original_path)
-    if os.path.isdir(doc_dir):
-        shutil.rmtree(doc_dir, ignore_errors=True)
+    # Nettoyer les fichiers sur disque — UNIQUEMENT ceux qui appartiennent en
+    # propre à l'utilisateur (sous `translations/<user_id>/`). Les fichiers
+    # d'un document créé à la volée pointent vers le CACHE PARTAGÉ par hash
+    # (`translations/<nom>_<hash>/`), commun à tous les comptes ayant traduit le
+    # même fichier : un `rmtree` de son dossier parent effacerait les
+    # traductions d'autrui (et le job en cours). On ne touche donc qu'aux
+    # fichiers strictement contenus dans le dossier privé de l'utilisateur.
+    user_root = os.path.realpath(_user_dir(user.id))
+    for path in (translated_path, original_path):
+        if not path:
+            continue
+        real = os.path.realpath(path)
+        if os.path.commonpath([real, user_root]) == user_root and os.path.isfile(real):
+            try:
+                os.remove(real)
+            except OSError:
+                pass
 
     return {"message": "Document supprimé.", "storage_freed": size}
