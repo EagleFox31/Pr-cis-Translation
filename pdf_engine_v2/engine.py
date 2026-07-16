@@ -261,7 +261,7 @@ class PDFObjectEngine:
             doc, page, page_num, embed_images, assets_dir)
         page_data["elements"].extend(draw_els)
         page_data["elements"].extend(img_els)
-        text_lines = self._extract_text(page)
+        text_lines = self._extract_text(page, draw_els, img_els)
         if self.group_paragraphs:
             ctx = self._build_page_ctx(page, text_lines,
                                        draw_els, img_els)
@@ -578,7 +578,7 @@ class PDFObjectEngine:
                         r["underline"] = True
                         u["_underline_consumed"] = True
 
-    def _extract_text(self, page):
+    def _extract_text(self, page, draw_els=(), img_els=()):
         raw = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
         spans = []
         for block in raw.get("blocks", []):
@@ -613,9 +613,24 @@ class PDFObjectEngine:
                         "_gw": (bb[2] - bb[0]) / nchar,   # largeur de glyphe approx.
                         "_base": o[1],
                     })
-        return self._group_text_lines(spans)
+        return self._group_text_lines(spans, self._ink_walls(draw_els, img_els))
 
-    def _group_text_lines(self, spans):
+    @staticmethod
+    def _ink_walls(draw_els=(), img_els=()):
+        """Rectangles d'ENCRE (filets, cadres, images) susceptibles de SÉPARER
+        deux textes voisins sur une même rangée. Les dessins sont décomposés en
+        ITEMS (`_drawing_item_boxes`) : le trait vertical d'un tableau borne à sa
+        vraie position, et non à celle du chemin entier qui l'englobe."""
+        walls = []
+        for el in img_els:
+            bb = el.get("bbox")
+            if bb and len(bb) >= 4:
+                walls.append((bb[0], bb[1], bb[2], bb[3]))
+        for el in draw_els:
+            walls.extend(_drawing_item_boxes(el))
+        return walls
+
+    def _group_text_lines(self, spans, ink_walls=()):
         """Regroupe des spans en lignes visuelles. Le texte HORIZONTAL suit le
         clustering baseline + coupe colonne (inchangé) ; le texte INCLINÉ/VERTICAL
         (Étape C) est regroupé le long de son axe d'écriture par
@@ -628,17 +643,15 @@ class PDFObjectEngine:
                 horiz.append(s)
             else:
                 other.append(s)
-        elements = self._group_horizontal_lines(horiz)
+        elements = self._group_horizontal_lines(horiz, ink_walls)
         if other:
             elements.extend(self._group_rotated_lines(other))
         return elements
 
-    def _group_horizontal_lines(self, spans):
-        """Clustering baseline + coupe aux séparateurs de colonne (texte
-        horizontal). Retourne une liste d'objets `text_line`."""
-        if not spans:
-            return []
-        # 1) Lignes de base : tri par (baseline, x) puis clustering vertical.
+    @staticmethod
+    def _baseline_rows(spans):
+        """Regroupe des spans par LIGNE DE BASE (une rangée traverse toute la
+        page : les colonnes voisines y partagent leurs lignes)."""
         spans.sort(key=lambda s: (round(s["_base"], 1), s["bbox"][0]))
         rows = []
         for s in spans:
@@ -655,12 +668,22 @@ class PDFObjectEngine:
             else:
                 rows.append({"spans": [s], "_base": s["_base"],
                              "_size_ref": s["size"]})
+        return rows
+
+    def _group_horizontal_lines(self, spans, ink_walls=()):
+        """Clustering baseline + coupe aux séparateurs de colonne (texte
+        horizontal). Retourne une liste d'objets `text_line`."""
+        if not spans:
+            return []
+        # 1) Lignes de base : tri par (baseline, x) puis clustering vertical.
+        rows = self._baseline_rows(spans)
 
         # 2) GOUTTIÈRES : corridors blancs VERTICAUX (cf. `_column_gutters`).
         gutters = self._column_gutters(rows)
 
         # 3) Coupe de chaque ligne aux grands écarts (colonnes) ET aux gouttières.
         elements = []
+        rows_segs = []      # [{med_gw, segs:[[span, …], …]}] — une entrée/rangée
         for row in rows:
             row_spans = sorted(row["spans"], key=lambda s: s["bbox"][0])
             gws = sorted(s["_gw"] for s in row_spans if s["_gw"] > 0)
@@ -680,6 +703,12 @@ class PDFObjectEngine:
             # géométriquement indiscernables à l'échelle de la LIGNE — seul le
             # corridor vertical, lui, tranche. Ne pas réessayer sans un signal
             # nouveau (cellules de tableau, régularité inter-lignes).
+            #
+            # Cette coupe reste donc DÉLIBÉRÉMENT trop zélée en colonne étroite
+            # justifiée ; c'est `_rejoin_justified` (ci-dessous) qui recolle
+            # après coup, en s'appuyant sur les marges du BLOC — un signal dont
+            # la ligne seule ne dispose pas.
+            segs = []
             segment = [row_spans[0]]
             for prev, cur in zip(row_spans, row_spans[1:]):
                 a, b = prev["bbox"][2], cur["bbox"][0]
@@ -708,17 +737,301 @@ class PDFObjectEngine:
                     segment.append(cur)
                     continue
                 if gap > split_gap or in_gutter:
-                    elements.append(self._make_text_line(segment, med_gw))
+                    segs.append(segment)
                     segment = [cur]
                 else:
                     segment.append(cur)
-            elements.append(self._make_text_line(segment, med_gw))
+            segs.append(segment)
+            rows_segs.append({"med_gw": med_gw, "segs": segs})
+
+        # 4) RÉPARATION : recolle les fragments d'une colonne justifiée étroite.
+        self._rejoin_justified(rows_segs, ink_walls)
+
+        for rs in rows_segs:
+            for seg in rs["segs"]:
+                elements.append(self._make_text_line(seg, rs["med_gw"]))
         return elements
+
+    # ── Recollage des colonnes JUSTIFIÉES étroites ───────────────────────────
+    # Nombre de lignes À FLEUR DES DEUX BORDS exigées pour tenir une colonne
+    # justifiée pour AVÉRÉE (< 3 : deux lignes de largeur égale arrivent par
+    # hasard dans une liste ou un tableau).
+    _JUST_MIN_LINES = 3
+    # Tolérance de « fer » (× taille de police). La justification est exacte par
+    # CONSTRUCTION : les bords mesurés tombent au centième de point près (démo :
+    # 398,29 sur 6 lignes ; Handbook : 273,64 / 273,61 / 273,63). Toute largesse
+    # ici ne sert donc à rien et coûte cher — à 0,25 × corps (3,75 pt au corps
+    # 15), le FOLIO du Handbook (x1 = 558,0) passait pour le fer droit du corps
+    # (561,16) et « DJ PATIL » se retrouvait soudé à « 15 » sur 21 pages.
+    _JUST_EDGE_FACTOR = 0.05
+    _JUST_EDGE_MIN = 0.5
+    # Part d'ENCRE minimale d'une ligne justifiée, rapportée à la largeur de sa
+    # colonne. Justifier, c'est répartir le blanc QUI RESTE une fois les mots
+    # posés : une vraie ligne est donc pleine aux trois quarts (démo : 71 % ;
+    # ligne synthétique la plus lâche : 73 %). Deux objets étrangers qui se
+    # trouvent partager une ligne de base, eux, ne remplissent presque rien
+    # (titre courant + folio : 18 %) — aucun fondeur ne produit une telle ligne.
+    _JUST_MIN_INK = 0.5
+    # Extension verticale de la bande d'une colonne (× hauteur de ligne) : la
+    # PREMIÈRE et la DERNIÈRE ligne d'un bloc sont souvent celles qui se
+    # fragmentent, or elles tombent juste hors de la bande de leurs témoins.
+    _JUST_BAND_PAD = 2.0
+
+    @staticmethod
+    def _seg_box(seg):
+        return (min(s["bbox"][0] for s in seg), min(s["bbox"][1] for s in seg),
+                max(s["bbox"][2] for s in seg), max(s["bbox"][3] for s in seg))
+
+    @classmethod
+    def _seg_size(cls, seg):
+        sz = sorted(s["size"] for s in seg if s["size"] > 0)
+        return sz[len(sz) // 2] if sz else 10.0
+
+    @classmethod
+    def _just_tol(cls, size):
+        return max(cls._JUST_EDGE_FACTOR * size, cls._JUST_EDGE_MIN)
+
+    def _justified_columns(self, boxes):
+        """Colonnes JUSTIFIÉES AVÉRÉES → [(L, R, bande_y0, bande_y1)].
+
+        Une colonne justifiée se PROUVE par ses propres lignes TÉMOINS : celles
+        qui courent d'un bord à l'autre sans blanc assez large pour être
+        coupées. Il en faut `_JUST_MIN_LINES` partageant la MÊME marge gauche ET
+        la MÊME marge droite, au sein d'une même pile de contenu verticalement
+        contiguë. Ces lignes-là ne sont ambiguës pour personne — c'est ce qui en
+        fait un témoin solide. Elles n'ont pas à se suivre : dans une colonne
+        étroite, lignes serrées et lignes lâches alternent.
+
+        Cette preuve est solide POUR LE BLOC QUI LA FOURNIT : dans une mise en
+        pages à deux colonnes, la gouttière coupe toutes les lignes des colonnes,
+        donc aucune d'elles n'atteste le couple (fer gauche de col1, fer droit de
+        col2). Mais elle ne dit RIEN des blocs voisins — et c'est là le piège :
+        un CHAPÔ justifié pleine largeur, posé au-dessus des colonnes, atteste à
+        lui seul ce couple avec ses propres lignes, et suffisait alors à souder
+        les quatre colonnes du journal en charabia. Le témoin vient d'un autre
+        bloc que la rangée qu'il autorise à recoller.
+
+        D'où le garde-fou de `_merge_row_in_column` : un fragment qui remplit
+        exactement une colonne avérée PLUS ÉTROITE est une ligne DE CETTE
+        colonne, et non le morceau d'une ligne plus large.
+        """
+        if len(boxes) < self._JUST_MIN_LINES:
+            return []
+        cols = []
+        # Candidats (L, R) : les groupes de lignes partageant les DEUX fers.
+        for grp_l in self._cluster(boxes, key=lambda b: b[0]):
+            for wit in self._cluster(grp_l, key=lambda b: b[2]):
+                if len(wit) < self._JUST_MIN_LINES:
+                    continue
+                L, R = min(b[0] for b in wit), max(b[2] for b in wit)
+                tol = self._just_tol(
+                    sorted(b[4] for b in wit)[len(wit) // 2])
+                # La bande se mesure sur TOUT le contenu de la colonne, pas sur
+                # les seuls témoins : dans une colonne étroite, lignes intactes
+                # et lignes éclatées ALTERNENT (c'est le défaut même qu'on
+                # répare). Exiger 3 témoins verticalement consécutifs revenait à
+                # exiger que le défaut soit absent pour daigner le corriger.
+                contenu = sorted((b for b in boxes
+                                  if b[0] >= L - tol and b[2] <= R + tol),
+                                 key=lambda b: b[1])
+                pile = []
+                for b in contenu:
+                    if pile:
+                        h = max(pile[-1][3] - pile[-1][1], 1.0)
+                        if b[1] - max(p[3] for p in pile) > 1.5 * h:
+                            cols.extend(self._pile_to_column(pile, L, R, tol))
+                            pile = []
+                    pile.append(b)
+                cols.extend(self._pile_to_column(pile, L, R, tol))
+        return cols
+
+    @classmethod
+    def _cluster(cls, boxes, key):
+        """Groupe des boîtes dont `key` coïncide à la tolérance de fer près.
+
+        L'écart se mesure à l'ANCRE du groupe (son premier membre), jamais au
+        membre précédent : de proche en proche, des marges gauches régulièrement
+        échelonnées sur toute la page se seraient enchaînées en un seul groupe
+        large de plusieurs centaines de points — un « fer » qui ne veut plus rien
+        dire. Ancré, un groupe ne peut pas dépasser la tolérance.
+        """
+        out, cur = [], []
+        for b in sorted(boxes, key=key):
+            if cur and key(b) - key(cur[0]) > cls._just_tol(b[4]):
+                out.append(cur)
+                cur = []
+            cur.append(b)
+        if cur:
+            out.append(cur)
+        return out
+
+    @classmethod
+    def _pile_to_column(cls, pile, L, R, tol):
+        """Une pile de contenu verticalement contigu devient une colonne AVÉRÉE
+        si elle porte assez de lignes à fleur des DEUX bords."""
+        if not pile:
+            return []
+        temoins = sum(1 for b in pile
+                      if abs(b[0] - L) <= tol and abs(b[2] - R) <= tol)
+        if temoins < cls._JUST_MIN_LINES:
+            return []
+        h = sorted(b[3] - b[1] for b in pile)[len(pile) // 2]
+        pad = cls._JUST_BAND_PAD * max(h, 1.0)
+        return [(L, R, min(b[1] for b in pile) - pad,
+                 max(b[3] for b in pile) + pad)]
+
+    def _rejoin_justified(self, rows_segs, ink_walls=()):
+        """Recolle les fragments produits par la coupe sur les lignes d'une
+        colonne JUSTIFIÉE ÉTROITE.
+
+        LE PROBLÈME. Justifier une colonne étroite, c'est étirer ses blancs de
+        mots jusqu'à ce que la ligne touche les deux bords. Étroite, la colonne
+        offre peu de blancs à étirer : chacun enfle énormément. Dans la démo
+        journal, « Software ␣␣ providers ␣␣ also » porte des blancs de 13,9 pt
+        pour une largeur de glyphe de 3,4 — soit 4,3 ×, très au-delà du seuil de
+        coupe (2,5 ×), et plus large que la vraie gouttière de la page (13,7 pt).
+        À l'échelle de la LIGNE, aucun seuil ne sépare ces deux blancs : le
+        moteur coupait le mot de sa phrase.
+
+        POURQUOI LA SEULE PERSISTANCE NE SUFFIT PAS. Un veto « pas de corridor
+        vertical → pas de coupe » paraît naturel, mais il fait du corridor
+        l'unique juge, or le corridor a besoin de `_GUTTER_MIN_LINES` lignes pour
+        se prononcer. Handbook p20 : une citation encadrée de 4 lignes, enjambée
+        par le corps de texte voisin (leurs lignes de base se touchent) — trop
+        courte pour former un corridor, donc absoute à tort, donc absorbée par le
+        corps. « Absence de preuve de colonne » n'est pas « preuve d'absence ».
+
+        LE SIGNAL. On ne cherche donc plus à disculper le blanc, on cherche à
+        PROUVER la justification — par les marges du BLOC, que la ligne seule
+        ignore. Une colonne justifiée est attestée par ses lignes intactes
+        (`_justified_columns`) ; on ne recolle une rangée que si les fragments
+        REMPLISSENT exactement cette colonne, du fer gauche au fer droit. C'est
+        ce qui départage les deux cas :
+
+          • démo   — recollé [301,6 → 398,3] : exactement la colonne prouvée par
+                     ses 6 lignes intactes ;
+          • hb p20 — recollé [63,5 → 561,2] : ne correspond à AUCUNE colonne
+                     (63,5 est le fer de la citation, 561,2 celui du corps) → la
+                     coupe est maintenue.
+
+        La dernière ligne d'un paragraphe justifié n'est pas étirée (donc jamais
+        à fleur à droite, donc jamais recollée) : c'est cohérent — sans étirement,
+        ses blancs restent normaux et la coupe ne se déclenche pas sur elle.
+        """
+        # Les témoins sont les SEGMENTS, pas les rangées : une rangée traverse
+        # toute la page (4 colonnes de journal partagent leurs lignes de base),
+        # donc presque aucune n'est mono-segment — se limiter à celles-là ne
+        # laissait aucun témoin à la colonne à réparer. Un fragment ne peut pas
+        # se faire passer pour un témoin : il lui faudrait 2 autres fragments à
+        # la fois au MÊME fer gauche et au MÊME fer droit, ce que la
+        # justification, qui déplace ses blancs à chaque ligne, ne produit pas.
+        # On itère jusqu'au POINT FIXE : une rangée recollée devient une ligne
+        # intacte de plus, donc un témoin de plus, donc une bande un peu plus
+        # haute — ce qui permet de recoller la rangée suivante. Sans cela, la
+        # réparation s'arrêtait à la première rangée tombant hors de la bande
+        # initiale (démo : « handle ␣ everyday ␣ operations », manquée de 0,6 pt),
+        # et la constante `_JUST_BAND_PAD` aurait dû être réglée au document
+        # près. Chaque tour reste tenu par la même exigence de fer aux DEUX
+        # bords : la bande localise, elle n'autorise rien à elle seule.
+        for _ in range(len(rows_segs)):
+            boxes = [(*self._seg_box(seg), self._seg_size(seg))
+                     for rs in rows_segs for seg in rs["segs"]]
+            cols = self._justified_columns(boxes)
+            if not cols:
+                return
+            change = False
+            for rs in rows_segs:
+                if len(rs["segs"]) < 2:
+                    continue
+                for col in cols:
+                    merged = self._merge_row_in_column(rs["segs"], col,
+                                                       ink_walls, cols)
+                    if merged is not None:
+                        rs["segs"] = merged
+                        change = True
+                        break
+            if not change:
+                return
+
+    def _merge_row_in_column(self, segs, col, ink_walls, cols=()):
+        """Recolle, dans `segs`, la sous-suite de fragments qui remplit la
+        colonne `col` de bord à bord. Retourne la nouvelle liste, ou None."""
+        L, R, band_y0, band_y1 = col
+        boxed = [(self._seg_box(s), s) for s in segs]
+        inside = [i for i, (b, _s) in enumerate(boxed)
+                  if b[0] >= L - self._just_tol(self._seg_size(segs[i]))
+                  and b[2] <= R + self._just_tol(self._seg_size(segs[i]))
+                  and b[1] >= band_y0 and b[3] <= band_y1]
+        if len(inside) < 2 or inside != list(range(inside[0], inside[-1] + 1)):
+            return None                       # rien à recoller, ou non contigus
+        first, last = boxed[inside[0]][0], boxed[inside[-1]][0]
+        size = self._seg_size(segs[inside[0]])
+        tol = self._just_tol(size)
+        # À FLEUR DES DEUX BORDS : c'est là toute la preuve de justification.
+        if abs(first[0] - L) > tol or abs(last[2] - R) > tol:
+            return None
+        # PLEINE D'ENCRE : une ligne justifiée est faite de mots que le blanc
+        # écarte, pas de blanc que deux mots bordent.
+        encre = sum(boxed[i][0][2] - boxed[i][0][0] for i in inside)
+        if encre < self._JUST_MIN_INK * (R - L):
+            return None
+        # UNE COLONNE PLUS ÉTROITE A PRIORITÉ. Un fragment qui remplit
+        # exactement, à ses deux fers, une colonne avérée plus étroite EST une
+        # ligne de cette colonne : le recoller à ses voisins reviendrait à
+        # traverser une gouttière. C'est ce qui empêche un CHAPÔ justifié pleine
+        # largeur — dont les lignes attestent (fer gauche de la 1re colonne, fer
+        # droit de la dernière) — de souder entre elles les colonnes qu'il
+        # surplombe.
+        for i in inside:
+            b = boxed[i][0]
+            for cL, cR, cy0, cy1 in cols:
+                if cR - cL >= R - L - tol:
+                    continue                   # pas plus étroite : hors sujet
+                if (abs(b[0] - cL) <= tol and abs(b[2] - cR) <= tol
+                        and cy0 <= b[1] and b[3] <= cy1):
+                    return None
+        # L'ENCRE tranche : un filet, un cadre ou une image qui s'intercale entre
+        # deux fragments les sépare pour de bon, quoi que dise la géométrie.
+        y0 = min(b[1] for b in (bx for bx, _ in boxed[inside[0]:inside[-1] + 1]))
+        y1 = max(b[3] for b in (bx for bx, _ in boxed[inside[0]:inside[-1] + 1]))
+        for k in inside[:-1]:
+            gx0, gx1 = boxed[k][0][2], boxed[k + 1][0][0]
+            for wx0, wy0, wx1, wy1 in ink_walls:
+                if wx1 >= gx0 and wx0 <= gx1 and wy1 >= y0 and wy0 <= y1:
+                    return None
+        fused = [s for i in inside for s in segs[i]]
+        return segs[:inside[0]] + [fused] + segs[inside[-1] + 1:]
 
     # ── Gouttières de colonnes (corridor blanc VERTICAL) ─────────────────────
     _GUTTER_MIN_LINES = 5      # un corridor doit persister sur ≥ 5 lignes
     _GUTTER_MIN_W = 1.2        # largeur minimale, en largeurs de glyphe
     _GUTTER_MIN_SIDE = 4.0     # texte minimal DE CHAQUE CÔTÉ, en largeurs de glyphe
+    # Distance maximale (en largeurs de glyphe) entre le corridor et le texte qui
+    # le BORDE, pour qu'une rangée compte comme preuve. Cf. `_gutter_abuts`.
+    _GUTTER_ABUT_FACTOR = 4.0
+
+    @classmethod
+    def _gutter_abuts(cls, d, hit, lo, hi):
+        """La rangée `d` BORDE-t-elle le corridor `[lo, hi]`, ou son blanc
+        s'étend-il bien au-delà ?
+
+        Une gouttière est un couloir SERRÉ ENTRE DEUX TEXTES. Là où la colonne
+        s'arrête (sous le dernier paragraphe, à côté d'une image), l'abscisse du
+        corridor tombe dans une vaste zone VIDE : la rangée n'y a plus rien à
+        gauche ni à droite du corridor, seulement les colonnes lointaines du
+        reste de la page. Une telle rangée ne prouve RIEN — mais l'ancien code
+        la comptait comme membre, et c'est ainsi que des corridors FANTÔMES
+        atteignaient le quorum. Dans la démo, la vraie gouttière col2/col3 est
+        bordée par 10 rangées ; les trois fantômes qui éclataient
+        « handle ␣ everyday ␣ operations », par 1 ou 2 — le reste de leurs
+        « membres » n'était que du vide sous les colonnes.
+
+        Une rangée qui ne borde pas n'est pas pour autant une réfutation (le
+        corridor peut très bien continuer plus bas) : on l'ENJAMBE, exactement
+        comme une ligne trop courte. Seul du texte qui TRAVERSE réfute.
+        """
+        m = cls._GUTTER_ABUT_FACTOR * d["gw"]
+        return hit[0] >= lo - m and hit[1] <= hi + m
 
     @classmethod
     def _gutter_sides_ok(cls, d, mid):
@@ -806,8 +1119,10 @@ class PDFObjectEngine:
                                 break       # du texte TRAVERSE : pas un corridor
                             if not self._gutter_sides_ok(e, mid):
                                 break       # puce / marqueur : pas une colonne
-                            lo, hi = max(lo, hit[0]), min(hi, hit[1])
-                            members.append(j)
+                            if self._gutter_abuts(e, hit, lo, hi):
+                                lo, hi = max(lo, hit[0]), min(hi, hit[1])
+                                members.append(j)
+                            # sinon : ZONE VIDE — ni preuve ni réfutation.
                         prev = e            # ligne trop courte : on l'enjambe
                         j += step
                 if len(members) < self._GUTTER_MIN_LINES or hi - lo < min_w:

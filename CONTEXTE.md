@@ -145,7 +145,32 @@ de justification se **déplace** d'une ligne à l'autre, une gouttière reste à
 **même abscisse** sur tout le bloc. On cherche donc un **corridor blanc vertical**
 (≥ 5 lignes, texte substantiel **des deux côtés** — sans quoi l'indentation d'une
 **puce** en forme un) et on coupe les lignes qui l'enjambent, quelle que soit la
-largeur du blanc. Le texte **incliné / vertical** (Étape C) est séparé du
+largeur du blanc.
+
+**Le vide n'est pas une preuve** (`_gutter_abuts`, P16 — 2026-07-16) : une rangée
+traverse **toute la page** (les colonnes voisines partagent leurs lignes de base).
+Là où une colonne s'arrête, l'abscisse du corridor tombe dans une vaste zone
+**vide** — et cette rangée « confirmait » quand même le corridor, ce qui suffisait
+à faire passer le quorum à des corridors **fantômes** qui coupaient le texte.
+Désormais une rangée ne prouve un corridor que si du **texte le borde des deux
+côtés** (≤ `_GUTTER_ABUT_FACTOR = 4` largeurs de glyphe) ; sinon on l'**enjambe**
+— ni preuve, ni réfutation. Seul du texte qui **traverse** réfute. (Démo : 8
+corridors → 2 ; la seule gouttière porteuse a 10 rangées bordantes, les 3
+fantômes 1-2.)
+
+**Recollage des colonnes justifiées étroites** (`_rejoin_justified`, P15-P17) :
+la coupe ci-dessus est **délibérément trop zélée** en colonne étroite justifiée,
+où un blanc de mot atteint 4,3 × la largeur de glyphe — plus large que la vraie
+gouttière de la page. À l'échelle de la ligne, les deux sont indiscernables ;
+une passe de réparation recolle donc **après coup**, en s'appuyant sur les marges
+du **BLOC** : une colonne est **avérée** par ≥ 3 lignes **intactes** au même fer
+gauche ET droit, et l'on ne recolle une rangée que si ses fragments **remplissent
+cette colonne de bord à bord**. Garde-fous : encre (un filet sépare pour de bon),
+part d'encre ≥ 50 %, et **priorité à la colonne avérée plus étroite** — sans quoi
+un **chapô pleine largeur** soude les colonnes qu'il surplombe (P17). Détail,
+limites et contrôles négatifs : `PROBLEMES_PDF_ENGINE_V2.md`.
+
+Le texte **incliné / vertical** (Étape C) est séparé du
 texte horizontal et regroupé **le long de son axe d'écriture**
 (`_group_rotated_lines`) — ex. « TABLE OF CONTENTS » vertical devient **une** ligne.
 
@@ -513,13 +538,20 @@ fonts{} : nom → [ {ext, b64}, ... ]   (polices embarquées, cmap patchée si C
 
 | Test | Ce qu'il prouve |
 |---|---|
-| [`backend/test_engine_v2_generic.py`](backend/test_engine_v2_generic.py) | **GÉNÉRICITÉ** : un PDF **synthétique** (autre police, autres corps, autres couleurs, autre format) rejoue les structures de P10-P13 → prouve que les correctifs traitent la **classe** du problème, pas les 3 documents qui l'ont révélé. **13/13.** C'est lui qui a débusqué P10-bis et P13-bis, que les vrais documents masquaient. |
+| [`backend/test_engine_v2_generic.py`](backend/test_engine_v2_generic.py) | **GÉNÉRICITÉ** : un PDF **synthétique** (autre police, autres corps, autres couleurs, autre format) rejoue les structures de P10-P17 → prouve que les correctifs traitent la **classe** du problème, pas les 3 documents qui l'ont révélé. **28/28** (4 pages). C'est lui qui a débusqué P10-bis, P13-bis, puis **P17** (le chapô pleine largeur qui soudait les colonnes — un bug introduit par P15). |
 | [`backend/test_glossary.py`](backend/test_glossary.py) | Expressions pièges : résolution + filet déterministe, hors ligne. **18/18.** |
 
 **Invariants de non-régression** (extraction, 24 pages) : mv21 = **614**
-paragraphes · Handbook = **309** · démo = **42**, **aucun mot perdu**.
+paragraphes · Handbook = **309** · démo = **38** (42 avant P15 : les 4 en moins
+sont les fragments **recollés** de la 3ᵉ colonne), **aucun mot perdu**.
 Soulignements consommés : mv21 = **27** · Handbook = **6** · démo = **0**.
 Toute dérive est une régression jusqu'à preuve du contraire.
+
+> **Un test qui ne tombe jamais ne teste rien.** Chaque règle de P15-P17 a un
+> **contrôle négatif** qui la désarme seule ; le check visé doit alors échouer.
+> Sans eux, trois assertions passaient **à vide** — dont un contrôle « le piège
+> est armé » qui mesurait l'état *après* réparation, donc dépendait du correctif
+> qu'il prétendait juger.
 
 > **Règle de conception** (cf. [`PROBLEMES_PDF_ENGINE_V2.md`](PROBLEMES_PDF_ENGINE_V2.md#-audit-de-généricité-2026-07-13--backendtest_engine_v2_genericpy)) :
 > **aucune heuristique calée sur un document de test.** Un seuil ne se règle pas
@@ -554,6 +586,12 @@ Toute dérive est une régression jusqu'à preuve du contraire.
 - Titres stylisés hors reflow (« Go the extra mile… » mv p3) : rendu original.
 - Cas de **segmentation** résiduels (en-tête gras run-in + numéro, acronyme en
   fin de ligne, parenthèse ouverte).
+- **Colonne justifiée étroite de ≤ 5 lignes non recollée** (P15, en suspens au
+  2026-07-16) : le recollage exige **3 lignes intactes** pour attester la
+  colonne ; un bloc court n'en fournit qu'une ou deux, ses mots à gros blanc
+  restent donc en îlots. Abaisser le quorum est **exclu** (à 1 témoin, un titre
+  pleine largeur soude les 4 colonnes de la démo). 0 occurrence sur les 51 pages
+  de référence.
 
 **Fidélité (base) :**
 - Dégradés / shadings purs non captés ; **images** pivotées sans rotation ;

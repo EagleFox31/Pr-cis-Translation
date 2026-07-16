@@ -13,6 +13,12 @@ mais qui rejoue les MÊMES STRUCTURES :
   P13  deux colonnes séparées par une gouttière PLUS ÉTROITE que les blancs de
        justification de leurs propres lignes · et une liste à PUCES (dont
        l'indentation ne doit pas passer pour une gouttière)
+  P15  (page 2) colonne ÉTROITE JUSTIFIÉE dont les blancs de mots DÉPASSENT le
+       seuil de coupe (le mot doit rester dans sa phrase) · et, en contre-épreuve
+       sur les MÊMES lignes de base, une CITATION courte enjambée par le corps de
+       texte voisin (qui, elle, doit rester séparée). Les deux structures sont
+       indiscernables à l'échelle de la ligne : seul le fer aux DEUX bords du
+       bloc les départage.
 
 Aucun appel API : la traduction est simulée. Le test échoue si un correctif ne
 tient que sur les documents d'origine.
@@ -148,9 +154,211 @@ def build(path):
         pg.insert_text((x, 646), lab, fontname=FONT, fontsize=9, color=NOIR,
                        rotate=90)
 
+    _build_p15(doc.new_page(width=W, height=H))
+    _build_p16(doc.new_page(width=W, height=H))
+    _build_p17(doc.new_page(width=W, height=H))
+
     doc.save(path)
     doc.close()
     return path
+
+
+def _justifie(pg, x, y, mots, size, largeur, color=NOIR):
+    """Pose `mots` en JUSTIFIÉ : le blanc est ce qu'il faut pour que la ligne
+    tombe pile sur `x + largeur` — exactement ce que fait un fondeur. En colonne
+    étroite, ce blanc enfle jusqu'à dépasser le seuil de coupe du moteur.
+    Retourne la liste des blancs posés."""
+    nat = sum(_w(m, size) for m in mots)
+    blanc = (largeur - nat) / max(len(mots) - 1, 1)
+    cx = x
+    for m in mots:
+        pg.insert_text((cx, y), m, fontname=FONT, fontsize=size, color=color)
+        cx += _w(m, size) + blanc
+    return blanc
+
+
+def _pave(pg, x, y0, texte, size, largeur, interligne, color=NOIR):
+    """Compose `texte` en JUSTIFIÉ dans une colonne de `largeur`, comme le ferait
+    un fondeur : coupe les lignes au plus juste, puis étire les blancs de chaque
+    ligne (sauf la dernière, laissée au blanc naturel) pour tomber au fer des
+    deux côtés.
+
+    On ne pose donc AUCUN blanc à la main : les lignes lâches apparaissent
+    d'elles-mêmes, là où la coupe laisse peu de mots — c'est exactement le
+    mécanisme qui fabrique le défaut dans un vrai document. Retourne les lignes.
+    """
+    esp = _w(" ", size)
+    lignes, cur = [], []
+    for mot in texte.split():
+        essai = cur + [mot]
+        if cur and (sum(_w(m, size) for m in essai)
+                    + esp * (len(essai) - 1)) > largeur:
+            lignes.append(cur)
+            cur = [mot]
+        else:
+            cur = essai
+    if cur:
+        lignes.append(cur)
+    for i, mots in enumerate(lignes):
+        y = y0 + i * interligne
+        if i == len(lignes) - 1:                # dernière ligne : pas d'étirement
+            cx = x
+            for m in mots:
+                pg.insert_text((cx, y), m, fontname=FONT, fontsize=size,
+                               color=color)
+                cx += _w(m, size) + esp
+        else:
+            _justifie(pg, x, y, mots, size, largeur, color)
+    return lignes
+
+
+MILIEU_X, MILIEU_W = 160, 100          # colonne du milieu, page 3 (P16)
+
+
+def _build_p16(pg):
+    """Page 3 : le corridor FANTÔME nourri par le VIDE.
+
+    Structure d'un journal : trois colonnes justifiées étroites, celle du MILIEU
+    plus COURTE que ses voisines (comme une brève à côté d'articles longs), et
+    des interlignes DIFFÉRENTS (10,2 / 9,4) — de sorte que les lignes de base
+    des trois colonnes dérivent les unes par rapport aux autres, exactement
+    comme dans la démo journal.
+
+    Sous la colonne du milieu s'ouvre une vaste ZONE VIDE, bordée au loin par
+    les deux colonnes hautes. À l'ancienne, chaque rangée de cette zone
+    « confirmait » n'importe quel corridor tombant dans son immense blanc : il
+    suffisait alors que deux blancs de justification s'alignent par hasard dans
+    la colonne du milieu pour qu'un corridor FANTÔME atteigne le quorum et
+    vienne couper le texte. Le vide n'est pas une preuve.
+    """
+    long_txt = ("Regional plants raised output again during the period as demand "
+                "held firm across the network of supply partners and logistics "
+                "operators who handle the bulk of transit volumes between the "
+                "northern ports and the inland terminals throughout the season.")
+    court = ("Software providers also reshaped how regional distribution "
+             "partners handle considerable volumes.")
+    _pave(pg, 45, 110, long_txt, 9, 100, 10.2)              # colonne haute
+    _pave(pg, MILIEU_X, 110, court, 9, MILIEU_W, 9.4)       # colonne COURTE
+    _pave(pg, 275, 110, long_txt, 9, 100, 10.2)             # colonne haute
+
+
+P17_X, P17_W, P17_PAS, P17_Y = 45, 120, 134, 150     # 4 colonnes, page 4
+
+
+def _build_p17(pg):
+    """Page 4 : le CHAPÔ pleine largeur ne doit pas souder les colonnes.
+
+    Mise en pages de une : un chapô JUSTIFIÉ courant sur toute la largeur
+    (45 → 567), puis quatre colonnes étroites justifiées dont les fers extrêmes
+    tombent EXACTEMENT sur les siens (45 et 567) — c'est la règle typographique,
+    et c'est aussi celle de la démo journal.
+
+    Le piège : les lignes du chapô attestent, à elles seules, une « colonne »
+    allant de 45 à 567. Les rangées des quatre colonnes, elles, commencent bien
+    à 45 et finissent bien à 567. Rien, à ce stade, ne les distingue d'une ligne
+    justifiée trouée de gros blancs — et le recollage les soudait en charabia
+    (« Regional plants raised output Regional plants raised output… »). Ce qui
+    les sauve : chaque fragment remplit exactement une colonne avérée PLUS
+    ÉTROITE, dont il est une ligne à part entière.
+    """
+    chapo = ("Markets rallied hard this quarter as every major exporter reported "
+             "earnings comfortably ahead of the published forecasts, and analysts "
+             "now expect the trend to hold well into the coming year across every "
+             "region we track, with the northern corridors leading the advance and "
+             "the southern terminals following close behind them through the whole "
+             "of the period under review by the committee that published the data.")
+    corps = ("Regional plants raised output again during the period as demand held "
+             "firm across the network of supply partners and logistics operators "
+             "who handle the bulk of transit volumes between the northern ports "
+             "and the terminals throughout the season and well beyond it later.")
+    _pave(pg, P17_X, 90, chapo, 11, 522, 14)
+    for k in range(4):
+        _pave(pg, P17_X + k * P17_PAS, P17_Y, corps, 9, P17_W, 10.2)
+
+
+def _rangees(eng, page):
+    """Rangées (lignes de base) d'une page, telles que le moteur les construit —
+    on passe par SES méthodes, pour que le test ne puisse pas diverger de lui."""
+    spans = []
+    for bl in page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]:
+        if bl.get("type") != 0:
+            continue
+        for ln in bl.get("lines", []):
+            for sp in ln.get("spans", []):
+                if not sp["text"].strip():
+                    continue
+                bb, o = sp["bbox"], sp.get("origin", (sp["bbox"][0], sp["bbox"][3]))
+                spans.append({
+                    "bbox": list(bb), "text": sp["text"],
+                    "size": sp.get("size", 0) or 0, "dir": list(ln.get("dir", (1, 0))),
+                    "_gw": (bb[2] - bb[0]) / max(1, len(sp["text"].strip())),
+                    "_base": o[1]})
+    return eng._baseline_rows([s for s in spans if abs(s["dir"][1]) <= 0.01])
+
+
+def _blancs(mots, size, largeur, x):
+    """Abscisses des blancs d'une ligne justifiée, et leur largeur."""
+    nat = sum(_w(m, size) for m in mots)
+    blanc = (largeur - nat) / max(len(mots) - 1, 1)
+    trous, cx = [], x
+    for m in mots[:-1]:
+        cx += _w(m, size)
+        trous.append(cx + blanc / 2)
+        cx += blanc
+    return trous, blanc
+
+
+def _build_p15(pg):
+    """Page 2 : le piège de la colonne étroite justifiée, ET sa contre-épreuve."""
+    # ── P15a : colonne ÉTROITE justifiée ────────────────────────────────────
+    # Colonne de 104 pt au corps 9 : quelques mots longs suffisent à ce que
+    # certaines lignes n'en portent que trois, avec des blancs bien au-delà du
+    # seuil de coupe (2,5 × la largeur de glyphe).
+    _pave(pg, 45, 120,
+          "Software providers reshaped how regional distribution partners "
+          "handle the considerable volumes moving between the northern ports "
+          "and the inland terminals throughout every season.",
+          9, 104, 13)
+
+    # ── P15b : CITATION étroite ENJAMBÉE par le CORPS voisin ────────────────
+    # Contre-épreuve du Handbook p20, et le vrai juge de ce correctif. Les deux
+    # blocs sont des colonnes justifiées étroites à réparer, et leurs lignes de
+    # base sont DÉCALÉES de 1 pt : le moteur les regroupe donc dans les MÊMES
+    # rangées. Sur une seule rangée coexistent ainsi les fragments de DEUX
+    # colonnes — le moteur doit recoller chacune CHEZ ELLE. Un veto fondé sur la
+    # seule absence de corridor vertical soudait ici les deux blocs.
+    # Chaque bloc mélange, comme un vrai texte justifié, une MAJORITÉ de lignes
+    # serrées (les témoins) et quelques lignes lâches (les lignes à réparer) :
+    # c'est ce mélange, et non une géométrie uniformément extrême, qui reproduit
+    # la classe du défaut.
+    _pave(pg, 60, 320,
+          "The story we tell about our own past remains entirely ours to "
+          "rewrite, and the accompanying documentation inevitably changes "
+          "alongside it every single time.",
+          11, 150, 16)
+    _pave(pg, 300, 321,
+          "Freight costs eased after the new routes opened and the yards were "
+          "cleared well before the quarter closed, with transhipment throughput "
+          "comfortably exceeding every projection.",
+          10, 160, 16)
+
+    # ── P15c : l'ENCRE a le dernier mot ─────────────────────────────────────
+    # Même géométrie que P15a — une colonne justifiée avec une ligne lâche —
+    # mais un FILET VERTICAL (mur de cellule, cadre) traverse le gros blanc. La
+    # géométrie seule conclurait au recollage ; l'encre l'interdit. Sans ce
+    # garde-fou, un tableau dont les cellules remplissent bien leurs rangées
+    # verrait ses colonnes fusionner.
+    txt_c = ("The northern yards took in every extra ton we sent them last "
+             "year without any measurable disruption whatsoever to the "
+             "sailing plan.")
+    lignes_c = _pave(pg, 60, 450, txt_c, 11, 150, 16)
+    for i, mots in enumerate(lignes_c[:-1]):
+        trous, blanc = _blancs(mots, 11, 150, 60)
+        if blanc > 2.5 * _w("n", 11):          # la ligne lâche : on y plante le filet
+            y = 450 + i * 16
+            pg.draw_line(fitz.Point(trous[0], y - 11), fitz.Point(trous[0], y + 4),
+                         color=NOIR, width=0.8)
+            break
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -325,6 +533,117 @@ def run():
         else:
             ok("P14  au RENDU, le bloc DROITE reste ferré à droite",
                False, f"{len(rendues)} ligne(s) retrouvée(s)")
+
+    # ── P15 : colonne étroite justifiée vs citation enjambée (page 2) ────────
+    pd2 = eng.extract_page_data(doc, 1, doc[1], embed_images=True)
+    paras2 = [e for e in pd2["elements"] if e.get("type") == "paragraph"]
+
+    # (0) Le PIÈGE EST-IL ARMÉ ? Sans ce contrôle, le test pourrait passer pour
+    #     la seule raison que la géométrie fabriquée est trop sage — il ne
+    #     prouverait alors rien du tout. La mesure se prend sur les spans BRUTS
+    #     de PyMuPDF, en amont de toute décision du moteur : le contrôle doit
+    #     rester vrai que le correctif soit là ou non.
+    brut = {}
+    for bl in doc[1].get_text("dict")["blocks"]:
+        for ln in bl.get("lines", []):
+            for sp in ln.get("spans", []):
+                if sp["text"].strip():
+                    brut.setdefault(round(sp["origin"][1], 1), []).append(sp)
+    arme = 0
+    for _base, sps in brut.items():
+        sps.sort(key=lambda s: s["bbox"][0])
+        gws = sorted((s["bbox"][2] - s["bbox"][0]) / max(1, len(s["text"].strip()))
+                     for s in sps)
+        gw = gws[len(gws) // 2]
+        for a, b in zip(sps, sps[1:]):
+            if b["bbox"][0] - a["bbox"][2] > 2.5 * gw:
+                arme += 1
+    ok("P15  le piège est ARMÉ (des blancs de mots dépassent le seuil de coupe)",
+       arme >= 3, f"{arme} blanc(s) au-delà de 2.5 × gw — la géométrie fabriquée "
+                  f"doit vraiment mettre le moteur en défaut")
+
+    def _t2(p):
+        return " ".join((p.get("text") or "").split())
+
+    # Égalité EXACTE, et paragraphe UNIQUE : une inclusion (« …in _t2(p) ») se
+    # contenterait d'un bloc où les fragments se sont recollés dans le désordre
+    # — c'est précisément ce que produit le moteur non corrigé.
+    def _unique(nom, attendu):
+        trouves = [p for p in paras2 if _t2(p) == attendu]
+        autres = [_t2(p) for p in paras2 if _t2(p) != attendu]
+        ok(nom, len(trouves) == 1,
+           f"attendu 1 paragraphe exact, trouvé {len(trouves)} ; "
+           f"page = {autres[:3]}")
+
+    # (a) Colonne étroite justifiée : le bloc doit être reconstitué mot pour mot,
+    #     dans l'ordre — les mots à gros blanc compris.
+    _unique("P15  colonne étroite justifiée reconstituée mot pour mot",
+            "Software providers reshaped how regional distribution partners "
+            "handle the considerable volumes moving between the northern ports "
+            "and the inland terminals throughout every season.")
+
+    # (b) Contre-épreuve : la citation enjambée NE DOIT PAS absorber le corps.
+    #     C'est le cas exact qui a fait échouer un veto fondé sur la seule
+    #     absence de corridor vertical.
+    soudes = [p for p in paras2
+              if "rewrite" in _t2(p) and "Freight" in _t2(p)]
+    ok("P15  les deux colonnes ENJAMBÉES ne sont pas soudées entre elles",
+       not soudes,
+       f"paragraphe mixte = {_t2(soudes[0])[:90]!r}" if soudes else "")
+    _unique("P15  la citation enjambée est réparée DANS SA colonne",
+            "The story we tell about our own past remains entirely ours to "
+            "rewrite, and the accompanying documentation inevitably changes "
+            "alongside it every single time.")
+    _unique("P15  le corps enjambé est réparé DANS SA colonne",
+            "Freight costs eased after the new routes opened and the yards were "
+            "cleared well before the quarter closed, with transhipment "
+            "throughput comfortably exceeding every projection.")
+
+    # (c) L'ENCRE prime sur la géométrie : un filet vertical dans le blanc
+    #     interdit le recollage (mur de cellule / cadre).
+    recolle = [p for p in paras2 if "without any measurable" in _t2(p)]
+    ok("P15  un FILET vertical dans le blanc empêche le recollage",
+       not recolle,
+       f"recollé malgré le filet = {_t2(recolle[0])[:80]!r}" if recolle else "")
+
+    # ── P16 : le VIDE ne prouve pas un corridor (page 3) ─────────────────────
+    # Contrôle de la RÈGLE, et non de son effet de bord : sur la démo, la passe
+    # de recollage (P15) répare après coup les dégâts des corridors fantômes, si
+    # bien qu'aucun compte de paragraphes ne les trahit. On interroge donc
+    # directement le juge : quels corridors retient-il, et sur quelles rangées ?
+    rows3 = _rangees(eng, doc[2])
+    guts3 = eng._column_gutters(rows3)
+    dedans = []
+    for row in rows3:
+        xs = [s["bbox"] for s in row["spans"]]
+        # rangée APPARTENANT à la colonne du milieu (elle y a du texte)
+        if not any(MILIEU_X - 1 <= b[0] and b[2] <= MILIEU_X + MILIEU_W + 1
+                   for b in xs):
+            continue
+        for g0, g1 in guts3.get(id(row), ()):
+            mid = 0.5 * (g0 + g1)
+            if MILIEU_X < mid < MILIEU_X + MILIEU_W:
+                dedans.append((round(g0, 1), round(g1, 1)))
+    ok("P16  aucun corridor FANTÔME à l'intérieur de la colonne du milieu",
+       not dedans,
+       f"corridors retenus dans la colonne : {sorted(set(dedans))} — "
+       f"une zone VIDE a servi de preuve")
+
+    # ── P17 : un CHAPÔ pleine largeur ne soude pas les colonnes (page 4) ─────
+    pd4 = eng.extract_page_data(doc, 3, doc[3], embed_images=True)
+    paras4 = [e for e in pd4["elements"] if e.get("type") == "paragraph"]
+    sous = [p for p in paras4 if p["bbox"][1] >= P17_Y - 12]     # sous le chapô
+    larges = [p for p in sous if p["bbox"][2] - p["bbox"][0] > P17_W + 10]
+    ok("P17  le CHAPÔ pleine largeur ne SOUDE pas les colonnes",
+       not larges,
+       f"{len(larges)} paragraphe(s) à cheval sur plusieurs colonnes : "
+       f"{[(round(p['bbox'][0]), round(p['bbox'][2])) for p in larges]}")
+    # Et chaque colonne doit bien être là, entière et à sa place.
+    attendus = [P17_X + k * P17_PAS for k in range(4)]
+    trouves = sorted({round(p["bbox"][0]) for p in sous})
+    ok("P17  les 4 colonnes restent distinctes et à leur fer",
+       trouves == attendus,
+       f"fers gauches trouvés={trouves}, attendus={attendus}")
 
     # ── Rapport ─────────────────────────────────────────────────────────────
     print("=" * 78)

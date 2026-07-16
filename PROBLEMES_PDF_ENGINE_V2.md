@@ -1,4 +1,7 @@
-# Problèmes identifiés — pdf_engine_v2 (campagne 20 pages du 2026-07-10, corrigés le 2026-07-10/11)
+# Problèmes identifiés — pdf_engine_v2
+
+_Campagne 20 pages du 2026-07-10 (corrigés les 2026-07-10/11), puis P12-P14
+(07-13/14) et **P15-P17 (2026-07-16)**._
 
 > Constats issus de 20 pages traduites (FR) + debug pour `mv21.pdf` et
 > `The Data Science Handbook.pdf` (`backend/tests files/`), causes établies dans
@@ -146,6 +149,51 @@
 - Handbook : les 17 « droite » sont les **folios de page** et une ligne de filigrane — tous légitimes.
 - **Aucun** bloc multi-ligne ferré à droite dans les 3 documents → `align="right"` est validé sur le **document synthétique** (`test_engine_v2_generic.py`, **19/19**).
 
+## ✅ P15-P17 — COLONNE JUSTIFIÉE ÉTROITE : le mot arraché à sa phrase (2026-07-16)
+
+> **Le symptôme.** Démo journal, 3ᵉ colonne : « Software providers also » sortait
+> en **trois paragraphes** (« Software » soudé au bloc, « providers » et « also »
+> en îlots), et « reshaped how businesses » de même. Envoyés seuls au traducteur,
+> hors contexte, ces mots ressortaient faux.
+>
+> **La cause.** Justifier une colonne étroite, c'est étirer ses blancs de mots
+> jusqu'aux deux bords. Étroite, la colonne offre peu de blancs : chacun enfle
+> énormément — **13,9 pt** pour une largeur de glyphe de 3,4 (**4,3 ×**, très
+> au-delà du seuil de coupe de 2,5 ×), soit **plus large que la vraie gouttière
+> de la page** (13,7 pt). À l'échelle de la LIGNE, un blanc de mot et une
+> frontière de colonne sont **géométriquement indiscernables**. Aucun seuil ne
+> les sépare.
+
+**Pourquoi un veto de persistance ne marche pas** (piste explorée, abandonnée —
+ne pas la reprendre) : « pas de corridor vertical → pas de coupe » fait du
+corridor l'**unique juge**, or il lui faut `_GUTTER_MIN_LINES` (5) lignes pour se
+prononcer. Handbook p20 : une citation encadrée de **4 lignes**, enjambée par le
+corps voisin (leurs lignes de base se touchent), est trop courte pour former un
+corridor → absoute à tort → **absorbée par le corps**. *L'absence de preuve de
+colonne n'est pas la preuve de son absence.*
+
+| # | Problème | Cause | Correction | Vérification |
+|---|----------|-------|------------|--------------|
+| **P15** 🔴 | Colonne justifiée étroite : les mots à gros blanc **arrachés à leur phrase** | Le blanc de justification dépasse `_COL_SPLIT_FACTOR` ; indiscernable d'une gouttière à l'échelle de la ligne | **On ne disculpe plus le blanc, on PROUVE la justification** — par les marges du BLOC, que la ligne seule ignore. `_justified_columns` : une colonne est **avérée** par ≥ 3 lignes **intactes** au même fer gauche ET droit ; `_rejoin_justified` ne recolle une rangée que si ses fragments **remplissent cette colonne de bord à bord**. Itère jusqu'au point fixe (une rangée recollée devient un témoin de plus) | Démo 42 → 38 paragraphes, bloc reconstitué mot pour mot. hb p20 recollerait [63,5 → 561,2] : ne correspond à **aucune** colonne (63,5 = fer de la citation, 561,2 = fer du corps) → coupe maintenue ✅ |
+| **P16** 🟠 | `_column_gutters` fabrique des **corridors FANTÔMES** qui coupent le texte | **Le VIDE était compté comme preuve.** Les rangées traversent toute la page (4 colonnes partagent leurs lignes de base) ; là où une colonne s'arrête, l'abscisse du corridor tombe dans une vaste zone vide et la rangée « confirmait » quand même. `_gutter_sides_ok` (page-entière) passait toujours | `_gutter_abuts` (`_GUTTER_ABUT_FACTOR = 4.0` gw) : une rangée ne prouve un corridor que si du **texte le BORDE des deux côtés** ; sinon on l'**enjambe** — ni preuve, ni réfutation. Seul du texte qui **traverse** réfute | Démo : **8 corridors → 2**. La gouttière porteuse col2/col3 (8,0 pt — la seule utile des 51 pages) a **10** rangées bordantes et survit ; les 3 fantômes n'en avaient que **1-2**. Sortie inchangée (P15 masquait déjà les dégâts) → prouvé **en boîte blanche** |
+| **P17** 🔴 | Un **CHAPÔ justifié pleine largeur** soude les 4 colonnes en charabia | **Bug introduit par P15**, trouvé en sondant ses limites. L'auto-cohérence de P15 (« aucune ligne ne traverse une gouttière, donc aucun témoin ne peut nuire ») ne vaut **que pour le bloc qui fournit la preuve** : un chapô pleine largeur atteste à lui seul le couple (fer gauche de col1, fer droit de la dernière), et les rangées des colonnes sont bel et bien à fleur de ces deux fers | **Priorité à la colonne avérée PLUS ÉTROITE** : un fragment qui remplit exactement une colonne plus étroite **EST une ligne de cette colonne** — le recoller reviendrait à traverser une gouttière | Prototype chapô : soudure (« Regional plants raised output Regional plants raised… ») → 5 blocs distincts ✅ |
+
+### Garde-fous de `_rejoin_justified` (chacun payé cash)
+
+- **`_JUST_EDGE_FACTOR = 0.05`** (tolérance de fer). À 0,25 × corps (3,75 pt au
+  corps 15), le **folio** du Handbook (x1 = 558,0) passait pour le fer droit du
+  corps (561,16) → **« DJ PATIL » soudé à « 15 » sur 21 pages**. La justification
+  est exacte au centième de point : rester serré ne coûte rien.
+- **`_JUST_MIN_INK = 0.5`** — une ligne justifiée est faite de mots que le blanc
+  écarte, pas de blanc que deux mots bordent (démo : 71 % d'encre ; ligne
+  synthétique la plus lâche : 73 % ; titre courant + folio : **18 %**).
+- **Encre** (`_ink_walls`) — un filet, un cadre ou une image qui s'intercale
+  sépare pour de bon, quoi que dise la géométrie (mur de cellule de tableau).
+- **`_JUST_MIN_LINES = 3`** — **mesuré, pas arbitraire** : à **1**, le *titre*
+  pleine largeur de la démo (une seule ligne) atteste à lui seul une colonne
+  32 → 563 et **soude les 4 colonnes** (14 lignes d'inventaire ravagées). À **2**,
+  identique à 3 sur les 51 pages. On garde **3** (marge).
+
 ## 🧪 AUDIT DE GÉNÉRICITÉ (2026-07-13) — `backend/test_engine_v2_generic.py`
 
 > **Le problème de fond.** P10-P13 ont été trouvés sur mv21, le Handbook et la
@@ -159,6 +207,13 @@
 > section · vrai soulignement · deux colonnes à gouttière plus étroite que leurs
 > propres blancs de justification · liste à puces · titre vertical à lettres
 > espacées · en-têtes de tableau pivotés serrés. **13 contrôles, 13 verts.**
+>
+> _Étendu le 2026-07-16 à **4 pages / 28 contrôles** (P15-P17) : colonne étroite
+> justifiée · citation enjambée par le corps voisin (contre-épreuve hb p20) ·
+> filet vertical dans le blanc · corridor fantôme nourri par le vide · chapô
+> pleine largeur au-dessus de 4 colonnes. Le texte justifié y est **composé**
+> (coupe au plus juste puis étirement des blancs), et non posé à la main : les
+> lignes lâches apparaissent d'elles-mêmes, comme dans un vrai document._
 
 **Le test a débusqué deux trous que les 3 documents réels masquaient** — c'est
 précisément ce qu'on lui demandait :
@@ -175,22 +230,52 @@ précisément ce qu'on lui demandait :
 | **P10** | ✅ **Oui** — transformation de repère (mathématique pure, toute direction) ; empan et pas mesurés **le long de l'axe** ; conteneur ancré sur la bbox (l'expansion page est *perpendiculaire* pour un vertical). Aucun seuil calé sur un document | Validé sur des rotations à **90°**. Un angle quelconque (45°) passerait par le même code, mais la bbox du conteneur dans le repère tourné serait une **sur-approximation** |
 | **P11** | ✅ **Oui** pour le `support` (corps dominant de la page, ratio 1,5 — aucune constante de document). ⚠️ **Non** par nature pour le glossaire : il est **énumératif**, et c'est assumé (cf. l'encadré P11 — une garantie exige un ensemble décidable) | Les 14 entrées muettes ne garantissent plus que par leur filet ; rejouer le banc à tout changement de modèle |
 | **P12** | ✅ **Oui** — l'encre (un soulignement est peint dans l'encre de SON texte) et les clones (un filet de grille se répète) sont des propriétés **du concept**, pas des documents. Vérifié sur 35 vrais soulignements + le synthétique | Un soulignement d'une couleur **différente** de son texte serait rejeté ; un filet **isolé** de la **même** couleur passerait encore. Levier connu : les annotations `/Link` |
-| **P13** | ✅ **Oui** — la **persistance** du corridor est une propriété du concept (un blanc de justification se déplace, une gouttière non). Garde-fous eux-mêmes génériques (puce = pas de colonne ; ≥ 5 lignes) | `_GUTTER_MIN_LINES = 5` : un bloc à **deux colonnes de moins de 5 lignes** ne sera pas détecté (plancher volontairement conservateur) |
+| **P13** | ✅ **Oui** sur le principe — la **persistance** du corridor est une propriété du concept (un blanc de justification se déplace, une gouttière non). ⚠️ **Mais la mise en œuvre comptait le VIDE comme preuve** : corrigé par P16 (cf. ci-dessus). Le verdict « garde-fous génériques » était **trop optimiste** — `_gutter_sides_ok` est inopérant sur une rangée page-entière (il y a toujours du texte des deux côtés, très loin) | `_GUTTER_MIN_LINES = 5` : un bloc à **deux colonnes de moins de 5 lignes** ne sera pas détecté (plancher conservateur). Depuis P16, le quorum se compte sur les rangées **bordantes** : une gouttière dont les deux colonnes se croisent sur < 5 lignes de base (interlignes différents) n'est plus détectée — inoffensif tant que la coupe de largeur la rattrape (vérifié : 0 régression sur 51 pages) |
+| **P15** | ✅ **Oui** — la preuve est une propriété du **concept** de justification (le fer aux deux bords), pas d'un document. Le témoin est la **ligne intacte**, qui ne peut pas exister à travers une gouttière. Aucun seuil calé sur un document ; `_JUST_MIN_LINES` mesuré (cf. ci-dessus) | 🔴 **Colonne justifiée de ≤ 5 lignes non réparée** : il faut ≥ 3 lignes intactes pour attester la colonne, or une colonne étroite en a ≈ 55 % (démo : 6/11). Un bloc de 4 lignes n'en a qu'**1** → reste éclaté. Vérifié sur cas construit. **Ne PAS attester la colonne par les FRAGMENTS** (leurs fers) : c'est exactement ce qui rouvre P17 et hb p20 |
+| **P16** | ✅ **Oui** — « le vide n'est pas une preuve » est une règle de raisonnement, pas un réglage. Une rangée sans texte bordant est **enjambée**, comme une ligne trop courte | Le corridor reste jugé sur des rangées **page-entière** : la cause structurelle (pas de notion de bloc dans `_column_gutters`) n'est pas traitée, seul son amplificateur l'est |
+| **P17** | ✅ **Oui** — « la colonne la plus étroite gagne » découle de la définition d'une gouttière. **Leçon** : l'auto-cohérence d'une preuve ne vaut que pour **le bloc qui la fournit** ; un témoin venu d'un autre bloc n'autorise rien | Repose sur le fait que les colonnes voisines soient elles-mêmes **avérées** (≥ 3 lignes intactes chacune). Des colonnes courtes surmontées d'un chapô pleine largeur resteraient exposées |
 
 ### Batterie de vérification (à rejouer avant toute release)
 
 ```bash
 backend/venv/Scripts/python.exe backend/test_glossary.py            # 18/18
-backend/venv/Scripts/python.exe backend/test_engine_v2_generic.py   # 13/13
+backend/venv/Scripts/python.exe backend/test_engine_v2_generic.py   # 28/28
 ```
 Invariants de non-régression sur les documents réels (24 pages chacun) :
-**mv21 = 614 paragraphes · Handbook = 309 · démo = 42**, et **aucun mot perdu**
-(631 / 10 671 / 8 615). Soulignements consommés : **mv21 = 27 · Handbook = 6 ·
-démo = 0**. Toute dérive de ces nombres est une régression jusqu'à preuve du
-contraire.
+**mv21 = 614 paragraphes · Handbook = 309 · démo = 38** (42 avant P15 : les 4
+paragraphes en moins sont les **fragments recollés** de la 3ᵉ colonne — c'est le
+correctif, pas une perte), et **aucun mot perdu** (631 / 10 671 / 8 615).
+Soulignements consommés : **mv21 = 27 · Handbook = 6 · démo = 0**. Toute dérive
+de ces nombres est une régression jusqu'à preuve du contraire.
+
+> **Les contrôles négatifs sont la moitié du test** (2026-07-16). Chaque règle de
+> P15-P17 a son script qui la **désarme seule** ; le check visé DOIT alors tomber :
+> recollage 25/28 · encre 27/28 · bordant 27/28 · colonne-étroite 27/28. Sans eux,
+> **trois assertions passaient à vide** (elles ne prouvaient rien) — dont le
+> contrôle « le piège est armé », qui mesurait les lignes *après* réparation et
+> dépendait donc du correctif qu'il devait juger. Un test qui ne tombe jamais ne
+> teste rien.
 
 ## ⏳ Résiduels (documentés, non bloquants)
 
+- 🔴 **EN SUSPENS (décidé le 2026-07-16) — colonne justifiée étroite de ≤ 5
+  lignes non recollée.** `_rejoin_justified` exige **3 lignes intactes** pour
+  attester la colonne ; un bloc court n'en fournit qu'une ou deux. Exemple
+  mesuré (même texte, même largeur, seule la longueur change) :
+
+  | Bloc | Lignes intactes | Résultat |
+  |---|---|---|
+  | 11 lignes | 8 | ✅ 1 paragraphe |
+  | 4 lignes | 1 | ❌ 3 morceaux (`'providers how'`, `'also regional'`…) |
+
+  **Abaisser le quorum n'est PAS la solution** : à 1 témoin, le titre pleine
+  largeur de la démo soude les 4 colonnes. Le compromis est assumé — *exigence
+  stricte → quelques blocs courts restent cassés ; exigence relâchée → des pages
+  entières deviennent illisibles.* C'est aussi l'**état d'avant P15** (aucune
+  régression). Conditions cumulatives (colonne étroite **+** justifiée **+**
+  ≤ 5 lignes) : **0 occurrence** sur les 51 pages de référence. Traiter ce cas
+  demanderait une preuve d'une **autre nature** (cellules de tableau détectées,
+  interligne du bloc) — chantier, pas réglage.
 - **Retraduction compacte mv21 partielle** : la phase compacte a été interrompue
   (erreurs de connexion API en série) — la traduction principale est complète et
   saine ; certains items de listes denses restent compressés (force-fit) au lieu
