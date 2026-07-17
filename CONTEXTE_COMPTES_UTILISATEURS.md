@@ -285,10 +285,20 @@ Seed : `backend/seed_admin.py` (usage unique, promeut `mbowouibrah` en admin).
 
 ## Environnement (.env)
 
+> ⚠️ **Ce fichier est suivi par git ; `backend/.env` ne l'est pas.** Les valeurs
+> secrètes ci-dessous ont donc été remplacées par des marqueurs : les recopier
+> ici annulait exactement la protection du `.gitignore`. Les vraies valeurs sont
+> dans `backend/.env`, et là seulement.
+>
+> **L'historique git conserve les anciennes versions de ce fichier** : le mot de
+> passe applicatif Gmail et celui de PostgreSQL y ont été exposés. Les masquer
+> empêche la diffusion future, **pas** la lecture du passé — leur **rotation
+> reste obligatoire** avant toute mise en production.
+
 ```bash
 # backend/.env
-DATABASE_URL=postgresql+asyncpg://postgres:***RETIRE***@127.0.0.1:5432/precis
-JWT_SECRET=***RETIRE***
+DATABASE_URL=postgresql+asyncpg://postgres:<MOT_DE_PASSE_PG>@127.0.0.1:5432/precis
+JWT_SECRET=<64+ caractères aléatoires — en générer un NOUVEAU pour la prod>
 JWT_EXPIRY_MINUTES=60
 REFRESH_TOKEN_EXPIRY_DAYS=30
 FRONTEND_URL=http://localhost:3000
@@ -296,7 +306,7 @@ EMAIL_ENABLED=true
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=toujoursmoi237@gmail.com
-SMTP_PASSWORD=***RETIRE***
+SMTP_PASSWORD=<MOT_DE_PASSE_APPLICATIF_GMAIL>
 GOOGLE_CLIENT_ID=130716245882-d2b9m4gp2ig8mtfkutg9mq5peeukc16o.apps.googleusercontent.com
 
 # frontend/.env
