@@ -62,7 +62,7 @@ export function useStreamingTranslation() {
     fetchingRef.current = true;
     try {
       const res = await fetch(`${API_BASE}/api/translate/partial/${jobId}`, {
-        headers: { 'X-API-Key': API_KEY },
+        headers: { 'X-API-Key': API_KEY, ...authHeader() },
       });
       if (res.ok) {
         const blob = await res.blob();
@@ -157,7 +157,7 @@ export function useStreamingTranslation() {
               esRef.current = null;
               try {
                 const dlRes = await fetch(`${API_BASE}/api/translate/result/${job_id}`, {
-                  headers: { 'X-API-Key': API_KEY },
+                  headers: { 'X-API-Key': API_KEY, ...authHeader() },
                 });
                 if (!dlRes.ok) {
                   const err = await dlRes.json().catch(() => ({}));

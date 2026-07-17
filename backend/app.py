@@ -189,8 +189,9 @@ app.include_router(auth_router)
 app.include_router(documents_router)
 
 # ── Route quota stockage ─────────────────────────────────────────────────────
-from auth import require_auth, optional_auth
-from models import User, Document, get_plan_page_limit, get_plan_storage
+from auth import require_auth
+from models import (User, Document, get_plan_page_limit, get_plan_storage,
+                    FREE_PLAN)
 from database import get_db
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -311,6 +312,11 @@ def _new_job() -> str:
             "result_filename": None,
             "partial_path": None,     # PDF v2 : fichier partiel (pages prêtes)
             "error": None,
+            # PROPRIÉTAIRE du job. Sans lui, un job_id deviné suffisait à
+            # récupérer le document d'autrui : /partial et /result ne
+            # vérifiaient que la clé d'API, laquelle est publique (elle est
+            # dans le bundle du frontend).
+            "user_id": None,
         }
     return job_id
 
@@ -663,7 +669,11 @@ async def translate_endpoint(
     pages: str = Form(""),
     debug: str = Form(""),
     x_api_key: str = Header(None),
-    current_user: "User | None" = Depends(optional_auth),
+    # CONNEXION OBLIGATOIRE (décision produit) : un visiteur ne lance aucune
+    # traduction. `optional_auth` laissait passer l'anonyme avec 1 page —
+    # or la clé d'API est publique (elle est dans le bundle du frontend), donc
+    # ce quota ne coûtait qu'un onglet de navigation privée à contourner.
+    current_user: "User" = Depends(require_auth),
     db: "AsyncSession" = Depends(get_db),
 ):
     """Démarre un job de traduction et retourne immédiatement un job_id.
@@ -719,8 +729,8 @@ async def translate_endpoint(
     # par `await` direct — l'ancien code planifiait la coroutine sur la boucle
     # qui l'exécutait puis attendait le résultat en la bloquant (deadlock →
     # timeout 3 s → repli `free`), ce qui rétrogradait tout compte payant.
-    plan = current_user.plan if current_user else None
-    limit = get_plan_page_limit(plan) if plan else 1     # visiteur = 1 page
+    plan = current_user.plan
+    limit = get_plan_page_limit(plan)
     page_limit = limit if limit is not None else 999_999
 
     # Appliquer la limite : si pages spécifiées, on ne garde que la première ;
@@ -731,7 +741,7 @@ async def translate_endpoint(
         pages_set = {1}              # force page 1 uniquement
 
     # ── Freemium : 1 page par mois calendaire (compteur = Documents du mois) ──
-    if page_limit == 1 and current_user is not None:
+    if page_limit == 1:
         month_start = datetime.now(timezone.utc).replace(
             day=1, hour=0, minute=0, second=0, microsecond=0)
         r = await db.execute(
@@ -772,6 +782,8 @@ async def translate_endpoint(
     output_path = os.path.join(lang_dir, output_filename)
 
     job_id = _new_job()
+    with _jobs_lock:                    # propriétaire : /partial et /result s'en servent
+        _jobs[job_id]["user_id"] = current_user.id
     if ext == "pdf":
         # PDF → moteur v2 PROGRESSIF : page traduite = page affichable.
         # `partial` grandit page à page ; `v2_pages` = cache de reprise.
@@ -845,17 +857,29 @@ async def translation_events(job_id: str):
     )
 
 
+def _job_of(job_id: str, user: "User"):
+    """Le job `job_id`, s'il appartient bien à `user`.
+
+    Le contrôle de propriété est INDISPENSABLE : la clé d'API voyage dans le
+    bundle du frontend, elle est donc publique. Sans ce garde, un `job_id`
+    deviné suffisait à lire le document d'un autre compte. On répond 404 (et
+    non 403) pour ne pas révéler l'existence du job.
+    """
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+    if not job or job.get("user_id") != user.id:
+        raise HTTPException(status_code=404, detail="Job introuvable.")
+    return job
+
+
 @app.get("/api/translate/partial/{job_id}")
-async def translation_partial(job_id: str, x_api_key: str = Header(None)):
+async def translation_partial(job_id: str, x_api_key: str = Header(None),
+                              current_user: "User" = Depends(require_auth)):
     """PDF PARTIEL d'un job v2 en cours : contient les pages 1..k déjà
     traduites (réécrit atomiquement après chaque page). Le client le recharge
     à chaque événement `page done` pour afficher la traduction au fil de l'eau."""
     verify_api_key(x_api_key)
-
-    with _jobs_lock:
-        job = _jobs.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job introuvable.")
+    job = _job_of(job_id, current_user)
     path = job.get("partial_path")
     if not path or not os.path.exists(path):
         raise HTTPException(status_code=202, detail="Aucune page prête pour l'instant.")
@@ -866,14 +890,23 @@ async def translation_partial(job_id: str, x_api_key: str = Header(None)):
 
 
 @app.get("/api/translate/result/{job_id}")
-async def translation_result(job_id: str, x_api_key: str = Header(None)):
-    """Retourne le fichier traduit une fois le job terminé."""
-    verify_api_key(x_api_key)
+async def translation_result(job_id: str, x_api_key: str = Header(None),
+                             current_user: "User" = Depends(require_auth)):
+    """Retourne le fichier traduit une fois le job terminé.
 
-    with _jobs_lock:
-        job = _jobs.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job introuvable.")
+    TÉLÉCHARGEMENT RÉSERVÉ AUX PLANS PAYANTS (décision produit). Le verrou
+    n'existait que dans le frontend (bouton qui renvoyait vers la grille
+    tarifaire) : un appel direct rendait le PDF complet à n'importe qui. Un
+    verrou qui n'est pas appliqué par le serveur n'est pas un verrou.
+    """
+    verify_api_key(x_api_key)
+    job = _job_of(job_id, current_user)
+    if current_user.plan == FREE_PLAN:
+        raise HTTPException(
+            status_code=402,
+            detail="Forfait Gratuit : téléchargement indisponible. "
+                   "Passez à Starter pour télécharger vos traductions.",
+        )
     if job["state"] == "error":
         raise HTTPException(status_code=500, detail=job.get("error", "Erreur inconnue."))
     if job["state"] != "done":

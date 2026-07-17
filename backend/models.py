@@ -46,6 +46,15 @@ def get_plan_page_limit(plan: str) -> int | None:
     """Retourne la limite de pages pour un plan, None = illimité."""
     return PLAN_PAGE_LIMIT.get(plan, 1)  # défaut = 1 page (freemium)
 
+# Le SEUL plan sans droits (ni téléchargement, ni aperçu en clair). On nomme
+# l'exception plutôt que d'énumérer les plans payants : ajouter un plan ne doit
+# pas obliger à penser à l'inscrire ici. Miroir de `frontend/src/lib/plans.ts`.
+FREE_PLAN = "free"
+
+def is_paid_plan(plan: str | None) -> bool:
+    """Le plan donne-t-il les droits complets ?"""
+    return bool(plan) and plan != FREE_PLAN
+
 PLAN_LABELS: dict[str, str] = {
     "free":       "Gratuit",
     "starter":    "Starter",
