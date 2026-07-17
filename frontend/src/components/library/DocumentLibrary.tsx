@@ -5,12 +5,13 @@ import { useNavigate } from 'react-router-dom';
 import {
   X, Eye, Download, Trash2, FolderOpen,
   FileType2, FileText, Presentation, File as FileIcon,
-  LogOut, Crown, HardDrive, Mail, User,
+  LogOut, Crown, HardDrive, Mail, User, Lock,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import type { DocMeta } from '../../hooks/useDocumentLibrary';
 import { useAuth, type AuthUser } from '../../contexts/AuthContext';
+import { isTrialFor } from '../../lib/plans';
 import { baseCode } from '../../lib/languages';
 
 const EXT_ICONS: Record<string, LucideIcon> = {
@@ -46,24 +47,36 @@ interface DocumentLibraryProps {
   onDelete: (id: string) => void;
   onClearAll: () => void;
   getBlob: (id: string) => Promise<Blob | undefined>;
+  getPreviewBlob: (id: string) => Promise<Blob | undefined>;
 }
 
 export default function DocumentLibrary({
-  isOpen, onClose, documents, onPreview, onDelete, onClearAll, getBlob,
+  isOpen, onClose, documents, onPreview, onDelete, onClearAll, getBlob, getPreviewBlob,
 }: DocumentLibraryProps) {
+  // Le serveur refuse le téléchargement d'une traduction à un plan d'essai
+  // (402). On lit le MÊME plan côté client pour ne pas promettre un bouton qui
+  // ne peut pas tenir.
+  const trial = isTrialFor(useAuth().user);
   const { t, i18n } = useTranslation();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
 
+  // L'aperçu passe par /preview (rastérisé + filigrané pour un plan d'essai) —
+  // JAMAIS par /download, qui rend le PDF en clair.
   const handlePreview = useCallback(async (doc: DocMeta) => {
     setLoadingId(doc.id);
-    try { const blob = await getBlob(doc.id); if (blob) onPreview(blob, doc.filename, doc.ext); }
+    try { const blob = await getPreviewBlob(doc.id); if (blob) onPreview(blob, doc.filename, doc.ext); }
     finally { setLoadingId(null); }
-  }, [getBlob, onPreview]);
+  }, [getPreviewBlob, onPreview]);
 
   const handleDownload = useCallback(async (doc: DocMeta) => {
+    if (trial) {                       // le serveur refuse (402) ; on oriente
+      document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' });
+      onClose();
+      return;
+    }
     setLoadingId(doc.id);
     try {
       const blob = await getBlob(doc.id);
@@ -74,7 +87,7 @@ export default function DocumentLibrary({
         URL.revokeObjectURL(url); document.body.removeChild(a);
       }
     } finally { setLoadingId(null); }
-  }, [getBlob]);
+  }, [getBlob, trial, onClose]);
 
   return (
     <AnimatePresence>
@@ -171,8 +184,12 @@ export default function DocumentLibrary({
                           </button>
                         )}
                         <button onClick={() => handleDownload(doc)} disabled={loadingId === doc.id}
-                          style={{ flex: 1, padding: '7px', borderRadius: '7px', border: 'none', background: 'var(--blue)', color: 'white', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
-                          <Download size={13} strokeWidth={2.2} />{t('library.download', 'Télécharger')}
+                          title={trial
+                            ? t('library.download_locked', 'Forfait Gratuit — passez à Starter pour télécharger')
+                            : t('library.download', 'Télécharger')}
+                          style={{ flex: 1, padding: '7px', borderRadius: '7px', border: 'none', background: trial ? 'var(--gray-400)' : 'var(--blue)', color: 'white', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
+                          {trial ? <Lock size={13} strokeWidth={2.2} /> : <Download size={13} strokeWidth={2.2} />}
+                          {t('library.download', 'Télécharger')}
                         </button>
                         <button onClick={() => onDelete(doc.id)}
                           style={{ width: '34px', padding: '7px', borderRadius: '7px', border: '1px solid var(--gray-200)', background: 'white', color: 'var(--gray-500)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title={t('library.delete', 'Supprimer')}>

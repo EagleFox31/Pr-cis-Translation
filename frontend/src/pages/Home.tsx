@@ -39,7 +39,7 @@ export default function Home() {
   const isTrialMode = isTrialFor(user);
 
   // ---- Document library ----
-  const { documents, saveDocument, getBlob, deleteDocument, clearAll } = useDocumentLibrary();
+  const { documents, saveDocument, getBlob, getPreviewBlob, deleteDocument, clearAll } = useDocumentLibrary();
 
   // ---- Scroll spy ----
   useEffect(() => {
@@ -246,6 +246,7 @@ export default function Home() {
         onDelete={deleteDocument}
         onClearAll={clearAll}
         getBlob={getBlob}
+        getPreviewBlob={getPreviewBlob}
       />
 
       <main>

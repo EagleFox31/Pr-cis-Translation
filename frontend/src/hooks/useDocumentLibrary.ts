@@ -104,6 +104,17 @@ export function useDocumentLibrary() {
     return documents.find(d => d.id === id)?._blob;
   }, [user, documents]);
 
+  /** Blob d'AFFICHAGE : passe par /preview, qui rastérise et filigrane pour un
+   *  plan d'essai. « Aperçu » ne doit jamais emprunter /download — c'est par là
+   *  qu'un compte gratuit récupérait sa traduction en clair. */
+  const getPreviewBlob = useCallback(async (id: string): Promise<Blob | undefined> => {
+    if (user) {
+      const res = await authFetch(`/api/documents/${id}/preview`);
+      return res.ok ? res.blob() : undefined;
+    }
+    return documents.find(d => d.id === id)?._blob;
+  }, [user, documents]);
+
   const deleteDocument = useCallback(async (id: string) => {
     if (user) {
       await api.delete(`/api/documents/${id}`);
@@ -120,5 +131,5 @@ export function useDocumentLibrary() {
     setDocuments([]);
   }, [user, documents]);
 
-  return { documents, loading, saveDocument, getBlob, deleteDocument, clearAll };
+  return { documents, loading, saveDocument, getBlob, getPreviewBlob, deleteDocument, clearAll };
 }
