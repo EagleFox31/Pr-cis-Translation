@@ -1,5 +1,7 @@
 import os
 import json
+import time
+import glob
 import asyncio
 import logging
 import uuid
@@ -70,11 +72,32 @@ async def _reconcilier_jobs_orphelins():
         logger.warning(f"Réconciliation des jobs orphelins impossible : {e}")
 
 
+def _balayer_partiels_orphelins() -> None:
+    """Efface les `partial_*.pdf` d'un processus précédent.
+
+    Un PDF partiel n'appartient qu'à UN job, et les jobs vivent en mémoire :
+    au démarrage, tout partiel présent sur le disque est orphelin par
+    construction (même raisonnement que `_reconcilier_jobs_orphelins`). Sans ce
+    balayage ils s'accumulaient et maintenaient leur dossier en vie.
+    """
+    efface = 0
+    for path in glob.glob(os.path.join(TRANSLATIONS_DIR, "**", "partial_*.pdf"),
+                          recursive=True):
+        try:
+            os.remove(path)
+            efface += 1
+        except OSError:
+            pass
+    if efface:
+        logger.info(f"{efface} PDF partiel(s) orphelin(s) balayé(s).")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     for _level, message in _STARTUP_NOTES:
         print(message, flush=True)
     await _reconcilier_jobs_orphelins()
+    _balayer_partiels_orphelins()
     yield
 
 FRONTEND_API_KEY = os.getenv("FRONTEND_API_KEY", "precis_frontend_secure_key_2026_xK9mP2vL")
@@ -231,9 +254,9 @@ app.include_router(auth_router)
 app.include_router(documents_router)
 
 # ── Route quota stockage ─────────────────────────────────────────────────────
-from auth import require_auth
+from auth import require_auth, verify_access_token
 from models import (User, Document, get_plan_page_limit, get_plan_storage,
-                    FREE_PLAN)
+                    is_paid_plan)
 from preview import rasterize_for_trial
 from database import get_db
 from sqlalchemy import select, func
@@ -296,34 +319,47 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in _sys.path:
     _sys.path.insert(0, _REPO_ROOT)
 from pdf_engine_v2 import stream as pdf_v2_stream
-from pdf_engine_v2 import ENGINE_VERSION
 
 
-def build_job_paths(safe_name: str, file_hash: str, target_lang: str, ext: str):
-    """Où vivent les artefacts d'un job : (job_dir, lang_dir).
+def build_job_paths(file_hash: str, target_lang: str):
+    """Où vivent les artefacts d'un document : (job_dir, lang_dir).
 
-    C'est la CLÉ DE CACHE. Le magasin est adressé par le hash du contenu, donc
-    deux comptes qui déposent le même fichier retombent sur le même dossier —
-    c'est ainsi que la traduction de l'un sert à l'autre sans rien recalculer.
+    Le magasin est adressé par le SEUL hash du contenu : `translations/{hash}/`.
+    Le nom du fichier n'entre PAS dans le chemin — `contrat.pdf` et
+    `contrat-final.pdf` au contenu identique, ou le même fichier déposé par deux
+    comptes, partagent donc le même dossier et ne sont traduits qu'une fois. Le
+    nom d'origine est conservé par Document, pour l'affichage seulement.
 
-    `ENGINE_VERSION` en fait partie parce que la sortie dépend AUSSI du code qui
-    la produit, pas seulement du fichier d'entrée. Sans ce segment, un document
-    déjà traduit resservait éternellement le rendu d'avant le correctif : P15 à
-    P20 livrés, ancienne mise en page toujours à l'écran, et rien pour le
-    signaler. La clé mentait sur ce dont le résultat dépend.
-
-    Réservé au PDF : DOCX/PPTX passent par d'autres moteurs, que la version du
-    moteur PDF ne concerne pas — les invalider à chaque correctif coûterait des
-    appels DeepSeek pour rien.
+    Aucun segment de VERSION de moteur : on ne conserve plus le PDF rendu (il se
+    recalcule à la demande depuis l'original + la traduction, sans DeepSeek), et
+    ce qui est stocké — la traduction — ne dépend pas de la géométrie du moteur.
+    Rien à invalider, donc rien à versionner.
 
     Fonction extraite de `translate_endpoint` pour être TESTABLE : noyée dans
     l'endpoint, elle ne pouvait être vérifiée que par des tests tautologiques.
     """
-    job_dir = os.path.join(TRANSLATIONS_DIR, f"{safe_name}_{file_hash}")
+    job_dir = os.path.join(TRANSLATIONS_DIR, file_hash)
     lang_dir = os.path.join(job_dir, target_lang)
-    if ext == "pdf":
-        lang_dir = os.path.join(lang_dir, ENGINE_VERSION)
     return job_dir, lang_dir
+
+def cap_pages_for_plan(pages_set, ext: str, page_limit: int):
+    """Applique la limite de pages du plan à la sélection demandée.
+
+    Extraite de l'endpoint pour être TESTABLE — l'ancienne version, inline, ne
+    forçait la page 1 que pour `ext == "pdf"` : un plan d'essai qui déposait un
+    PPTX sans sélection obtenait TOUTES les diapositives traduites. La limite
+    ne vaut que si elle s'applique à tout format qui sait sélectionner ses
+    pages (PDF et PPTX ; le DOCX, sans notion de page à l'extraction, est
+    refusé plus haut pour un plan limité).
+    """
+    if ext not in ("pdf", "pptx"):
+        return pages_set
+    if pages_set and len(pages_set) > page_limit:
+        return {min(pages_set)}       # on ne garde que la 1re page demandée
+    if not pages_set and page_limit == 1:
+        return {1}                    # force page 1 uniquement
+    return pages_set
+
 
 docx_engine = DOCXTranslatorEngine()
 try:
@@ -373,11 +409,44 @@ def _resolve_quality(quality: str):
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
 
+# Un job terminé reste consultable (partiel/résultat) pendant cette durée, puis
+# est oublié et son PDF partiel effacé. Le commentaire d'origine promettait ce
+# ménage (« nettoyés après 30 minutes ») mais RIEN ne l'implémentait : les jobs
+# s'accumulaient en mémoire et les partial_*.pdf sur le disque, sans borne.
+JOB_RETENTION_SECONDS = 30 * 60
+# Un job encore « en vie » au-delà de cette durée a perdu son worker (plantage
+# sans _job_error) : on l'oublie aussi.
+JOB_MAX_AGE_SECONDS = 24 * 3600
+
+def _gc_jobs() -> None:
+    """Oublie les jobs finis depuis > 30 min et efface leurs fichiers
+    TRANSITOIRES (PDF partiel + rendu). La traduction persistante (pages.json)
+    n'est jamais touchée ici : elle vit dans le magasin, protégée par la purge
+    par références."""
+    now = time.time()
+    with _jobs_lock:
+        morts = [
+            (jid, j) for jid, j in _jobs.items()
+            if (j.get("finished_at") and now - j["finished_at"] > JOB_RETENTION_SECONDS)
+            or (now - j.get("created_at", now) > JOB_MAX_AGE_SECONDS)
+        ]
+        for jid, _ in morts:
+            del _jobs[jid]
+    for _, j in morts:
+        for f in (j.get("partial_path"), j.get("result_path")):
+            if f and os.path.isfile(f):
+                try:
+                    os.remove(f)
+                except OSError:
+                    pass
+
 def _new_job() -> str:
+    _gc_jobs()
     job_id = str(uuid.uuid4())
     with _jobs_lock:
         _jobs[job_id] = {
             "state": "pending",
+            "created_at": time.time(),
             "q": queue.Queue(),
             "result_path": None,
             "result_filename": None,
@@ -437,15 +506,23 @@ def _sync_document_status(job_id: str, status: str, translated_path: str | None 
     except Exception:
         pass
 
-def _job_done(job_id: str, result_path: str, filename: str):
+def _job_done(job_id: str, result_path: str, filename: str,
+              translation_path: str | None = None):
+    """`result_path` = le rendu (transitoire) que /result sert tout de suite.
+    `translation_path` = la traduction PERSISTANTE (pages.json/translated.json)
+    consignée en base : c'est elle qui permet de recalculer le rendu plus tard,
+    pas le fichier transitoire. Faute de quoi `Document.translated_path`
+    pointerait sur un rendu que le GC efface au bout de 30 min."""
     with _jobs_lock:
         job = _jobs.get(job_id)
     if job:
         job["result_path"] = result_path
         job["result_filename"] = filename
         job["state"] = "done"
+        job["finished_at"] = time.time()
         job["q"].put({"type": "done", "filename": filename})
-    _sync_document_status(job_id, "done", translated_path=result_path)
+    _sync_document_status(job_id, "done",
+                          translated_path=translation_path or result_path)
 
 def _job_error(job_id: str, message: str):
     with _jobs_lock:
@@ -453,6 +530,7 @@ def _job_error(job_id: str, message: str):
     if job:
         job["error"] = message
         job["state"] = "error"
+        job["finished_at"] = time.time()
         job["q"].put({"type": "error", "message": message})
     _sync_document_status(job_id, "error")
 
@@ -484,15 +562,13 @@ def _run_translation_job(
     output_path: str, output_filename: str,
     model: str, max_tokens: int, pages_set=None, debug: bool = False,
 ):
-    """Exécute toute la pipeline dans un thread de fond et émet des events SSE."""
+    """Exécute toute la pipeline dans un thread de fond et émet des events SSE.
+
+    `translated_path` (translated.json) est la traduction PERSISTANTE ; le rendu
+    `output_path` est transitoire. Un document déjà traduit relit ce JSON et se
+    contente de ré-injecter (aucun appel DeepSeek)."""
     try:
         _job_emit(job_id, "progress", {"step": "start", "message": "Démarrage du job...", "page": 0, "total": None})
-
-        # 1. Cache final
-        if os.path.exists(output_path):
-            _job_emit(job_id, "progress", {"step": "cache", "message": "Résultat en cache, restitution immédiate.", "page": 0, "total": None})
-            _job_done(job_id, output_path, output_filename)
-            return
 
         # 2. Sauvegarde de l'original
         if not os.path.exists(original_path):
@@ -564,7 +640,8 @@ def _run_translation_job(
         if not os.path.exists(output_path):
             raise ValueError("Le fichier traduit est introuvable après génération.")
 
-        _job_done(job_id, output_path, output_filename)
+        _job_done(job_id, output_path, output_filename,
+                  translation_path=translated_path)
 
     except Exception as e:
         logger.error(f"Job {job_id} failed: {e}")
@@ -574,25 +651,18 @@ def _run_translation_job(
 def _run_pdf_v2_job(
     job_id: str, file_bytes: bytes, original_path: str,
     output_path: str, output_filename: str, partial_path: str,
-    cache_path: str, target_lang: str, pages_set=None, debug: bool = False,
+    translation_path: str, target_lang: str, pages_set=None, debug: bool = False,
 ):
     """Pipeline PDF v2 PROGRESSIF : chaque page est extraite, traduite et rendue
     avant la suivante. Le PDF partiel grandit page après page — le client
     l'affiche au fil de l'eau via /api/translate/partial/{job_id}. Événements
-    SSE émis : start{total} puis page{page,status,done,total}."""
+    SSE émis : start{total} puis page{page,status,done,total}.
+
+    `translation_path` (pages.json) est la traduction PERSISTANTE : le moteur y
+    relit les pages déjà traduites au lieu de rappeler DeepSeek. Un document
+    déjà traité n'y déclenche donc aucun appel — il se contente d'un rendu."""
     try:
         _job_emit(job_id, "progress", {"step": "start", "message": "Démarrage du job...", "page": 0, "total": None})
-
-        # Cache final : résultat déjà produit → restitution immédiate (le
-        # partiel pointe sur le résultat complet, toutes les pages sont prêtes).
-        if os.path.exists(output_path):
-            with _jobs_lock:
-                job = _jobs.get(job_id)
-                if job is not None:
-                    job["partial_path"] = output_path
-            _job_emit(job_id, "progress", {"step": "cache", "message": "Résultat en cache, restitution immédiate.", "page": 0, "total": None})
-            _job_done(job_id, output_path, output_filename)
-            return
 
         if not os.path.exists(original_path):
             with open(original_path, "wb") as f:
@@ -625,16 +695,64 @@ def _run_pdf_v2_job(
         pdf_v2_stream.translate_pdf_progressive(
             original_path, output_path, target_lang=target_lang,
             pages=pages_set, partial_path=partial_path, on_event=on_event,
-            debug=debug, cache_path=cache_path,
+            debug=debug, cache_path=translation_path,
         )
 
         if not os.path.exists(output_path):
             raise ValueError("Le fichier traduit est introuvable après génération.")
-        _job_done(job_id, output_path, output_filename)
+        _job_done(job_id, output_path, output_filename,
+                  translation_path=translation_path)
 
     except Exception as e:
         logger.error(f"Job PDF v2 {job_id} failed: {e}")
         _job_error(job_id, str(e))
+
+
+def render_translation_bytes(original_path: str, translation_path: str,
+                             ext: str, target_lang: str) -> bytes:
+    """Recalcule le document traduit à partir de l'original + la traduction
+    stockée, SANS jamais rappeler DeepSeek. C'est le pilier du nouveau modèle :
+    on ne conserve plus le rendu, on le reconstruit à la demande.
+
+    PDF : le moteur v2 relit `pages.json` (déjà traduit) et se contente de
+    rendre. On lui passe EXPLICITEMENT les pages déjà traduites — jamais None,
+    qui le pousserait à traduire les pages manquantes (donc à payer l'API). Une
+    page absente du JSON est simplement recopiée de l'original.
+    DOCX/PPTX : ré-injection locale de `translated.json` dans l'original.
+    """
+    if not os.path.isfile(original_path) or not os.path.isfile(translation_path):
+        raise FileNotFoundError("Original ou traduction manquant pour le rendu.")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, f"render.{ext}")
+        if ext == "pdf":
+            with open(translation_path, encoding="utf-8") as f:
+                prev = json.load(f)
+            pages_traduites = {
+                pg.get("page_num") for pg in prev.get("pages", [])
+                if any(e.get("tr_tagged") for e in pg.get("elements", [])
+                       if e.get("type") == "paragraph")
+            }
+            pages_traduites.discard(None)
+            pdf_v2_stream.translate_pdf_progressive(
+                original_path, out, target_lang=target_lang,
+                pages=pages_traduites, partial_path=None, on_event=None,
+                debug=False, cache_path=translation_path,
+            )
+        elif ext == "docx":
+            ok, msg = docx_engine.inject_translation(original_path,
+                                                     translation_path, out)
+            if not ok:
+                raise ValueError(f"Ré-injection DOCX échouée : {msg}")
+        elif ext == "pptx" and pptx_engine:
+            ok, msg = pptx_engine.inject_translation(original_path,
+                                                     translation_path, out)
+            if not ok:
+                raise ValueError(f"Ré-injection PPTX échouée : {msg}")
+        else:
+            raise ValueError(f"Rendu à la demande non supporté pour .{ext}")
+        with open(out, "rb") as f:
+            return f.read()
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -665,6 +783,10 @@ async def preview_pdf_endpoint(
     request: Request,
     file: UploadFile = File(...),
     x_api_key: str = Header(None),
+    # CONNEXION OBLIGATOIRE : la clé d'API est publique (bundle du frontend),
+    # elle ne « protège » rien. Sans JWT, cet endpoint était une ferme de
+    # conversion LibreOffice ouverte à n'importe qui sur Internet.
+    current_user: "User" = Depends(require_auth),
 ):
     """Convertit un document (DOCX/PPTX/TXT) en PDF pour l'aperçu côté client.
     Les PDF sont renvoyés tels quels. La conversion ne change pas le fichier
@@ -715,7 +837,8 @@ async def _save_document_for_user(user: "User | None", db: "AsyncSession",
             charge = 0                      # quota plein : on journalise sans facturer
         doc = Document(user_id=user.id, original_name=filename, source_lang="auto",
                        target_lang=target_lang, original_path=original_path,
-                       size_bytes=size, status="translating")
+                       size_bytes=size, storage_charged=charge,
+                       status="translating")
         db.add(doc)
         user.storage_used += charge
         await db.commit()
@@ -804,15 +927,29 @@ async def translate_endpoint(
     limit = get_plan_page_limit(plan)
     page_limit = limit if limit is not None else 999_999
 
-    # Appliquer la limite : si pages spécifiées, on ne garde que la première ;
-    # si aucune page spécifiée, on limite à la page 1.
-    if pages_set and len(pages_set) > page_limit:
-        pages_set = {min(pages_set)}  # on ne garde que la 1re page demandée
-    elif not pages_set and ext == "pdf" and page_limit == 1:
-        pages_set = {1}              # force page 1 uniquement
+    # Un plan limité en pages n'a droit qu'aux formats où la limite est
+    # APPLICABLE (PDF, PPTX : l'extraction sait sélectionner ses pages). Le
+    # DOCX se traduit d'un bloc : l'autoriser ici, c'était offrir un document
+    # entier — la « limite » ne limitait rien.
+    if page_limit == 1 and ext not in ("pdf", "pptx"):
+        raise HTTPException(
+            status_code=402,
+            detail="Forfait Gratuit : essai sur PDF ou PPTX uniquement. "
+                   "Passez à Starter pour traduire ce format.",
+        )
+
+    pages_set = cap_pages_for_plan(pages_set, ext, page_limit)
 
     # ── Freemium : 1 page par mois calendaire (compteur = Documents du mois) ──
     if page_limit == 1:
+        # Verrou pessimiste sur la ligne User : le compteur est un
+        # lire-puis-écrire (COUNT ici, INSERT du Document plus bas). Sans lock,
+        # deux requêtes simultanées du même compte lisaient toutes deux 0 et
+        # passaient toutes deux. Le lock tient jusqu'au commit de
+        # `_save_document_for_user` : la seconde requête attend, recompte, 402.
+        await db.execute(
+            select(User).where(User.id == current_user.id).with_for_update()
+        )
         month_start = datetime.now(timezone.utc).replace(
             day=1, hour=0, minute=0, second=0, microsecond=0)
         r = await db.execute(
@@ -831,12 +968,19 @@ async def translate_endpoint(
 
     file_hash = get_file_hash(file_bytes)
     safe_name = sanitize_filename(filename)
-    job_dir, lang_dir = build_job_paths(safe_name, file_hash, target_lang, ext)
+    job_dir, lang_dir = build_job_paths(file_hash, target_lang)
     os.makedirs(lang_dir, exist_ok=True)
 
     original_path = os.path.join(job_dir, f"original.{ext}")
     extraction_path = os.path.join(job_dir, f"extraction{psuffix}.json")
-    translated_path = os.path.join(lang_dir, f"translated{qsuffix}{psuffix}.json")
+    # LA traduction persistante — la sortie DeepSeek, seule chose coûteuse à
+    # reconstituer. Pour le PDF, c'est le JSON du moteur v2 (texte + décisions
+    # de page) ; pour DOCX/PPTX, le JSON de traduction. Le PDF/DOCX rendu, lui,
+    # n'est PAS conservé : il se recalcule à la demande depuis ces deux-là.
+    if ext == "pdf":
+        translation_path = os.path.join(lang_dir, f"pages{qsuffix}{psuffix}.json")
+    else:
+        translation_path = os.path.join(lang_dir, f"translated{qsuffix}{psuffix}.json")
 
     output_filename = f"{safe_name}_TRADUIT{qsuffix}{psuffix}.{ext}"
     if debug_mode:
@@ -849,9 +993,12 @@ async def translate_endpoint(
         layout_sig = _hl.sha1(json.dumps(layout_opts, sort_keys=True).encode()).hexdigest()[:10]
         base, dot, fext = output_filename.rpartition(".")
         output_filename = f"{base}_L{layout_sig}{dot}{fext}"
-    output_path = os.path.join(lang_dir, output_filename)
 
     job_id = _new_job()
+    # Rendu TRANSITOIRE, propre au job (nettoyé par le GC) : il sert le flux
+    # progressif et le téléchargement immédiat, puis disparaît. La source de
+    # vérité reste `translation_path`.
+    output_path = os.path.join(lang_dir, f"render{qsuffix}{psuffix}_{job_id[:8]}.{ext}")
     with _jobs_lock:                    # propriétaire : /partial et /result s'en servent
         _jobs[job_id]["user_id"] = current_user.id
         # Pages RÉELLEMENT traduites : les seules à protéger dans l'aperçu
@@ -859,13 +1006,13 @@ async def translate_endpoint(
         _jobs[job_id]["pages"] = set(pages_set) if pages_set else None
     if ext == "pdf":
         # PDF → moteur v2 PROGRESSIF : page traduite = page affichable.
-        # `partial` grandit page à page ; `v2_pages` = cache de reprise.
+        # `partial` grandit page à page ; `translation_path` (pages.json) = la
+        # traduction persistante, qui sert aussi de cache de reprise.
         partial_path = os.path.join(lang_dir, f"partial{qsuffix}{psuffix}_{job_id[:8]}.pdf")
-        cache_path = os.path.join(lang_dir, f"v2_pages{qsuffix}{psuffix}.json")
         thread = threading.Thread(
             target=_run_pdf_v2_job,
             args=(job_id, file_bytes, original_path, output_path,
-                  output_filename, partial_path, cache_path, target_lang,
+                  output_filename, partial_path, translation_path, target_lang,
                   pages_set, debug_mode),
             daemon=True,
         )
@@ -874,29 +1021,49 @@ async def translate_endpoint(
             target=_run_translation_job,
             args=(job_id, file_bytes, filename, ext, target_lang, format_opts,
                   job_dir, lang_dir, original_path, extraction_path,
-                  translated_path, output_path, output_filename,
+                  translation_path, output_path, output_filename,
                   model, max_tokens, pages_set, debug_mode),
             daemon=True,
         )
-    thread.start()
-
-    # ── Document en base si l'utilisateur est connecté (JWT) ─────────────
+    # ── Document en base AVANT de démarrer le worker ─────────────────────
+    # L'ordre est un garde-fou, pas un détail : la ligne Document est la seule
+    # référence qui protège les octets partagés du magasin contre la purge d'un
+    # autre compte (`_purge_if_orphan` compte les références en base). Insérer
+    # après `thread.start()` ouvrait deux fenêtres : (1) A supprime son document
+    # pendant que le job de B démarre → les fichiers communs sont purgés sous
+    # ses pieds ; (2) un cache-hit terminait le job avant que `document_id` ne
+    # soit lié → le Document restait « translating » pour toujours.
     await _save_document_for_user(current_user, db, job_id, filename,
                                   target_lang, original_path, len(file_bytes))
+
+    thread.start()
 
     logger.info(f"Job {job_id} started for '{filename}' -> {target_lang}")
     return JSONResponse({"job_id": job_id})
 
 
 @app.get("/api/translate/events/{job_id}")
-async def translation_events(job_id: str):
+async def translation_events(job_id: str, token: str = ""):
     """SSE endpoint : émet les events de progression jusqu'à done/error.
-    Pas de vérification API key : EventSource (navigateur) ne supporte pas
-    les headers custom. Le job_id UUID sert de token d'accès."""
+
+    EventSource (navigateur) ne supporte pas les headers custom : le JWT passe
+    donc en QUERY (`?token=`). S'appuyer sur le seul job_id laissait le flux
+    sans AUCUNE authentification — pas d'octets du document, mais le nom du
+    fichier et la progression d'autrui, et surtout la file d'événements est à
+    consommateur UNIQUE : un tiers branché sur le flux VOLE les événements du
+    client légitime. On répond 404 (pas 403) pour ne pas révéler l'existence
+    du job. Le middleware ne journalise que le path, jamais la query : le
+    token ne fuit pas dans les logs.
+    """
+    try:
+        payload = verify_access_token(token)
+        user_id = payload["sub"]
+    except Exception:
+        raise HTTPException(status_code=404, detail="Job introuvable.")
 
     with _jobs_lock:
         job = _jobs.get(job_id)
-    if not job:
+    if not job or job.get("user_id") != user_id:
         raise HTTPException(status_code=404, detail="Job introuvable.")
 
     async def event_stream():
@@ -965,7 +1132,10 @@ async def translation_partial(job_id: str, x_api_key: str = Header(None),
     # Réseau. Rastériser retire la couche texte : il ne reste que des pixels
     # filigranés, inexploitables sans OCR. Le projecteur au survol, lui, marche
     # toujours (il lui faut des pixels nets, il en a).
-    if current_user.plan == FREE_PLAN:
+    # Liste d'AUTORISATION, pas de refus : un plan inconnu (valeur corrompue,
+    # plan retiré du barème) est traité comme non payant. `== FREE_PLAN`
+    # donnait l'inverse : tout ce qui n'était pas littéralement "free" passait.
+    if not is_paid_plan(current_user.plan):
         data = rasterize_for_trial(data, job.get("pages"))
 
     return Response(content=data, media_type="application/pdf",
@@ -984,7 +1154,7 @@ async def translation_result(job_id: str, x_api_key: str = Header(None),
     """
     verify_api_key(x_api_key)
     job = _job_of(job_id, current_user)
-    if current_user.plan == FREE_PLAN:
+    if not is_paid_plan(current_user.plan):
         raise HTTPException(
             status_code=402,
             detail="Forfait Gratuit : téléchargement indisponible. "

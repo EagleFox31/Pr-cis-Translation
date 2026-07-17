@@ -114,6 +114,11 @@ class Document(Base):
     original_path:   Mapped[str] = mapped_column(String(1024), nullable=False)
     translated_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     size_bytes:      Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # Ce qui a été DÉBITÉ de `User.storage_used` à la création (0 si quota
+    # plein ou plan sans stockage). La suppression rembourse cette valeur —
+    # rembourser `size_bytes` faisait dériver le compteur sous la réalité.
+    storage_charged: Mapped[int] = mapped_column(BigInteger, default=0,
+                                                 nullable=False)
     status:          Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
     page_count:      Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at:      Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

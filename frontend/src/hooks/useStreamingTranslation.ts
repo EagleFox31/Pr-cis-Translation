@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { authHeader } from '../services/api';
+import { authHeader, accessToken } from '../services/api';
 
 const API_KEY = import.meta.env.VITE_API_KEY || 'precis_frontend_secure_key_2026_xK9mP2vL';
 const API_BASE = import.meta.env.VITE_API_BASE || '';
@@ -134,7 +134,12 @@ export function useStreamingTranslation() {
           const { job_id } = await startRes.json();
           jobIdRef.current = job_id;
 
-          const es = new EventSource(`${API_BASE}/api/translate/events/${job_id}`);
+          // Le JWT passe en query : EventSource ne porte pas de header, et le
+          // backend n'accepte plus un flux anonyme (la file d'événements est à
+          // consommateur unique — un tiers la viderait).
+          const es = new EventSource(
+            `${API_BASE}/api/translate/events/${job_id}?token=${encodeURIComponent(accessToken() ?? '')}`,
+          );
           esRef.current = es;
 
           es.onmessage = async (e) => {

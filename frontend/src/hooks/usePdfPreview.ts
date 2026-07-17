@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { authHeader } from '../services/api';
 
 const API_KEY = import.meta.env.VITE_API_KEY || 'precis_frontend_secure_key_2026_xK9mP2vL';
 const API_BASE = import.meta.env.VITE_API_BASE || '';
@@ -11,9 +12,11 @@ async function convertToPdf(data: Blob, ext: string): Promise<Blob> {
   // Le backend déduit le format depuis l'extension du nom de fichier.
   form.append('file', data, `preview.${ext}`);
 
+  // `authHeader()` obligatoire : le backend exige désormais une session pour
+  // convertir (la clé d'API est publique, elle ne protège rien à elle seule).
   const res = await fetch(`${API_BASE}/api/preview/pdf`, {
     method: 'POST',
-    headers: { 'X-API-Key': API_KEY },
+    headers: { 'X-API-Key': API_KEY, ...authHeader() },
     body: form,
   });
   if (!res.ok) {

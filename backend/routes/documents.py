@@ -12,7 +12,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import User, Document, FREE_PLAN
+from models import User, Document, is_paid_plan
 from auth import require_auth
 from preview import rasterize_for_trial
 
@@ -44,25 +44,61 @@ def _inside_store(path: str) -> bool:
         return False
 
 
+def _job_root(path: str) -> str | None:
+    """Racine du job dans le magasin : `translations/{nom}_{hash}`.
+
+    C'est l'unité de PROPRIÉTÉ partagée : tout ce qu'un job produit (original,
+    extractions, rendus par version de moteur) vit sous ce dossier. None si le
+    chemin n'est pas strictement SOUS le magasin.
+    """
+    real = os.path.realpath(path)
+    store = os.path.realpath(STORAGE_BASE)
+    try:
+        rel = os.path.relpath(real, store)
+    except ValueError:                    # autre volume (Windows)
+        return None
+    premier = rel.split(os.sep)[0]
+    if premier in ("..", ".", ""):
+        return None
+    return os.path.join(store, premier)
+
+
 async def _purge_if_orphan(db: AsyncSession, path: str) -> bool:
-    """Efface `path` SI plus aucun Document, de quelque compte que ce soit, n'y
-    renvoie.
+    """Efface `path` SI plus aucun Document, de quelque compte que ce soit, ne
+    référence LE JOB auquel il appartient.
 
     Les fichiers vivent dans un magasin PARTAGÉ adressé par le hash du contenu :
     deux comptes ayant déposé le même fichier pointent sur les mêmes octets.
     Effacer sur la seule foi de « mon » Document supprimerait la traduction
     d'autrui. On compte donc les références restantes — la ligne courante est
     déjà supprimée ET commitée, elle ne se compte pas elle-même.
+
+    Le comptage se fait sur la RACINE du job, pas sur le chemin exact : le
+    `translated_path` d'un Document reste NULL pendant toute la traduction, et
+    un comptage au fichier près déclarait donc orphelin un rendu qu'un autre
+    compte était en train de produire. Tant qu'UNE référence pointe quelque
+    part sous la racine (ne serait-ce que l'original), rien n'y est effacé —
+    conservateur, mais de la rétention de disque plutôt que la perte du
+    fichier d'autrui.
     """
+    if not _inside_store(path):
+        return False
+    racine = _job_root(path)
+    if racine is None:
+        return False
+    prefixe = racine + os.sep
     refs = await db.execute(
         select(func.count()).select_from(Document).where(
-            or_(Document.original_path == path, Document.translated_path == path),
+            or_(
+                Document.original_path == racine,
+                Document.translated_path == racine,
+                Document.original_path.startswith(prefixe, autoescape=True),
+                Document.translated_path.startswith(prefixe, autoescape=True),
+            ),
         )
     )
     if (refs.scalar() or 0) > 0:
-        return False                      # quelqu'un d'autre y tient encore
-    if not _inside_store(path):
-        return False
+        return False                      # quelqu'un d'autre tient encore au job
     real = os.path.realpath(path)
     if not os.path.isfile(real):
         return False
@@ -88,6 +124,25 @@ def _prune_empty_dirs(start: str) -> None:
         except OSError:
             return
         cur = os.path.dirname(cur)
+
+
+def _render_or_404(doc: Document, ext: str) -> bytes:
+    """Recalcule le document traduit depuis l'original + la traduction stockée.
+
+    Import PARESSEUX d'`app` : `app` importe ce module (include_router), donc un
+    import en tête créerait un cycle. À l'exécution, `app` est déjà chargé.
+    """
+    if (not doc.original_path or not os.path.isfile(doc.original_path)
+            or not doc.translated_path or not os.path.isfile(doc.translated_path)):
+        raise HTTPException(status_code=404,
+                            detail="Fichier introuvable sur le serveur.")
+    import app as _app
+    try:
+        return _app.render_translation_bytes(
+            doc.original_path, doc.translated_path, ext, doc.target_lang)
+    except Exception as e:
+        raise HTTPException(status_code=500,
+                            detail=f"Rendu de la traduction impossible : {e}")
 
 
 def _doc_response(doc: Document) -> dict:
@@ -160,21 +215,30 @@ async def download_document(
     if doc is None or doc.user_id != user.id:
         raise HTTPException(status_code=404, detail="Document introuvable.")
 
-    if doc.translated_path and user.plan == FREE_PLAN:
+    # Liste d'AUTORISATION : un plan inconnu est traité comme non payant.
+    if doc.translated_path and not is_paid_plan(user.plan):
         raise HTTPException(
             status_code=402,
             detail="Forfait Gratuit : téléchargement indisponible. "
                    "Passez à Starter pour télécharger vos traductions.",
         )
 
-    path = doc.translated_path or doc.original_path
-    if not path or not os.path.isfile(path):
-        raise HTTPException(status_code=404, detail="Fichier introuvable sur le serveur.")
+    ext = os.path.splitext(doc.original_name)[1].lstrip(".").lower()
 
-    ext = os.path.splitext(doc.original_name)[1]
-    dl_name = doc.original_name.replace(ext, f"_TRADUIT{ext}") if doc.translated_path else doc.original_name
+    # Pas encore de traduction : on rend l'original (le fichier de l'utilisateur).
+    if not doc.translated_path:
+        if not doc.original_path or not os.path.isfile(doc.original_path):
+            raise HTTPException(status_code=404, detail="Fichier introuvable sur le serveur.")
+        return FileResponse(doc.original_path, filename=doc.original_name)
 
-    return FileResponse(path, filename=dl_name)
+    # `translated_path` désigne la TRADUCTION stockée (JSON), pas un rendu : on
+    # recalcule le document à la demande, sans rappeler DeepSeek.
+    data = _render_or_404(doc, ext)
+    base = os.path.splitext(doc.original_name)[0]
+    dl_name = f"{base}_TRADUIT.{ext}"
+    media = "application/pdf" if ext == "pdf" else "application/octet-stream"
+    return Response(content=data, media_type=media,
+                    headers={"Content-Disposition": f'attachment; filename="{dl_name}"'})
 
 
 # ── GET /documents/{id}/original ─────────────────────────────────────────────
@@ -221,17 +285,30 @@ async def preview_document(
     if doc is None or doc.user_id != user.id:
         raise HTTPException(status_code=404, detail="Document introuvable.")
 
-    path = doc.translated_path or doc.original_path
-    if not path or not os.path.isfile(path):
-        raise HTTPException(status_code=404, detail="Fichier introuvable sur le serveur.")
+    ext = os.path.splitext(doc.original_name)[1].lstrip(".").lower()
 
-    with open(path, "rb") as f:
-        data = f.read()
+    # Pas encore de traduction : on montre l'original (le fichier de l'utilisateur).
+    if not doc.translated_path:
+        if not doc.original_path or not os.path.isfile(doc.original_path):
+            raise HTTPException(status_code=404, detail="Fichier introuvable sur le serveur.")
+        return FileResponse(doc.original_path, filename=doc.original_name)
+
+    # Un plan d'essai ne reçoit que du rastérisé, et seulement pour le PDF : un
+    # format non-PDF ne peut pas être filigrané ici sans risque de le livrer en
+    # clair, donc on le réserve aux plans payants.
+    if not is_paid_plan(user.plan) and ext != "pdf":
+        raise HTTPException(
+            status_code=402,
+            detail="Forfait Gratuit : aperçu de ce format réservé aux plans payants.",
+        )
+
+    data = _render_or_404(doc, ext)
     # On ne protège que ce qu'on a PRODUIT : l'original appartient déjà à
     # l'utilisateur, le rastériser ne protégerait rien et coûterait cher.
-    if doc.translated_path and user.plan == FREE_PLAN:
-        data = rasterize_for_trial(data)
-    return Response(content=data, media_type="application/pdf",
+    if not is_paid_plan(user.plan):
+        data = rasterize_for_trial(data)          # ext == "pdf" garanti ici
+    media = "application/pdf" if ext == "pdf" else "application/octet-stream"
+    return Response(content=data, media_type=media,
                     headers={"Cache-Control": "no-store"})
 
 
@@ -248,13 +325,16 @@ async def delete_document(
     if doc is None or doc.user_id != user.id:
         raise HTTPException(status_code=404, detail="Document introuvable.")
 
-    size = doc.size_bytes
+    # On rembourse ce qui a été FACTURÉ, pas la taille du fichier. Un dépôt à
+    # quota plein (ou sur plan sans stockage) est facturé 0 : rembourser `size`
+    # faisait descendre `storage_used` sous la réalité à chaque suppression.
+    charge = doc.storage_charged or 0
     original_path = doc.original_path
     translated_path = doc.translated_path
     await db.delete(doc)
 
     # Libérer le quota
-    user.storage_used = max(0, user.storage_used - size)
+    user.storage_used = max(0, user.storage_used - charge)
     await db.commit()
 
     # Purge par comptage de références. Le commit ci-dessus est INDISPENSABLE
@@ -265,5 +345,5 @@ async def delete_document(
         if path and await _purge_if_orphan(db, path):
             purged += 1
 
-    return {"message": "Document supprimé.", "storage_freed": size,
+    return {"message": "Document supprimé.", "storage_freed": charge,
             "files_purged": purged}

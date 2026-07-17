@@ -27,7 +27,6 @@ from routes.documents import (                          # noqa: E402
 )
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from pdf_engine_v2 import ENGINE_VERSION                # noqa: E402
 
 
 def _mk_user() -> User:
@@ -49,9 +48,9 @@ async def _monter_partage():
     qui est ailleurs, un dossier temporaire quelconque ne prouverait donc rien.
     """
     racine = os.path.join(STORAGE_BASE, f"_test_{uuid.uuid4().hex[:8]}")
-    dossier = os.path.join(racine, "en", ENGINE_VERSION)
+    dossier = os.path.join(racine, "en")
     os.makedirs(dossier, exist_ok=True)
-    trad = os.path.join(dossier, "partage_TRADUIT.pdf")
+    trad = os.path.join(dossier, "pages.json")
     orig = os.path.join(racine, "original.pdf")
     for p in (trad, orig):
         with open(p, "wb") as f:
@@ -116,6 +115,29 @@ async def run():
     finally:
         await _demonter(ctx)
 
+    # ── La fenêtre de concurrence : B TRADUIT pendant que A supprime ────────
+    # Pendant toute la traduction, le Document de B a `translated_path` NULL :
+    # un comptage au fichier près ne voyait AUCUNE référence au rendu partagé
+    # et le déclarait orphelin — purgé sous les pieds de B. Le comptage se fait
+    # sur la RACINE du job : l'original de B suffit à protéger tout le dossier.
+    ctx = await _monter_partage()
+    try:
+        async with async_session() as db:
+            # B est en cours : sa ligne ne référence que l'original.
+            b_doc = await db.get(Document, ctx["ids"][1])
+            b_doc.translated_path = None
+            b_doc.status = "translating"
+            # A supprime son document (qui référençait orig + trad).
+            await db.delete(await db.get(Document, ctx["ids"][0]))
+            await db.commit()
+            purge_trad = await _purge_if_orphan(db, ctx["trad"])
+
+        ok("FENÊTRE  B traduit (translated NULL) : le rendu partagé survit",
+           purge_trad is False and os.path.isfile(ctx["trad"]),
+           "un comptage au fichier près purgeait le rendu en cours de production")
+    finally:
+        await _demonter(ctx)
+
     # ── Garde-fous : ce qu'on refuse d'effacer ──────────────────────────────
     # CONTRÔLE NÉGATIF : sans cette borne, un `original_path` mal formé ferait
     # effacer un fichier quelconque de la machine.
@@ -141,7 +163,7 @@ async def run():
 
     # ── Le ménage des dossiers ──────────────────────────────────────────────
     base = os.path.join(STORAGE_BASE, f"_test_prune_{uuid.uuid4().hex[:8]}")
-    profond = os.path.join(base, "en", ENGINE_VERSION)
+    profond = os.path.join(base, "en", "sous_dossier_vide")
     os.makedirs(profond, exist_ok=True)
     temoin = os.path.join(base, "en", "partial_abc.pdf")
     with open(temoin, "wb") as f:
@@ -160,54 +182,41 @@ async def run():
     ok("PRUNE  le MAGASIN lui-même n'est jamais effacé",
        not os.path.exists(vide) and os.path.isdir(STORAGE_BASE))
 
-    # ── La clé de cache mentionne le moteur ─────────────────────────────────
-    # C'est LE défaut d'origine : la clé prétendait que la sortie ne dépend que
-    # de l'entrée. Un correctif du moteur n'atteignait donc jamais un document
-    # déjà traduit. On interroge le VRAI constructeur de clé d'app.py — une
-    # vérification qui se contenterait de recomposer le chemin elle-même serait
-    # une tautologie et passerait même le moteur débranché.
+    # ── La clé d'identité : l'EMPREINTE DU CONTENU, seule ───────────────────
+    # On interroge le VRAI constructeur de clé d'app.py — une vérification qui
+    # recomposerait le chemin elle-même serait une tautologie.
     import app                                           # noqa: E402
 
     # ── Les deux modules désignent-ils le MÊME magasin ? ────────────────────
     # LE défaut d'origine : `documents.py` calculait `backend/routes/translations`
     # (dirname de son PROPRE fichier) pendant qu'`app.py` écrivait dans
     # `backend/translations`. La suppression « protégeait » les fichiers d'autrui
-    # en ne trouvant jamais rien à effacer.
-    #
-    # Cette vérification a été ajoutée après qu'un test de MUTATION l'a réclamée :
-    # remettre STORAGE_BASE sur le mauvais dossier ne faisait échouer AUCUN test,
-    # parce que les autres bâtissent leurs fichiers à partir de ce même
-    # STORAGE_BASE — ils suivaient le bug et restaient cohérents avec lui. Un
-    # test qui partage la constante du code ne peut pas voir cette constante
-    # fausse. L'invariant n'est pas la valeur : c'est l'ACCORD entre les modules.
+    # en ne trouvant jamais rien à effacer. L'invariant n'est pas la valeur :
+    # c'est l'ACCORD entre les modules (un test de mutation l'a réclamé).
     ok("MAGASIN  documents.py et app.py désignent le même dossier",
        os.path.realpath(STORAGE_BASE) == os.path.realpath(app.TRANSLATIONS_DIR),
        f"{STORAGE_BASE} != {app.TRANSLATIONS_DIR}")
 
-    _, pdf_dir = app.build_job_paths("doc", "abc123", "en", "pdf")
-    _, docx_dir = app.build_job_paths("doc", "abc123", "en", "docx")
-    ok("CLÉ  le chemin de sortie PDF porte la version du moteur",
-       ENGINE_VERSION in pdf_dir.split(os.sep), pdf_dir)
-    ok("CLÉ  un DOCX ne dépend PAS du moteur PDF",
-       ENGINE_VERSION not in docx_dir.split(os.sep), docx_dir)
+    # DÉDUP ENTRE NOMS : le nom du fichier ne doit PAS entrer dans la clé. Deux
+    # noms différents pour le même contenu = un seul dossier, une seule
+    # traduction. C'était le défaut : la clé contenait le nom, `contrat.pdf` et
+    # `contrat-final.pdf` identiques étaient traduits (et payés) deux fois.
+    j_pdf, _ = app.build_job_paths("abc123", "en")
+    ok("CLÉ  l'empreinte SEULE identifie le document (nom hors clé)",
+       os.path.basename(j_pdf) == "abc123", j_pdf)
 
-    # LA propriété qui compte : changer la version CHANGE la clé. Sans elle,
-    # livrer un correctif ne change rien pour un document déjà traduit.
-    avant = app.build_job_paths("doc", "abc123", "en", "pdf")[1]
-    _orig = app.ENGINE_VERSION
-    try:
-        app.ENGINE_VERSION = "v_autre"
-        apres = app.build_job_paths("doc", "abc123", "en", "pdf")[1]
-    finally:
-        app.ENGINE_VERSION = _orig
-    ok("CLÉ  un correctif du moteur INVALIDE le cache (clé différente)",
-       avant != apres, f"{avant} == {apres}")
-
-    # Et le pendant : à moteur constant, la clé ne bouge pas — sinon la dédup
-    # entre comptes ne servirait plus jamais et chaque dépôt repaierait DeepSeek.
-    ok("CLÉ  à moteur constant, deux dépôts identiques partagent la clé",
-       app.build_job_paths("doc", "abc123", "en", "pdf")
-       == app.build_job_paths("doc", "abc123", "en", "pdf"))
+    # PDF et DOCX de même contenu partagent la racine (le magasin est adressé par
+    # le contenu, pas par le moteur) ; seule la sous-langue diffère.
+    _, pdf_dir = app.build_job_paths("abc123", "en")
+    _, en2 = app.build_job_paths("abc123", "en")
+    _, fr_dir = app.build_job_paths("abc123", "fr")
+    ok("CLÉ  aucun segment de version de moteur dans le chemin",
+       "v21" not in pdf_dir.split(os.sep) and "v20" not in pdf_dir.split(os.sep),
+       pdf_dir)
+    ok("CLÉ  à contenu+langue constants, la clé est stable (dédup entre comptes)",
+       pdf_dir == en2)
+    ok("CLÉ  deux langues du même contenu ne se mélangent pas",
+       pdf_dir != fr_dir)
 
     # ── Rapport ─────────────────────────────────────────────────────────────
     print()

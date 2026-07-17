@@ -40,6 +40,15 @@ export function hasSession(): boolean {
 }
 
 /**
+ * Le token d'accès brut — UNIQUEMENT pour EventSource, qui ne sait pas porter
+ * de header. Le backend l'accepte alors en query (`?token=`) et ne journalise
+ * jamais la query. Pour tout appel `fetch`, passer par `authHeader()`.
+ */
+export function accessToken(): string | null {
+  return _accessToken;
+}
+
+/**
  * `fetch` authentifié pour les réponses NON-JSON (blob, flux). Rejoue l'appel
  * une fois après refresh sur 401, comme `request()` — sans quoi un token expiré
  * ferait échouer un téléchargement alors que la session est valide.
