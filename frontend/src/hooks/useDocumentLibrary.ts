@@ -115,6 +115,18 @@ export function useDocumentLibrary() {
     return documents.find(d => d.id === id)?._blob;
   }, [user, documents]);
 
+  /** Le fichier SOURCE tel que déposé — panneau gauche de l'aperçu.
+   *  `/download` rend la traduction dès qu'elle existe : il ne peut pas servir
+   *  à ça. Sans cette route, le viewer n'avait pas de source et affichait le
+   *  PDF de DÉMO à côté du document de l'utilisateur. */
+  const getOriginalBlob = useCallback(async (id: string): Promise<Blob | undefined> => {
+    if (user) {
+      const res = await authFetch(`/api/documents/${id}/original`);
+      return res.ok ? res.blob() : undefined;
+    }
+    return undefined;
+  }, [user]);
+
   const deleteDocument = useCallback(async (id: string) => {
     if (user) {
       await api.delete(`/api/documents/${id}`);
@@ -131,5 +143,6 @@ export function useDocumentLibrary() {
     setDocuments([]);
   }, [user, documents]);
 
-  return { documents, loading, saveDocument, getBlob, getPreviewBlob, deleteDocument, clearAll };
+  return { documents, loading, saveDocument, getBlob, getPreviewBlob,
+           getOriginalBlob, deleteDocument, clearAll };
 }

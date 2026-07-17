@@ -114,6 +114,31 @@ async def download_document(
     return FileResponse(path, filename=dl_name)
 
 
+# ── GET /documents/{id}/original ─────────────────────────────────────────────
+
+@router.get("/{doc_id}/original")
+async def original_document(
+    doc_id: str,
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Le fichier SOURCE, tel qu'il a été déposé.
+
+    /download rend la TRADUCTION dès qu'elle existe : impossible d'y récupérer
+    la source. L'aperçu depuis la bibliothèque n'avait donc rien à afficher dans
+    son panneau de gauche et retombait sur le PDF de DÉMO — on montrait le
+    journal d'exemple à côté du CV de l'utilisateur.
+
+    Aucun contrôle de plan : c'est le fichier de l'utilisateur.
+    """
+    doc = await db.get(Document, doc_id)
+    if doc is None or doc.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Document introuvable.")
+    if not doc.original_path or not os.path.isfile(doc.original_path):
+        raise HTTPException(status_code=404, detail="Fichier introuvable sur le serveur.")
+    return FileResponse(doc.original_path, filename=doc.original_name)
+
+
 # ── GET /documents/{id}/preview ──────────────────────────────────────────────
 
 @router.get("/{doc_id}/preview")

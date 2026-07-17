@@ -43,15 +43,17 @@ interface DocumentLibraryProps {
   isOpen: boolean;
   onClose: () => void;
   documents: DocMeta[];
-  onPreview: (blob: Blob, filename: string, ext: string) => void;
+  onPreview: (blob: Blob, filename: string, ext: string, source?: Blob) => void;
   onDelete: (id: string) => void;
   onClearAll: () => void;
   getBlob: (id: string) => Promise<Blob | undefined>;
   getPreviewBlob: (id: string) => Promise<Blob | undefined>;
+  getOriginalBlob: (id: string) => Promise<Blob | undefined>;
 }
 
 export default function DocumentLibrary({
-  isOpen, onClose, documents, onPreview, onDelete, onClearAll, getBlob, getPreviewBlob,
+  isOpen, onClose, documents, onPreview, onDelete, onClearAll,
+  getBlob, getPreviewBlob, getOriginalBlob,
 }: DocumentLibraryProps) {
   // Le serveur refuse le téléchargement d'une traduction à un plan d'essai
   // (402). On lit le MÊME plan côté client pour ne pas promettre un bouton qui
@@ -65,11 +67,20 @@ export default function DocumentLibrary({
 
   // L'aperçu passe par /preview (rastérisé + filigrané pour un plan d'essai) —
   // JAMAIS par /download, qui rend le PDF en clair.
+  //
+  // On remonte AUSSI la source : sans elle, le viewer n'a rien à mettre dans
+  // son panneau gauche et retombe sur son `demoSource` — le journal d'exemple
+  // s'affichait à côté du document de l'utilisateur.
   const handlePreview = useCallback(async (doc: DocMeta) => {
     setLoadingId(doc.id);
-    try { const blob = await getPreviewBlob(doc.id); if (blob) onPreview(blob, doc.filename, doc.ext); }
-    finally { setLoadingId(null); }
-  }, [getPreviewBlob, onPreview]);
+    try {
+      const [blob, source] = await Promise.all([
+        getPreviewBlob(doc.id),
+        getOriginalBlob(doc.id),
+      ]);
+      if (blob) onPreview(blob, doc.filename, doc.ext, source);
+    } finally { setLoadingId(null); }
+  }, [getPreviewBlob, getOriginalBlob, onPreview]);
 
   const handleDownload = useCallback(async (doc: DocMeta) => {
     if (trial) {                       // le serveur refuse (402) ; on oriente

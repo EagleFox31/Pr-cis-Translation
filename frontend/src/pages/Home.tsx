@@ -39,7 +39,7 @@ export default function Home() {
   const isTrialMode = isTrialFor(user);
 
   // ---- Document library ----
-  const { documents, saveDocument, getBlob, getPreviewBlob, deleteDocument, clearAll } = useDocumentLibrary();
+  const { documents, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll } = useDocumentLibrary();
 
   // ---- Scroll spy ----
   useEffect(() => {
@@ -119,11 +119,15 @@ export default function Home() {
 
   // ---- Library preview ----
   const handleLibraryPreview = useCallback(
-    (blob: Blob, filename: string, _ext: string) => {
+    (blob: Blob, filename: string, _ext: string, source?: Blob) => {
       stream.reset();
       setTranslatedBlob(blob);
       setTranslatedFilename(filename);
-      setSelectedFile(null);
+      // Sans source, le viewer retombe sur son `demoSource` : on affichait le
+      // journal de DÉMO dans le panneau gauche, à côté du vrai document. On
+      // reconstruit un File (et pas un Blob nu) pour que le nom du fichier
+      // suive — c'est lui que le viewer affiche en en-tête.
+      setSelectedFile(source ? new File([source], filename, { type: 'application/pdf' }) : null);
       setShowLibrary(false);
       setShowPreview(true);
     },
@@ -247,6 +251,7 @@ export default function Home() {
         onClearAll={clearAll}
         getBlob={getBlob}
         getPreviewBlob={getPreviewBlob}
+        getOriginalBlob={getOriginalBlob}
       />
 
       <main>
