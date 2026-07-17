@@ -192,6 +192,7 @@ app.include_router(documents_router)
 from auth import require_auth
 from models import (User, Document, get_plan_page_limit, get_plan_storage,
                     FREE_PLAN)
+from preview import rasterize_for_trial
 from database import get_db
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -784,6 +785,9 @@ async def translate_endpoint(
     job_id = _new_job()
     with _jobs_lock:                    # propriétaire : /partial et /result s'en servent
         _jobs[job_id]["user_id"] = current_user.id
+        # Pages RÉELLEMENT traduites : les seules à protéger dans l'aperçu
+        # d'essai (les autres sont des copies de l'original). None = toutes.
+        _jobs[job_id]["pages"] = set(pages_set) if pages_set else None
     if ext == "pdf":
         # PDF → moteur v2 PROGRESSIF : page traduite = page affichable.
         # `partial` grandit page à page ; `v2_pages` = cache de reprise.
@@ -885,6 +889,16 @@ async def translation_partial(job_id: str, x_api_key: str = Header(None),
         raise HTTPException(status_code=202, detail="Aucune page prête pour l'instant.")
     with open(path, "rb") as f:
         data = f.read()
+
+    # PLAN D'ESSAI : jamais le clair. On envoyait le PDF traduit tel quel et on
+    # comptait sur le navigateur pour l'assombrir — mesuré : un compte `free`
+    # récupérait le FICHIER (782 mots extractibles) en trois clics dans l'onglet
+    # Réseau. Rastériser retire la couche texte : il ne reste que des pixels
+    # filigranés, inexploitables sans OCR. Le projecteur au survol, lui, marche
+    # toujours (il lui faut des pixels nets, il en a).
+    if current_user.plan == FREE_PLAN:
+        data = rasterize_for_trial(data, job.get("pages"))
+
     return Response(content=data, media_type="application/pdf",
                     headers={"Cache-Control": "no-store"})
 
