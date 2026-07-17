@@ -59,6 +59,20 @@ export default function PdfViewer({
 
       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
+      // Ouvre un document en RECENSANT sa tâche et en désamorçant son rejet.
+      // `destroy()` au démontage fait rejeter `task.promise` ; si personne ne
+      // l'attend encore (cas courant du second document, détruit avant son
+      // `await`), le rejet part en « Uncaught (in promise) ». Ce `catch` vide
+      // n'avale rien d'utile : l'`await` plus bas reçoit le même rejet et le
+      // traite. Il dit seulement au navigateur que cette promesse a un
+      // responsable.
+      const open = (src: any) => {
+        const task = pdfjsLib.getDocument(src);
+        loadingTasks.push(task);
+        task.promise.catch(() => { /* voir `await` ci-dessous */ });
+        return task;
+      };
+
       try {
         let pdfSourceOrig: any;
         let pdfSourceTrad: any = null;
@@ -73,31 +87,37 @@ export default function PdfViewer({
           // l'URL pendant que le worker la chargeait encore → blob introuvable).
           const origBuf = await sourceFile.arrayBuffer();
           if (!active) return;
-          pdfSourceOrig = pdfjsLib.getDocument({ data: origBuf });
+          pdfSourceOrig = open({ data: origBuf });
           if (translatedBlob) {
             const tradBuf = await translatedBlob.arrayBuffer();
             if (!active) return;
-            pdfSourceTrad = pdfjsLib.getDocument({ data: tradBuf });
+            pdfSourceTrad = open({ data: tradBuf });
           }
         } else if (translatedBlob) {
-          // Aperçu depuis la bibliothèque : pas d'original, seulement le traduit.
+          // Un document RÉEL sans sa source. La démo n'a rien à faire ici : on
+          // affichait le journal d'exemple à côté du document de l'utilisateur,
+          // sans le moindre signal d'erreur. `demoSource` est une vitrine, elle
+          // n'a de sens QUE quand aucun document n'est chargé (branche `else`).
+          // Un panneau vide se remarque ; un panneau qui ment, non.
           const tradBuf = await translatedBlob.arrayBuffer();
           if (!active) return;
-          pdfSourceTrad = pdfjsLib.getDocument({ data: tradBuf });
-          pdfSourceOrig = pdfjsLib.getDocument(demoSource);
+          pdfSourceTrad = open({ data: tradBuf });
+          pdfSourceOrig = null;
         } else {
-          pdfSourceOrig = pdfjsLib.getDocument(demoSource);
-          pdfSourceTrad = pdfjsLib.getDocument(demoTarget);
+          pdfSourceOrig = open(demoSource);
+          pdfSourceTrad = open(demoTarget);
         }
-        loadingTasks.push(pdfSourceOrig);
-        if (pdfSourceTrad) loadingTasks.push(pdfSourceTrad);
 
-        const pdfOrig = await pdfSourceOrig.promise;
+        const pdfOrig = pdfSourceOrig ? await pdfSourceOrig.promise : null;
         if (!active) return;
-        onPagesLoaded?.(pdfOrig.numPages);
 
         const pdfTrad = pdfSourceTrad ? await pdfSourceTrad.promise : null;
         if (!active) return;
+
+        // La pagination suit l'original quand il existe, le traduit sinon :
+        // sans ça, un aperçu sans source resterait bloqué sur une seule page.
+        const pageSource = pdfOrig ?? pdfTrad;
+        if (pageSource) onPagesLoaded?.(pageSource.numPages);
 
         const renderPage = async (pdf: any, canvasId: string, pageNum: number) => {
           // Borne la page demandée : un document mono-page recevait encore le
@@ -132,7 +152,15 @@ export default function PdfViewer({
           await renderTask.promise;
         };
 
-        await renderPage(pdfOrig, 'pdf-canvas-original', currentPage);
+        if (pdfOrig) {
+          await renderPage(pdfOrig, 'pdf-canvas-original', currentPage);
+        } else {
+          // Pas de source : on laisse le panneau VIDE plutôt que d'y mettre un
+          // document étranger.
+          const canvas = document.getElementById('pdf-canvas-original') as HTMLCanvasElement;
+          const ctx = canvas?.getContext('2d');
+          if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
 
         // Panneau TRADUIT : n'affiche la page que si le PDF traduit existe, que
         // la page est prête ET présente dedans (sinon le viewer clamperait sur
@@ -158,6 +186,13 @@ export default function PdfViewer({
           }
         }
       } catch (error) {
+        // Un effet démonté a DÉJÀ appelé `cancel()`/`destroy()` : le rejet qui
+        // arrive ici est celui qu'on a demandé (« Worker was destroyed »,
+        // « RenderingCancelledException »…). Le journaliser revenait à crier
+        // au feu en voyant l'extincteur : en StrictMode, React monte-démonte-
+        // remonte chaque effet, donc la console s'en remplissait à chaque
+        // aperçu. On ne signale que ce qui casse un rendu ENCORE attendu.
+        if (!active) return;
         if (error instanceof Error && error.name === 'RenderingCancelledException') return;
         console.error('Error loading PDF:', error);
       }
