@@ -2,6 +2,7 @@
 Routes d'authentification — register, login, refresh, me, verify-email, google.
 """
 from __future__ import annotations
+import logging
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -16,8 +17,11 @@ from models import User, VerificationCode
 from auth import (
     create_access_token, create_refresh_token,
     rotate_refresh_token, revoke_user_tokens, require_auth,
+    hash_password, verify_password,
 )
 from email_service import send_verification_email
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -51,6 +55,29 @@ class VerifyCodeBody(BaseModel):
 
 class GoogleBody(BaseModel):
     credential: str   # id_token JWT Google
+
+# Longueur minimale d'un mot de passe. Seule règle imposée : la LONGUEUR.
+# Exiger « une majuscule, un chiffre, un symbole » pousse aux mots de passe
+# courts et réutilisés (« Motdepasse1! ») ; c'est la recommandation actuelle de
+# l'ANSSI comme du NIST — la longueur fait la force, pas la ponctuation.
+MIN_PASSWORD_LEN = 10
+
+class PasswordLoginBody(BaseModel):
+    email: EmailStr
+    password: str
+
+class PasswordRegisterBody(BaseModel):
+    email: EmailStr
+    password: str
+    name: str | None = None
+
+class ForgotBody(BaseModel):
+    email: EmailStr
+
+class ResetBody(BaseModel):
+    email: EmailStr
+    code: str
+    password: str
 
 class AuthResponse(BaseModel):
     access_token: str
@@ -165,6 +192,130 @@ async def login(body: EmailBody, db: AsyncSession = Depends(get_db)):
         "email": email,
         "is_new": is_new,
     }
+
+
+# ── Mot de passe ─────────────────────────────────────────────────────────────
+# La connexion par CODE EMAIL reste en place (elle sert de repli et de première
+# entrée). Le mot de passe évite d'aller relever sa boîte à chaque session.
+
+def _check_password_strength(pw: str) -> None:
+    if len(pw) < MIN_PASSWORD_LEN:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Mot de passe trop court : {MIN_PASSWORD_LEN} caractères minimum.",
+        )
+
+
+async def _issue(db: AsyncSession, user: User) -> AuthResponse:
+    """Couple de jetons pour une session ouverte."""
+    return AuthResponse(
+        access_token=create_access_token(user.id, user.email),
+        refresh_token=await create_refresh_token(db, user.id),
+        user=_user_response(user),
+    )
+
+
+@router.post("/register-password", status_code=201)
+async def register_password(body: PasswordRegisterBody,
+                            db: AsyncSession = Depends(get_db)):
+    """Inscription avec mot de passe. L'email reste à vérifier par code."""
+    email = body.email.lower().strip()
+    _check_password_strength(body.password)
+
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    if user is not None and user.password_hash:
+        raise HTTPException(status_code=409, detail="Un compte existe déjà pour cet email.")
+
+    if user is None:
+        user = User(email=email, name=body.name)
+        db.add(user)
+    user.password_hash = hash_password(body.password)
+    await db.commit()
+    await db.refresh(user)
+
+    vc = await _generate_verification(db, user)
+    await send_verification_email(user.email, vc.code, vc.token)
+    return {"message": "Compte créé. Vérifiez votre email pour l'activer.",
+            "email": email, "is_new": True}
+
+
+@router.post("/login-password")
+async def login_password(body: PasswordLoginBody,
+                         db: AsyncSession = Depends(get_db)):
+    """Connexion par mot de passe — ouvre la session directement."""
+    email = body.email.lower().strip()
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+
+    # Message IDENTIQUE que le compte n'existe pas, n'ait pas de mot de passe ou
+    # que le mot de passe soit faux : distinguer ces cas transforme la page de
+    # connexion en annuaire (on saurait quels emails ont un compte).
+    if user is None or not user.password_hash \
+            or not verify_password(body.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect.")
+
+    if not user.email_verified:
+        raise HTTPException(status_code=403,
+                            detail="Email non vérifié. Vérifiez votre boîte de réception.")
+    return await _issue(db, user)
+
+
+@router.post("/forgot-password", status_code=201)
+async def forgot_password(body: ForgotBody, db: AsyncSession = Depends(get_db)):
+    """Envoie un code de réinitialisation — vérification de l'email d'abord."""
+    email = body.email.lower().strip()
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+
+    # Réponse TOUJOURS identique, compte ou pas : sinon cet endpoint dirait
+    # publiquement quels emails sont inscrits chez vous.
+    #
+    # L'envoi est ENCAPSULÉ, et ce n'est pas de la superstition : on n'envoie
+    # que si le compte existe. Une panne SMTP ferait donc répondre 500 pour un
+    # compte existant contre 201 pour un inconnu — l'erreur elle-même rétablit
+    # l'énumération que ce endpoint est censé interdire. Constaté en test, SMTP
+    # injoignable. Le silence est ici la bonne réponse : l'utilisateur redemande
+    # un code, l'attaquant n'apprend rien.
+    if user is not None:
+        try:
+            vc = await _generate_verification(db, user)
+            await send_verification_email(user.email, vc.code, vc.token)
+        except Exception:
+            logger.exception("forgot-password : envoi du code impossible")
+    return {"message": "Si un compte existe pour cet email, un code vient d'être envoyé.",
+            "email": email}
+
+
+@router.post("/reset-password")
+async def reset_password(body: ResetBody, db: AsyncSession = Depends(get_db)):
+    """Nouveau mot de passe contre un code valide reçu par email."""
+    email = body.email.lower().strip()
+    _check_password_strength(body.password)
+
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=400, detail="Code invalide ou expiré.")
+
+    vc = (await db.execute(
+        select(VerificationCode)
+        .where(VerificationCode.user_id == user.id,
+               VerificationCode.code == body.code.strip(),
+               VerificationCode.used == False)      # noqa: E712
+        .order_by(VerificationCode.created_at.desc())
+    )).scalars().first()
+
+    if vc is None or _aware(vc.expires_at) < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Code invalide ou expiré.")
+
+    vc.used = True
+    user.password_hash = hash_password(body.password)
+    # Un email qui prouve la possession de la boîte VAUT vérification.
+    user.email_verified = True
+    await db.commit()
+
+    # Toutes les sessions ouvertes tombent : si un intrus était connecté, le
+    # changement de mot de passe doit l'expulser — sinon il ne sert à rien.
+    await revoke_user_tokens(db, user.id)
+    await db.refresh(user)
+    return await _issue(db, user)
 
 
 # ── POST /refresh ────────────────────────────────────────────────────────────

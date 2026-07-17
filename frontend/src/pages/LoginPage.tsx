@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Mail, ArrowRight, Loader2, ArrowLeft, RefreshCw, Sparkles } from 'lucide-react';
+import { Mail, ArrowRight, Loader2, ArrowLeft, RefreshCw, Sparkles, Lock } from 'lucide-react';
 import { GoogleLogin } from '@react-oauth/google';
 import AuthBackground from '../components/auth/AuthBackground';
 
@@ -57,22 +57,50 @@ const focusOut = (e: React.FocusEvent<HTMLInputElement>) => {
 /* ── Composant ────────────────────────────────────────────────────────── */
 
 export default function LoginPage() {
-  const { login, verifyCode, resendVerification, googleAuth } = useAuth();
+  const { login, verifyCode, resendVerification, googleAuth,
+          loginPassword, forgotPassword, resetPassword } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const verified = params.get('verified') === '1';
 
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
+  // 'email' : connexion par mot de passe (défaut) · 'code' : saisie du code
+  // reçu — il sert AUSSI BIEN à la connexion sans mot de passe qu'à la
+  // réinitialisation, d'où `codeFor` qui dit quoi faire une fois le code saisi.
   const [step, setStep] = useState<'email' | 'code'>('email');
+  const [codeFor, setCodeFor] = useState<'login' | 'reset'>('login');
+  const [newPassword, setNewPassword] = useState('');
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const [resent, setResent] = useState(false);
 
-  async function handleEmail(e: FormEvent) {
-    e.preventDefault(); setError(''); setBusy(true);
+  /** Connexion par MOT DE PASSE — session ouverte sans passer par la boîte mail. */
+  async function handlePassword(e: FormEvent) {
+    e.preventDefault(); setError(''); setInfo(''); setBusy(true);
+    const res = await loginPassword(email, password); setBusy(false);
+    if (res.ok) navigate('/home', { replace: true });
+    else setError(res.error || 'Email ou mot de passe incorrect.');
+  }
+
+  /** Repli : recevoir un code par email (compte sans mot de passe). */
+  async function handleEmailCode() {
+    if (!email) { setError('Saisissez votre email.'); return; }
+    setError(''); setInfo(''); setBusy(true);
     const res = await login(email); setBusy(false);
-    if (res.ok) setStep('code'); else setError(res.error || 'Erreur.');
+    if (res.ok) { setCodeFor('login'); setStep('code'); }
+    else setError(res.error || 'Erreur.');
+  }
+
+  /** Mot de passe oublié : on revérifie l'email, puis on réinitialise. */
+  async function handleForgot() {
+    if (!email) { setError('Saisissez votre email pour recevoir un code.'); return; }
+    setError(''); setBusy(true);
+    await forgotPassword(email); setBusy(false);
+    setCodeFor('reset'); setStep('code'); setCode(['', '', '', '', '', '']);
+    setInfo('Si un compte existe pour cet email, un code vient d’être envoyé.');
   }
 
   function handleCode(i: number, v: string) {
@@ -91,8 +119,16 @@ export default function LoginPage() {
     e.preventDefault();
     const full = code.join('');
     if (full.length !== 6) { setError('Veuillez saisir les 6 chiffres.'); return; }
+    if (codeFor === 'reset' && newPassword.length < 10) {
+      setError('Le nouveau mot de passe doit faire au moins 10 caractères.'); return;
+    }
     setError(''); setBusy(true);
-    const res = await verifyCode(email, full); setBusy(false);
+    // Le même code prouve la possession de la boîte : il connecte, ou il
+    // réinitialise, selon la porte par laquelle on est entré.
+    const res = codeFor === 'reset'
+      ? await resetPassword(email, full, newPassword)
+      : await verifyCode(email, full);
+    setBusy(false);
     if (res.ok) navigate('/home', { replace: true });
     else setError(res.error || 'Code invalide ou expiré.');
   }
@@ -119,7 +155,7 @@ export default function LoginPage() {
 
             <h1 style={{ fontSize: '22px', fontWeight: 700, color: 'var(--gray-900)', margin: '0 0 4px' }}>Connexion</h1>
             <p style={{ fontSize: '14px', color: 'var(--gray-500)', margin: '0 0 ' + (verified ? '12px' : '20px'), lineHeight: 1.5 }}>
-              Recevez un code de connexion par email.
+              Entrez votre mot de passe, ou recevez un code par email.
             </p>
 
             {verified && (
@@ -128,22 +164,44 @@ export default function LoginPage() {
               </div>
             )}
 
-            <form onSubmit={handleEmail} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <form onSubmit={handlePassword} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {error && <div style={{ padding: '10px 12px', borderRadius: '10px', background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', fontSize: '13px' }}>{error}</div>}
 
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: 'var(--gray-700)', marginBottom: '5px' }}>Email</label>
                 <div style={{ position: 'relative' }}>
                   <Mail size={15} style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
-                  <input type="email" required autoFocus value={email}
+                  <input type="email" required autoFocus value={email} autoComplete="username"
                     onChange={e => setEmail(e.target.value)} placeholder="vous@exemple.com"
+                    style={inputBase} onFocus={focusIn} onBlur={focusOut} />
+                </div>
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '5px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--gray-700)' }}>Mot de passe</label>
+                  <button type="button" onClick={handleForgot} disabled={busy}
+                    style={{ background: 'none', border: 'none', padding: 0, fontSize: '12px', color: 'var(--blue)', cursor: 'pointer' }}>
+                    Mot de passe oublié ?
+                  </button>
+                </div>
+                <div style={{ position: 'relative' }}>
+                  <Lock size={15} style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
+                  <input type="password" required value={password} autoComplete="current-password"
+                    onChange={e => setPassword(e.target.value)} placeholder="••••••••••"
                     style={inputBase} onFocus={focusIn} onBlur={focusOut} />
                 </div>
               </div>
 
               <button type="submit" disabled={busy} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }}>
                 {busy ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <ArrowRight size={15} />}
-                Recevoir le code
+                Se connecter
+              </button>
+
+              {/* Repli : les comptes créés avant le mot de passe n'en ont pas. */}
+              <button type="button" onClick={handleEmailCode} disabled={busy}
+                style={{ background: 'none', border: 'none', padding: 0, fontSize: '12.5px', color: 'var(--gray-500)', cursor: 'pointer', textDecoration: 'underline' }}>
+                Recevoir plutôt un code par email
               </button>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '4px 0' }}>
@@ -188,11 +246,19 @@ export default function LoginPage() {
               <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '44px', height: '44px', borderRadius: '12px', background: 'var(--blue)', color: 'white', marginBottom: '12px' }}>
                 <Sparkles size={20} />
               </div>
-              <h1 style={{ fontSize: '22px', fontWeight: 700, color: 'var(--gray-900)', margin: '0 0 4px' }}>Vérification</h1>
+              <h1 style={{ fontSize: '22px', fontWeight: 700, color: 'var(--gray-900)', margin: '0 0 4px' }}>
+                {codeFor === 'reset' ? 'Nouveau mot de passe' : 'Vérification'}
+              </h1>
               <p style={{ fontSize: '14px', color: 'var(--gray-500)', margin: 0, lineHeight: 1.5 }}>
                 Code envoyé à <span style={{ fontWeight: 600, color: 'var(--gray-700)' }}>{email}</span>
               </p>
             </div>
+
+            {info && (
+              <div style={{ marginBottom: '14px', padding: '10px 12px', borderRadius: '10px', background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe', fontSize: '12.5px' }}>
+                {info}
+              </div>
+            )}
 
             <form onSubmit={submitCode} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
               {error && <div style={{ padding: '10px 12px', borderRadius: '10px', background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', fontSize: '13px' }}>{error}</div>}
@@ -205,9 +271,26 @@ export default function LoginPage() {
                 ))}
               </div>
 
+              {codeFor === 'reset' && (
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: 'var(--gray-700)', marginBottom: '5px' }}>
+                    Nouveau mot de passe
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <Lock size={15} style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
+                    <input type="password" required value={newPassword} autoComplete="new-password"
+                      onChange={e => setNewPassword(e.target.value)} placeholder="10 caractères minimum"
+                      style={inputBase} onFocus={focusIn} onBlur={focusOut} />
+                  </div>
+                  <p style={{ fontSize: '11.5px', color: 'var(--gray-400)', margin: '6px 0 0' }}>
+                    Une phrase longue vaut mieux qu'un mot compliqué.
+                  </p>
+                </div>
+              )}
+
               <button type="submit" disabled={busy} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }}>
                 {busy ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <ArrowRight size={15} />}
-                Se connecter
+                {codeFor === 'reset' ? 'Changer le mot de passe' : 'Se connecter'}
               </button>
 
               <div style={{ textAlign: 'center' }}>

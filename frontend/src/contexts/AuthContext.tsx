@@ -22,6 +22,10 @@ interface AuthState {
   register: (email: string, name?: string) => Promise<{ ok: boolean; error?: string }>;
   verifyCode: (email: string, code: string) => Promise<{ ok: boolean; error?: string }>;
   resendVerification: (email: string) => Promise<void>;
+  loginPassword: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  registerPassword: (email: string, password: string, name?: string) => Promise<{ ok: boolean; error?: string }>;
+  forgotPassword: (email: string) => Promise<void>;
+  resetPassword: (email: string, code: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   googleAuth: (credential: string) => Promise<{ ok: boolean; error?: string }>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -99,6 +103,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await api.post('/api/auth/resend-verification', { email });
   }, []);
 
+  /** Ouvre la session immédiatement — aucun aller-retour par la boîte mail. */
+  const loginPassword = useCallback(async (email: string, password: string) => {
+    const res = await api.post('/api/auth/login-password', { email, password });
+    if (!res.ok) return { ok: false, error: (res.data as any)?.detail || 'Email ou mot de passe incorrect.' };
+    const d = res.data as any;
+    saveTokens(d.access_token, d.refresh_token);
+    setTokens(d.access_token, d.refresh_token);
+    setUser(d.user);
+    return { ok: true };
+  }, []);
+
+  /** Inscription avec mot de passe : l'email reste à vérifier par code. */
+  const registerPassword = useCallback(async (email: string, password: string, name?: string) => {
+    const res = await api.post('/api/auth/register-password', { email, password, name });
+    if (!res.ok) return { ok: false, error: (res.data as any)?.detail || "Erreur lors de l'inscription." };
+    return { ok: true }; // code envoyé
+  }, []);
+
+  const forgotPassword = useCallback(async (email: string) => {
+    await api.post('/api/auth/forgot-password', { email });
+  }, []);
+
+  /** Nouveau mot de passe contre un code reçu par email → session ouverte. */
+  const resetPassword = useCallback(async (email: string, code: string, password: string) => {
+    const res = await api.post('/api/auth/reset-password', { email, code, password });
+    if (!res.ok) return { ok: false, error: (res.data as any)?.detail || 'Code invalide ou expiré.' };
+    const d = res.data as any;
+    saveTokens(d.access_token, d.refresh_token);
+    setTokens(d.access_token, d.refresh_token);
+    setUser(d.user);
+    return { ok: true };
+  }, []);
+
   const googleAuth = useCallback(async (credential: string) => {
     const res = await api.post('/api/auth/google', { credential });
     if (!res.ok) return { ok: false, error: (res.data as any)?.detail || 'Authentification Google échouée.' };
@@ -121,7 +158,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, verifyCode, resendVerification, googleAuth, logout, refreshUser }}>
+    <AuthContext.Provider value={{
+      user, loading, login, register, verifyCode, resendVerification,
+      loginPassword, registerPassword, forgotPassword, resetPassword,
+      googleAuth, logout, refreshUser,
+    }}>
       {children}
     </AuthContext.Provider>
   );
