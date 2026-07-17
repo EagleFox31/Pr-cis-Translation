@@ -29,10 +29,52 @@ logger = logging.getLogger("backend_app")
 _STARTUP_NOTES: list[tuple[int, str]] = []
 
 
+async def _reconcilier_jobs_orphelins():
+    """Clôt les Documents restés `translating` d'un processus précédent.
+
+    Le registre des jobs (`_jobs`) vit en MÉMOIRE : il est vide au démarrage.
+    Tout Document encore `translating` à cet instant a donc perdu son worker —
+    serveur arrêté, rechargement, plantage. Aucune heuristique là-dedans, aucun
+    délai à deviner : c'est vrai par construction.
+
+    Sans ça, la ligne reste en vol POUR TOUJOURS. L'utilisateur voit un document
+    éternellement « en cours » dans sa bibliothèque, et comme `translated_path`
+    est NULL, le téléchargement lui sert l'ORIGINAL en silence — un document
+    présenté comme traduit qui ne l'est pas. Mesuré sur cette base : 1 zombie
+    de 08:11 que rien n'aurait jamais nettoyé.
+    """
+    # LIMITE ASSUMÉE : si un second processus démarre pendant qu'un premier
+    # traduit encore, il marquera en erreur un job bien vivant. Le dégât est
+    # transitoire — le worker du premier appellera `_job_done`, qui repasse la
+    # ligne à `done` avec son `translated_path`. On ne complique pas pour ça.
+    try:
+        from database import async_session
+        from models import Document
+        from sqlalchemy import update
+        async with async_session() as db:
+            r = await db.execute(
+                update(Document)
+                .where(Document.status == "translating")
+                .values(status="error")
+                .returning(Document.id)
+            )
+            perdus = len(r.fetchall())
+            await db.commit()
+        if perdus:
+            logger.warning(
+                f"{perdus} traduction(s) interrompue(s) par un arrêt précédent : "
+                f"marquée(s) en erreur."
+            )
+    except Exception as e:
+        # Ne JAMAIS empêcher le serveur de démarrer pour un ménage.
+        logger.warning(f"Réconciliation des jobs orphelins impossible : {e}")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     for _level, message in _STARTUP_NOTES:
         print(message, flush=True)
+    await _reconcilier_jobs_orphelins()
     yield
 
 FRONTEND_API_KEY = os.getenv("FRONTEND_API_KEY", "precis_frontend_secure_key_2026_xK9mP2vL")
@@ -254,6 +296,34 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in _sys.path:
     _sys.path.insert(0, _REPO_ROOT)
 from pdf_engine_v2 import stream as pdf_v2_stream
+from pdf_engine_v2 import ENGINE_VERSION
+
+
+def build_job_paths(safe_name: str, file_hash: str, target_lang: str, ext: str):
+    """Où vivent les artefacts d'un job : (job_dir, lang_dir).
+
+    C'est la CLÉ DE CACHE. Le magasin est adressé par le hash du contenu, donc
+    deux comptes qui déposent le même fichier retombent sur le même dossier —
+    c'est ainsi que la traduction de l'un sert à l'autre sans rien recalculer.
+
+    `ENGINE_VERSION` en fait partie parce que la sortie dépend AUSSI du code qui
+    la produit, pas seulement du fichier d'entrée. Sans ce segment, un document
+    déjà traduit resservait éternellement le rendu d'avant le correctif : P15 à
+    P20 livrés, ancienne mise en page toujours à l'écran, et rien pour le
+    signaler. La clé mentait sur ce dont le résultat dépend.
+
+    Réservé au PDF : DOCX/PPTX passent par d'autres moteurs, que la version du
+    moteur PDF ne concerne pas — les invalider à chaque correctif coûterait des
+    appels DeepSeek pour rien.
+
+    Fonction extraite de `translate_endpoint` pour être TESTABLE : noyée dans
+    l'endpoint, elle ne pouvait être vérifiée que par des tests tautologiques.
+    """
+    job_dir = os.path.join(TRANSLATIONS_DIR, f"{safe_name}_{file_hash}")
+    lang_dir = os.path.join(job_dir, target_lang)
+    if ext == "pdf":
+        lang_dir = os.path.join(lang_dir, ENGINE_VERSION)
+    return job_dir, lang_dir
 
 docx_engine = DOCXTranslatorEngine()
 try:
@@ -761,8 +831,7 @@ async def translate_endpoint(
 
     file_hash = get_file_hash(file_bytes)
     safe_name = sanitize_filename(filename)
-    job_dir = os.path.join(TRANSLATIONS_DIR, f"{safe_name}_{file_hash}")
-    lang_dir = os.path.join(job_dir, target_lang)
+    job_dir, lang_dir = build_job_paths(safe_name, file_hash, target_lang, ext)
     os.makedirs(lang_dir, exist_ok=True)
 
     original_path = os.path.join(job_dir, f"original.{ext}")

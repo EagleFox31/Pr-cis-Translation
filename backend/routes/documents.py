@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi import Response
 from fastapi.responses import FileResponse
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -18,13 +18,76 @@ from preview import rasterize_for_trial
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
-STORAGE_BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "translations")
+# Le magasin est celui d'`app.py` : `backend/translations`. Cette constante
+# valait `os.path.dirname(__file__)` — c'est-à-dire `backend/routes/` — et
+# pointait donc sur `backend/routes/translations`, un dossier que la suppression
+# créait à chaque appel et qui n'a jamais contenu un seul fichier (mesuré : 0
+# ici contre 15 dans le vrai magasin). Le garde-fou de suppression « protégeait »
+# les fichiers d'autrui en ne trouvant jamais rien à effacer : aucun octet n'a
+# jamais été libéré, et `storage_used` dérivait du disque à chaque suppression.
+STORAGE_BASE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "translations",
+)
 
 
-def _user_dir(user_id: str) -> str:
-    p = os.path.join(STORAGE_BASE, user_id)
-    os.makedirs(p, exist_ok=True)
-    return p
+def _inside_store(path: str) -> bool:
+    """Le chemin est-il bien DANS le magasin ? Dernier rempart avant `os.remove`.
+
+    `commonpath` lève sur deux volumes différents (Windows) : on refuse alors,
+    parce qu'un chemin qu'on ne sait pas situer n'est pas un chemin qu'on efface.
+    """
+    try:
+        real = os.path.realpath(path)
+        store = os.path.realpath(STORAGE_BASE)
+        return os.path.commonpath([real, store]) == store
+    except (ValueError, OSError):
+        return False
+
+
+async def _purge_if_orphan(db: AsyncSession, path: str) -> bool:
+    """Efface `path` SI plus aucun Document, de quelque compte que ce soit, n'y
+    renvoie.
+
+    Les fichiers vivent dans un magasin PARTAGÉ adressé par le hash du contenu :
+    deux comptes ayant déposé le même fichier pointent sur les mêmes octets.
+    Effacer sur la seule foi de « mon » Document supprimerait la traduction
+    d'autrui. On compte donc les références restantes — la ligne courante est
+    déjà supprimée ET commitée, elle ne se compte pas elle-même.
+    """
+    refs = await db.execute(
+        select(func.count()).select_from(Document).where(
+            or_(Document.original_path == path, Document.translated_path == path),
+        )
+    )
+    if (refs.scalar() or 0) > 0:
+        return False                      # quelqu'un d'autre y tient encore
+    if not _inside_store(path):
+        return False
+    real = os.path.realpath(path)
+    if not os.path.isfile(real):
+        return False
+    try:
+        os.remove(real)
+    except OSError:
+        return False
+    _prune_empty_dirs(os.path.dirname(real))
+    return True
+
+
+def _prune_empty_dirs(start: str) -> None:
+    """Remonte en effaçant les dossiers VIDES, sans jamais sortir du magasin.
+
+    `os.rmdir` refuse un dossier non vide : c'est notre filet. Un dossier qui
+    contient encore un partiel de job survit — tant mieux, on n'a rien à y faire.
+    """
+    store = os.path.realpath(STORAGE_BASE)
+    cur = os.path.realpath(start)
+    while cur != store and _inside_store(cur):
+        try:
+            os.rmdir(cur)                 # lève si non vide : on s'arrête là
+        except OSError:
+            return
+        cur = os.path.dirname(cur)
 
 
 def _doc_response(doc: Document) -> dict:
@@ -194,22 +257,13 @@ async def delete_document(
     user.storage_used = max(0, user.storage_used - size)
     await db.commit()
 
-    # Nettoyer les fichiers sur disque — UNIQUEMENT ceux qui appartiennent en
-    # propre à l'utilisateur (sous `translations/<user_id>/`). Les fichiers
-    # d'un document créé à la volée pointent vers le CACHE PARTAGÉ par hash
-    # (`translations/<nom>_<hash>/`), commun à tous les comptes ayant traduit le
-    # même fichier : un `rmtree` de son dossier parent effacerait les
-    # traductions d'autrui (et le job en cours). On ne touche donc qu'aux
-    # fichiers strictement contenus dans le dossier privé de l'utilisateur.
-    user_root = os.path.realpath(_user_dir(user.id))
+    # Purge par comptage de références. Le commit ci-dessus est INDISPENSABLE
+    # avant de compter : tant que la suppression n'est pas validée, la ligne
+    # courante se compterait elle-même et rien ne serait jamais orphelin.
+    purged = 0
     for path in (translated_path, original_path):
-        if not path:
-            continue
-        real = os.path.realpath(path)
-        if os.path.commonpath([real, user_root]) == user_root and os.path.isfile(real):
-            try:
-                os.remove(real)
-            except OSError:
-                pass
+        if path and await _purge_if_orphan(db, path):
+            purged += 1
 
-    return {"message": "Document supprimé.", "storage_freed": size}
+    return {"message": "Document supprimé.", "storage_freed": size,
+            "files_purged": purged}
