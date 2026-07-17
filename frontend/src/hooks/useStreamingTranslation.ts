@@ -45,6 +45,10 @@ export function useStreamingTranslation() {
   // qu'on télécharge encore le partiel de la précédente).
   const fetchingRef = useRef(false);
   const pendingFetchRef = useRef(false);
+  // Dernier partiel reçu. En essai, /result est refusé (402) : c'est lui qui
+  // fait office de résultat. Un ref, pas un state : on le lit dans le
+  // gestionnaire SSE, hors du cycle de rendu.
+  const lastPartialRef = useRef<Blob | null>(null);
 
   const cancel = useCallback(() => {
     esRef.current?.close();
@@ -66,6 +70,7 @@ export function useStreamingTranslation() {
       });
       if (res.ok) {
         const blob = await res.blob();
+        lastPartialRef.current = blob;   // repli si /result est refusé (essai)
         setState((s) => ({
           ...s,
           partialBlob: blob,
@@ -93,6 +98,10 @@ export function useStreamingTranslation() {
     ): Promise<{ blob: Blob; filename: string }> => {
       return new Promise(async (resolve, reject) => {
         setState({ ...EMPTY, isTranslating: true });
+        // Sans ça, un 402 survenant avant le premier partiel du NOUVEAU
+        // document résoudrait avec celui du PRÉCÉDENT — on afficherait le
+        // mauvais document sans que rien ne signale l'erreur.
+        lastPartialRef.current = null;
         jobIdRef.current = null;
         fetchingRef.current = false;
         pendingFetchRef.current = false;
@@ -159,13 +168,26 @@ export function useStreamingTranslation() {
                 const dlRes = await fetch(`${API_BASE}/api/translate/result/${job_id}`, {
                   headers: { 'X-API-Key': API_KEY, ...authHeader() },
                 });
+                const filename = (msg.filename as string) ||
+                  file.name.replace(/\.[^/.]+$/, '') + '_TRADUIT.' + file.name.split('.').pop();
+
+                // 402 = le FORFAIT parle, ce n'est pas une panne. Un plan
+                // d'essai n'a pas droit au résultat téléchargeable ; il a droit
+                // à l'aperçu, qu'il a déjà reçu (partiel rastérisé et
+                // filigrané). Traiter ce refus comme une erreur laissait la
+                // traduction bloquée sur « page en attente » alors qu'elle
+                // avait parfaitement abouti.
+                if (dlRes.status === 402 && lastPartialRef.current) {
+                  const blob = lastPartialRef.current;
+                  setState((s) => ({ ...s, isTranslating: false, result: { blob, filename } }));
+                  resolve({ blob, filename });
+                  return;
+                }
                 if (!dlRes.ok) {
                   const err = await dlRes.json().catch(() => ({}));
                   throw new Error(err.detail || 'Téléchargement du résultat échoué');
                 }
                 const blob = await dlRes.blob();
-                const filename = (msg.filename as string) ||
-                  file.name.replace(/\.[^/.]+$/, '') + '_TRADUIT.' + file.name.split('.').pop();
                 setState((s) => ({
                   ...s,
                   isTranslating: false,
@@ -211,6 +233,7 @@ export function useStreamingTranslation() {
     esRef.current?.close();
     esRef.current = null;
     jobIdRef.current = null;
+    lastPartialRef.current = null;
     setState(EMPTY);
   }, []);
 
