@@ -102,6 +102,81 @@ def main():
         print(f"          corrigé={fixed or '—'} — {why}")
 
     print()
+    print("=" * 78)
+    print("3) MÉMOIRE DE DOCUMENT — un titre répété garde SA première traduction")
+    print("=" * 78)
+    # Hors ligne : le traducteur est un FAUX qui change d'avis entre deux pages
+    # — exactement le défaut mesuré (« PARTIE UN » p4, « DEUXIÈME PARTIE » plus
+    # bas). La mémoire doit primer : même texte → même traduction, sans rappel.
+    import types
+    import fitz
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from pdf_engine_v2 import translate as _tr
+    from pdf_engine_v2.engine import PDFObjectEngine
+
+    class _Faux:
+        version = 0        # incrémenté entre les « pages » : trahit un rappel
+        appels = []
+
+        def lang_name(self, lang):
+            return "français"
+
+        def _translate_batch(self, batch, lang_name, progress=None):
+            for it in batch:
+                plain = _tr._plain_key(it["text"])
+                _Faux.appels.append(plain)
+                it["translated_text"] = it["text"].replace(
+                    plain, f"{plain}-fr{_Faux.version}")
+
+    vrai = sys.modules.get("translator_ai")
+    faux_mod = types.ModuleType("translator_ai")
+    faux_mod.TranslatorAI = _Faux
+    sys.modules["translator_ai"] = faux_mod
+    try:
+        doc = fitz.open()
+        for _ in range(2):
+            pg = doc.new_page(width=400, height=200)
+            pg.insert_text((40, 60), "Quarterly Report", fontsize=14)
+            pg.insert_text((40, 120), "Some longer body sentence appears here.",
+                           fontsize=10)
+        eng = PDFObjectEngine()
+        mem = {}
+        pd1 = eng.extract_page_data(doc, 0, doc[0])
+        _tr.translate_extraction({"pages": [pd1], "fonts": {}},
+                                 target_lang="fr", doc_memory=mem)
+        _Faux.version = 1                      # le modèle « change d'avis »
+        pd2 = eng.extract_page_data(doc, 1, doc[1])
+        _tr.translate_extraction({"pages": [pd2], "fonts": {}},
+                                 target_lang="fr", doc_memory=mem)
+
+        def _tr_of(pd, frag):
+            for el in pd.get("elements", []):
+                if frag in (el.get("text") or ""):
+                    return el.get("tr_tagged") or ""
+            return ""
+        t1, t2 = _tr_of(pd1, "Quarterly"), _tr_of(pd2, "Quarterly")
+        good = ("fr0" in t1 and t2 == t1)
+        ok, fail = (ok + 1, fail) if good else (ok, fail + 1)
+        print(f"  [{'OK ' if good else 'ÉCHEC'}] même titre, même traduction "
+              f"(p1={t1[:40]!r} p2={t2[:40]!r})")
+        rappels = _Faux.appels.count("Quarterly Report")
+        good = rappels == 1
+        ok, fail = (ok + 1, fail) if good else (ok, fail + 1)
+        print(f"  [{'OK ' if good else 'ÉCHEC'}] le titre répété n'est envoyé "
+              f"qu'UNE fois au modèle ({rappels} appel(s))")
+        # Le corps, lui, suit le modèle de sa page (pas de mémoire au long cours).
+        c2 = _tr_of(pd2, "longer body")
+        good = "fr1" in c2 or "fr0" in c2      # court : mémorisé aussi (≤ 120)
+        ok, fail = (ok + 1, fail) if good else (ok, fail + 1)
+        print(f"  [{'OK ' if good else 'ÉCHEC'}] le corps est bien traduit "
+              f"({c2[:40]!r})")
+    finally:
+        if vrai is not None:
+            sys.modules["translator_ai"] = vrai
+        else:
+            sys.modules.pop("translator_ai", None)
+
+    print()
     print(f"== {ok} réussite(s), {fail} échec(s) ==")
     return 1 if fail else 0
 

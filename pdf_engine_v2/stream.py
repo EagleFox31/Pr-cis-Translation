@@ -75,6 +75,29 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
         except Exception:
             cached_pages = {}
 
+    # MÉMOIRE DE DOCUMENT (cohérence inter-pages) : un texte court déjà traduit
+    # dans CE document est resservi tel quel par les pages suivantes. Semée
+    # depuis le cache de reprise pour qu'un job repris garde les choix du
+    # premier passage.
+    doc_memory = {}
+    from . import tagging as _tagging
+    for pg in cached_pages.values():
+        for el in pg.get("elements", []):
+            if el.get("type") != "paragraph":
+                continue
+            tr = el.get("tr_tagged")
+            if not tr:
+                continue
+            try:
+                tagged, _m = _tagging.tag_paragraph(el)
+            except Exception:
+                continue
+            cle = translate._plain_key(tagged)
+            if (cle and tr != tagged
+                    and len(cle) <= translate._MEMO_MAX_LEN
+                    and cle not in doc_memory):
+                doc_memory[cle] = (tagged, tr)
+
     src = fitz.open(pdf_path)
     out = fitz.open()
     done_pages = []
@@ -112,7 +135,8 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                                      "status": "translating",
                                      "done": human - 1, "total": total})
                     one = {"pages": [page_data], "fonts": {}}
-                    translate.translate_extraction(one, target_lang=target_lang)
+                    translate.translate_extraction(one, target_lang=target_lang,
+                                                   doc_memory=doc_memory)
                     # Recalcule l'expansion puis retraduction compacte de la page
                     # (paragraphes qui ne tiendraient pas sans compression visible).
                     try:

@@ -579,7 +579,16 @@ class PDFObjectEngine:
                         u["_underline_consumed"] = True
 
     def _extract_text(self, page, draw_els=(), img_els=()):
-        raw = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
+        # `rawdict` (et non `dict`) : les positions PAR CARACTÈRE permettent de
+        # ramener le bbox d'un span à son ENCRE. Un span peut commencer par des
+        # espaces (cellules de mv21 : « ␣␣Child safety… ») dont le bbox s'étend
+        # jusqu'au mur de la cellule ; garder ce bord-là, c'est prendre un BLANC
+        # pour un bord — le rendu posait ensuite l'encre traduite SUR le filet
+        # (« Infraction » au « I » mangé), et deux rangées sœurs paraissaient
+        # ferrées à des x différents (16,8 vs 20,4) selon leurs espaces de tête.
+        # Le texte, lui, reste INTACT (les espaces de tête sont un signal pour
+        # les titres à lettres espacées), et `origin` aussi (peinture source).
+        raw = page.get_text("rawdict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
         spans = []
         for block in raw.get("blocks", []):
             if block.get("type") != 0:      # 0 = texte
@@ -587,15 +596,34 @@ class PDFObjectEngine:
             for line in block.get("lines", []):
                 direction = line.get("dir", (1, 0))
                 for span in line.get("spans", []):
-                    text = span.get("text", "")
                     # Retire les caractères de CONTRÔLE (BEL \x07, etc.) : sans
                     # sens visuel, souvent superposés au texte (ex. « \x07 » sur
                     # « Note: »), ils créent des spans/lignes parasites qui
-                    # cassent le regroupement en lignes et paragraphes.
-                    text = _CTRL_RE.sub("", text)
+                    # cassent le regroupement en lignes et paragraphes. Filtrés
+                    # AU CARACTÈRE pour rester alignés avec leurs positions.
+                    chars = [c for c in span.get("chars", ())
+                             if _CTRL_RE.sub("", c["c"])]
+                    text = "".join(c["c"] for c in chars)
                     if not text.strip():
                         continue
-                    bb = span["bbox"]
+                    bb = list(span["bbox"])
+                    # Extension d'ENCRE (spans horizontaux) : du 1er au dernier
+                    # caractère non blanc. Un blanc n'a pas de BORD — mais il
+                    # reste un PONT : le bbox complet (espaces compris) continue
+                    # de servir à toute la SEGMENTATION (coupes de colonnes,
+                    # corridors, lettres espacées), sinon deux espaces de tête
+                    # deviennent un « blanc » qui scinde la phrase (mesuré :
+                    # « Department of Motor / Vehicles », « F O R E W O R D /
+                    # B Y / J A K E »). Seuls les FERS, conteneurs et le RENDU
+                    # lisent l'encre.
+                    ink_x0, ink_x1 = bb[0], bb[2]
+                    if abs(direction[1]) <= 0.01 and direction[0] >= 0:
+                        encre = [c for c in chars if not c["c"].isspace()]
+                        if encre:
+                            ix0 = min(c["bbox"][0] for c in encre)
+                            ix1 = max(c["bbox"][2] for c in encre)
+                            if ix1 > ix0:
+                                ink_x0, ink_x1 = ix0, ix1
                     o = span.get("origin", (bb[0], bb[3]))
                     flags = span.get("flags", 0)
                     nchar = max(1, len(text.strip()))
@@ -612,6 +640,8 @@ class PDFObjectEngine:
                         "dir": list(direction),
                         "_gw": (bb[2] - bb[0]) / nchar,   # largeur de glyphe approx.
                         "_base": o[1],
+                        "_ink_x0": ink_x0,
+                        "_ink_x1": ink_x1,
                     })
         return self._group_text_lines(spans, self._ink_walls(draw_els, img_els))
 
@@ -670,11 +700,52 @@ class PDFObjectEngine:
                              "_size_ref": s["size"]})
         return rows
 
+    @staticmethod
+    def _attach_satellites(spans):
+        """EXPOSANTS / INDICES — un run à corps réduit, baseline décalée et
+        COLLÉ à un voisin plus grand est un SATELLITE de ce voisin (« 1re »,
+        « L₁ », appel de note). Sans rattachement, sa baseline propre le range
+        dans une AUTRE rangée : il devient un paragraphe orphelin, peint à sa
+        position source pendant que son hôte traduit se recoule ailleurs —
+        mesuré : « re » peint deux fois (mv21 p58), indice « 1 » orphelin et
+        « 2 » percutant le « ? » (hb p239). Le signal est triple et général :
+        corps réduit (≤ 0,8×), décalage de baseline BORNÉ (même ligne optique),
+        contiguïté horizontale (aucun blanc). On mémorise `_rise` (décalage
+        vertical signé) pour que le rendu repose le satellite à sa hauteur."""
+        petits = [s for s in spans if (s.get("size") or 0) > 0]
+        for s in petits:
+            if s.get("_rise"):
+                continue
+            meilleurs = []
+            for h in petits:
+                if h is s or (h.get("size") or 0) < 1.25 * (s.get("size") or 0):
+                    continue
+                gw = max(h.get("_gw") or 1.0, 0.5)
+                # contiguïté : S juste APRÈS ou juste AVANT son hôte
+                gap = min(abs(s["bbox"][0] - h["bbox"][2]),
+                          abs(h["bbox"][0] - s["bbox"][2]))
+                if gap > 0.45 * gw:
+                    continue
+                d = h["_base"] - s["_base"]
+                hs = h.get("size") or 1.0
+                if not (0.04 * hs <= abs(d) <= 0.80 * hs):
+                    continue                    # même baseline, ou autre ligne
+                if (min(s["bbox"][3], h["bbox"][3])
+                        - max(s["bbox"][1], h["bbox"][1])) <= 0.5:
+                    continue                    # aucun recouvrement vertical
+                meilleurs.append((gap, d, h))
+            if meilleurs:
+                gap, d, h = min(meilleurs, key=lambda x: x[0])
+                s["_rise"] = d
+                s["_base"] = h["_base"]         # rejoint la rangée de son hôte
+
     def _group_horizontal_lines(self, spans, ink_walls=()):
         """Clustering baseline + coupe aux séparateurs de colonne (texte
         horizontal). Retourne une liste d'objets `text_line`."""
         if not spans:
             return []
+        # 0) Satellites (exposants/indices) rattachés à la rangée de leur hôte.
+        self._attach_satellites(spans)
         # 1) Lignes de base : tri par (baseline, x) puis clustering vertical.
         rows = self._baseline_rows(spans)
 
@@ -1149,9 +1220,17 @@ class PDFObjectEngine:
         # plus grands → on n'insère une espace qu'aux grands gaps.
         text = self._compose_line_text(seg_spans, med_gw)
         runs = [self._run_from_span(s) for s in seg_spans]
+        # Extension d'ENCRE de la ligne : des espaces de tête/queue peuvent
+        # gonfler le bbox jusqu'au mur d'une cellule. Le bbox complet reste le
+        # juge de la SEGMENTATION (un blanc est un pont) ; l'encre, celui des
+        # FERS et du RENDU (un blanc n'a pas de bord).
+        ink_x0 = min(s.get("_ink_x0", s["bbox"][0]) for s in seg_spans)
+        ink_x1 = max(s.get("_ink_x1", s["bbox"][2]) for s in seg_spans)
         return {
             "type": "text_line",
             "bbox": [x0, y0, x1, y1],
+            "ink_x0": ink_x0,
+            "ink_x1": ink_x1,
             "text": text,
             "gw": med_gw,          # largeur de glyphe médiane (estimation de mot)
             "runs": runs,
@@ -1200,6 +1279,9 @@ class PDFObjectEngine:
             "bold": s["bold"],
             "italic": s["italic"],
             "dir": s["dir"],
+            # Décalage de baseline d'un SATELLITE (exposant/indice) par rapport
+            # à sa ligne hôte — 0 pour un run ordinaire. Voyage jusqu'au rendu.
+            "rise": s.get("_rise", 0.0),
         }
 
     # ── Texte INCLINÉ / VERTICAL (Étape C) : regroupement le long de l'axe ────
@@ -1416,9 +1498,17 @@ class PDFObjectEngine:
             its = p["items"]
             x0 = min(i["left"] for i in its); y0 = min(i["top"] for i in its)
             x1 = max(i["right"] for i in its); y1 = max(i["bottom"] for i in its)
+            # Bords d'ENCRE du paragraphe : des espaces de tête/queue gonflent
+            # le bbox (jusqu'au mur d'une cellule). La segmentation ci-dessus a
+            # jugé sur le bbox complet (un blanc est un pont) ; les FERS, les
+            # conteneurs et le rendu jugeront sur l'encre (un blanc n'a pas de
+            # bord).
+            ix0 = min(i["line"].get("ink_x0", i["left"]) for i in its)
+            ix1 = max(i["line"].get("ink_x1", i["right"]) for i in its)
             out.append({
                 "type": "paragraph",
                 "bbox": [x0, y0, x1, y1],
+                "ink_bbox": [ix0, y0, ix1, y1],
                 "text": self._join_para_text([i["text"] for i in its]),
                 "lines": [i["line"] for i in its],
             })
@@ -1467,7 +1557,11 @@ class PDFObjectEngine:
                     blocker_lines.append((q, bb))
 
         for p in boxed:
-            pleft, ptop, pright, pbottom = p["bbox"]
+            # Fers et cadres : jugés sur l'ENCRE du paragraphe. Les espaces de
+            # tête inégaux faisaient paraître deux rangées sœurs ferrées à des
+            # x différents (16,8 vs 20,4) et posaient l'encre traduite sur le
+            # filet de cellule (« Infraction » au « I » mangé).
+            pleft, ptop, pright, pbottom = p.get("ink_bbox") or p["bbox"]
             size = max((r.get("size", 0) or 0 for ln in p.get("lines", [])
                         for r in ln.get("runs", [])), default=10.0)
             safety = self._safe_gutter(size)
@@ -1855,15 +1949,17 @@ class PDFObjectEngine:
         (colonne, pour un bloc centré). `target_right` : bord droit commun, ou
         une FONCTION bbox_ligne -> bord droit (cible par ligne, escalier
         préservé autour d'un encart). `align` mémorisé pour le rendu."""
-        pleft, ptop, pright, pbottom = p["bbox"]
+        pleft, ptop, pright, pbottom = p.get("ink_bbox") or p["bbox"]
         clines = []
         for ln in p.get("lines", []):
             bb = ln.get("bbox")
             if not bb or len(bb) < 4:
                 continue
-            lx0 = left_edge if left_edge is not None else bb[0]
+            # Bord gauche de la bande = première ENCRE de la ligne, pas son
+            # bbox (qui peut commencer sur des espaces).
+            lx0 = left_edge if left_edge is not None else ln.get("ink_x0", bb[0])
             tr = target_right(bb) if callable(target_right) else target_right
-            clines.append([lx0, bb[1], max(tr, bb[2]), bb[3]])
+            clines.append([lx0, bb[1], max(tr, ln.get("ink_x1", bb[2])), bb[3]])
         if clines:
             p["container_lines"] = clines
             cl = left_edge if left_edge is not None else pleft
@@ -2908,6 +3004,7 @@ class PDFObjectEngine:
             p.pop("_vscale", None)
             p.pop("_needs_shorter", None)
             p.pop("_grow", None)
+            p.pop("_gap_avail", None)
         # Bloqueurs verticaux : tout élément occupe l'espace ; les dessins par
         # leurs ITEMS (un filet sous un encart doit arrêter la croissance).
         vboxes = []
@@ -2930,17 +3027,34 @@ class PDFObjectEngine:
                 pl, pt, pr, pb = bb
                 pitch = reflow._orig_pitch(cl, [])
                 # 1er élément SOUS le paragraphe qui chevauche sa largeur.
+                # « Sous » se juge par le BAS de l'autre bloc, pas par son
+                # haut : deux paragraphes adjacents se chevauchent souvent d'un
+                # ou deux points (jambages), et exiger « top ≥ bas » faisait
+                # passer le voisin immédiat pour de l'air — le paragraphe
+                # grandissait dans une ligne occupée (mesuré : « via » peint
+                # sur « MyDMV, », p3). Un bloc qui s'étend sous nous borne le
+                # blanc — à zéro s'il le chevauche déjà.
                 nxt = None
                 for vb in vboxes:
-                    if vb[1] < pb - 1.0:                    # pas en dessous
-                        continue
+                    if vb == tuple(bb):
+                        continue                            # soi-même
+                    if vb[3] <= pb + 0.5:
+                        continue                            # entièrement au-dessus
                     if min(vb[2], pr) - max(vb[0], pl) <= 2.0:
                         continue                            # pas la même colonne
-                    if nxt is None or vb[1] < nxt:
-                        nxt = vb[1]
+                    top = max(vb[1], pb)
+                    if nxt is None or top < nxt:
+                        nxt = top
                 gap = (nxt - pb) if nxt is not None else 0.0
                 # Boîte contenante : jamais de croissance hors de sa boîte.
+                # Le paragraphe se CONTIENT lui-même (son bbox satisfait le
+                # test) : sans l'exclure, gap = bb[3]-2-pb = -2 sur TOUT
+                # paragraphe et la croissance ne s'accordait jamais — P3
+                # (volet 1) était mort en silence. Un commentaire n'est pas une
+                # preuve ; un test synthétique (P24) la tient désormais.
                 for vb in vboxes:
+                    if vb == tuple(bb):
+                        continue
                     if (vb[0] <= pl + 2 and vb[1] <= pt + 2 and vb[2] >= pr - 2
                             and vb[3] >= pb - 2):
                         area = (vb[2] - vb[0]) * (vb[3] - vb[1])
@@ -2948,8 +3062,14 @@ class PDFObjectEngine:
                             gap = min(gap, vb[3] - 2.0 - pb)
                 if gap <= 1.0:
                     continue
-                grow = gap * (1.0 - self._GROW_KEEP_FRAC)
+                # Marge de sécurité : le reflow s'autorise 0,35 interligne de
+                # grâce sous le fond du conteneur — le blanc accordé doit
+                # toujours s'arrêter AVANT cette grâce, sinon elle mord le
+                # bloc suivant.
+                gap_sur = max(0.0, gap - max(2.0, 0.45 * pitch))
+                grow = min(gap * (1.0 - self._GROW_KEEP_FRAC), gap_sur)
                 p["_grow"] = max(0.0, min(grow, self._GROW_MAX_PITCH * pitch))
+                p["_gap_avail"] = gap_sur      # blanc RÉEL sûr (pour la détresse)
 
         # Échelle NÉCESSAIRE de chaque paragraphe (reflow à blanc, sans force).
         needs = {}
@@ -2962,7 +3082,34 @@ class PDFObjectEngine:
                                           first_baseline=lay["first_baseline"],
                                           align=lay["align"], force_fit=True)
             scale = res.get("size_scale", 1.0)
-            needs[id(p)] = scale if res.get("fitted") else min(scale, 0.4)
+            if not res.get("fitted"):
+                scale = min(scale, 0.4)
+            # RALLONGE DE DÉTRESSE — avant de compresser un bloc SOUS le
+            # plancher de lisibilité, on lui donne TOUT le blanc réel sous lui.
+            # La croissance ordinaire en préserve 30 % (esthétique) et se borne
+            # à 2,5 interlignes ; ces retenues n'ont aucun sens quand
+            # l'alternative est un texte à 0,7× et moins (mesuré : un fragment
+            # de mv21 p20 rendu à 4,8 pt dans un corps de 7). On ne consomme
+            # toujours QUE du vide existant, borné par le prochain bloc et la
+            # boîte contenante : aucun risque de collision.
+            if scale < self._GROUP_MIN_SCALE:
+                # `_gap_avail` porte déjà la marge de sécurité (grâce du
+                # reflow) : donner le blanc jusqu'au PIXEL du bloc suivant
+                # transformait cette grâce en morsure (mesuré : « OPÉRATEUR »
+                # repassé plein format sur « Conduire », p15).
+                gap = p.get("_gap_avail", 0.0)
+                if gap > p.get("_grow", 0.0) + 0.5:
+                    p["_grow"] = gap
+                    lay = self._translated_layout(p)
+                    if lay is not None:
+                        res = reflow.reflow_paragraph(
+                            lay["segs"], lay["clines"], lang=self.reflow_lang,
+                            first_baseline=lay["first_baseline"],
+                            align=lay["align"], force_fit=True)
+                        scale = res.get("size_scale", 1.0)
+                        if not res.get("fitted"):
+                            scale = min(scale, 0.4)
+            needs[id(p)] = scale
             if needs[id(p)] < self._GROUP_MIN_SCALE:
                 p["_needs_shorter"] = True      # candidat retraduction compacte
 
@@ -3371,7 +3518,8 @@ class PDFObjectEngine:
                 "size": size,
                 "color": tuple(m.get("color", (0, 0, 0))),
                 "underline": bool(m.get("underline")),
-                "lsp": lsp}
+                "lsp": lsp,
+                "rise": float(m.get("rise", 0) or 0)}
 
     def _font_xheight(self, font):
         """Hauteur d'x RÉELLE d'une police (fraction du corps), mesurée à
@@ -3453,10 +3601,11 @@ class PDFObjectEngine:
         if cache is None:
             cache = self._fallback_cache = {}
         fam = _matched_family(font_raw)
-        key = (fam, bool(bold), bool(italic))
+        weight = _weight_class(font_raw, bold)
+        key = (fam, weight, bool(bold), bool(italic))
         f = cache.get(key)
         if f is None:
-            f = _load_matched_font(fam, bold, italic)
+            f = _load_matched_font(fam, bold, italic, weight=weight)
             if f is None:                       # aucune police assortie : base-14
                 try:
                     f = fitz.Font(_base14_full_name(font_raw, bold, italic))
@@ -3510,6 +3659,9 @@ class PDFObjectEngine:
         if not fonts:
             return
         size, color, sx = r["size"], r["color"], r.get("sx", 1.0)
+        # SATELLITE (exposant/indice) : repose le run à sa hauteur d'origine
+        # par rapport à la baseline de sa ligne hôte (« 1re », « L₁ »).
+        base -= r.get("rise", 0.0) or 0.0
         x = r["x"]
         lsp = (r.get("lsp") or 0.0) * size
         if lsp:
@@ -3924,15 +4076,55 @@ def _matched_family(font_raw):
     return "opensans"
 
 
-def _load_matched_font(fam, bold, italic):
-    """Charge la variante (Regular/Bold/Italic/BoldItalic) d'une famille de repli
-    depuis backend/fonts. Retombe sur Regular si la variante manque (ex. Oswald
-    n'a pas d'italique). Retourne None si le fichier est introuvable/illisible
-    (→ l'appelant utilisera la base-14)."""
+def _weight_class(font_raw, bold_flag):
+    """Classe de GRAISSE du run, déduite du NOM de la police source.
+
+    Le drapeau `bold` de PyMuPDF (bit 16) est binaire : une Semibold l'allume
+    comme une Black. S'y fier seul PROMEUT tout poids intermédiaire en gras —
+    mesuré sur mv21 : ProximaNova-Semibold (des tableaux entiers) rendu
+    Montserrat-Bold, nettement plus lourd que l'original. Le nom, lui, porte le
+    poids réel ; c'est une propriété de la convention de nommage des fontes,
+    pas d'un document.
+    """
+    n = (font_raw or "").lower().replace(" ", "").replace("-", "")
+    if any(t in n for t in ("semibold", "demibold", "demi")):
+        return "semibold"
+    if "medium" in n:
+        return "medium"
+    if any(t in n for t in ("extrabold", "ultrabold", "black", "heavy")):
+        return "extrabold"
+    return "bold" if bold_flag else "regular"
+
+
+# Ordre d'essai des fichiers par classe de graisse : du plus fidèle au repli le
+# plus proche. Les variantes SemiBold/Medium (OFL, intégrité vérifiée à l'encre :
+# Regular < SemiBold < Bold sur chaque famille) n'existent pas partout — le
+# repli reprend alors l'ancien comportement (aucune régression possible).
+_WEIGHT_VARIANTS = {
+    "regular":   ("Regular",),
+    "medium":    ("Medium", "SemiBold", "Regular"),
+    "semibold":  ("SemiBold", "Medium", "Bold"),
+    "bold":      ("Bold",),
+    "extrabold": ("ExtraBold", "Bold"),
+}
+
+
+def _load_matched_font(fam, bold, italic, weight=None):
+    """Charge la variante d'une famille de repli depuis backend/fonts, au POIDS
+    le plus proche de la source (`weight` : classe de `_weight_class`). Retombe
+    sur Regular si la variante manque (ex. Oswald n'a pas d'italique). Retourne
+    None si le fichier est introuvable/illisible (→ l'appelant utilisera la
+    base-14)."""
     bold, italic = bool(bold), bool(italic)
-    variant = ("BoldItalic" if bold and italic else "Bold" if bold
-               else "Italic" if italic else "Regular")
-    for v in (variant, "Bold" if bold else "Regular", "Regular"):
+    weight = weight or ("bold" if bold else "regular")
+    candidats = []
+    for w in _WEIGHT_VARIANTS.get(weight, ("Bold" if bold else "Regular",)):
+        if italic:
+            suffixe = "Italic" if w == "Regular" else f"{w}Italic"
+            candidats.append(suffixe)
+        candidats.append(w)
+    candidats += ["Bold" if bold else "Regular", "Regular"]
+    for v in candidats:
         path = os.path.join(_FONTS_DIR, f"{fam}-{v}.ttf")
         if os.path.exists(path):
             try:

@@ -369,6 +369,28 @@ de ces nombres est une régression jusqu'à preuve du contraire.
 > dépendait donc du correctif qu'il devait juger. Un test qui ne tombe jamais ne
 > teste rien.
 
+## ✅ P21-P25 — campagne « à la loupe » (2026-07-17/18)
+
+_Trouvés en traduisant les DEUX documents EN ENTIER (84 + 285 pages) et en
+inspectant chaque page (batterie automatisée + visuel). Chaque règle prouvée
+sur le synthétique (`test_engine_v2_generic.py`, **59 contrôles**) et par
+mutation (le code cassé fait tomber le contrôle)._
+
+| # | Problème | Règle (générale) | Preuve |
+|---|---|---|---|
+| **P21** 🔴 | ProximaNova-**Semibold** rendu Montserrat-**Bold** (tableaux entiers trop gras, mv21 p12/16) — le drapeau binaire de PyMuPDF promeut tout poids intermédiaire | **La graisse se lit dans le NOM source** (`_weight_class`) ; variantes SemiBold/Medium réelles (OFL, intégrité vérifiée à l'encre : R < SB < B) ; repli Bold si absente (jamais pire) | encre mesurée strictement entre Regular et Bold ; mutation détectée |
+| **P22** 🔴 | 1re lettre mangée par le filet de cellule (« **I**nfraction », mv21 p22) : des ESPACES de tête portaient le bbox jusqu'au mur | **Un blanc n'a pas de BORD, mais reste un PONT** : bbox complet pour la segmentation (le raboter éclatait « F O R E W O R D / B Y / J A K E »), extension d'ENCRE (`ink_bbox`) pour fers, conteneurs et rendu | rendu frais p22 : x0 = 214,73 (l'encre source exacte) ; invariants au mot près ; 2 mutations détectées |
+| **P23** 🟠 | 27/2222 césures fautives (« don-né », « socié-té ») — moignon de 2 lettres en tête de ligne ; c'est NOTRE reflow qui coupe (source : 10 césures, rendu : 760) | **≥ 3 lettres de chaque côté de la coupe** (règle typographique, aucun calage) | re-rendu complet : 576 césures, **0 fautive** ; mutation détectée |
+| **P24** 🔴 | Fragment rendu à 4,8 pt (0,69×) dans un corps de 7 (mv21 p20) ; en creusant : **`grow_into_gap` (P3) était MORT** — le paragraphe se contenait lui-même dans la boucle « boîte contenante » (gap = −2 sur TOUT paragraphe) | (1) exclure soi-même du test de boîte ; (2) **RALLONGE DE DÉTRESSE** : sous 0,88, TOUT le blanc réel est accordé avant compression ; (3) marge de sécurité 0,45 interligne (la grâce du reflow mordait le voisin : « OPÉRATEUR » sur « Conduire ») ; « dessous » se juge par le BAS du voisin, pas son haut (« via » sur « MyDMV ») | 4 contrôles + mutation ; re-rendus complets : 0 collision hors caches ; compression profonde CONSERVÉE pour les blocs réellement coincés (anti-collision) |
+| **P25** 🔴 | Exposants/indices cassés : « re » de « 1re » peint DEUX fois (mv21 p58), indice « 1 » orphelin en bord de ligne et « 2 » sur le « ? » (hb p239) | **SATELLITE** : corps réduit (≤ 0,8×) + baseline décalée bornée + contiguïté = il rejoint la rangée de son hôte, porte un `rise` de bout en bout (extraction→balisage→reflow→peinture), et **une chaîne sans espace ne casse jamais au bord de ligne** (un mot ne se coupe pas à une frontière de style) | p58 et p239 retraduits frais : **0 collision**, « L1/L2 » soudés, ordinaux en exposant propres ; 7 contrôles + 2 mutations ; invariant hb 309→308 ¶ (l'exposant d'« O(n2) » p19 rendu à son mot — correction) |
+| **P26** 🟠 | Incohérences inter-pages : « PARTIE UN » vs « DEUXIÈME PARTIE », « 21h – 5 » — la traduction page à page n'a AUCUNE mémoire | **MÉMOIRE DE DOCUMENT** (`doc_memory`) : un texte court (≤ 120 car.) déjà traduit dans CE document est resservi tel quel — déterministe, zéro jeton, semée depuis le cache de reprise | test hors ligne (faux traducteur qui « change d'avis ») : même titre → même traduction, 1 seul appel ; mutation détectée |
+
+**Invariants mis à jour** : Handbook 24p = **308 ¶ / 8 446 mots** (309/8 448
+avant P25 — l'exposant d'« O(n2) » a rejoint son mot ; aucune autre dérive).
+mv21 inchangé (621 / 10 937). Alignements : 1 seul changement, mv21 p22
+justify→left — des espaces de QUEUE alignaient artificiellement les bords
+droits (fausse signature de justifié) ; l'encre rétablit le drapeau réel.
+
 ## ⏳ Résiduels (documentés, non bloquants)
 
 - 🔴 **EN SUSPENS (décidé le 2026-07-16) — colonne justifiée étroite de ≤ 5

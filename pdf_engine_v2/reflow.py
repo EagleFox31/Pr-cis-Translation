@@ -83,7 +83,8 @@ def build_tokens(segments):
             else:
                 tokens.append({"text": part, "fonts": fonts, "size": size,
                                "color": color, "underline": underline,
-                               "space_before": pending_space, "lsp": lsp})
+                               "space_before": pending_space, "lsp": lsp,
+                               "rise": seg.get("rise", 0.0) or 0.0})
                 pending_space = False
     return tokens
 
@@ -141,6 +142,14 @@ def _hyphen_split(word, fonts, size, sx, avail, lang):
     positions = dic.positions(word)             # indices de coupe possibles
     best = None
     for p in positions:
+        # Règle typographique (générale, aucun calage) : au moins 3 lettres de
+        # CHAQUE côté de la coupe. Mesuré sur 2 222 césures des deux documents
+        # de référence : les 27 fautives (« don-né », « socié-té »,
+        # « demande-ra ») laissaient toutes un reste de 2 lettres — un moignon
+        # muet en tête de ligne. Une césure manquée écourte une ligne ; une
+        # césure fautive se voit.
+        if p < 3 or len(word) - p < 3:
+            continue
         head = word[:p] + "-"
         if text_width(head, fonts, size, sx) <= avail:
             best = (head, word[p:])             # garde la plus longue qui tient
@@ -259,6 +268,32 @@ def _layout(tokens, container_lines, first_baseline, bottom, size_scale, pitch,
               if (cur and t["space_before"]) else 0.0)
 
         if cur and x + sp + w > right + 0.5:
+            # CHAÎNE SOUDÉE : un jeton SANS espace de tête est la suite du même
+            # mot typographique (satellite exposant/indice « L₁ », changement de
+            # style intra-mot). Le couper là, c'est casser le mot — l'indice
+            # « 1 » de hb p239 partait seul en bord de ligne. On ramène toute la
+            # chaîne collée en fin de `cur` dans la file, et le mot entier passe
+            # à la ligne. Garde-fou : si la chaîne EST toute la ligne (mot plus
+            # large que la ligne), on retombe sur l'ancien comportement.
+            if not t["space_before"] and not t.get("_dech"):
+                chaine = []
+                while cur and not cur[-1].get("sb"):
+                    chaine.insert(0, cur.pop())
+                if cur:
+                    chaine.insert(0, cur.pop())          # la tête (avec espace)
+                if cur and all(r.get("_tok") for r in chaine):
+                    toks = [{**r["_tok"], "space_before": False}
+                            for r in chaine] + [{**t, "space_before": False}]
+                    toks[0]["space_before"] = True       # tête de mot
+                    queue[0:0] = toks
+                    tete = chaine[0]
+                    x = tete["x"] - (text_width(" ", tete["fonts"],
+                                                tete["size"], tete["sx"])
+                                     if tete.get("sb") else 0.0)
+                    close_line()
+                    continue
+                for r in chaine:                         # la chaîne = la ligne
+                    cur.append(r)                        # entière : restaurer
             # Ne tient pas : tenter une césure du mot pour finir la ligne.
             avail = right - (x + sp)
             piece = (None if lsp
@@ -274,12 +309,13 @@ def _layout(tokens, container_lines, first_baseline, bottom, size_scale, pitch,
                 # avance, le slack est surestimé de (espace + préfixe) et la
                 # répartition pousse la ligne AU-DELÀ du bord droit.
                 x += sp + text_width(head, t["fonts"], size, sx)
-                queue.insert(0, {**t, "text": tail, "space_before": False})
+                queue.insert(0, {**t, "text": tail, "space_before": False,
+                                 "_dech": True})
                 close_line()
                 continue
             close_line()
             # replace le mot en début de nouvelle ligne (sans espace de tête)
-            queue.insert(0, {**t, "space_before": False})
+            queue.insert(0, {**t, "space_before": False, "_dech": True})
             continue
 
         if not cur and w > (right - x) + 0.5:
@@ -301,7 +337,10 @@ def _layout(tokens, container_lines, first_baseline, bottom, size_scale, pitch,
         cur.append({"text": t["text"], "x": x, "fonts": t["fonts"],
                     "size": size, "color": t["color"], "sx": sx,
                     "underline": t.get("underline"), "sb": sp > 0,
-                    "lsp": t.get("lsp") or 0.0})
+                    "lsp": t.get("lsp") or 0.0,
+                    # décalage de baseline (satellite), à l'échelle du rendu
+                    "rise": (t.get("rise") or 0.0) * size_scale,
+                    "_tok": t})
         x += w
 
     close_line(last=True)              # dernière ligne : jamais justifiée

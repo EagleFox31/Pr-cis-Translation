@@ -87,13 +87,34 @@ def _page_context(page, el, limit=240):
     return " ".join(bits)[:limit]
 
 
+# Taille maximale (en caractères, hors balises) d'un texte mémorisable dans la
+# MÉMOIRE DE DOCUMENT. Au-delà, une phrase répétée mot pour mot est rare et son
+# contexte peut légitimement changer sa traduction ; en deçà (titres courants,
+# en-têtes, intitulés répétés), la cohérence prime.
+_MEMO_MAX_LEN = 120
+
+
+def _plain_key(tagged):
+    """Clé de mémoire : le texte SANS balises, blancs normalisés (sensible à la
+    casse — « Part One » et « PART ONE » sont deux choses)."""
+    plain = re.sub(r"\[\[/?\d+\]\]", "", tagged or "")
+    return " ".join(plain.split())
+
+
 def translate_extraction(data, target_lang="fr", max_pages=None,
-                         batch_size=40, progress=None):
+                         batch_size=40, progress=None, doc_memory=None):
     """Traduit les paragraphes des `max_pages` premières pages de `data` (dict
     d'extraction v2). Modifie `data` en place et le retourne.
 
     target_lang : code court ('fr', 'en', …) ou nom.
     max_pages   : limite le nombre de pages traitées (None = tout).
+    doc_memory  : MÉMOIRE DE DOCUMENT (dict partagé entre les pages d'un même
+        document). La traduction page par page n'a aucune mémoire : le même
+        titre courant, le même intitulé de chapitre, ressortent traduits
+        différemment d'une page à l'autre (mesuré : « PARTIE UN » p4 contre
+        « DEUXIÈME PARTIE » plus bas ; sommaire vs tête de chapitre). Un texte
+        court DÉJÀ traduit dans ce document est resservi tel quel — garantie
+        déterministe, zéro jeton — et n'est plus envoyé au modèle.
     """
     from translator_ai import TranslatorAI
     tr = TranslatorAI()
@@ -105,6 +126,7 @@ def translate_extraction(data, target_lang="fr", max_pages=None,
 
     # 1) Balisage + collecte des items à traduire (id unique -> paragraphe).
     items, refs = [], {}
+    resservis = 0
     for page in pages:
         support = _page_support(page)
         for el in page.get("elements", []):
@@ -115,6 +137,16 @@ def translate_extraction(data, target_lang="fr", max_pages=None,
             if not tagged.strip():
                 el["tr_tagged"] = tagged           # paragraphe vide : rien à faire
                 continue
+            # MÉMOIRE DE DOCUMENT : même texte, même structure de balises,
+            # déjà traduit dans ce document → resservi, pas renvoyé au modèle.
+            if doc_memory is not None:
+                cle = _plain_key(tagged)
+                memo = doc_memory.get(cle)
+                if (memo and memo[0] == tagged
+                        and len(cle) <= _MEMO_MAX_LEN):
+                    el["tr_tagged"] = memo[1]
+                    resservis += 1
+                    continue
             _id = f"p{page['page_num']}_e{len(refs)}"
             # `support` / `contexte` : ce que le traducteur ignorait (un bandeau
             # ne se traduit pas comme une phrase) — cf. backend/glossary.py.
@@ -123,6 +155,8 @@ def translate_extraction(data, target_lang="fr", max_pages=None,
                           "contexte": _page_context(page, el)})
             refs[_id] = el
             el["tr_tagged"] = tagged                # repli si la trad échoue
+    if resservis and progress:
+        progress(f"{resservis} texte(s) resservi(s) depuis la mémoire du document.")
 
     if progress:
         progress(f"{len(items)} paragraphe(s) à traduire vers {lang_name}.")
@@ -172,6 +206,19 @@ def translate_extraction(data, target_lang="fr", max_pages=None,
     if failed and progress:
         for it in failed:
             progress(f"[!] non traduit (repli source) : {it['text'][:60]!r}")
+
+    # 4) MÉMOIRE DE DOCUMENT : la PREMIÈRE traduction d'un texte court devient
+    #    la référence pour la suite du document (ordre de lecture). On
+    #    n'enregistre que les items réellement traduits (jamais un repli
+    #    source) et on ne réécrit jamais une entrée existante.
+    if doc_memory is not None:
+        rates = {id(it) for it in failed}
+        for it in items:
+            if id(it) in rates or not it.get("translated_text"):
+                continue
+            cle = _plain_key(it["text"])
+            if cle and len(cle) <= _MEMO_MAX_LEN and cle not in doc_memory:
+                doc_memory[cle] = (it["text"], refs[it["id"]]["tr_tagged"])
 
     return data
 

@@ -161,6 +161,9 @@ def build(path):
     _build_p18(doc.new_page(width=W, height=H))
     _build_p19(doc.new_page(width=W, height=H))
     _build_p20(doc.new_page(width=W, height=H))
+    _build_p22(doc.new_page(width=W, height=H))
+    _build_p24(doc.new_page(width=W, height=H))
+    _build_p25(doc.new_page(width=W, height=H))
 
     doc.save(path)
     doc.close()
@@ -526,6 +529,76 @@ def _build_p15(pg):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# Page 8 (P22) — LE BLANC N'A PAS DE BORD (mais reste un PONT).
+# mv21 p22 : les cellules commencent par des ESPACES dont le bbox s'étend
+# jusqu'au mur — le rendu posait l'encre traduite SUR le filet (« Infraction »
+# au « I » mangé). Le remède naïf (raboter le bbox) casse l'inverse : les blancs
+# sont le TISSU qui relie les spans (« F O R E W O R D  B Y » éclatait en 3).
+# La règle : bbox complet pour la SEGMENTATION, encre pour FERS et RENDU.
+P22_MUR = 100.0          # abscisse du filet vertical de la cellule
+P22_TXT = "  Safety restraint violation was recorded"
+
+
+def _build_p22(pg):
+    pg.draw_rect(fitz.Rect(P22_MUR, 104, 360, 132), color=NOIR, width=0.7)
+    # Les DEUX espaces de tête sont posés PILE sur le mur : leur bbox le touche,
+    # l'encre du « S » commence deux chasses plus loin.
+    pg.insert_text((P22_MUR + 0.9, 122), P22_TXT, fontname=FONT, fontsize=10,
+                   color=NOIR)
+
+
+# Page 9 (P24) — RALLONGE DE DÉTRESSE : le blanc réel avant la compression.
+# mv21 p20 : un fragment rendu à 4,8 pt (0,69×) dans un corps de 7 — la
+# croissance ordinaire retient 30 % du blanc et se borne à 2,5 interlignes,
+# des retenues esthétiques qui n'ont aucun sens quand l'alternative est un
+# texte illisible. Règle : sous le plancher de lisibilité (0,88), TOUT le blanc
+# réel est accordé d'abord ; la compression profonde ne reste que pour les
+# blocs réellement coincés (garantie anti-collision).
+P24_TXT_A = "Winter schedules resume next week across the county lines"
+P24_TXT_B = "Summer schedules resume next month across the county lines"
+P24_VOISIN_B_Y = 133.0
+
+
+def _build_p24(pg):
+    # A : une ligne avec un GRAND blanc réel dessous (prochain bloc à ~110 pt).
+    pg.insert_text((45, 120), P24_TXT_A, fontname=FONT, fontsize=10, color=NOIR)
+    pg.insert_text((45, 232), "Farther section resumes here after the gap",
+                   fontname=FONT, fontsize=10, color=NOIR)
+    # B : la même ligne, COINCÉE (un voisin immédiatement dessous). Corps
+    # DIFFÉRENT (8 pt) pour que l'Étape A ne fusionne pas les deux blocs — le
+    # piège veut un voisin distinct, pas une continuation.
+    pg.insert_text((330, 120), P24_TXT_B, fontname=FONT, fontsize=10, color=NOIR)
+    pg.insert_text((330, P24_VOISIN_B_Y),
+                   "Immediate neighbour paragraph sits right here below",
+                   fontname=FONT, fontsize=8, color=NOIR)
+
+
+# Page 10 (P25) — SATELLITES : exposants et indices restent avec leur mot.
+# mv21 p58 : « re » de « 1re » peint deux fois ; hb p239 : indice « 1 » orphelin
+# en bord de ligne et « 2 » percutant le « ? ». Un run à corps réduit, baseline
+# décalée et collé à un voisin plus grand est un SATELLITE : il rejoint la
+# rangée de son hôte (extraction), voyage avec lui (reflow : chaîne soudée) et
+# se repeint à sa hauteur (`rise`).
+P25_Y = 120.0
+P25_Y2 = 150.0
+
+
+def _build_p25(pg):
+    x = 45.0
+    for txt, size, dy in (("Values L", 11, 0), ("1", 7, 3.2),
+                          (" and L", 11, 0), ("2", 7, 3.2),
+                          (" apply here", 11, 0)):
+        pg.insert_text((x, P25_Y + dy), txt, fontname=FONT, fontsize=size,
+                       color=NOIR)
+        x += _w(txt, size)
+    x = 45.0
+    for txt, size, dy in (("1", 10, 0), ("re", 6.5, -3.0),
+                          (" infraction observed there", 10, 0)):
+        pg.insert_text((x, P25_Y2 + dy), txt, fontname=FONT, fontsize=size,
+                       color=NOIR)
+        x += _w(txt, size)
+
+
 def run():
     scratch = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "_generic_tmp")
@@ -914,6 +987,192 @@ def run():
        len(vrais) >= 1, f"aucun marqueur prouvé à x={P20_X}")
     ok("P20  des rangs NON adjacents (1. puis 7.) ne font pas une liste",
        not faux, f"marqueurs faussement prouvés à x={P20_CX} : {faux}")
+
+    # ── P22 — LE BLANC N'A PAS DE BORD (mais reste un PONT) ─────────────────
+    pd22 = eng.extract_page_data(doc, 7, doc[7])
+    p22 = next((e for e in pd22["elements"] if e.get("type") == "paragraph"
+                and "restraint violation" in (e.get("text") or "")), None)
+    ok("P22  le paragraphe à espaces de tête existe (piège armé)", p22 is not None)
+    if p22 is not None:
+        largeur_espaces = _w("  ", 10)
+        encre_attendue = P22_MUR + 0.9 + largeur_espaces
+        # Le PONT : le bbox complet inclut toujours les espaces (les raboter
+        # rouvre l'éclatement des lignes — « F O R E W O R D / B Y / J A K E »).
+        ok("P22  le bbox COMPLET commence sur les espaces (pont conservé)",
+           p22["bbox"][0] <= P22_MUR + 1.6, f"bbox[0]={p22['bbox'][0]:.2f}")
+        # Le BORD : l'encre et le conteneur (donc le rendu) commencent au « S »,
+        # jamais sur le mur de la cellule.
+        ok("P22  l'ENCRE du paragraphe commence après les espaces",
+           p22.get("ink_bbox")
+           and abs(p22["ink_bbox"][0] - encre_attendue) <= 0.8,
+           f"ink={p22.get('ink_bbox')} attendu x0≈{encre_attendue:.2f}")
+        # On juge la BANDE (`container_lines`), pas `container_bbox` : c'est elle
+        # que le reflow consomme — un premier jet de ce contrôle lisait le bbox
+        # du conteneur et passait sous mutation (contrôle vacant).
+        bandes = p22.get("container_lines") or [p22.get("container_bbox")
+                                                or p22["bbox"]]
+        ok("P22  la BANDE de rendu part de l'encre, pas du blanc",
+           all(b[0] >= encre_attendue - 0.8 for b in bandes),
+           f"bandes x0={[round(b[0], 2) for b in bandes]} "
+           f"attendu ≥ {encre_attendue - 0.8:.2f}")
+
+    # ── P24 — RALLONGE DE DÉTRESSE : le blanc réel avant la compression ─────
+    pd24 = eng.extract_page_data(doc, 8, doc[8])
+    paras24 = [e for e in pd24["elements"] if e.get("type") == "paragraph"]
+    pA = next((p for p in paras24 if "Winter schedules" in (p.get("text") or "")), None)
+    pB = next((p for p in paras24 if "Summer schedules" in (p.get("text") or "")), None)
+    ok("P24  les deux blocs jumeaux existent (piège armé)",
+       pA is not None and pB is not None)
+    if pA is not None and pB is not None:
+        for p in paras24:
+            tagged, meta = tagging.tag_paragraph(p)
+            p["tr_segments"] = meta
+            p["tr_tagged"] = tagged
+        # « Traduction » 5× plus longue pour A et B : sans espace supplémentaire,
+        # il faudrait descendre très en dessous du plancher de lisibilité.
+        longA = " ".join(["Les horaires reviennent la semaine prochaine"] * 5)
+        longB = " ".join(["Les horaires reviennent le mois prochain dès"] * 2)
+        pA["tr_tagged"] = f"[[0]]{longA}[[/0]]"
+        pB["tr_tagged"] = f"[[0]]{longB}[[/0]]"
+        out24 = fitz.open()
+        eng.render_page_into(out24, pd24, draw_borders=False, translated=True)
+        spans24 = [(s["bbox"], round(s["size"], 2), s["text"])
+                   for b in out24[0].get_text("dict")["blocks"]
+                   for ln in b.get("lines", []) for s in ln.get("spans", [])]
+        tailleA = max((sz for bb, sz, t in spans24
+                       if bb[0] < 300 and "horaires" in t), default=0)
+        tailleB = max((sz for bb, sz, t in spans24
+                       if bb[0] >= 300 and "horaires" in t), default=0)
+        ok("P24  avec du BLANC réel dessous : jamais sous le plancher (0,88 min)",
+           tailleA >= 0.88 * 10 - 0.05, f"corps rendu A = {tailleA}")
+        ok("P24  coincé sous un voisin : la compression profonde reste (sous 0,88)",
+           0 < tailleB < 0.88 * 10, f"corps rendu B = {tailleB}")
+        basB = max((bb[3] for bb, sz, t in spans24
+                    if bb[0] >= 300 and "horaires" in t), default=0)
+        ok("P24  et le bloc coincé ne MORD pas sur son voisin (anti-collision)",
+           0 < basB <= P24_VOISIN_B_Y - 7.0,
+           f"bas de B = {basB:.1f}, voisin vers y={P24_VOISIN_B_Y}")
+
+    # ── P25 — SATELLITES : exposants/indices restent avec leur mot ──────────
+    pd25 = eng.extract_page_data(doc, 9, doc[9])
+    paras25 = [e for e in pd25["elements"] if e.get("type") == "paragraph"]
+    pL = next((p for p in paras25 if "Values" in (p.get("text") or "")), None)
+    pOrd = next((p for p in paras25 if "infraction" in (p.get("text") or "")), None)
+    orphelins = [p for p in paras25
+                 if (p.get("text") or "").strip() in ("1", "2", "re")]
+    ok("P25  aucun satellite ORPHELIN (ni « 1 », ni « 2 », ni « re » seuls)",
+       not orphelins, f"{len(orphelins)} orphelin(s)")
+    ok("P25  l'indice reste dans la phrase de son hôte (« L1 … L2 »)",
+       pL is not None and "L1" in pL["text"].replace(" ", "")
+       and "L2" in pL["text"].replace(" ", ""),
+       (pL or {}).get("text", "(absent)")[:60])
+    ok("P25  l'ordinal reste soudé (« 1re infraction »)",
+       pOrd is not None and pOrd["text"].replace(" ", "").startswith("1re"),
+       (pOrd or {}).get("text", "(absent)")[:40])
+    if pL is not None and pOrd is not None:
+        _tg1, meta_L = tagging.tag_paragraph(pL)
+        rises = [m.get("rise", 0) for m in meta_L]
+        ok("P25  le décalage de baseline SURVIT au balisage (rise dans la meta)",
+           any(abs(r or 0) > 0.5 for r in rises), f"rises={rises}")
+        # Rendu identité : le satellite est repeint À SA HAUTEUR, collé.
+        for p in paras25:
+            tg, meta = tagging.tag_paragraph(p)
+            p["tr_segments"] = meta
+            p["tr_tagged"] = tg
+        out25 = fitz.open()
+        eng.render_page_into(out25, pd25, draw_borders=False, translated=True)
+        chars = [(c["c"], round(s["size"], 1), c["origin"])
+                 for b in out25[0].get_text("rawdict")["blocks"]
+                 for ln in b.get("lines", []) for s in ln.get("spans", [])
+                 for c in s.get("chars", [])]
+        y_L = [o[1] for ch, sz, o in chars if ch == "L" and sz > 9]
+        y_1 = [o[1] for ch, sz, o in chars if ch == "1" and sz < 9
+               and abs(o[1] - P25_Y) < 12]
+        ok("P25  au rendu, l'INDICE est peint SOUS la baseline de son hôte",
+           y_L and y_1 and min(y_1) > min(y_L) + 1.0,
+           f"y_L={y_L[:2]} y_indice={y_1[:2]}")
+        y_h = [o[1] for ch, sz, o in chars if ch == "1" and sz > 9]
+        y_re = [o[1] for ch, sz, o in chars if ch == "r" and sz < 8
+                and abs(o[1] - P25_Y2) < 12]
+        ok("P25  au rendu, l'EXPOSANT est peint AU-DESSUS de la baseline",
+           y_h and y_re and max(y_re) < max(y_h) - 1.0,
+           f"y_hote={y_h[:2]} y_exposant={y_re[:2]}")
+
+    # ── P25 — la chaîne soudée ne casse JAMAIS au bord de ligne ─────────────
+    # Reproduit hb p239 : conteneur étroit, la coupe tombe pile avant l'indice.
+    from pdf_engine_v2 import reflow as _rf25
+    _f25 = [(fitz.Font("helv"), None)]
+    segsN = [{"text": "la norme L", "fonts": _f25, "size": 10,
+              "color": (0, 0, 0)},
+             {"text": "2", "fonts": _f25, "size": 6.5, "color": (0, 0, 0),
+              "rise": -2.0}]
+    larg = _rf25.text_width("la norme L", _f25, 10) + 2.0   # « 2 » ne tient pas
+    resN = _rf25.reflow_paragraph(segsN, [[0, 0, larg, 40]], lang="fr_FR",
+                                  first_baseline=10, align="left")
+    lignesN = ["".join(r["text"] for r in ln["runs"]) for ln in resN["lines"]]
+    ok("P25  la coupe de ligne n'orpheline JAMAIS l'indice (L2 passe entier)",
+       all(("L" in l) == ("2" in l) for l in lignesN), f"lignes={lignesN}")
+
+    # ── P21 — GRAISSE PONDÉRÉE : un demi-gras n'est pas un gras ─────────────
+    # mv21 : ProximaNova-Semibold (tableaux entiers) était rendu Montserrat-Bold
+    # — le drapeau binaire de PyMuPDF promeut tout poids intermédiaire. La règle
+    # lit le POIDS dans le nom source (propriété de la convention de nommage des
+    # fontes, pas d'un document) et charge la variante la plus proche.
+    from pdf_engine_v2.engine import (_weight_class, _load_matched_font,
+                                      _FONTS_DIR)
+
+    ok("P21  le NOM prime sur le drapeau : Semibold n'est PAS un gras",
+       _weight_class("AnyFace-Semibold", True) == "semibold"
+       and _weight_class("AnyFace-DemiBold", True) == "semibold"
+       and _weight_class("AnyFace-Bold", True) == "bold"
+       and _weight_class("AnyFace-Black", True) == "extrabold"
+       and _weight_class("AnyFace", False) == "regular")
+
+    # La preuve est PHYSIQUE (encre), pas nominale : la variante servie pour un
+    # demi-gras doit peser STRICTEMENT entre Regular et Bold de la même famille.
+    def _ink(font):
+        d = fitz.open(); pg = d.new_page(width=260, height=50)
+        pg.insert_font(fontname="T", fontbuffer=font.buffer)
+        pg.insert_text((8, 34), "Héberger çà Éœ", fontsize=22, fontname="T")
+        pix = pg.get_pixmap(dpi=120, colorspace=fitz.csGRAY)
+        ink = sum(1 for b in pix.samples if b < 128) / len(pix.samples)
+        d.close()
+        return ink
+    f_reg = _load_matched_font("montserrat", False, False, weight="regular")
+    f_sb = _load_matched_font("montserrat", True, False, weight="semibold")
+    f_b = _load_matched_font("montserrat", True, False, weight="bold")
+    ok("P21  l'encre du demi-gras servi est STRICTEMENT entre Regular et Bold",
+       _ink(f_reg) < _ink(f_sb) < _ink(f_b),
+       f"{_ink(f_reg):.4f} / {_ink(f_sb):.4f} / {_ink(f_b):.4f}")
+
+    # Famille SANS variante intermédiaire : repli sur Bold — l'ancien
+    # comportement, jamais pire (contrôle de non-régression).
+    import os as _os
+    assert not _os.path.exists(_os.path.join(_FONTS_DIR, "ptserif-SemiBold.ttf"))
+    f_pt = _load_matched_font("ptserif", True, False, weight="semibold")
+    ok("P21  sans variante disponible, repli sur Bold (jamais pire qu'avant)",
+       f_pt is not None and "Bold" in (f_pt.name or ""), f_pt.name if f_pt else None)
+
+    # ── P23 — CÉSURE : au moins 3 lettres de chaque côté de la coupe ────────
+    # 27 césures fautives mesurées sur les documents de référence (« don-né »,
+    # « socié-té », « demande-ra ») : toutes laissaient un moignon de 2 lettres
+    # en tête de ligne. La règle est typographique, indépendante du document.
+    from pdf_engine_v2 import reflow as _rf
+    _fonts = [(fitz.Font("helv"), None)]        # (police, couverture) — cf. glyph_font
+
+    def _coupe(mot, avail=9999.0):
+        return _rf._hyphen_split(mot, _fonts, 10.0, 1.0, avail, "fr_FR")
+
+    c1 = _coupe("donné")
+    ok("P23  « donné » n'est plus coupé (reste de 2 lettres interdit)",
+       c1 is None, f"obtenu {c1!r}")
+    c2 = _coupe("véhicule")
+    ok("P23  « véhicule » reste coupable (véhi-cule : 4 lettres de chaque côté)",
+       c2 is not None and len(c2[1]) >= 3 and len(c2[0].rstrip('-')) >= 3,
+       f"obtenu {c2!r}")
+    c3 = _coupe("utilisé")
+    ok("P23  « utilisé » ne laisse jamais « sé » orphelin",
+       c3 is None or len(c3[1]) >= 3, f"obtenu {c3!r}")
 
     # ── Rapport ─────────────────────────────────────────────────────────────
     print("=" * 78)
