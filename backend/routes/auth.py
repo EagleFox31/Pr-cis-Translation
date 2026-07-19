@@ -8,12 +8,13 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import User, VerificationCode
+from models import User, VerificationCode, get_plan_storage
 from auth import (
     create_access_token, create_refresh_token,
     rotate_refresh_token, revoke_user_tokens, require_auth,
@@ -94,7 +95,12 @@ def _user_response(user: User) -> dict:
         "avatar_url": user.avatar_url,
         "plan": user.plan,
         "storage_used": user.storage_used,
-        "storage_limit": user.storage_limit,
+        # La colonne `storage_limit` est un VESTIGE : c'est `get_plan_storage`
+        # qui décide réellement de ce qui passe (cf. `_save_document_for_user`).
+        # Servir la colonne, c'était annoncer 500 Mo à un compte dont le plan en
+        # autorise 2 Go — la barre de quota mentait, dans le sens qui frustre.
+        # On dérive donc du plan, comme l'enforcement.
+        "storage_limit": get_plan_storage(user.plan),
         "created_at": user.created_at.isoformat() if user.created_at else None,
     }
 
@@ -457,8 +463,15 @@ async def google_auth(body: GoogleBody, db: AsyncSession = Depends(get_db)):
     if not google_client_id:
         raise HTTPException(status_code=501, detail="Google OAuth non configuré.")
 
+    # `verify_oauth2_token` va CHERCHER les certificats de Google en HTTP, avec
+    # un client synchrone. Appelé tel quel dans une coroutine, il bloque la
+    # boucle d'événements : pendant tout l'aller-retour vers Google, plus une
+    # seule autre requête n'est servie — les SSE de traduction inclus. Le
+    # symptôme n'était pas « la connexion Google est lente », c'était « toute
+    # l'application se fige ». Un appel bloquant vit dans un thread.
     try:
-        id_info = id_token.verify_oauth2_token(
+        id_info = await run_in_threadpool(
+            id_token.verify_oauth2_token,
             body.credential,
             google.auth.transport.requests.Request(),
             google_client_id,

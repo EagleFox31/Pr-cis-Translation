@@ -22,6 +22,9 @@ interface StorySectionProps {
   isTranslating: boolean;
   pageStatuses: Record<number, PageStatus>;
   renderedUpTo: number;
+  /** Aperçu ouvert depuis la bibliothèque, document encore en route. Distinct
+   *  de `isTranslating` : rien n'est traduit ici, on attend un rendu. */
+  previewRendering?: boolean;
   onStartTranslate: (config: TranslateConfig) => void;
   onBack: () => void;
   onZoomChange: (z: number) => void;
@@ -44,6 +47,7 @@ export default function StorySection({
   isTranslating,
   pageStatuses,
   renderedUpTo,
+  previewRendering = false,
   onStartTranslate,
   onBack,
   onZoomChange,
@@ -337,7 +341,7 @@ export default function StorySection({
                         || pageStatuses[currentPage] === 'copied'
                         || currentPage <= renderedUpTo
                       }
-                      translatedPageStatus={pageStatuses[currentPage]}
+                      translatedPageStatus={previewRendering ? 'rendering' : pageStatuses[currentPage]}
                       sourceLabel={t('preview.source_label', 'Document original')}
                       targetLabel={`${baseCode(targetLang ?? 'en').toUpperCase()} — ${t('preview.target_label', 'Traduction')}`}
                     />

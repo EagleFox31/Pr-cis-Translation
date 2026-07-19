@@ -24,7 +24,7 @@ class TranslatorAI:
         # Modèle de REPLI (fallback). Le vrai choix se fait PAR REQUÊTE via le
         # paramètre `quality` du formulaire (rapide vs précis) : app.py sélectionne
         # le modèle et le passe à translate_json(). Ici, défaut = rapide/stable.
-        self.model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+        self.model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
         self.max_retries = 3
         self.target_batch_size = 50
 

@@ -52,7 +52,7 @@ class PDFTranslatorEngine:
         self._font_dl_tried = None        # familles déjà tentées (lazy)
         self._doc_font_class = {}         # clé police normalisée -> 'serif'/'sans'/'mono'
         self._llm_client = None           # client OpenAI-compatible (optionnel)
-        self._llm_model  = "deepseek-chat"
+        self._llm_model  = "deepseek-v4-flash"
 
         # ── Stratégie d'identification des paragraphes ──────────────────────
         # MODE ACTIF par défaut : regroupement délégué à l'IA (DeepSeek), écrit
@@ -67,7 +67,7 @@ class PDFTranslatorEngine:
 
     def configure_llm(self, api_key: str,
                       base_url: str = "https://api.deepseek.com",
-                      model: str = "deepseek-chat") -> None:
+                      model: str = "deepseek-v4-flash") -> None:
         """Configure le client LLM utilisé pour valider les fusions inter-blocs
         ambiguës. Optionnel : sans configuration, seule la géométrie est utilisée."""
         from openai import OpenAI

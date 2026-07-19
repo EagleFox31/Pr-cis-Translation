@@ -76,6 +76,7 @@ export default function LoginPage() {
   const [newPassword, setNewPassword] = useState('');
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const [resent, setResent] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
 
   /** Connexion par MOT DE PASSE — session ouverte sans passer par la boîte mail. */
   async function handlePassword(e: FormEvent) {
@@ -138,6 +139,19 @@ export default function LoginPage() {
     <div style={pageStyle}>
       <AuthBackground />
       <div style={{ ...cardStyle, position: 'relative', zIndex: 1 }}>
+        {googleBusy && (
+          <div style={{
+            position: 'absolute', inset: 0, zIndex: 5, borderRadius: '20px',
+            background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(2px)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', gap: '12px',
+          }}>
+            <Loader2 size={28} color="var(--blue)" style={{ animation: 'spin 1s linear infinite' }} />
+            <span style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--gray-700)' }}>
+              Connexion en cours…
+            </span>
+          </div>
+        )}
         {/* En-tête — logo animé à gauche, image identité à droite */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '28px' }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -211,13 +225,18 @@ export default function LoginPage() {
               <div style={{ display: 'flex', justifyContent: 'center', overflow: 'hidden' }}>
                 <GoogleLogin
                   onSuccess={async (res) => {
-                    setError(''); setBusy(true);
+                    // Le retour de Google ferme sa popup et rend la main à une
+                    // page en apparence inerte : le seul indicateur de la page
+                    // était le bouton « Se connecter », que ce chemin ne touche
+                    // pas. Quelques secondes sans le moindre signe se lisent
+                    // comme un plantage, pas comme une attente.
+                    setError(''); setBusy(true); setGoogleBusy(true);
                     const r = await googleAuth(res.credential!);
-                    setBusy(false);
+                    setBusy(false); setGoogleBusy(false);
                     if (r.ok) navigate('/home', { replace: true });
                     else setError(r.error || 'Erreur Google.');
                   }}
-                  onError={() => setError('Erreur lors de la connexion Google.')}
+                  onError={() => { setGoogleBusy(false); setError('Erreur lors de la connexion Google.'); }}
                   theme="outline"
                   size="large"
                   text="continue_with"
