@@ -250,12 +250,17 @@ app.add_middleware(
 # ── Routes auth & documents (comptes utilisateurs) ───────────────────────────
 from routes.auth import router as auth_router
 from routes.documents import router as documents_router
+from routes.payments import router as payments_router
 app.include_router(auth_router)
 app.include_router(documents_router)
+app.include_router(payments_router)
 
 # ── Route quota stockage ─────────────────────────────────────────────────────
 from auth import require_auth, verify_access_token
+from pricing import (zone_for_country, CURRENCY, CURRENCY_DECIMALS,
+                     page_price, plan_price)
 from models import (User, Document, get_plan_page_limit, get_plan_storage,
+                    get_plan_monthly_pages, PLAN_LABELS,
                     is_paid_plan)
 from preview import rasterize_for_trial
 from database import get_db
@@ -269,9 +274,57 @@ async def user_storage(
 ):
     return {
         "used": user.storage_used,
-        "limit": user.storage_limit,
+        # Dérivé du plan, jamais de la colonne — même raison que dans
+        # `_user_response` : c'est `get_plan_storage` qui arbitre à l'écriture.
+        "limit": get_plan_storage(user.plan),
         "plan": user.plan,
     }
+
+@app.get("/api/pricing")
+async def pricing(request: Request, country: str | None = None):
+    """Grille tarifaire pour la zone de l'appelant.
+
+    Le frontend n'embarque AUCUN prix : il affiche ce que cette route renvoie.
+    Dupliquer la grille dans `PricingCards.tsx`, c'était garantir qu'un jour la
+    carte annoncerait un montant que l'écran de paiement ne pratiquerait plus.
+
+    La localisation vient de l'en-tête posé par le proxy (`CF-IPCountry` chez
+    Cloudflare). Sans proxy géo, il n'y a pas de pays : on retombe alors sur le
+    tarif PLEIN. Se tromper en faveur du client sur une remise de pouvoir
+    d'achat serait une perte sèche et silencieuse ; se tromper en sa défaveur
+    est visible et se corrige.
+
+    `country` en paramètre ne sert qu'à la mise au point et aux tests — il est
+    fourni par le client, donc n'importe qui peut réclamer la zone la moins
+    chère. Ce n'est PAS un contrôle : au moment d'encaisser, la zone devra être
+    reconfirmée côté serveur à partir du moyen de paiement réellement utilisé.
+    """
+    detected = (
+        country
+        or request.headers.get("CF-IPCountry")
+        or request.headers.get("X-Country")
+    )
+    zone = zone_for_country(detected)
+    currency = CURRENCY[zone]
+
+    return {
+        "zone": zone,
+        "currency": currency,
+        "decimals": CURRENCY_DECIMALS[currency],
+        "page_price": page_price(zone),
+        "plans": [
+            {
+                "key": key,
+                "label": PLAN_LABELS.get(key, key),
+                "monthly": plan_price(key, zone, annual=False),
+                "annual": plan_price(key, zone, annual=True),
+                "monthly_pages": get_plan_monthly_pages(key),
+                "storage": get_plan_storage(key),
+            }
+            for key in ("free", "starter", "pro", "enterprise")
+        ],
+    }
+
 
 try:
     from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -361,6 +414,32 @@ def cap_pages_for_plan(pages_set, ext: str, page_limit: int):
     return pages_set
 
 
+def count_pages(file_bytes: bytes, ext: str) -> int:
+    """Nombre de pages/diapositives du fichier déposé.
+
+    Sert à FACTURER avant de traduire : sans sélection explicite, il faut bien
+    savoir combien de pages on s'apprête à vendre. La lecture est bon marché
+    (on ouvre le conteneur, on ne rend rien) et ne touche pas au moteur.
+
+    En cas de doute, on renvoie 1 — jamais 0 : un fichier illisible qui
+    coûterait « zéro page » serait une traduction gratuite illimitée pour qui
+    sait fabriquer un en-tête invalide. Le vrai refus viendra de l'extraction,
+    quelques lignes plus loin, avec un message qui parle.
+    """
+    try:
+        if ext == "pdf":
+            import fitz
+            with fitz.open(stream=file_bytes, filetype="pdf") as doc:
+                return max(1, doc.page_count)
+        if ext == "pptx":
+            import io as _io
+            from pptx import Presentation
+            return max(1, len(Presentation(_io.BytesIO(file_bytes)).slides))
+    except Exception:
+        logger.warning("Comptage de pages impossible (%s) — facturé 1 page.", ext)
+    return 1
+
+
 docx_engine = DOCXTranslatorEngine()
 try:
     pptx_engine = PPTXTranslatorEngine() if PPTXTranslatorEngine else None
@@ -388,7 +467,11 @@ _STARTUP_NOTES.append((logging.INFO, "Moteurs     ~  " + " · ".join(_ready)))
 #  • "precise" → modèle à raisonnement, alignement id↔texte fiable sur les pages
 #                complexes (numéros + formules), mais ~1-2 min/page.
 # Noms surchargeables via .env si DeepSeek renomme ses modèles.
-FAST_MODEL = os.getenv("DEEPSEEK_MODEL_FAST", "deepseek-chat")
+# `deepseek-chat` était un ALIAS de compatibilité vers `deepseek-v4-flash` en
+# mode non-raisonnant, supprimé par DeepSeek le 24/07/2026 à 15:59 UTC. On vise
+# donc le modèle réel : à cette date, le comportement est identique — c'est le
+# même modèle — mais le nom, lui, survivra.
+FAST_MODEL = os.getenv("DEEPSEEK_MODEL_FAST", "deepseek-v4-flash")
 PRECISE_MODEL = os.getenv("DEEPSEEK_MODEL_PRECISE", "deepseek-v4-flash")
 
 def _resolve_quality(quality: str):
@@ -817,7 +900,8 @@ async def preview_pdf_endpoint(
 
 async def _save_document_for_user(user: "User | None", db: "AsyncSession",
                                   job_id: str, filename: str, target_lang: str,
-                                  original_path: str, size: int):
+                                  original_path: str, size: int,
+                                  paid: bool = False, page_count: int = 1):
     """Enregistre un Document pour l'utilisateur connecté.
 
     Le Document est AUSSI le registre d'usage mensuel (compteur freemium) : on
@@ -838,7 +922,11 @@ async def _save_document_for_user(user: "User | None", db: "AsyncSession",
         doc = Document(user_id=user.id, original_name=filename, source_lang="auto",
                        target_lang=target_lang, original_path=original_path,
                        size_bytes=size, storage_charged=charge,
-                       status="translating")
+                       status="translating", paid=paid,
+                       # Le quota mensuel SOMME cette colonne. Laissée à NULL
+                       # (son ancien état), elle rendait tout quota de pages
+                       # incomptable — donc invendable.
+                       page_count=page_count)
         db.add(doc)
         user.storage_used += charge
         await db.commit()
@@ -938,18 +1026,30 @@ async def translate_endpoint(
                    "Passez à Starter pour traduire ce format.",
         )
 
-    pages_set = cap_pages_for_plan(pages_set, ext, page_limit)
+    # Un plan payant couvre tout ce qu'il produit ; pour le forfait Gratuit,
+    # seul l'achat rend le document lisible en clair (cf. `_may_read_clear`).
+    doc_is_paid = is_paid_plan(plan)
 
-    # ── Freemium : 1 page par mois calendaire (compteur = Documents du mois) ──
+    # ── Forfait Gratuit : une traduction offerte par mois, puis à la page ─────
+    #
+    # Deux titres pour traduire, dans cet ordre :
+    #   1. la traduction OFFERTE du mois — une page, une fois ;
+    #   2. les pages ACHETÉES d'avance, débitées ici.
+    #
+    # Le débit a lieu AVANT de lancer quoi que ce soit : c'est la règle du
+    # produit (« paiement avant même de traduire »), et c'est aussi la seule
+    # façon d'éviter qu'un travail coûteux parte pour un solde déjà vide.
     if page_limit == 1:
         # Verrou pessimiste sur la ligne User : le compteur est un
         # lire-puis-écrire (COUNT ici, INSERT du Document plus bas). Sans lock,
         # deux requêtes simultanées du même compte lisaient toutes deux 0 et
         # passaient toutes deux. Le lock tient jusqu'au commit de
         # `_save_document_for_user` : la seconde requête attend, recompte, 402.
-        await db.execute(
+        # Il protège désormais AUSSI le solde de pages : sans lui, deux
+        # traductions lancées ensemble débiteraient toutes deux le même solde.
+        locked = (await db.execute(
             select(User).where(User.id == current_user.id).with_for_update()
-        )
+        )).scalar_one()
         month_start = datetime.now(timezone.utc).replace(
             day=1, hour=0, minute=0, second=0, microsecond=0)
         r = await db.execute(
@@ -958,11 +1058,68 @@ async def translate_endpoint(
                 Document.created_at >= month_start,
             )
         )
-        if (r.scalar() or 0) >= 1:
-            raise HTTPException(
-                status_code=402,
-                detail="Forfait Gratuit : 1 page par mois. Passez à Starter pour traduire plus.",
+        free_used = (r.scalar() or 0) >= 1
+
+        if not free_used:
+            # La traduction offerte : une page, celle que le plan autorise.
+            pages_set = cap_pages_for_plan(pages_set, ext, page_limit)
+        else:
+            # On facture ce qui sera RÉELLEMENT traduit : la sélection si elle
+            # existe, tout le document sinon.
+            needed = len(pages_set) if pages_set else count_pages(file_bytes, ext)
+            if locked.page_credits < needed:
+                raise HTTPException(
+                    status_code=402,
+                    detail=(f"{needed} page(s) à traduire, "
+                            f"{locked.page_credits} page(s) à votre solde. "
+                            "Réglez les pages manquantes pour continuer."),
+                )
+            locked.page_credits -= needed
+            # Pas de `cap_pages_for_plan` ici : ces pages sont payées, les
+            # plafonner à une seule reviendrait à encaisser sans livrer.
+            #
+            # Et le document qui va naître est PAYÉ : sans ce drapeau, on
+            # débiterait le solde pour produire une traduction que son
+            # acheteur ne pourrait ni voir en clair ni télécharger.
+            doc_is_paid = True
+    else:
+        pages_set = cap_pages_for_plan(pages_set, ext, page_limit)
+
+        # ── Plans payants : quota de pages du MOIS ────────────────────────────
+        #
+        # Distinct du plafond par document (`page_limit`), qui ne limite qu'une
+        # traduction à la fois. Sans ce compteur, « 100 pages par mois » sur la
+        # carte de tarifs voulait dire « autant de documents de 100 pages que
+        # vous voulez » : le quota vendu n'existait tout simplement pas.
+        monthly = get_plan_monthly_pages(plan)
+        if monthly is not None:
+            # Même verrou que pour le forfait Gratuit, et pour la même raison :
+            # compter puis insérer est un lire-puis-écrire.
+            await db.execute(
+                select(User).where(User.id == current_user.id).with_for_update()
             )
+            month_start = datetime.now(timezone.utc).replace(
+                day=1, hour=0, minute=0, second=0, microsecond=0)
+            r = await db.execute(
+                select(func.coalesce(func.sum(Document.page_count), 0)).where(
+                    Document.user_id == current_user.id,
+                    Document.created_at >= month_start,
+                )
+            )
+            deja = int(r.scalar() or 0)
+            demande = len(pages_set) if pages_set else count_pages(file_bytes, ext)
+            if deja + demande > monthly:
+                raise HTTPException(
+                    status_code=402,
+                    detail=(f"Quota mensuel atteint : {deja}/{monthly} pages ce "
+                            f"mois-ci, {demande} demandée(s). Le compteur repart "
+                            "le 1er du mois prochain."),
+                )
+
+    # Ce qui sera RÉELLEMENT traduit — enregistré sur le Document, sinon le
+    # quota du mois prochain n'aurait rien à compter (`page_count` restait NULL).
+    pages_facturees = len(pages_set) if pages_set else count_pages(file_bytes, ext)
+
     ptok = pages_token(pages_set)
     psuffix = f"_{ptok}" if ptok else ""
 
@@ -1034,7 +1191,8 @@ async def translate_endpoint(
     # ses pieds ; (2) un cache-hit terminait le job avant que `document_id` ne
     # soit lié → le Document restait « translating » pour toujours.
     await _save_document_for_user(current_user, db, job_id, filename,
-                                  target_lang, original_path, len(file_bytes))
+                                  target_lang, original_path, len(file_bytes),
+                                  paid=doc_is_paid, page_count=pages_facturees)
 
     thread.start()
 

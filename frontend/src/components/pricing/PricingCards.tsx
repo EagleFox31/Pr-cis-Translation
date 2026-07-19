@@ -1,126 +1,159 @@
 import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
 import { useAuth } from '../../contexts/AuthContext';
-
+import { usePricing, formatMoney, type PricingPlan } from '../../hooks/usePricing';
+import Skeleton from '../ui/Skeleton';
 
 interface PricingCardsProps {
   isAnnual: boolean;
 }
 
-const PLANS = [
-  { index: 1, planKey: 'free', storage: '0 Mo', storageBytes: 0, pages: '1 page / mois' },
-  { index: 2, planKey: 'starter', storage: '500 Mo', storageBytes: 524_288_000, pages: 'Illimité' },
-  { index: 3, planKey: 'pro', storage: '2 Go', storageBytes: 2_147_483_648, pages: 'Illimité' },
-  { index: 4, planKey: 'enterprise', storage: '10 Go', storageBytes: 10_737_418_240, pages: 'Illimité' },
-];
-
 function formatBytes(bytes: number): string {
-  if (bytes >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(1)} Go`;
-  if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(0)} Mo`;
-  return `${(bytes / 1024).toFixed(0)} Ko`;
+  if (bytes >= 1_073_741_824) return `${Math.round(bytes / 1_073_741_824)} Go`;
+  if (bytes >= 1_048_576) return `${Math.round(bytes / 1_048_576)} Mo`;
+  return `${Math.round(bytes / 1024)} Ko`;
+}
+
+/** Ce que chaque offre promet, en trois lignes maximum.
+ *
+ *  La règle tenue ici : une carte se COMPARE d'un coup d'œil. L'ancienne
+ *  version mélangeait un quota de mots (« 10 000 mots / mois ») et un quota de
+ *  pages selon les cartes — deux unités qu'on ne peut pas comparer de tête. On
+ *  parle donc de PAGES partout, parce que c'est ce que l'utilisateur dépose.
+ */
+function features(plan: PricingPlan, p: { currency: string; decimals: number; page_price: number },
+                 locale: string): { text: string; off?: boolean }[] {
+  const pages = plan.monthly_pages;
+  const storage = plan.storage > 0 ? `${formatBytes(plan.storage)} de stockage` : null;
+
+  if (plan.key === 'free') {
+    return [
+      { text: '1 page traduite offerte chaque mois' },
+      // LE point de l'offre gratuite, et la raison pour laquelle elle a sa
+      // place à côté d'abonnements : au-delà de la page offerte, on paie
+      // l'unité, sans s'engager. Le prix est annoncé ici, pas découvert au
+      // moment de payer.
+      { text: `Puis ${formatMoney(p.page_price, p.currency, p.decimals, locale)} par page — payées avant traduction` },
+      { text: 'Aucun abonnement, aucune carte à enregistrer' },
+      { text: 'Aucun stockage — vos documents ne sont pas conservés', off: true },
+    ];
+  }
+
+  if (plan.key === 'enterprise') {
+    return [
+      { text: 'Volume illimité, engagement annuel' },
+      { text: 'Accès API et facturation automatique' },
+      { text: 'Support dédié et SLA garanti' },
+      { text: `${formatBytes(plan.storage)} de stockage` },
+    ];
+  }
+
+  const base = [
+    { text: pages === null ? 'Pages illimitées' : `${pages} pages par mois` },
+    { text: 'Téléchargement des traductions inclus' },
+    { text: plan.key === 'pro' ? 'Support prioritaire' : 'Support standard' },
+  ];
+  if (storage) base.push({ text: storage });
+  return base;
 }
 
 export default function PricingCards({ isAnnual }: PricingCardsProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user } = useAuth();
+  const { pricing, loading } = usePricing();
+
+  if (loading) {
+    return (
+      <div className="pricing-grid">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="pricing-card">
+            <Skeleton height={260} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Le serveur n'a pas répondu. On le dit, plutôt que d'afficher des prix de
+  // secours qui pourraient ne plus être ceux pratiqués.
+  if (!pricing) {
+    return (
+      <p style={{ textAlign: 'center', color: 'var(--gray-500)', fontSize: '14px' }}>
+        Les tarifs sont momentanément indisponibles. Réessayez dans un instant.
+      </p>
+    );
+  }
+
+  const locale = i18n.language || 'fr';
 
   return (
     <div className="pricing-grid">
-      {PLANS.map((plan, idx) => {
-        // Visiteur = aucun forfait actif ; Connecté = son plan
-        const isActive = user ? user.plan === plan.planKey : false;
-        const isPopular = plan.planKey === 'pro';
+      {pricing.plans.map((plan, idx) => {
+        const isActive = user ? user.plan === plan.key : false;
+        const isPopular = plan.key === 'pro';
+        const amount = isAnnual ? plan.annual : plan.monthly;
+        const onQuote = amount === null;
 
         return (
           <motion.div
-            key={plan.planKey}
+            key={plan.key}
             className={`pricing-card ${isPopular ? 'popular' : ''} ${isActive ? 'active' : ''}`}
             initial={{ opacity: 0, y: 30 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.1 }}
             transition={{ duration: 0.5, delay: idx * 0.1, ease: [0.16, 1, 0.3, 1] }}
-            whileHover={isPopular ? { y: -8, boxShadow: '0 24px 60px rgba(13,27,62,0.18)' } : { y: -4, boxShadow: '0 16px 40px rgba(13,27,62,0.12)' }}
-            style={isActive ? { border: '2px solid var(--blue)', boxShadow: '0 0 0 4px rgba(26,77,199,0.12)' } : undefined}
+            whileHover={isPopular
+              ? { y: -8, boxShadow: '0 24px 60px rgba(13,27,62,0.18)' }
+              : { y: -4, boxShadow: '0 16px 40px rgba(13,27,62,0.12)' }}
+            style={isActive
+              ? { border: '2px solid var(--blue)', boxShadow: '0 0 0 4px rgba(26,77,199,0.12)' }
+              : undefined}
           >
             {isPopular && <div className="popular-badge">{t('pricing.recommended')}</div>}
 
-            <div className="pricing-plan">{t(`pricing.plan_${plan.index}_name`)}</div>
+            <div className="pricing-plan">{plan.label}</div>
 
             <div className="pricing-price">
-              {plan.planKey === 'free'
-                ? t('pricing.plan_1_price')
-                : plan.planKey === 'enterprise'
-                  ? t('pricing.plan_4_price')
-                  : isAnnual
-                    ? t(`pricing.plan_${plan.index}_price_annual`)
-                    : t(`pricing.plan_${plan.index}_price_monthly`)}
-              {plan.planKey !== 'enterprise' && (
+              {onQuote ? (
+                <span className="period">Sur devis</span>
+              ) : amount === 0 ? (
+                <>0<span className="period">/mois</span></>
+              ) : (
                 <>
-                  <sup>€</sup>
-                  <span className="period">{t(`pricing.plan_${plan.index}_period`)}</span>
+                  {formatMoney(amount, pricing.currency, pricing.decimals, locale)}
+                  <span className="period">/mois</span>
                 </>
-              )}
-              {plan.planKey === 'enterprise' && (
-                <span className="period">{t('pricing.plan_4_period')}</span>
               )}
             </div>
 
-            <p className="pricing-desc">{t(`pricing.plan_${plan.index}_desc`)}</p>
+            {/* L'engagement annuel se facture à l'année : le dire ici évite de
+                laisser croire qu'on peut résilier au mois à ce prix-là. */}
+            {isAnnual && !onQuote && amount !== 0 && (
+              <p style={{ fontSize: '12px', color: 'var(--blue)', margin: '0 0 8px', fontWeight: 600 }}>
+                facturé annuellement
+              </p>
+            )}
+
             <div className="pricing-divider" />
 
             <ul className="pricing-features">
-              {plan.planKey === 'free' && (
-                <>
-                  <li>{t('pricing.plan_1_words')}</li>
-                  <li>{t('pricing.feat_preview_only')}</li>
-                  <li className="unavailable">{t('pricing.feat_no_download')}</li>
-                </>
-              )}
-              {plan.planKey === 'starter' && (
-                <>
-                  <li>{t('pricing.plan_2_words')}</li>
-                  <li>{t('pricing.feat_download_included')}</li>
-                  <li>{t('pricing.feat_support_standard')}</li>
-                </>
-              )}
-              {plan.planKey === 'pro' && (
-                <>
-                  <li>{t('pricing.plan_3_words')}</li>
-                  <li>{t('pricing.feat_support_priority')}</li>
-                  <li>{t('pricing.feat_trial_text')}</li>
-                </>
-              )}
-              {plan.planKey === 'enterprise' && (
-                <>
-                  <li>{t('pricing.plan_4_words')}</li>
-                  <li>{t('pricing.feat_api_access')}</li>
-                  <li>{t('pricing.feat_sla_guaranteed')}</li>
-                  <li>{t('pricing.feat_excess_rate')}</li>
-                </>
-              )}
-
-              {/* Stockage — en dernier, avant la réduction annuelle */}
-              <li className={plan.planKey === 'free' ? 'unavailable' : ''}>
-                {plan.planKey === 'free' ? 'Aucun stockage' : `${plan.storage} de stockage`}
-              </li>
-
-              {isAnnual && plan.planKey !== 'free' && plan.planKey !== 'enterprise' && (
-                <li style={{ color: 'var(--blue)', fontWeight: 'bold' }}>
-                  {plan.planKey === 'starter' ? t('pricing.feat_discount_included') : t('pricing.feat_save_text')}
-                </li>
-              )}
+              {features(plan, pricing, locale).map((f, i) => (
+                <li key={i} className={f.off ? 'unavailable' : ''}>{f.text}</li>
+              ))}
             </ul>
 
             <a
-              href={!user && plan.planKey === 'free' ? '/login' : '#'}
+              href={!user && plan.key === 'free' ? '/login' : '#'}
               className="btn-pricing"
-              onClick={(e) => { if (!(!user && plan.planKey === 'free')) e.preventDefault(); }}
-              style={isActive ? { background: 'var(--gray-200)', borderColor: 'var(--gray-300)', color: 'var(--gray-500)', cursor: 'default', pointerEvents: 'none' } : undefined}>
-              {!user && plan.planKey === 'free' ? 'Commencer' : isActive ? 'Forfait actif' : (
-                plan.planKey === 'free' ? t('pricing.btn_start')
-                : plan.planKey === 'pro' ? t('pricing.btn_choose_pro')
-                : t('pricing.btn_choose')
-              )}
+              onClick={(e) => { if (!(!user && plan.key === 'free')) e.preventDefault(); }}
+              style={isActive
+                ? { background: 'var(--gray-200)', borderColor: 'var(--gray-300)', color: 'var(--gray-500)', cursor: 'default', pointerEvents: 'none' }
+                : undefined}
+            >
+              {isActive ? 'Forfait actif'
+                : plan.key === 'free' ? 'Commencer gratuitement'
+                : onQuote ? 'Nous contacter'
+                : `Choisir ${plan.label}`}
             </a>
           </motion.div>
         );

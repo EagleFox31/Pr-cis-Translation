@@ -27,24 +27,46 @@ class Base(DeclarativeBase):
 
 PLAN_STORAGE: dict[str, int] = {
     "free":       0,              # traduction seule, pas de stockage
-    "starter":    524_288_000,    # 500 Mo
-    "pro":        2_147_483_648,  # 2 Go
-    "enterprise": 10_737_418_240, # 10 Go
-    "admin":      10_737_418_240, # 10 Go (affiche « illimité »)
+    "starter":    2_147_483_648,  # 2 Go
+    "pro":        21_474_836_480, # 20 Go
+    "enterprise": 214_748_364_800,# 200 Go
+    "admin":      214_748_364_800,# 200 Go (affiche « illimité »)
 }
 
-# Nombre MAX de pages traduisibles (None = illimité)
+# ATTENTION — deux plafonds DIFFÉRENTS, longtemps confondus sous un seul nom.
+#
+#  • PLAN_PAGE_LIMIT   : combien de pages au maximum dans UN SEUL document.
+#                        C'est ce que `cap_pages_for_plan` tronque à l'envoi.
+#  • PLAN_MONTHLY_PAGES: combien de pages au total sur un MOIS calendaire.
+#                        C'est le quota commercial affiché sur la carte.
+#
+# Les mélanger, c'était vendre « 100 pages par mois » et livrer « 100 pages par
+# document, autant de fois que vous voulez ». La valeur `None` signifie « pas de
+# plafond de ce type ».
+
 PLAN_PAGE_LIMIT: dict[str, int | None] = {
-    "free":       1,
+    "free":       1,      # l'essai porte sur une page, et une seule
     "starter":    None,
     "pro":        None,
     "enterprise": None,
     "admin":      None,
 }
 
+PLAN_MONTHLY_PAGES: dict[str, int | None] = {
+    "free":       1,      # 1 page offerte / mois, puis paiement à la page
+    "starter":    100,
+    "pro":        500,
+    "enterprise": None,   # illimité, cadré par contrat
+    "admin":      None,
+}
+
 def get_plan_page_limit(plan: str) -> int | None:
-    """Retourne la limite de pages pour un plan, None = illimité."""
+    """Pages max dans UN document pour ce plan. None = pas de plafond."""
     return PLAN_PAGE_LIMIT.get(plan, 1)  # défaut = 1 page (freemium)
+
+def get_plan_monthly_pages(plan: str) -> int | None:
+    """Pages max sur le MOIS pour ce plan. None = illimité."""
+    return PLAN_MONTHLY_PAGES.get(plan, 1)
 
 # Le SEUL plan sans droits (ni téléchargement, ni aperçu en clair). On nomme
 # l'exception plutôt que d'énumérer les plans payants : ajouter un plan ne doit
@@ -83,6 +105,10 @@ class User(Base):
     plan:          Mapped[str] = mapped_column(String(20), default="free", nullable=False)
     storage_used:  Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     storage_limit: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    # Pages achetées à l'unité et pas encore consommées (forfait Gratuit).
+    # C'est un SOLDE, pas un historique : il est débité au lancement d'une
+    # traduction, et les paiements qui l'ont alimenté vivent dans `payments`.
+    page_credits:  Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at:    Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at:    Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow,
@@ -121,12 +147,66 @@ class Document(Base):
                                                  nullable=False)
     status:          Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
     page_count:      Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Ce document a-t-il été PAYÉ ? Le droit de télécharger et de voir en clair
+    # se lisait jusqu'ici sur le PLAN (`is_paid_plan`), ce qui interdisait à un
+    # compte Gratuit de récupérer quoi que ce soit — y compris ce qu'il venait
+    # d'acheter à la page. Le droit appartient au DOCUMENT : un compte Gratuit
+    # a exactement ce qu'il a payé, ni plus, ni moins.
+    paid:            Mapped[bool] = mapped_column(Boolean, default=False,
+                                                  nullable=False)
     created_at:      Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at:      Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow,
     )
 
     user: Mapped[User] = relationship("User", back_populates="documents")
+
+
+# ── Payment ──────────────────────────────────────────────────────────────────
+
+class Payment(Base):
+    """Une tentative d'encaissement. Y compris celles qui échouent.
+
+    On enregistre AVANT d'appeler le fournisseur, jamais après : un paiement
+    dont la trace n'existe qu'en cas de succès est un paiement qu'on ne saura
+    pas réconcilier le jour où le réseau coupe entre l'encaissement et la
+    réponse. Le client a été débité ; nous, nous n'en saurions rien.
+    """
+    __tablename__ = "payments"
+
+    id:       Mapped[str] = mapped_column(String(32), primary_key=True, default=_new_uuid)
+    user_id:  Mapped[str] = mapped_column(
+        String(32), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True,
+    )
+    # Paiement d'un document précis (débloquer un téléchargement) ou achat de
+    # pages d'avance (`None`).
+    document_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True,
+    )
+    pages:    Mapped[int] = mapped_column(Integer, nullable=False)
+    # Montant en unités MINEURES, tel qu'envoyé au fournisseur. On garde aussi
+    # la devise et la zone : un litige six mois plus tard se tranche sur ce qui
+    # a été facturé ce jour-là, pas sur la grille en vigueur aujourd'hui.
+    amount:   Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    zone:     Mapped[str] = mapped_column(String(2), nullable=False)
+    provider: Mapped[str] = mapped_column(String(20), default="campay", nullable=False)
+    # Référence rendue par le fournisseur — la clé de réconciliation.
+    provider_ref: Mapped[str | None] = mapped_column(String(128), nullable=True,
+                                                     unique=True, index=True)
+    # PENDING · SUCCESSFUL · FAILED — vocabulaire de Campay, gardé tel quel
+    # pour qu'un état lu dans nos logs se retrouve dans leur tableau de bord.
+    status:   Mapped[str] = mapped_column(String(20), default="PENDING",
+                                          nullable=False, index=True)
+    # Les crédits ont-ils DÉJÀ été portés au compte ? Le webhook et la
+    # consultation d'état arrivent tous les deux, souvent en double : sans ce
+    # drapeau, un même paiement crédite deux fois.
+    credited: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    phone:    Mapped[str | None] = mapped_column(String(20), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow,
+    )
 
 
 # ── RefreshToken ─────────────────────────────────────────────────────────────
