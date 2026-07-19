@@ -127,7 +127,8 @@ def _prune_empty_dirs(start: str) -> None:
         cur = os.path.dirname(cur)
 
 
-def _render_or_404(doc: Document, ext: str) -> bytes:
+def _render_or_404(doc: Document, ext: str,
+                   only_pages: set[int] | None = None) -> bytes:
     """Recalcule le document traduit depuis l'original + la traduction stockée.
 
     Import PARESSEUX d'`app` : `app` importe ce module (include_router), donc un
@@ -140,7 +141,8 @@ def _render_or_404(doc: Document, ext: str) -> bytes:
     import app as _app
     try:
         return _app.render_translation_bytes(
-            doc.original_path, doc.translated_path, ext, doc.target_lang)
+            doc.original_path, doc.translated_path, ext, doc.target_lang,
+            only_pages=only_pages)
     except Exception as e:
         raise HTTPException(status_code=500,
                             detail=f"Rendu de la traduction impossible : {e}")
@@ -171,6 +173,7 @@ def _doc_response(doc: Document) -> dict:
         "size_bytes": doc.size_bytes,
         "status": doc.status,
         "page_count": doc.page_count,
+        "pages_done": doc.pages_done,
         "created_at": doc.created_at.isoformat() if doc.created_at else None,
         "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
     }
@@ -290,6 +293,12 @@ async def preview_document(
     doc_id: str,
     user: User = Depends(require_auth),
     db: AsyncSession = Depends(get_db),
+    # EN DERNIER, volontairement. Inséré après `doc_id`, ce paramètre décalait
+    # tous les appels POSITIONNELS existants : `preview_document(id, user, db)`
+    # passait `user` pour `page`, et `db` restait un `Depends` non résolu. Un
+    # nouvel argument optionnel se met à la fin — la suite de tests l'a montré
+    # avant que ça n'atteigne quiconque.
+    page: int | None = None,
 ):
     """Aperçu de la traduction — rastérisé et filigrané pour un plan d'essai.
 
@@ -325,8 +334,18 @@ async def preview_document(
     # « Aperçu » figeait TOUTE l'application jusqu'à la fin du rendu. On les
     # sort dans un thread, et on n'en fait qu'un aller-retour (les deux étapes
     # sont enchaînées côté thread plutôt qu'en deux bascules).
+    # L'aperçu n'affiche QU'UNE page à la fois. En reconstruire l'intégralité
+    # pour en montrer une était le blocage : mesuré sur un document de 285
+    # pages, 280 s pour tout rendre contre 8 s pour la seule page demandée.
+    # Les pages non rendues sont recopiées de l'original, donc la pagination
+    # reste celle du document — le lecteur n'a rien à recalculer.
+    #
+    # `page` absent = tout le document : c'est le comportement dont dépendent
+    # les appels existants (et les tests), on ne le change pas en douce.
+    fenetre = {page} if page and page > 0 else None
+
     def _build() -> bytes:
-        data = _render_or_404(doc, ext)
+        data = _render_or_404(doc, ext, only_pages=fenetre)
         # On ne protège que ce qu'on a PRODUIT : l'original appartient déjà à
         # l'utilisateur, le rastériser ne protégerait rien et coûterait cher.
         if not clear:

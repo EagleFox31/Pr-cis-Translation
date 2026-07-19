@@ -31,7 +31,16 @@ export default function Home() {
   // ce drapeau dit au viewer de montrer « rendu en cours » au lieu du sablon
   // « page en attente », qui ferait croire à une traduction inachevée.
   const [previewLoading, setPreviewLoading] = useState(false);
-  const previewToken = useRef(0);
+  // DEUX compteurs, et non un seul partagé. L'ouverture d'un aperçu et le
+  // chargement d'une page sont deux courses distinctes : avec un compteur
+  // unique, l'effet de page incrémentait le jeton juste après l'ouverture et
+  // périmait le chargement du document SOURCE — le panneau gauche restait vide
+  // et la comparaison côte à côte disparaissait.
+  const openToken = useRef(0);    // une ouverture d'aperçu
+  const pageToken = useRef(0);    // une demande de page
+  // Document de la BIBLIOTHÈQUE en cours d'aperçu (null = traduction en direct,
+  // qui reçoit ses pages par le flux et n'a rien à redemander).
+  const [libraryDocId, setLibraryDocId] = useState<string | null>(null);
 
   // ---- Traduction PROGRESSIVE (page par page) ----
   const stream = useStreamingTranslation();
@@ -91,6 +100,12 @@ export default function Home() {
       const { file, targetLang, pages, debug, precise } = config;
       setSelectedFile(file);
       setTargetLang(targetLang);
+      // Une traduction EN DIRECT reçoit ses pages par le flux : elle n'a rien
+      // à redemander au serveur. Sans cette remise à zéro, l'effet d'aperçu
+      // continuerait de réclamer les pages du document précédent et les
+      // poserait par-dessus celles qui arrivent.
+      setLibraryDocId(null);
+      setPreviewLoading(false);
       setTranslatedBlob(null);
       setTranslatedFilename('');
       setCurrentPage(1);
@@ -125,21 +140,22 @@ export default function Home() {
   // ---- Library preview ----
   const handleLibraryPreview = useCallback(
     (req: {
+      docId: string;
       filename: string;
       ext: string;
       source: Promise<Blob | undefined>;
-      translated: Promise<Blob | undefined>;
     }) => {
       // Chaque ouverture reçoit un jeton. Sans lui, ouvrir A puis B pendant que
       // A charge encore laisse la réponse de A — arrivée en dernier — écraser
       // le document B affiché à l'écran.
-      const token = ++previewToken.current;
-      const fresh = () => previewToken.current === token;
+      const token = ++openToken.current;
+      const fresh = () => openToken.current === token;
 
       stream.reset();
       setTranslatedBlob(null);
       setSelectedFile(null);
       setTranslatedFilename(req.filename);
+      setLibraryDocId(req.docId);
       setCurrentPage(1);
       setPreviewLoading(true);
       setShowLibrary(false);
@@ -153,13 +169,30 @@ export default function Home() {
         }
       }).catch(() => { /* panneau gauche vide : le viewer le gère */ });
 
-      req.translated
-        .then((blob) => { if (fresh() && blob) setTranslatedBlob(blob); })
-        .catch(() => { if (fresh()) showToast('error', t('story.error_default')); })
-        .finally(() => { if (fresh()) setPreviewLoading(false); });
+      // La traduction est chargée par l'effet ci-dessous, page par page.
     },
-    [stream, t],
+    [stream],
   );
+
+  // ---- Aperçu bibliothèque : une page à la fois ----------------------------
+  //
+  // Le serveur ne reconstruit que la page regardée (280 s → 8 s sur un document
+  // de 285 pages). Il faut donc la redemander à chaque changement de page —
+  // c'est le prix de ne plus tout rendre, et il est très inférieur au gain.
+  useEffect(() => {
+    if (!libraryDocId || !showPreview) return;
+    const token = ++pageToken.current;
+    setPreviewLoading(true);
+    getPreviewBlob(libraryDocId, currentPage)
+      .then((blob) => {
+        // Jeton : tourner vite les pages lance plusieurs requêtes, et rien ne
+        // garantit qu'elles reviennent dans l'ordre. Sans lui, une page lente
+        // demandée avant écrase la page rapide demandée après.
+        if (pageToken.current === token && blob) setTranslatedBlob(blob);
+      })
+      .catch(() => { /* le lecteur garde son écran d'attente */ })
+      .finally(() => { if (pageToken.current === token) setPreviewLoading(false); });
+  }, [libraryDocId, currentPage, showPreview, getPreviewBlob]);
 
   // ---- Download (le résultat complet, une fois la traduction terminée) ----
   const handleDownload = useCallback(() => {
@@ -180,6 +213,8 @@ export default function Home() {
   const handleBack = useCallback(() => {
     stream.cancel();
     setShowPreview(false);
+    setLibraryDocId(null);          // plus d'aperçu ouvert : plus rien à charger
+    setPreviewLoading(false);
   }, [stream]);
 
   // Aperçu du panneau « traduit » : blob final si dispo, sinon PDF partiel

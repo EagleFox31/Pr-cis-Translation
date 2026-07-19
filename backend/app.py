@@ -543,11 +543,68 @@ def _new_job() -> str:
         }
     return job_id
 
+# Intervalle minimal entre deux écritures d'avancement en base.
+_PROGRESS_EVERY_S = 3.0
+
+
 def _job_emit(job_id: str, event_type: str, payload: dict):
     with _jobs_lock:
         job = _jobs.get(job_id)
     if job:
         job["q"].put({"type": event_type, **payload})
+
+def _sync_document_progress(job_id: str, done: int, total: int | None = None):
+    """Consigne l'avancement en base, pour qu'il survive à la session.
+
+    ÉCRITURE LIMITÉE. Un document de 285 pages ferait 285 transactions, chacune
+    ouvrant sa propre connexion (voir `_sync_document_status` : on est dans un
+    thread worker, le pool principal n'est pas utilisable). On n'écrit donc que
+    toutes les `_PROGRESS_EVERY_S` secondes — sauf la DERNIÈRE page, qu'on
+    écrit toujours : c'est celle qui fait passer la barre à 100 %, et la sauter
+    laisserait un document terminé affiché à 97 %.
+    """
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        doc_id = job.get("document_id") if job else None
+        if not doc_id:
+            return
+        derniere = total is not None and done >= total
+        if not derniere:
+            precedent = job.get("_progress_at", 0.0)
+            if time.time() - precedent < _PROGRESS_EVERY_S:
+                return
+        job["_progress_at"] = time.time()
+
+    async def _update():
+        from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+        from sqlalchemy.pool import NullPool
+        from database import DATABASE_URL
+        from models import Document as _D
+        eng = create_async_engine(DATABASE_URL, poolclass=NullPool)
+        try:
+            async with AsyncSession(eng) as db:
+                doc = await db.get(_D, doc_id)
+                if doc is None:
+                    return
+                doc.pages_done = done
+                if total and not doc.page_count:
+                    doc.page_count = total
+                await db.commit()
+        finally:
+            await eng.dispose()
+    try:
+        import asyncio as _aio
+        _aio.run(_update())
+    except Exception as e:
+        # L'avancement est un CONFORT : son échec ne doit jamais interrompre
+        # une traduction en cours, qui elle a de la valeur. Mais il doit se
+        # VOIR — un `except: pass` muet a déjà coûté une heure de recherche
+        # ici même : la barre restait à zéro sans que rien ne le signale.
+        # `_aio.run` échoue notamment si on l'appelle depuis une boucle déjà
+        # en cours ; ce chemin n'est légitime que depuis un thread worker.
+        logger.warning("Avancement non consigné (doc %s, %s pages) : %s",
+                       doc_id, done, e)
+
 
 def _sync_document_status(job_id: str, status: str, translated_path: str | None = None):
     """Reporte l'état d'un job sur le Document en base (si l'utilisateur était
@@ -767,6 +824,12 @@ def _run_pdf_v2_job(
                     "done": ev.get("done"),
                     "total": ev.get("total"),
                 })
+                # Même avancement, mais PERSISTÉ : c'est lui qui permet à une
+                # autre session — ou à la même après reconnexion — de savoir
+                # que le document avance encore. Les événements ci-dessus ne
+                # vivent que le temps du flux SSE de celui qui l'a lancé.
+                _sync_document_progress(job_id, ev.get("done") or 0,
+                                        ev.get("total"))
                 # Compatibilité barre de progression générique.
                 _job_emit(job_id, "progress", {
                     "step": "translate",
@@ -792,7 +855,8 @@ def _run_pdf_v2_job(
 
 
 def render_translation_bytes(original_path: str, translation_path: str,
-                             ext: str, target_lang: str) -> bytes:
+                             ext: str, target_lang: str,
+                             only_pages: set[int] | None = None) -> bytes:
     """Recalcule le document traduit à partir de l'original + la traduction
     stockée, SANS jamais rappeler DeepSeek. C'est le pilier du nouveau modèle :
     on ne conserve plus le rendu, on le reconstruit à la demande.
@@ -817,6 +881,15 @@ def render_translation_bytes(original_path: str, translation_path: str,
                        if e.get("type") == "paragraph")
             }
             pages_traduites.discard(None)
+            # `only_pages` restreint ce qu'on RECONSTRUIT, pas ce qu'on livre :
+            # les pages écartées sont recopiées de l'original, donc la
+            # pagination reste identique et le lecteur n'a rien à recalculer.
+            #
+            # Mesuré sur un document de 285 pages : 280 s pour tout rendre,
+            # ~1 s par page. L'aperçu n'affiche QU'UNE page à la fois — en
+            # reconstruire 285 pour en montrer une était le blocage.
+            if only_pages is not None:
+                pages_traduites &= set(only_pages)
             pdf_v2_stream.translate_pdf_progressive(
                 original_path, out, target_lang=target_lang,
                 pages=pages_traduites, partial_path=None, on_event=None,

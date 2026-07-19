@@ -15,6 +15,12 @@ export interface DocMeta {
   paid: boolean;
   /** Nombre de pages — sert à calculer ce que coûtera son déblocage. */
   pageCount: number;
+  /** `translating` · `done` · `error`. C'est la SEULE source de vérité sur
+   *  l'état d'une traduction : elle vit en base, donc elle survit à une
+   *  déconnexion comme à un redémarrage du serveur. */
+  status: string;
+  /** Pages terminées, à comparer à `pageCount`. */
+  pagesDone: number;
   /** blob dispo uniquement pour les visiteurs (en mémoire) */
   _blob?: Blob;
 }
@@ -33,6 +39,8 @@ function toMeta(d: any): DocMeta {
     ext: d.original_name.split('.').pop()?.toLowerCase() ?? 'pdf',
     paid: !!d.paid,
     pageCount: d.page_count ?? 1,
+    status: d.status ?? 'done',
+    pagesDone: d.pages_done ?? 0,
     _blob: undefined,
   };
 }
@@ -76,13 +84,31 @@ export function useDocumentLibrary() {
     })();
   }, [user, refresh]);
 
+  /** Y a-t-il au moins une traduction en cours ? */
+  const enCours = documents.some(d => d.status === 'translating');
+
+  // Tant qu'une traduction tourne, on relit la liste. C'est ce qui rend le
+  // suivi INDÉPENDANT de la session qui a lancé le travail : l'avancement est
+  // en base, donc un autre onglet, un autre appareil, ou la même personne
+  // après reconnexion, le voient avancer.
+  //
+  // On n'interroge QUE s'il y a quelque chose à suivre — un intervalle qui
+  // tourne en permanence sur une bibliothèque au repos ne fait que du bruit.
+  useEffect(() => {
+    if (!user || !enCours) return;
+    const id = window.setInterval(() => { refresh(); }, 4000);
+    return () => clearInterval(id);
+  }, [user, enCours, refresh]);
+
   /** Ajouter un document (blob + meta). Visiteur = mémoire, Connecté = déjà fait côté backend. */
   const saveDocument = useCallback(async (
     blob: Blob, filename: string,
     // `paid` et `pageCount` ne sont PAS demandés à l'appelant : ils viennent du
     // serveur pour un compte connecté, et n'ont pas de sens pour un visiteur
     // (rien n'est persisté, donc rien n'est payé).
-    meta: Omit<DocMeta, 'id' | 'date' | 'sizeByes' | 'filename' | '_blob' | 'paid' | 'pageCount'>,
+    meta: Omit<DocMeta,
+      'id' | 'date' | 'sizeByes' | 'filename' | '_blob'
+      | 'paid' | 'pageCount' | 'status' | 'pagesDone'>,
   ): Promise<string> => {
     const id = crypto.randomUUID();
     const doc: DocMeta = {
@@ -91,6 +117,8 @@ export function useDocumentLibrary() {
       sizeByes: blob.size,
       paid: false,
       pageCount: 1,
+      status: 'done',
+      pagesDone: 1,
       _blob: blob,
     };
     if (user) {
@@ -123,9 +151,16 @@ export function useDocumentLibrary() {
   /** Blob d'AFFICHAGE : passe par /preview, qui rastérise et filigrane pour un
    *  plan d'essai. « Aperçu » ne doit jamais emprunter /download — c'est par là
    *  qu'un compte gratuit récupérait sa traduction en clair. */
-  const getPreviewBlob = useCallback(async (id: string): Promise<Blob | undefined> => {
+  const getPreviewBlob = useCallback(async (
+    id: string, page?: number,
+  ): Promise<Blob | undefined> => {
     if (user) {
-      const res = await authFetch(`/api/documents/${id}/preview`);
+      // `page` restreint le RENDU à la page regardée. Sans lui, le serveur
+      // reconstruit tout le document : mesuré à 280 s sur 285 pages, contre
+      // 8 s pour une seule. Le document rendu garde toutes ses pages (les
+      // autres sont recopiées de l'original), donc la pagination ne bouge pas.
+      const q = page && page > 0 ? `?page=${page}` : '';
+      const res = await authFetch(`/api/documents/${id}/preview${q}`);
       return res.ok ? res.blob() : undefined;
     }
     return documents.find(d => d.id === id)?._blob;

@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   X, Eye, Download, Trash2, FolderOpen,
   FileType2, FileText, Presentation, File as FileIcon,
-  LogOut, Crown, HardDrive, Mail, User, Lock,
+  LogOut, Crown, HardDrive, Mail, User, Lock, Loader2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { TFunction } from 'i18next';
@@ -47,16 +47,20 @@ interface DocumentLibraryProps {
   /** L'aperçu s'ouvre AVANT que les fichiers soient là : on remonte des
    *  promesses, pas des blobs. Attendre le rendu avant d'ouvrir, c'était offrir
    *  une fenêtre figée pendant plusieurs secondes. */
+  /** La TRADUCTION n'est plus remontée ici : elle se demande page par page,
+   *  et `Home` en est le seul propriétaire. Deux endroits qui la chargent,
+   *  c'est deux requêtes pour la même page et une course pour savoir laquelle
+   *  gagne. */
   onPreview: (req: {
+    docId: string;
     filename: string;
     ext: string;
     source: Promise<Blob | undefined>;
-    translated: Promise<Blob | undefined>;
   }) => void;
   onDelete: (id: string) => void;
   onClearAll: () => void;
   getBlob: (id: string) => Promise<Blob | undefined>;
-  getPreviewBlob: (id: string) => Promise<Blob | undefined>;
+  getPreviewBlob: (id: string, page?: number) => Promise<Blob | undefined>;
   getOriginalBlob: (id: string) => Promise<Blob | undefined>;
   /** Un paiement vient d'aboutir : la liste doit être relue (le `paid` du
    *  document a changé côté serveur). */
@@ -91,12 +95,12 @@ export default function DocumentLibrary({
   // on passe la main tout de suite : le panneau s'ouvre, le document source
   // (fichier statique, immédiat) s'affiche, et la traduction vient s'y poser
   // quand elle est prête — c'est déjà ce que fait le streaming de traduction.
-  const handlePreview = useCallback((doc: DocMeta) => {
+  const handlePreview = useCallback((doc: DocMeta) => {   // eslint-disable-line
     onPreview({
+      docId: doc.id,
       filename: doc.filename,
       ext: doc.ext,
       source: getOriginalBlob(doc.id),
-      translated: getPreviewBlob(doc.id),
     });
   }, [getPreviewBlob, getOriginalBlob, onPreview]);
 
@@ -209,6 +213,41 @@ export default function DocumentLibrary({
                         </div>
                         <span style={{ fontSize: '11px', fontWeight: 700, background: 'var(--blue-light)', color: 'var(--blue)', padding: '2px 8px', borderRadius: '999px', flexShrink: 0 }}>{baseCode(doc.targetLang).toUpperCase()}</span>
                       </div>
+
+                      {/* Traduction EN COURS — l'avancement vient de la base,
+                          pas du flux : il reste donc visible après un
+                          rechargement de page ou une reconnexion, et le travail
+                          continue côté serveur même si personne ne regarde. */}
+                      {doc.status === 'translating' && (
+                        <div style={{ marginBottom: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '5px' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '11.5px', fontWeight: 600, color: 'var(--blue)' }}>
+                              <motion.span
+                                animate={{ rotate: 360 }}
+                                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                                style={{ display: 'inline-flex' }}
+                              >
+                                <Loader2 size={12} strokeWidth={2.4} />
+                              </motion.span>
+                              Traduction en cours
+                            </span>
+                            <span style={{ fontSize: '11px', color: 'var(--gray-500)', fontVariantNumeric: 'tabular-nums' }}>
+                              {doc.pagesDone}/{doc.pageCount}
+                            </span>
+                          </div>
+                          <div style={{ height: '4px', borderRadius: '999px', background: 'var(--gray-200)', overflow: 'hidden' }}>
+                            <motion.div
+                              animate={{
+                                width: `${Math.min(100, Math.round(
+                                  (doc.pagesDone / Math.max(1, doc.pageCount)) * 100))}%`,
+                              }}
+                              transition={{ duration: 0.4 }}
+                              style={{ height: '100%', background: 'var(--blue)', borderRadius: '999px' }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
                       <div style={{ display: 'flex', gap: '6px' }}>
                         {doc.ext === 'pdf' && (
                           <button onClick={() => handlePreview(doc)} disabled={loadingId === doc.id}
@@ -221,14 +260,23 @@ export default function DocumentLibrary({
                             comme un abonné. */}
                         {(() => {
                           const locked = trial && !doc.paid;
+                          // Tant que la traduction tourne, il n'y a rien de
+                          // complet à livrer : proposer le téléchargement
+                          // donnerait un document tronqué sans le dire.
+                          // L'APERÇU, lui, reste ouvert — c'est justement là
+                          // qu'on veut voir les pages arriver.
+                          const enCours = doc.status === 'translating';
                           return (
-                            <button onClick={() => handleDownload(doc)} disabled={loadingId === doc.id}
-                              title={locked
-                                ? 'Réglez les pages de ce document pour le télécharger'
-                                : t('library.download', 'Télécharger')}
-                              style={{ flex: 1, padding: '7px', borderRadius: '7px', border: 'none', background: locked ? 'var(--gray-400)' : 'var(--blue)', color: 'white', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
-                              {locked ? <Lock size={13} strokeWidth={2.2} /> : <Download size={13} strokeWidth={2.2} />}
-                              {locked ? 'Débloquer' : t('library.download', 'Télécharger')}
+                            <button onClick={() => handleDownload(doc)}
+                              disabled={loadingId === doc.id || enCours}
+                              title={enCours
+                                ? 'Traduction en cours — disponible à la fin'
+                                : locked
+                                  ? 'Réglez les pages de ce document pour le télécharger'
+                                  : t('library.download', 'Télécharger')}
+                              style={{ flex: 1, padding: '7px', borderRadius: '7px', border: 'none', background: enCours || locked ? 'var(--gray-400)' : 'var(--blue)', color: 'white', fontSize: '12px', fontWeight: 600, cursor: enCours ? 'not-allowed' : 'pointer', opacity: enCours ? 0.7 : 1, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
+                              {locked && !enCours ? <Lock size={13} strokeWidth={2.2} /> : <Download size={13} strokeWidth={2.2} />}
+                              {enCours ? 'En cours…' : locked ? 'Débloquer' : t('library.download', 'Télécharger')}
                             </button>
                           );
                         })()}

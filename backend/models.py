@@ -147,6 +147,11 @@ class Document(Base):
                                                  nullable=False)
     status:          Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
     page_count:      Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Pages TERMINÉES. Persisté, et non gardé en mémoire : l'avancement doit
+    # être lisible par une autre session que celle qui a lancé la traduction,
+    # et survivre à une reconnexion comme à un redémarrage du serveur.
+    pages_done:      Mapped[int] = mapped_column(Integer, default=0,
+                                                 nullable=False)
     # Ce document a-t-il été PAYÉ ? Le droit de télécharger et de voir en clair
     # se lisait jusqu'ici sur le PLAN (`is_paid_plan`), ce qui interdisait à un
     # compte Gratuit de récupérer quoi que ce soit — y compris ce qu'il venait

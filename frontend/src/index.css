@@ -2141,10 +2141,27 @@ footer {
     padding-bottom: 24px !important;
   }
 
+  /* Le pied de page vit DANS la dernière section, qui est une boîte de 100vh
+     en `overflow: hidden`. Son voisin `.section-inner` porte `flex: 1` — or un
+     enfant flex ne descend JAMAIS sous la hauteur de son contenu tant qu'on ne
+     lui donne pas `min-height: 0`. Il gardait donc toute sa hauteur naturelle
+     et poussait le pied de page hors de la boîte, qui le découpait : sur la
+     dernière section, mentions légales et copyright étaient inatteignables.
+
+     `min-height: 0` autorise le contenu à se comprimer ; `flex-shrink: 0` sur
+     le pied de page garantit que c'est LUI qui reste entier. */
+  .about-section > .section-inner {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .about-section > .about-footer {
+    flex: 0 0 auto;
+  }
+
   .hero {
     background: var(--navy);
   }
-  
+
   .features-section {
     background: rgba(255,255,255,0.75);
     height: auto;

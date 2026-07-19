@@ -142,6 +142,7 @@ function FooterSection() {
 
   return (
     <div
+      className="about-footer"
       style={{
         borderTop: '1px solid var(--gray-200)',
         paddingTop: '20px',
