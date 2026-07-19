@@ -10,8 +10,31 @@ export interface DocMeta {
   date: string;
   sizeByes: number;
   ext: string;
+  /** Ce document est-il PAYÉ ? C'est lui, et non le plan, qui ouvre le
+   *  téléchargement et l'aperçu en clair (miroir de `_may_read_clear`). */
+  paid: boolean;
+  /** Nombre de pages — sert à calculer ce que coûtera son déblocage. */
+  pageCount: number;
   /** blob dispo uniquement pour les visiteurs (en mémoire) */
   _blob?: Blob;
+}
+
+/** UNE traduction de la réponse serveur. Elle existait en double dans ce
+ *  fichier : le jour où un champ s'ajoute, une des deux copies l'oublie —
+ *  c'est exactement ce qui serait arrivé à `paid`. */
+function toMeta(d: any): DocMeta {
+  return {
+    id: d.id,
+    filename: d.original_name,
+    originalName: d.original_name,
+    targetLang: d.target_lang,
+    date: d.created_at,
+    sizeByes: d.size_bytes,
+    ext: d.original_name.split('.').pop()?.toLowerCase() ?? 'pdf',
+    paid: !!d.paid,
+    pageCount: d.page_count ?? 1,
+    _blob: undefined,
+  };
 }
 
 const LS_LEGACY = 'precis_doc_library';
@@ -34,54 +57,47 @@ export function useDocumentLibrary() {
     try { localStorage.removeItem(LS_LEGACY); } catch { /* ignore */ }
   }, []);
 
+  /** Relire la liste au serveur. Après un paiement, `paid` a changé côté
+   *  base : sans relecture, le bouton continuerait d'afficher « Payer » sur un
+   *  document que l'utilisateur vient de régler. */
+  const refresh = useCallback(async () => {
+    if (!user) return;
+    const res = await api.get('/api/documents');
+    if (res.ok) setDocuments((res.data as any[]).map(toMeta));
+  }, [user]);
+
   // Connecté → charger depuis l'API
   useEffect(() => {
     if (!user) return;
     (async () => {
       setLoading(true);
-      const res = await api.get('/api/documents');
-      if (res.ok) {
-        const docs = (res.data as any[]).map((d: any) => ({
-          id: d.id,
-          filename: d.original_name,
-          originalName: d.original_name,
-          targetLang: d.target_lang,
-          date: d.created_at,
-          sizeByes: d.size_bytes,
-          ext: d.original_name.split('.').pop()?.toLowerCase() ?? 'pdf',
-          _blob: undefined,
-        }));
-        setDocuments(docs);
-      }
+      await refresh();
       setLoading(false);
     })();
-  }, [user]);
+  }, [user, refresh]);
 
   /** Ajouter un document (blob + meta). Visiteur = mémoire, Connecté = déjà fait côté backend. */
   const saveDocument = useCallback(async (
     blob: Blob, filename: string,
-    meta: Omit<DocMeta, 'id' | 'date' | 'sizeByes' | 'filename' | '_blob'>,
+    // `paid` et `pageCount` ne sont PAS demandés à l'appelant : ils viennent du
+    // serveur pour un compte connecté, et n'ont pas de sens pour un visiteur
+    // (rien n'est persisté, donc rien n'est payé).
+    meta: Omit<DocMeta, 'id' | 'date' | 'sizeByes' | 'filename' | '_blob' | 'paid' | 'pageCount'>,
   ): Promise<string> => {
     const id = crypto.randomUUID();
     const doc: DocMeta = {
       ...meta, id, filename,
       date: new Date().toISOString(),
       sizeByes: blob.size,
+      paid: false,
+      pageCount: 1,
       _blob: blob,
     };
     if (user) {
       // Pour les connectés, le blob est déjà sauvegardé côté backend
       // lors de la traduction. On recharge la liste.
       const res = await api.get('/api/documents');
-      if (res.ok) {
-        const docs = (res.data as any[]).map((d: any) => ({
-          id: d.id, filename: d.original_name, originalName: d.original_name,
-          targetLang: d.target_lang, date: d.created_at, sizeByes: d.size_bytes,
-          ext: d.original_name.split('.').pop()?.toLowerCase() ?? 'pdf',
-          _blob: undefined,
-        }));
-        setDocuments(docs);
-      }
+      if (res.ok) setDocuments((res.data as any[]).map(toMeta));
       return id;
     }
     setDocuments(prev => [doc, ...prev]);
@@ -143,6 +159,6 @@ export function useDocumentLibrary() {
     setDocuments([]);
   }, [user, documents]);
 
-  return { documents, loading, saveDocument, getBlob, getPreviewBlob,
+  return { documents, loading, refresh, saveDocument, getBlob, getPreviewBlob,
            getOriginalBlob, deleteDocument, clearAll };
 }

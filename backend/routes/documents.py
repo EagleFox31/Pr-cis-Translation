@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi import Response
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -145,9 +146,25 @@ def _render_or_404(doc: Document, ext: str) -> bytes:
                             detail=f"Rendu de la traduction impossible : {e}")
 
 
+def _may_read_clear(user: User, doc: Document) -> bool:
+    """A-t-on le droit de voir CE document en clair (et de le télécharger) ?
+
+    Deux titres différents, et il suffit d'en avoir un :
+      • l'abonnement — un plan payant couvre tout ce qu'il produit ;
+      • l'achat — le forfait Gratuit paie à la page, et ce qu'il a payé lui
+        appartient au même titre.
+
+    Le droit était lu sur le seul PLAN. C'était juste tant que le gratuit ne
+    pouvait rien acheter ; ça devient faux dès qu'il le peut — il aurait payé
+    des pages sans jamais pouvoir les récupérer.
+    """
+    return is_paid_plan(user.plan) or doc.paid
+
+
 def _doc_response(doc: Document) -> dict:
     return {
         "id": doc.id,
+        "paid": doc.paid,
         "original_name": doc.original_name,
         "source_lang": doc.source_lang,
         "target_lang": doc.target_lang,
@@ -216,11 +233,11 @@ async def download_document(
         raise HTTPException(status_code=404, detail="Document introuvable.")
 
     # Liste d'AUTORISATION : un plan inconnu est traité comme non payant.
-    if doc.translated_path and not is_paid_plan(user.plan):
+    if doc.translated_path and not _may_read_clear(user, doc):
         raise HTTPException(
             status_code=402,
-            detail="Forfait Gratuit : téléchargement indisponible. "
-                   "Passez à Starter pour télécharger vos traductions.",
+            detail="Cette traduction n'est pas payée. Réglez ses pages pour "
+                   "la télécharger, ou passez à Starter.",
         )
 
     ext = os.path.splitext(doc.original_name)[1].lstrip(".").lower()
@@ -296,17 +313,27 @@ async def preview_document(
     # Un plan d'essai ne reçoit que du rastérisé, et seulement pour le PDF : un
     # format non-PDF ne peut pas être filigrané ici sans risque de le livrer en
     # clair, donc on le réserve aux plans payants.
-    if not is_paid_plan(user.plan) and ext != "pdf":
+    clear = _may_read_clear(user, doc)
+    if not clear and ext != "pdf":
         raise HTTPException(
             status_code=402,
-            detail="Forfait Gratuit : aperçu de ce format réservé aux plans payants.",
+            detail="Aperçu de ce format réservé aux traductions payées.",
         )
 
-    data = _render_or_404(doc, ext)
-    # On ne protège que ce qu'on a PRODUIT : l'original appartient déjà à
-    # l'utilisateur, le rastériser ne protégerait rien et coûterait cher.
-    if not is_paid_plan(user.plan):
-        data = rasterize_for_trial(data)          # ext == "pdf" garanti ici
+    # Rendu + rastérisation sont du CPU pur, de l'ordre de la seconde par page.
+    # Exécutés dans la coroutine, ils bloquaient la boucle d'événements : cliquer
+    # « Aperçu » figeait TOUTE l'application jusqu'à la fin du rendu. On les
+    # sort dans un thread, et on n'en fait qu'un aller-retour (les deux étapes
+    # sont enchaînées côté thread plutôt qu'en deux bascules).
+    def _build() -> bytes:
+        data = _render_or_404(doc, ext)
+        # On ne protège que ce qu'on a PRODUIT : l'original appartient déjà à
+        # l'utilisateur, le rastériser ne protégerait rien et coûterait cher.
+        if not clear:
+            data = rasterize_for_trial(data)      # ext == "pdf" garanti ici
+        return data
+
+    data = await run_in_threadpool(_build)
     media = "application/pdf" if ext == "pdf" else "application/octet-stream"
     return Response(content=data, media_type=media,
                     headers={"Cache-Control": "no-store"})

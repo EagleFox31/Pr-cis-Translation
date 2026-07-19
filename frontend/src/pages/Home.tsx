@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import Navbar from '../components/navbar/Navbar';
 import HeroSection from '../components/hero/HeroSection';
@@ -27,10 +27,15 @@ export default function Home() {
   const [translatedFilename, setTranslatedFilename] = useState<string>('');
   const [showLibrary, setShowLibrary] = useState(false);
   const [targetLang, setTargetLang] = useState('en');
+  // Aperçu ouvert depuis la bibliothèque : le panneau s'affiche tout de suite,
+  // ce drapeau dit au viewer de montrer « rendu en cours » au lieu du sablon
+  // « page en attente », qui ferait croire à une traduction inachevée.
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const previewToken = useRef(0);
 
   // ---- Traduction PROGRESSIVE (page par page) ----
   const stream = useStreamingTranslation();
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
 
   // Mode ESSAI : DÉRIVÉ du plan, jamais stocké. C'était un `useState(true)`
   // dont le setter n'était appelé nulle part — l'aperçu restait donc assombri
@@ -39,7 +44,7 @@ export default function Home() {
   const isTrialMode = isTrialFor(user);
 
   // ---- Document library ----
-  const { documents, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll } = useDocumentLibrary();
+  const { documents, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll } = useDocumentLibrary();
 
   // ---- Scroll spy ----
   useEffect(() => {
@@ -119,19 +124,41 @@ export default function Home() {
 
   // ---- Library preview ----
   const handleLibraryPreview = useCallback(
-    (blob: Blob, filename: string, _ext: string, source?: Blob) => {
+    (req: {
+      filename: string;
+      ext: string;
+      source: Promise<Blob | undefined>;
+      translated: Promise<Blob | undefined>;
+    }) => {
+      // Chaque ouverture reçoit un jeton. Sans lui, ouvrir A puis B pendant que
+      // A charge encore laisse la réponse de A — arrivée en dernier — écraser
+      // le document B affiché à l'écran.
+      const token = ++previewToken.current;
+      const fresh = () => previewToken.current === token;
+
       stream.reset();
-      setTranslatedBlob(blob);
-      setTranslatedFilename(filename);
-      // Sans source, le viewer retombe sur son `demoSource` : on affichait le
-      // journal de DÉMO dans le panneau gauche, à côté du vrai document. On
-      // reconstruit un File (et pas un Blob nu) pour que le nom du fichier
-      // suive — c'est lui que le viewer affiche en en-tête.
-      setSelectedFile(source ? new File([source], filename, { type: 'application/pdf' }) : null);
+      setTranslatedBlob(null);
+      setSelectedFile(null);
+      setTranslatedFilename(req.filename);
+      setCurrentPage(1);
+      setPreviewLoading(true);
       setShowLibrary(false);
-      setShowPreview(true);
+      setShowPreview(true);   // ← l'aperçu est visible AVANT le premier octet
+
+      // Le fichier source est servi tel quel : il arrive presque tout de suite
+      // et remplit le panneau gauche pendant que la traduction se rastérise.
+      req.source.then((src) => {
+        if (fresh() && src) {
+          setSelectedFile(new File([src], req.filename, { type: 'application/pdf' }));
+        }
+      }).catch(() => { /* panneau gauche vide : le viewer le gère */ });
+
+      req.translated
+        .then((blob) => { if (fresh() && blob) setTranslatedBlob(blob); })
+        .catch(() => { if (fresh()) showToast('error', t('story.error_default')); })
+        .finally(() => { if (fresh()) setPreviewLoading(false); });
     },
-    [stream],
+    [stream, t],
   );
 
   // ---- Download (le résultat complet, une fois la traduction terminée) ----
@@ -252,6 +279,7 @@ export default function Home() {
         getBlob={getBlob}
         getPreviewBlob={getPreviewBlob}
         getOriginalBlob={getOriginalBlob}
+        onPaid={() => { refresh(); refreshUser(); }}
       />
 
       <main>
@@ -272,6 +300,7 @@ export default function Home() {
           isTranslating={stream.isTranslating}
           pageStatuses={stream.pageStatuses}
           renderedUpTo={stream.renderedUpTo}
+          previewRendering={previewLoading}
           onStartTranslate={handleStartTranslate}
           onBack={handleBack}
           onZoomChange={setZoom}

@@ -13,6 +13,7 @@ import type { DocMeta } from '../../hooks/useDocumentLibrary';
 import { useAuth, type AuthUser } from '../../contexts/AuthContext';
 import { isTrialFor } from '../../lib/plans';
 import { baseCode } from '../../lib/languages';
+import PaymentModal from '../payment/PaymentModal';
 
 const EXT_ICONS: Record<string, LucideIcon> = {
   pdf: FileType2, docx: FileText, pptx: Presentation, txt: FileText,
@@ -43,17 +44,28 @@ interface DocumentLibraryProps {
   isOpen: boolean;
   onClose: () => void;
   documents: DocMeta[];
-  onPreview: (blob: Blob, filename: string, ext: string, source?: Blob) => void;
+  /** L'aperçu s'ouvre AVANT que les fichiers soient là : on remonte des
+   *  promesses, pas des blobs. Attendre le rendu avant d'ouvrir, c'était offrir
+   *  une fenêtre figée pendant plusieurs secondes. */
+  onPreview: (req: {
+    filename: string;
+    ext: string;
+    source: Promise<Blob | undefined>;
+    translated: Promise<Blob | undefined>;
+  }) => void;
   onDelete: (id: string) => void;
   onClearAll: () => void;
   getBlob: (id: string) => Promise<Blob | undefined>;
   getPreviewBlob: (id: string) => Promise<Blob | undefined>;
   getOriginalBlob: (id: string) => Promise<Blob | undefined>;
+  /** Un paiement vient d'aboutir : la liste doit être relue (le `paid` du
+   *  document a changé côté serveur). */
+  onPaid?: () => void;
 }
 
 export default function DocumentLibrary({
   isOpen, onClose, documents, onPreview, onDelete, onClearAll,
-  getBlob, getPreviewBlob, getOriginalBlob,
+  getBlob, getPreviewBlob, getOriginalBlob, onPaid,
 }: DocumentLibraryProps) {
   // Le serveur refuse le téléchargement d'une traduction à un plan d'essai
   // (402). On lit le MÊME plan côté client pour ne pas promettre un bouton qui
@@ -64,6 +76,8 @@ export default function DocumentLibrary({
   const navigate = useNavigate();
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  // Document dont on est en train de régler les pages (null = pas de paiement).
+  const [payFor, setPayFor] = useState<DocMeta | null>(null);
 
   // L'aperçu passe par /preview (rastérisé + filigrané pour un plan d'essai) —
   // JAMAIS par /download, qui rend le PDF en clair.
@@ -71,21 +85,29 @@ export default function DocumentLibrary({
   // On remonte AUSSI la source : sans elle, le viewer n'a rien à mettre dans
   // son panneau gauche et retombe sur son `demoSource` — le journal d'exemple
   // s'affichait à côté du document de l'utilisateur.
-  const handlePreview = useCallback(async (doc: DocMeta) => {
-    setLoadingId(doc.id);
-    try {
-      const [blob, source] = await Promise.all([
-        getPreviewBlob(doc.id),
-        getOriginalBlob(doc.id),
-      ]);
-      if (blob) onPreview(blob, doc.filename, doc.ext, source);
-    } finally { setLoadingId(null); }
+  // On n'ATTEND plus rien ici. L'aperçu rastérisé se calcule côté serveur en
+  // quelques secondes ; le retenir jusqu'au bout laissait l'utilisateur devant
+  // une interface morte, sans même un indicateur. On lance les deux requêtes et
+  // on passe la main tout de suite : le panneau s'ouvre, le document source
+  // (fichier statique, immédiat) s'affiche, et la traduction vient s'y poser
+  // quand elle est prête — c'est déjà ce que fait le streaming de traduction.
+  const handlePreview = useCallback((doc: DocMeta) => {
+    onPreview({
+      filename: doc.filename,
+      ext: doc.ext,
+      source: getOriginalBlob(doc.id),
+      translated: getPreviewBlob(doc.id),
+    });
   }, [getPreviewBlob, getOriginalBlob, onPreview]);
 
   const handleDownload = useCallback(async (doc: DocMeta) => {
-    if (trial) {                       // le serveur refuse (402) ; on oriente
-      document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' });
-      onClose();
+    // Le droit tient au DOCUMENT. Un compte gratuit dont le document est payé
+    // télécharge ; sinon on lui propose de le régler — sur place, pour ce
+    // document précis. L'ancienne version le renvoyait vers la grille de
+    // tarifs : la seule issue offerte était de s'abonner, alors qu'il ne
+    // voulait qu'un fichier.
+    if (trial && !doc.paid) {
+      setPayFor(doc);
       return;
     }
     setLoadingId(doc.id);
@@ -194,14 +216,22 @@ export default function DocumentLibrary({
                             <Eye size={13} strokeWidth={2.2} />{t('library.preview', 'Aperçu')}
                           </button>
                         )}
-                        <button onClick={() => handleDownload(doc)} disabled={loadingId === doc.id}
-                          title={trial
-                            ? t('library.download_locked', 'Forfait Gratuit — passez à Starter pour télécharger')
-                            : t('library.download', 'Télécharger')}
-                          style={{ flex: 1, padding: '7px', borderRadius: '7px', border: 'none', background: trial ? 'var(--gray-400)' : 'var(--blue)', color: 'white', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
-                          {trial ? <Lock size={13} strokeWidth={2.2} /> : <Download size={13} strokeWidth={2.2} />}
-                          {t('library.download', 'Télécharger')}
-                        </button>
+                        {/* Verrouillé seulement si le document n'est PAS payé :
+                            un compte gratuit qui a réglé ses pages télécharge
+                            comme un abonné. */}
+                        {(() => {
+                          const locked = trial && !doc.paid;
+                          return (
+                            <button onClick={() => handleDownload(doc)} disabled={loadingId === doc.id}
+                              title={locked
+                                ? 'Réglez les pages de ce document pour le télécharger'
+                                : t('library.download', 'Télécharger')}
+                              style={{ flex: 1, padding: '7px', borderRadius: '7px', border: 'none', background: locked ? 'var(--gray-400)' : 'var(--blue)', color: 'white', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
+                              {locked ? <Lock size={13} strokeWidth={2.2} /> : <Download size={13} strokeWidth={2.2} />}
+                              {locked ? 'Débloquer' : t('library.download', 'Télécharger')}
+                            </button>
+                          );
+                        })()}
                         <button onClick={() => onDelete(doc.id)}
                           style={{ width: '34px', padding: '7px', borderRadius: '7px', border: '1px solid var(--gray-200)', background: 'white', color: 'var(--gray-500)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title={t('library.delete', 'Supprimer')}>
                           <Trash2 size={14} strokeWidth={2.2} />
@@ -213,6 +243,15 @@ export default function DocumentLibrary({
               )}
             </div>
           </motion.aside>
+
+          <PaymentModal
+            open={!!payFor}
+            onClose={() => setPayFor(null)}
+            pages={payFor?.pageCount ?? 1}
+            documentId={payFor?.id}
+            label={`Débloquer « ${payFor?.originalName ?? ''} »`}
+            onPaid={() => { onPaid?.(); setPayFor(null); }}
+          />
         </>
       )}
     </AnimatePresence>
