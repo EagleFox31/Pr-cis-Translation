@@ -336,10 +336,20 @@ export default function StorySection({
                       isTrialMode={isTrialMode}
                       onPagesLoaded={onPagesLoaded}
                       translatedPageReady={
-                        (!isTranslating && Object.keys(pageStatuses).length === 0)
-                        || pageStatuses[currentPage] === 'done'
-                        || pageStatuses[currentPage] === 'copied'
-                        || currentPage <= renderedUpTo
+                        // `previewRendering` PRIME sur tout le reste. Pendant
+                        // le rendu d'une page (bibliothèque), le blob affiché
+                        // est encore celui de la page PRÉCÉDENTE — laisser le
+                        // canevas visible montrait la page recopiée de
+                        // l'original, donc en langue source : en tournant les
+                        // pages, on ne voyait QUE de l'anglais, alors que le
+                        // français arrivait 10 s plus tard. Un spinner honnête
+                        // vaut mieux qu'une page fausse.
+                        !previewRendering && (
+                          (!isTranslating && Object.keys(pageStatuses).length === 0)
+                          || pageStatuses[currentPage] === 'done'
+                          || pageStatuses[currentPage] === 'copied'
+                          || currentPage <= renderedUpTo
+                        )
                       }
                       translatedPageStatus={previewRendering ? 'rendering' : pageStatuses[currentPage]}
                       sourceLabel={t('preview.source_label', 'Document original')}
