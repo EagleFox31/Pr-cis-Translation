@@ -134,9 +134,9 @@ export default function Home() {
             showToast('success', t('story.success_done'), result.filename);
           }
         })
-        .catch((err) => {
-          const msg = err instanceof Error ? err.message : '';
-          showToast('error', t('story.error_default'), msg || undefined);
+        .catch(() => {
+          // L'erreur est déjà dans stream.error (et stream.limitReached pour
+          // les 402) — on laisse StorySection l'afficher en bannière inline.
         });
     },
     [stream, saveDocument, t],
@@ -367,6 +367,8 @@ export default function Home() {
           pageStatuses={stream.pageStatuses}
           renderedUpTo={stream.renderedUpTo}
           previewRendering={previewLoading}
+          translationError={stream.error}
+          limitReached={stream.limitReached}
           onStartTranslate={handleStartTranslate}
           onBack={handleBack}
           onZoomChange={setZoom}

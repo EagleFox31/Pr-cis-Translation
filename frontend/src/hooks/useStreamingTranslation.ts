@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { authHeader, accessToken } from '../services/api';
 
 const API_KEY = import.meta.env.VITE_API_KEY || 'precis_frontend_secure_key_2026_xK9mP2vL';
@@ -25,6 +26,8 @@ export interface StreamingState {
   /** Résultat final complet (quand terminé). */
   result: { blob: Blob; filename: string } | null;
   error: string | null;
+  /** L'erreur vient d'un 402 (limite de forfait atteinte) → afficher un CTA. */
+  limitReached: boolean;
 }
 
 const EMPTY: StreamingState = {
@@ -35,9 +38,11 @@ const EMPTY: StreamingState = {
   renderedUpTo: 0,
   result: null,
   error: null,
+  limitReached: false,
 };
 
 export function useStreamingTranslation() {
+  const { t } = useTranslation();
   const [state, setState] = useState<StreamingState>(EMPTY);
   const esRef = useRef<EventSource | null>(null);
   const jobIdRef = useRef<string | null>(null);
@@ -129,7 +134,10 @@ export function useStreamingTranslation() {
           });
           if (!startRes.ok) {
             const err = await startRes.json().catch(() => ({}));
-            throw new Error(err.detail || err.error || 'Démarrage de la traduction échoué');
+            const detail = err.detail || err.error || t('story.error_default');
+            const is402 = startRes.status === 402;
+            setState((s) => ({ ...s, isTranslating: false, error: detail, limitReached: is402 }));
+            throw new Error(detail);
           }
           const { job_id } = await startRes.json();
           jobIdRef.current = job_id;
@@ -201,14 +209,14 @@ export function useStreamingTranslation() {
                 }));
                 resolve({ blob, filename });
               } catch (dlErr) {
-                const m = dlErr instanceof Error ? dlErr.message : 'Erreur de téléchargement';
+                const m = dlErr instanceof Error ? dlErr.message : t('story.error_translation_failed');
                 setState((s) => ({ ...s, isTranslating: false, error: m }));
                 reject(new Error(m));
               }
             } else if (type === 'error') {
               es.close();
               esRef.current = null;
-              const m = (msg.message as string) || 'Erreur de traduction';
+              const m = (msg.message as string) || t('story.error_translation_failed');
               setState((s) => ({ ...s, isTranslating: false, error: m }));
               reject(new Error(m));
             }
@@ -220,12 +228,12 @@ export function useStreamingTranslation() {
             setState((s) => {
               // Une coupure APRÈS le done final n'est pas une erreur.
               if (!s.isTranslating) return s;
-              return { ...s, isTranslating: false, error: 'Connexion au serveur perdue' };
+              return { ...s, isTranslating: false, error: t('story.error_connection_lost') };
             });
-            reject(new Error('Connexion au serveur perdue'));
+            reject(new Error(t('story.error_connection_lost')));
           };
         } catch (err) {
-          const m = err instanceof Error ? err.message : 'Erreur inconnue';
+          const m = err instanceof Error ? err.message : t('story.error_unknown');
           setState((s) => ({ ...s, isTranslating: false, error: m }));
           reject(new Error(m));
         }

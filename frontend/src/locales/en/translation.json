@@ -110,6 +110,12 @@
     "error_too_large": "File too large. Maximum 100 MB.",
     "error_unsupported": "Unsupported format. Use PDF, DOCX or TXT.",
     "error_default": "An error occurred",
+    "error_translation_failed": "Translation failed. Please try again or contact support.",
+    "error_limit_reached": "You have reached your plan limit. Upgrade to continue.",
+    "error_limit_cta": "See plans",
+    "error_connection_lost": "Server connection lost. Check your internet connection.",
+    "error_unknown": "An unexpected error occurred. Please try again.",
+    "error_retry": "Retry",
     "success_done": "Translation complete!",
     "drop_ready": "Drop your file here",
     "remove_file": "Remove file",
@@ -134,7 +140,9 @@
     "clear_all": "Clear all",
     "confirm_clear": "Confirm",
     "cancel": "Cancel",
-    "view_action": "View in library"
+    "view_action": "View in library",
+    "error_status": "Translation failed",
+    "unlock": "Unlock"
   },
   "pricing": {
     "tag": "Our Transparent Pricing",

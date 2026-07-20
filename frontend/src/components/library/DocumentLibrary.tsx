@@ -6,6 +6,7 @@ import {
   X, Eye, Download, Trash2, FolderOpen,
   FileType2, FileText, Presentation, File as FileIcon,
   LogOut, Crown, HardDrive, Mail, User, Lock, Loader2,
+  AlertTriangle,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { TFunction } from 'i18next';
@@ -247,43 +248,66 @@ export default function DocumentLibrary({
                         </div>
                       )}
 
+                      {/* Traduction en ERREUR — bannière rouge persistante. */}
+                      {doc.status === 'error' && (
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '8px 10px',
+                          marginBottom: '10px',
+                          borderRadius: '8px',
+                          background: '#fef2f2',
+                          border: '1px solid #fecaca',
+                          fontSize: '12px',
+                          color: '#991b1b',
+                          fontWeight: 500,
+                        }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                            <circle cx="12" cy="12" r="10" />
+                            <line x1="12" y1="8" x2="12" y2="12" />
+                            <line x1="12" y1="16" x2="12.01" y2="16" />
+                          </svg>
+                          {t('library.error_status')}
+                        </div>
+                      )}
+
+                      {/* État du document — partagé entre aperçu et téléchargement. */}
+                      {(() => {
+                        const locked = trial && !doc.paid;
+                        const enCours = doc.status === 'translating';
+                        const enErreur = doc.status === 'error';
+                        return (
                       <div style={{ display: 'flex', gap: '6px' }}>
                         {doc.ext === 'pdf' && (
-                          <button onClick={() => handlePreview(doc)} disabled={loadingId === doc.id}
-                            style={{ flex: 1, padding: '7px', borderRadius: '7px', border: '1px solid var(--blue)', background: 'white', color: 'var(--blue)', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
+                          <button onClick={() => handlePreview(doc)} disabled={loadingId === doc.id || enErreur}
+                            style={{ flex: 1, padding: '7px', borderRadius: '7px', border: '1px solid var(--blue)', background: 'white', color: enErreur ? 'var(--gray-400)' : 'var(--blue)', fontSize: '12px', fontWeight: 600, cursor: enErreur ? 'not-allowed' : 'pointer', opacity: enErreur ? 0.7 : 1, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
                             <Eye size={13} strokeWidth={2.2} />{t('library.preview', 'Aperçu')}
                           </button>
                         )}
                         {/* Verrouillé seulement si le document n'est PAS payé :
                             un compte gratuit qui a réglé ses pages télécharge
                             comme un abonné. */}
-                        {(() => {
-                          const locked = trial && !doc.paid;
-                          // Tant que la traduction tourne, il n'y a rien de
-                          // complet à livrer : proposer le téléchargement
-                          // donnerait un document tronqué sans le dire.
-                          // L'APERÇU, lui, reste ouvert — c'est justement là
-                          // qu'on veut voir les pages arriver.
-                          const enCours = doc.status === 'translating';
-                          return (
-                            <button onClick={() => handleDownload(doc)}
-                              disabled={loadingId === doc.id || enCours}
-                              title={enCours
-                                ? 'Traduction en cours — disponible à la fin'
-                                : locked
-                                  ? 'Réglez les pages de ce document pour le télécharger'
-                                  : t('library.download', 'Télécharger')}
-                              style={{ flex: 1, padding: '7px', borderRadius: '7px', border: 'none', background: enCours || locked ? 'var(--gray-400)' : 'var(--blue)', color: 'white', fontSize: '12px', fontWeight: 600, cursor: enCours ? 'not-allowed' : 'pointer', opacity: enCours ? 0.7 : 1, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
-                              {locked && !enCours ? <Lock size={13} strokeWidth={2.2} /> : <Download size={13} strokeWidth={2.2} />}
-                              {enCours ? 'En cours…' : locked ? 'Débloquer' : t('library.download', 'Télécharger')}
-                            </button>
-                          );
-                        })()}
+                        <button onClick={() => handleDownload(doc)}
+                          disabled={loadingId === doc.id || enCours || enErreur}
+                          title={enErreur
+                            ? t('library.error_status')
+                            : enCours
+                              ? 'Traduction en cours — disponible à la fin'
+                              : locked
+                                ? 'Réglez les pages de ce document pour le télécharger'
+                                : t('library.download', 'Télécharger')}
+                          style={{ flex: 1, padding: '7px', borderRadius: '7px', border: 'none', background: enCours || locked || enErreur ? 'var(--gray-400)' : 'var(--blue)', color: 'white', fontSize: '12px', fontWeight: 600, cursor: enCours || enErreur ? 'not-allowed' : 'pointer', opacity: enCours || enErreur ? 0.7 : 1, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
+                          {enErreur ? <AlertTriangle size={13} strokeWidth={2.2} /> : locked && !enCours ? <Lock size={13} strokeWidth={2.2} /> : <Download size={13} strokeWidth={2.2} />}
+                          {enErreur ? t('library.error_status') : enCours ? 'En cours…' : locked ? t('library.unlock') : t('library.download', 'Télécharger')}
+                        </button>
                         <button onClick={() => onDelete(doc.id)}
                           style={{ width: '34px', padding: '7px', borderRadius: '7px', border: '1px solid var(--gray-200)', background: 'white', color: 'var(--gray-500)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title={t('library.delete', 'Supprimer')}>
                           <Trash2 size={14} strokeWidth={2.2} />
                         </button>
                       </div>
+                        );
+                      })()}
                     </motion.div>
                   ))}
                 </div>

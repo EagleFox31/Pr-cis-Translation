@@ -25,6 +25,10 @@ interface StorySectionProps {
   /** Aperçu ouvert depuis la bibliothèque, document encore en route. Distinct
    *  de `isTranslating` : rien n'est traduit ici, on attend un rendu. */
   previewRendering?: boolean;
+  /** Erreur de traduction à afficher en bannière inline (pas de toast). */
+  translationError?: string | null;
+  /** L'erreur est un 402 → afficher un CTA vers les offres. */
+  limitReached?: boolean;
   onStartTranslate: (config: TranslateConfig) => void;
   onBack: () => void;
   onZoomChange: (z: number) => void;
@@ -48,6 +52,8 @@ export default function StorySection({
   pageStatuses,
   renderedUpTo,
   previewRendering = false,
+  translationError = null,
+  limitReached = false,
   onStartTranslate,
   onBack,
   onZoomChange,
@@ -233,6 +239,50 @@ export default function StorySection({
             <h2 className="sr-only">
               Interface de prévisualisation de traduction de document côte-à-côte
             </h2>
+
+            {translationError && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                padding: '14px 18px',
+                marginBottom: '16px',
+                borderRadius: '12px',
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                color: '#991b1b',
+                fontSize: '14px',
+                lineHeight: 1.5,
+              }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <span style={{ flex: 1 }}>{translationError}</span>
+                {limitReached && (
+                  <button
+                    onClick={() => {
+                      const el = document.getElementById('pricing');
+                      if (el) el.scrollIntoView({ behavior: 'smooth' });
+                    }}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      border: '1px solid #991b1b',
+                      background: 'transparent',
+                      color: '#991b1b',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {t('story.error_limit_cta')}
+                  </button>
+                )}
+              </div>
+            )}
 
             <div className="app">
               <div className="body">

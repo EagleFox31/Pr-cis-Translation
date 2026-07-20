@@ -786,7 +786,7 @@ def _run_translation_job(
 
     except Exception as e:
         logger.error(f"Job {job_id} failed: {e}")
-        _job_error(job_id, str(e))
+        _job_error(job_id, "La traduction a rencontré une erreur. Réessayez ou contactez le support.")
 
 
 def _run_pdf_v2_job(
@@ -868,7 +868,7 @@ def _run_pdf_v2_job(
 
     except Exception as e:
         logger.error(f"Job PDF v2 {job_id} failed: {e}")
-        _job_error(job_id, str(e))
+        _job_error(job_id, "La traduction a rencontré une erreur. Réessayez ou contactez le support.")
 
 
 def render_translation_bytes(original_path: str, translation_path: str,
@@ -974,7 +974,7 @@ async def preview_pdf_endpoint(
     try:
         file_bytes = await file.read()
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Lecture du fichier impossible : {e}")
+        raise HTTPException(status_code=400, detail="Impossible de lire le fichier. Vérifiez qu'il n'est pas corrompu et réessayez.")
 
     if len(file_bytes) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="Fichier trop volumineux pour l'aperçu.")
@@ -983,7 +983,7 @@ async def preview_pdf_endpoint(
         pdf_bytes = await asyncio.to_thread(convert_to_pdf_bytes, file_bytes, ext)
     except Exception as e:
         logger.error(f"Conversion aperçu PDF échouée : {e}")
-        raise HTTPException(status_code=500, detail=f"Conversion PDF impossible : {e}")
+        raise HTTPException(status_code=500, detail="La conversion du PDF a échoué. Vérifiez que le fichier est un PDF valide et non corrompu.")
 
     return Response(content=pdf_bytes, media_type="application/pdf")
 
@@ -1065,7 +1065,7 @@ async def translate_endpoint(
     try:
         file_bytes = await file.read()
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Lecture du fichier impossible : {e}")
+        raise HTTPException(status_code=400, detail="Impossible de lire le fichier. Vérifiez qu'il n'est pas corrompu et réessayez.")
 
     if len(file_bytes) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail=f"Fichier trop volumineux ({len(file_bytes)/(1024*1024):.1f} Mo, max 100 Mo).")
@@ -1160,9 +1160,9 @@ async def translate_endpoint(
             if locked.page_credits < needed:
                 raise HTTPException(
                     status_code=402,
-                    detail=(f"{needed} page(s) à traduire, "
-                            f"{locked.page_credits} page(s) à votre solde. "
-                            "Réglez les pages manquantes pour continuer."),
+                    detail=(f"Vous avez {locked.page_credits} page(s) disponible(s) "
+                            f"mais ce document en nécessite {needed}. "
+                            "Achetez des pages supplémentaires pour continuer."),
                 )
             locked.page_credits -= needed
             # Pas de `cap_pages_for_plan` ici : ces pages sont payées, les
@@ -1201,9 +1201,9 @@ async def translate_endpoint(
             if deja + demande > monthly:
                 raise HTTPException(
                     status_code=402,
-                    detail=(f"Quota mensuel atteint : {deja}/{monthly} pages ce "
-                            f"mois-ci, {demande} demandée(s). Le compteur repart "
-                            "le 1er du mois prochain."),
+                    detail=(f"Vous avez déjà traduit {deja} page(s) ce mois-ci "
+                            f"(limite : {monthly}). Ce document en demande {demande}. "
+                            "Le compteur repart le 1er du mois prochain."),
                 )
 
     # Ce qui sera RÉELLEMENT traduit — enregistré sur le Document, sinon le
@@ -1409,7 +1409,7 @@ async def translation_result(job_id: str, x_api_key: str = Header(None),
                    "Passez à Starter pour télécharger vos traductions.",
         )
     if job["state"] == "error":
-        raise HTTPException(status_code=500, detail=job.get("error", "Erreur inconnue."))
+        raise HTTPException(status_code=500, detail="La traduction a échoué. Réessayez ou contactez le support si le problème persiste.")
     if job["state"] != "done":
         raise HTTPException(status_code=202, detail="Job en cours.")
     if not job["result_path"] or not os.path.exists(job["result_path"]):

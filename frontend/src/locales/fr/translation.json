@@ -110,6 +110,12 @@
     "error_too_large": "Fichier trop volumineux. Maximum 100 Mo.",
     "error_unsupported": "Format non supporté. Utilisez PDF, DOCX ou TXT.",
     "error_default": "Une erreur est survenue",
+    "error_translation_failed": "La traduction a échoué. Réessayez ou contactez le support.",
+    "error_limit_reached": "Vous avez atteint la limite de votre forfait. Passez à un forfait supérieur pour continuer.",
+    "error_limit_cta": "Voir les offres",
+    "error_connection_lost": "Connexion au serveur perdue. Vérifiez votre connexion internet.",
+    "error_unknown": "Une erreur inattendue est survenue. Réessayez.",
+    "error_retry": "Réessayer",
     "success_done": "Traduction terminée !",
     "drop_ready": "Déposez votre fichier ici",
     "remove_file": "Retirer le fichier",
@@ -134,7 +140,9 @@
     "clear_all": "Tout effacer",
     "confirm_clear": "Confirmer",
     "cancel": "Annuler",
-    "view_action": "Voir dans la bibliothèque"
+    "view_action": "Voir dans la bibliothèque",
+    "error_status": "Échec de la traduction",
+    "unlock": "Débloquer"
   },
   "pricing": {
     "tag": "Nos Tarifs Transparents",

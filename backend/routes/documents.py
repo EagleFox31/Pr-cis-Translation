@@ -138,7 +138,7 @@ def _render_or_404(doc: Document, ext: str,
     if (not doc.original_path or not os.path.isfile(doc.original_path)
             or not doc.translated_path or not os.path.isfile(doc.translated_path)):
         raise HTTPException(status_code=404,
-                            detail="Fichier introuvable sur le serveur.")
+                            detail="Le fichier n'est plus disponible. Réessayez ou rechargez la page.")
     import app as _app
     try:
         return _app.render_translation_bytes(
@@ -146,7 +146,7 @@ def _render_or_404(doc: Document, ext: str,
             only_pages=only_pages)
     except Exception as e:
         raise HTTPException(status_code=500,
-                            detail=f"Rendu de la traduction impossible : {e}")
+                            detail="Le rendu du document a échoué. Réessayez dans quelques instants.")
 
 
 def _may_read_clear(user: User, doc: Document) -> bool:
@@ -249,7 +249,7 @@ async def download_document(
     # Pas encore de traduction : on rend l'original (le fichier de l'utilisateur).
     if not doc.translated_path:
         if not doc.original_path or not os.path.isfile(doc.original_path):
-            raise HTTPException(status_code=404, detail="Fichier introuvable sur le serveur.")
+            raise HTTPException(status_code=404, detail="Le fichier n'est plus disponible. Réessayez ou rechargez la page.")
         return FileResponse(doc.original_path, filename=doc.original_name)
 
     # `translated_path` désigne la TRADUCTION stockée (JSON), pas un rendu.
@@ -297,7 +297,7 @@ async def original_document(
     if doc is None or doc.user_id != user.id:
         raise HTTPException(status_code=404, detail="Document introuvable.")
     if not doc.original_path or not os.path.isfile(doc.original_path):
-        raise HTTPException(status_code=404, detail="Fichier introuvable sur le serveur.")
+        raise HTTPException(status_code=404, detail="Le fichier n'est plus disponible. Réessayez ou rechargez la page.")
     return FileResponse(doc.original_path, filename=doc.original_name)
 
 
@@ -331,7 +331,7 @@ async def preview_document(
     # Pas encore de traduction : on montre l'original (le fichier de l'utilisateur).
     if not doc.translated_path:
         if not doc.original_path or not os.path.isfile(doc.original_path):
-            raise HTTPException(status_code=404, detail="Fichier introuvable sur le serveur.")
+            raise HTTPException(status_code=404, detail="Le fichier n'est plus disponible. Réessayez ou rechargez la page.")
         return FileResponse(doc.original_path, filename=doc.original_name)
 
     # Un plan d'essai ne reçoit que du rastérisé, et seulement pour le PDF : un
