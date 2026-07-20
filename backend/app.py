@@ -360,8 +360,9 @@ def verify_api_key(x_api_key: str = None):
 from docx_translator_engine import DOCXTranslatorEngine
 try:
     from pptx_translator_engine import PPTXTranslatorEngine
-except ImportError:
+except ImportError as _e:
     PPTXTranslatorEngine = None
+    _STARTUP_NOTES.append((logging.WARNING, f"PPTX indisponible : {_e}"))
 from translator_ai import TranslatorAI
 
 # ── Moteur PDF v2 (pdf_engine_v2) : traduction PROGRESSIVE page par page ─────
@@ -462,6 +463,31 @@ if ai_active:
 if limiter:
     _ready.append("rate-limit")
 _STARTUP_NOTES.append((logging.INFO, "Moteurs     ~  " + " · ".join(_ready)))
+
+# ── Pré-chauffage LibreOffice ────────────────────────────────────────────────
+# Le premier appel à LibreOffice prend 3-5s (démarrage à froid). On lance un
+# appel factice en arrière-plan pour que le processus soit chaud quand la
+# première conversion réelle arrivera.
+def _prewarm_soffice():
+    if not SOFFICE_PATH:
+        return
+    try:
+        import tempfile as _tf, subprocess as _sp
+        with _tf.TemporaryDirectory() as _td:
+            src = os.path.join(_td, "warm.docx")
+            # Fichier DOCX minimal pour que LibreOffice ait quelque chose à ouvrir
+            with open(src, "wb") as _f:
+                _f.write(b"PK\x03\x04" + b"\x00" * 22)  # en-tête ZIP minimal
+            profile = "file:///" + os.path.join(_td, "prof").replace(os.sep, "/")
+            _sp.run([SOFFICE_PATH, "--headless", "--norestore", "--nolockcheck",
+                     f"-env:UserInstallation={profile}",
+                     "--convert-to", "pdf", "--outdir", _td, src],
+                    capture_output=True, timeout=30)
+    except Exception:
+        pass  # échec silencieux : la première conversion sera juste plus lente
+
+import threading as _th
+_th.Thread(target=_prewarm_soffice, daemon=True).start()
 
 # Deux modes de traduction, choisis par requête via le paramètre `quality` :
 #  • "fast"    → modèle non-raisonnant, ~secondes/page, version stable (défaut) ;
@@ -770,6 +796,9 @@ def _run_translation_job(
             inj_ok, inj_msg = docx_engine.inject_translation(original_path, translated_path, output_path, format_options=format_opts)
         elif ext == "pptx" and pptx_engine:
             inj_ok, inj_msg = pptx_engine.inject_translation(original_path, translated_path, output_path, format_options=format_opts)
+            if inj_ok:
+                pptm_auto_path = output_path[:-5] + "_autorefresh.pptm" if output_path.endswith(".pptx") else output_path + "_autorefresh.pptm"
+                pptx_engine.generate_autorefresh_pptm(output_path, pptm_auto_path)
         else:
             raise ValueError("Type de fichier non supporté pour la génération.")
 
@@ -786,6 +815,188 @@ def _run_translation_job(
 
     except Exception as e:
         logger.error(f"Job {job_id} failed: {e}")
+        _job_error(job_id, "La traduction a rencontré une erreur. Réessayez ou contactez le support.")
+
+
+def _run_pptx_progressive_job(
+    job_id: str, file_bytes: bytes, original_path: str,
+    output_path: str, output_filename: str, partial_path: str,
+    translation_path: str, target_lang: str,
+    pages_set=None, debug: bool = False, is_admin: bool = False,
+):
+    """Pipeline PPTX PROGRESSIF : extraction, traduction et réinjection SLIDE
+    PAR SLIDE. Le PPTX partiel est construit puis converti en PDF pour être
+    servi via /api/translate/partial/{job_id}. Événements SSE comme le PDF v2.
+
+    Optimisation ADMIN : si is_admin=True, traduit 5 slides en parallèle (5 workers)
+    pour diviser le temps de traitement PPTX par 5."""
+    try:
+        if not pptx_engine:
+            raise ValueError("Moteur PPTX indisponible.")
+
+        pptx_engine._cleanup_temp()
+
+        # ── Sauvegarde de l'original ──────────────────────────────────────
+        if not os.path.exists(original_path):
+            with open(original_path, "wb") as f:
+                f.write(file_bytes)
+
+        # ── Décompression ─────────────────────────────────────────────────
+        _job_emit(job_id, "progress", {"step": "extract", "message": "Décompression du PPTX...", "page": 0, "total": None})
+        pptx_engine._extract_zip(original_path)
+        total_slides = pptx_engine.slide_count()
+
+        if not total_slides:
+            raise ValueError("Aucune slide trouvée dans le PPTX.")
+
+        # Appliquer la sélection de pages
+        if pages_set:
+            slides_to_process = sorted(s for s in pages_set if 1 <= s <= total_slides)
+            if not slides_to_process:
+                slides_to_process = [1]
+        else:
+            slides_to_process = list(range(1, total_slides + 1))
+
+        total = len(slides_to_process)
+        _job_emit(job_id, "start", {"total": total})
+
+        # Enregistrer le partial_path dans le job pour que /partial le trouve.
+        with _jobs_lock:
+            job = _jobs.get(job_id)
+            if job is not None:
+                job["partial_path"] = partial_path
+
+        # ── Filtres d'extraction ──────────────────────────────────────────
+        filters = {"shapes": True, "smartarts": True, "tables": True, "connectors": True}
+
+        # ── Traduction PROGRESSIVE slide par slide ─────────────────────────
+        done = 0
+        done_lock = threading.Lock()
+        max_workers = 5 if is_admin else 1
+
+        def _process_one_slide(slide_num: int):
+            nonlocal done
+            _job_emit(job_id, "page", {"page": slide_num, "status": "extracting",
+                         "done": done, "total": total})
+            _sync_document_progress(job_id, done, total)
+            slide_data, info = pptx_engine.extract_slide(slide_num, filters)
+            if not slide_data:
+                with done_lock:
+                    done += 1
+                    cur_done = done
+                _job_emit(job_id, "page", {"page": slide_num, "status": "copied",
+                             "done": cur_done, "total": total})
+                _sync_document_progress(job_id, cur_done, total)
+                return
+
+            _job_emit(job_id, "page", {"page": slide_num, "status": "translating",
+                         "done": done, "total": total})
+            _sync_document_progress(job_id, done, total)
+
+            if debug:
+                for el in slide_data.get("text_elements", []):
+                    el["translated_text"] = el["text"]
+                for diag in slide_data.get("diagram_elements", []):
+                    for el in diag.get("text_elements", []):
+                        el["translated_text"] = el["text"]
+                for chart in slide_data.get("chart_elements", []):
+                    for el in chart.get("text_elements", []):
+                        el["translated_text"] = el["text"]
+                for layout in slide_data.get("layout_elements", []):
+                    for el in layout.get("text_elements", []):
+                        el["translated_text"] = el["text"]
+                for el in slide_data.get("excel_elements", []):
+                    el["translated_text"] = el["text"]
+            else:
+                if not ai_active:
+                    raise ValueError("Le traducteur IA n'est pas disponible.")
+                mini_json = os.path.join(
+                    pptx_engine._get_temp_dir(), f"_slide{slide_num}.json")
+                with open(mini_json, "w", encoding="utf-8") as f:
+                    json.dump({"slides": [slide_data]}, f, ensure_ascii=False)
+
+                success, result = ai_translator.translate_json(
+                    mini_json, target_lang=target_lang,
+                    progress_callback=_make_progress_cb(job_id, "translate"),
+                )
+                if not success:
+                    raise ValueError(f"Traduction slide {slide_num} échouée : {result}")
+
+                with open(result, "r", encoding="utf-8") as f:
+                    translated = json.load(f)
+                if translated.get("slides"):
+                    slide_data = translated["slides"][0]
+                for p in (mini_json, result):
+                    try:
+                        os.remove(p)
+                    except OSError:
+                        pass
+
+            _job_emit(job_id, "page", {"page": slide_num, "status": "rendering",
+                         "done": done, "total": total})
+            _sync_document_progress(job_id, done, total)
+
+            tmap = {}
+            for el in slide_data.get("text_elements", []):
+                tmap[el["id"]] = el.get("translated_text", el["text"])
+            for diag in slide_data.get("diagram_elements", []):
+                for el in diag.get("text_elements", []):
+                    tmap[el["id"]] = el.get("translated_text", el["text"])
+            for chart in slide_data.get("chart_elements", []):
+                for el in chart.get("text_elements", []):
+                    tmap[el["id"]] = el.get("translated_text", el["text"])
+            for layout in slide_data.get("layout_elements", []):
+                for el in layout.get("text_elements", []):
+                    tmap[el["id"]] = el.get("translated_text", el["text"])
+            for el in slide_data.get("excel_elements", []):
+                tmap[el["id"]] = el.get("translated_text", el["text"])
+
+            pptx_engine.inject_slide(slide_num, tmap)
+
+            with done_lock:
+                done += 1
+                cur_done = done
+
+            _job_emit(job_id, "page", {"page": slide_num, "status": "done",
+                         "done": cur_done, "total": total})
+            _sync_document_progress(job_id, cur_done, total)
+
+        if max_workers > 1:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [executor.submit(_process_one_slide, sn) for sn in slides_to_process]
+                for f in futures:
+                    f.result()
+        else:
+            for sn in slides_to_process:
+                _process_one_slide(sn)
+
+        # ── PPTX final ────────────────────────────────────────────────────
+        _job_emit(job_id, "progress", {"step": "inject", "message": "Génération du PPTX final...", "page": 0, "total": None})
+        pptx_engine.build_partial_pptx(output_path, max(slides_to_process))
+        pptm_auto_path = output_path[:-5] + "_autorefresh.pptm" if output_path.endswith(".pptx") else output_path + "_autorefresh.pptm"
+        pptx_engine.generate_autorefresh_pptm(output_path, pptm_auto_path)
+
+        # ── Sauvegarde de la traduction (JSON complet pour reprise) ───────
+        all_slides = []
+        for sn in slides_to_process:
+            sd, _ = pptx_engine.extract_slide(sn, filters)
+            if sd:
+                all_slides.append(sd)
+        full_json = {"slides": all_slides}
+        with open(translation_path, "w", encoding="utf-8") as f:
+            json.dump(full_json, f, ensure_ascii=False)
+
+        pptx_engine._cleanup_temp()
+        _job_done(job_id, output_path, output_filename,
+                  translation_path=translation_path)
+
+    except Exception as e:
+        logger.error(f"Job PPTX {job_id} failed: {e}")
+        try:
+            pptx_engine._cleanup_temp()
+        except Exception:
+            pass
         _job_error(job_id, "La traduction a rencontré une erreur. Réessayez ou contactez le support.")
 
 
@@ -1261,6 +1472,18 @@ async def translate_endpoint(
             args=(job_id, file_bytes, original_path, output_path,
                   output_filename, partial_path, translation_path, target_lang,
                   pages_set, debug_mode),
+            daemon=True,
+        )
+    elif ext == "pptx":
+        # PPTX → moteur progressif slide par slide (comme le PDF v2).
+        # Si compte admin : 5 slides traduites en parallèle.
+        partial_path = os.path.join(lang_dir, f"partial{qsuffix}{psuffix}_{job_id[:8]}.pdf")
+        is_admin = (current_user.plan == "admin")
+        thread = threading.Thread(
+            target=_run_pptx_progressive_job,
+            args=(job_id, file_bytes, original_path, output_path,
+                  output_filename, partial_path, translation_path, target_lang,
+                  pages_set, debug_mode, is_admin),
             daemon=True,
         )
     else:

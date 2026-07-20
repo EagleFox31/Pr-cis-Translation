@@ -110,8 +110,10 @@ def ensure_background_build(original_path: str, translation_path: str,
             import app as _app
             data = _app.render_translation_bytes(
                 original_path, translation_path, ext, target_lang)
+            if ext != "pdf":
+                data = _app.convert_to_pdf_bytes(data, ext)
             store_render(data, translation_path)
-            logger.info("Rendu complet mis en cache : %s", cp)
+            logger.info("Rendu complet mis en cache (PDF) : %s", cp)
         except Exception as e:
             logger.warning("Construction du rendu en cache échouée (%s) : %s",
                            cp, e)

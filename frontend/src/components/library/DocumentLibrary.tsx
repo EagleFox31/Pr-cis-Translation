@@ -65,11 +65,13 @@ interface DocumentLibraryProps {
   /** Un paiement vient d'aboutir : la liste doit être relue (le `paid` du
    *  document a changé côté serveur). */
   onPaid?: () => void;
+  /** Relance la traduction d'un document en erreur. */
+  onRetry?: (doc: DocMeta) => void;
 }
 
 export default function DocumentLibrary({
   isOpen, onClose, documents, onPreview, onDelete, onClearAll,
-  getBlob, getOriginalBlob, onPaid,
+  getBlob, getOriginalBlob, onPaid, onRetry,
 }: DocumentLibraryProps) {
   // Le serveur refuse le téléchargement d'une traduction à un plan d'essai
   // (402). On lit le MÊME plan côté client pour ne pas promettre un bouton qui
@@ -253,7 +255,7 @@ export default function DocumentLibrary({
                         <div style={{
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '6px',
+                          gap: '8px',
                           padding: '8px 10px',
                           marginBottom: '10px',
                           borderRadius: '8px',
@@ -268,7 +270,26 @@ export default function DocumentLibrary({
                             <line x1="12" y1="8" x2="12" y2="12" />
                             <line x1="12" y1="16" x2="12.01" y2="16" />
                           </svg>
-                          {t('library.error_status')}
+                          <span style={{ flex: 1 }}>{t('library.error_status')}</span>
+                          {onRetry && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onRetry(doc); }}
+                              style={{
+                                padding: '5px 12px',
+                                borderRadius: '6px',
+                                border: '1px solid #991b1b',
+                                background: 'transparent',
+                                color: '#991b1b',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                                fontFamily: 'inherit',
+                              }}
+                            >
+                              {t('story.error_retry')}
+                            </button>
+                          )}
                         </div>
                       )}
 
@@ -279,12 +300,12 @@ export default function DocumentLibrary({
                         const enErreur = doc.status === 'error';
                         return (
                       <div style={{ display: 'flex', gap: '6px' }}>
-                        {doc.ext === 'pdf' && (
-                          <button onClick={() => handlePreview(doc)} disabled={loadingId === doc.id || enErreur}
-                            style={{ flex: 1, padding: '7px', borderRadius: '7px', border: '1px solid var(--blue)', background: 'white', color: enErreur ? 'var(--gray-400)' : 'var(--blue)', fontSize: '12px', fontWeight: 600, cursor: enErreur ? 'not-allowed' : 'pointer', opacity: enErreur ? 0.7 : 1, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
-                            <Eye size={13} strokeWidth={2.2} />{t('library.preview', 'Aperçu')}
-                          </button>
-                        )}
+                        {/* Aperçu dispo pour tous les formats supportés (PDF, PPTX, DOCX).
+                            Le backend refuse les non-PDF pour les comptes d'essai (402). */}
+                        <button onClick={() => handlePreview(doc)} disabled={loadingId === doc.id || enErreur}
+                          style={{ flex: 1, padding: '7px', borderRadius: '7px', border: '1px solid var(--blue)', background: 'white', color: enErreur ? 'var(--gray-400)' : 'var(--blue)', fontSize: '12px', fontWeight: 600, cursor: enErreur ? 'not-allowed' : 'pointer', opacity: enErreur ? 0.7 : 1, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
+                          <Eye size={13} strokeWidth={2.2} />{t('library.preview', 'Aperçu')}
+                        </button>
                         {/* Verrouillé seulement si le document n'est PAS payé :
                             un compte gratuit qui a réglé ses pages télécharge
                             comme un abonné. */}

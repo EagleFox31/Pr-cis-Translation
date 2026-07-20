@@ -169,6 +169,10 @@ export default function Home() {
       setCurrentPage(1);
       setPreviewLoading(true);
       setShowLibrary(false);
+      // Ramener l'utilisateur sur la section de traduction AVANT d'ouvrir
+      // l'aperçu : s'il était sur les tarifs ou à propos, le panneau de
+      // prévisualisation s'ouvrirait hors de l'écran sans ce scroll.
+      document.getElementById('story')?.scrollIntoView({ behavior: 'smooth' });
       setShowPreview(true);   // ← l'aperçu est visible AVANT le premier octet
 
       // Le fichier source est servi tel quel : il arrive presque tout de suite
@@ -182,6 +186,26 @@ export default function Home() {
       // La traduction est chargée par l'effet ci-dessous, page par page.
     },
     [stream],
+  );
+
+  // ---- Retry : relance la traduction d'un document en erreur ----------------
+  const handleRetry = useCallback(
+    async (doc: import('../hooks/useDocumentLibrary').DocMeta) => {
+      const blob = await getOriginalBlob(doc.id);
+      if (!blob) return;
+      const file = new File([blob], doc.originalName);
+      deleteDocument(doc.id);
+      // Scroll vers la section de traduction avant de lancer
+      document.getElementById('story')?.scrollIntoView({ behavior: 'smooth' });
+      handleStartTranslate({
+        file,
+        targetLang: doc.targetLang,
+        pages: '',
+        debug: false,
+        precise: false,
+      });
+    },
+    [getOriginalBlob, deleteDocument, handleStartTranslate],
   );
 
   // ---- Aperçu bibliothèque : réseau seulement quand on ne SAIT pas ---------
@@ -346,6 +370,7 @@ export default function Home() {
         getBlob={getBlob}
         getOriginalBlob={getOriginalBlob}
         onPaid={() => { refresh(); refreshUser(); }}
+        onRetry={handleRetry}
       />
 
       <main>

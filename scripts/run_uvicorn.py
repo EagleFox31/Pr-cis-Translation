@@ -91,6 +91,7 @@ if __name__ == "__main__":
         sys.executable, "-m", "uvicorn",
         "app:app",
         "--app-dir", "backend",
+        "--host", "0.0.0.0",
         "--reload",
         "--reload-dir", "backend",
         "--reload-dir", "pdf_engine_v2",
@@ -117,7 +118,7 @@ if __name__ == "__main__":
 
     # Ligne de confirmation concise (uvicorn tourne en --log-level warning,
     # donc ses propres messages INFO sont masqués).
-    print(f"\n  API  ~  http://127.0.0.1:{port}", flush=True)
+    print(f"\n  API  ~  http://0.0.0.0:{port}    (localhost + réseau local)", flush=True)
 
     try:
         proc.wait()

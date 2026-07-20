@@ -353,6 +353,14 @@ class TranslatorAI:
                 for diag in slide.get("diagram_elements", []):
                     for block in diag.get("text_elements", []):
                         if block.get("text", "").strip(): slide_blocks.append(block)
+                for chart in slide.get("chart_elements", []):
+                    for block in chart.get("text_elements", []):
+                        if block.get("text", "").strip(): slide_blocks.append(block)
+                for layout in slide.get("layout_elements", []):
+                    for block in layout.get("text_elements", []):
+                        if block.get("text", "").strip(): slide_blocks.append(block)
+                for block in slide.get("excel_elements", []):
+                    if block.get("text", "").strip(): slide_blocks.append(block)
 
                 if slide_blocks:
                     batches.append(slide_blocks)

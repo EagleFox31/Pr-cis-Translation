@@ -20,6 +20,8 @@ interface PdfViewerProps {
   /** Libellés des panneaux (langue source détectée / langue cible). */
   sourceLabel?: string;
   targetLabel?: string;
+  /** true = chargement en cours (ne PAS afficher la démo). */
+  previewLoading?: boolean;
 }
 
 export default function PdfViewer({
@@ -38,11 +40,14 @@ export default function PdfViewer({
   translatedPageStatus,
   sourceLabel,
   targetLabel,
+  previewLoading = false,
 }: PdfViewerProps) {
   const { t } = useTranslation();
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   // True quand le canevas traduit affiche RÉELLEMENT la page courante.
   const [translatedShown, setTranslatedShown] = useState(false);
+  // Détection du format : paysage → stacked vertical, portrait → côte à côte.
+  const [isLandscape, setIsLandscape] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -77,10 +82,11 @@ export default function PdfViewer({
         let pdfSourceOrig: any;
         let pdfSourceTrad: any = null;
 
-        // Le document CHOISI prime toujours. La démo (CV) ne sert que quand
-        // aucun document n'est chargé (vitrine). Auparavant, l'absence de
-        // traduction — cas normal au DÉMARRAGE du streaming — faisait basculer
-        // les DEUX panneaux sur le CV de démo.
+        // Le document CHOISI prime toujours. Sans données, on n'affiche rien :
+        // le composant n'est rendu que dans l'aperçu, jamais en vitrine.
+        // PLUS DE DÉMO : l'ancien fallback chargeait le journal d'exemple
+        // dès que les deux requêtes échouaient — c'est exactement le bug
+        // « un autre document s'affiche » qui revenait à chaque échec.
         if (sourceFile) {
           // Données passées directement à pdf.js (PAS d'URL blob : l'effet se
           // relance à chaque changement de page/zoom et le cleanup révoquait
@@ -94,18 +100,14 @@ export default function PdfViewer({
             pdfSourceTrad = open({ data: tradBuf });
           }
         } else if (translatedBlob) {
-          // Un document RÉEL sans sa source. La démo n'a rien à faire ici : on
-          // affichait le journal d'exemple à côté du document de l'utilisateur,
-          // sans le moindre signal d'erreur. `demoSource` est une vitrine, elle
-          // n'a de sens QUE quand aucun document n'est chargé (branche `else`).
-          // Un panneau vide se remarque ; un panneau qui ment, non.
+          // Un document RÉEL sans sa source.
           const tradBuf = await translatedBlob.arrayBuffer();
           if (!active) return;
           pdfSourceTrad = open({ data: tradBuf });
           pdfSourceOrig = null;
         } else {
-          pdfSourceOrig = open(demoSource);
-          pdfSourceTrad = open(demoTarget);
+          // Aucun document — ni source, ni traduction. On ne montre rien.
+          return;
         }
 
         const pdfOrig = pdfSourceOrig ? await pdfSourceOrig.promise : null;
@@ -125,13 +127,22 @@ export default function PdfViewer({
           const safePage = Math.min(Math.max(1, pageNum), pdf.numPages);
           const page = await pdf.getPage(safePage);
           if (!active) return;
+
+          // Détection paysage/portrait PAR PAGE (un document peut mixer
+          // les deux orientations — ex. slide paysage + annexe portrait).
+          const unscaled = page.getViewport({ scale: 1.0 });
+          setIsLandscape(unscaled.width > unscaled.height);
           const canvas = document.getElementById(canvasId) as HTMLCanvasElement;
           if (!canvas) return;
 
           let containerWidth = 600;
           const scrollEl = document.getElementById('scroll');
           if (scrollEl) {
-            containerWidth = (scrollEl.clientWidth - 70) / 2;
+            // Paysage : chaque panneau occupe toute la largeur (stacked vertical).
+            // Portrait : chaque panneau occupe la moitié (côte à côte).
+            containerWidth = isLandscape
+              ? scrollEl.clientWidth - 24
+              : (scrollEl.clientWidth - 70) / 2;
           } else {
             containerWidth = canvas.parentElement?.clientWidth || 600;
           }
@@ -217,7 +228,7 @@ export default function PdfViewer({
         }
       });
     };
-  }, [currentPage, zoom, translatedBlob, sourceFile, isTrialMode, demoSource, demoTarget, onPagesLoaded, translatedPageReady]);
+  }, [currentPage, zoom, translatedBlob, sourceFile, isTrialMode, demoSource, demoTarget, onPagesLoaded, translatedPageReady, previewLoading]);
 
   const [isHovering, setIsHovering] = useState(false);
 
@@ -227,8 +238,9 @@ export default function PdfViewer({
       className={className}
       style={{
         display: 'inline-flex',
-        gap: '20px',
-        alignItems: 'flex-start',
+        flexDirection: isLandscape ? 'column' : 'row',
+        gap: isLandscape ? '24px' : '20px',
+        alignItems: isLandscape ? 'center' : 'flex-start',
         minWidth: '100%',
       }}
     >
@@ -243,10 +255,11 @@ export default function PdfViewer({
         </div>
       </div>
 
-      {/* Separator */}
+      {/* Separator — vertical en portrait, horizontal en paysage */}
       <div
         style={{
-          width: '1px',
+          width: isLandscape ? '100%' : '1px',
+          height: isLandscape ? '1px' : undefined,
           alignSelf: 'stretch',
           background: 'var(--color-border-tertiary)',
           flexShrink: 0,

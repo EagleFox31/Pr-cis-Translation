@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi import Response
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse
+# FileResponse retiré : ses réponses Range/206 faisaient échouer
+# les fetch côté frontend (ERR_FAILED 206). On utilise Response partout.
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -250,7 +251,10 @@ async def download_document(
     if not doc.translated_path:
         if not doc.original_path or not os.path.isfile(doc.original_path):
             raise HTTPException(status_code=404, detail="Le fichier n'est plus disponible. Réessayez ou rechargez la page.")
-        return FileResponse(doc.original_path, filename=doc.original_name)
+        with open(doc.original_path, "rb") as f:
+            data = f.read()
+        return Response(content=data, media_type="application/octet-stream",
+                        headers={"Content-Disposition": f'attachment; filename="{doc.original_name}"'})
 
     # `translated_path` désigne la TRADUCTION stockée (JSON), pas un rendu.
     # Le rendu complet en cache sert d'abord : reconstruire 285 pages dans la
@@ -298,7 +302,13 @@ async def original_document(
         raise HTTPException(status_code=404, detail="Document introuvable.")
     if not doc.original_path or not os.path.isfile(doc.original_path):
         raise HTTPException(status_code=404, detail="Le fichier n'est plus disponible. Réessayez ou rechargez la page.")
-    return FileResponse(doc.original_path, filename=doc.original_name)
+    # Response explicite plutôt que FileResponse : évite les Range/206 qui
+    # peuvent faire échouer le fetch côté frontend (ERR_FAILED 206).
+    with open(doc.original_path, "rb") as f:
+        data = f.read()
+    ext = os.path.splitext(doc.original_name)[1].lstrip(".").lower()
+    media = "application/pdf" if ext == "pdf" else "application/octet-stream"
+    return Response(content=data, media_type=media)
 
 
 # ── GET /documents/{id}/preview ──────────────────────────────────────────────
@@ -332,7 +342,11 @@ async def preview_document(
     if not doc.translated_path:
         if not doc.original_path or not os.path.isfile(doc.original_path):
             raise HTTPException(status_code=404, detail="Le fichier n'est plus disponible. Réessayez ou rechargez la page.")
-        return FileResponse(doc.original_path, filename=doc.original_name)
+        with open(doc.original_path, "rb") as f:
+            data = f.read()
+        ext_orig = os.path.splitext(doc.original_name)[1].lstrip(".").lower()
+        media_orig = "application/pdf" if ext_orig == "pdf" else "application/octet-stream"
+        return Response(content=data, media_type=media_orig)
 
     # Un plan d'essai ne reçoit que du rastérisé, et seulement pour le PDF : un
     # format non-PDF ne peut pas être filigrané ici sans risque de le livrer en
@@ -355,7 +369,13 @@ async def preview_document(
     # requête pendant la navigation (l'en-tête `X-Render: full` le lui dit).
     # Réservé au CLAIR : la version d'essai est rastérisée à la demande, et
     # rastériser 285 pages par requête coûterait plus que ce qu'on évite.
-    if ext == "pdf" and clear and doc.translated_path:
+    # ── Chemin RAPIDE : le rendu complet est en cache ─────────────────────
+    #
+    # Une fois servi, le client a TOUT le document traduit (converti en PDF) :
+    # plus une seule requête pendant la navigation (l'en-tête `X-Render: full` le lui dit).
+    # Réservé au CLAIR : la version d'essai est rastérisée à la demande, et
+    # rastériser 285 pages par requête coûterait plus que ce qu'on évite.
+    if clear and doc.translated_path:
         cached = render_cache.cache_valid(doc.translated_path)
         if cached:
             data = await run_in_threadpool(lambda: open(cached, "rb").read())
@@ -379,18 +399,20 @@ async def preview_document(
     fenetre = {page} if page and page > 0 else None
 
     def _build() -> bytes:
-        data = _render_or_404(doc, ext, only_pages=fenetre)
-        # On ne protège que ce qu'on a PRODUIT : l'original appartient déjà à
-        # l'utilisateur, le rastériser ne protégerait rien et coûterait cher.
+        data = _render_or_404(doc, ext, only_pages=fenetre if ext == "pdf" else None)
+        if ext != "pdf":
+            import app as _app
+            data = _app.convert_to_pdf_bytes(data, ext)
+            if clear and not fenetre:
+                render_cache.store_render(data, doc.translated_path)
         if not clear:
             data = rasterize_for_trial(data)      # ext == "pdf" garanti ici
         return data
 
     data = await run_in_threadpool(_build)
-    media = "application/pdf" if ext == "pdf" else "application/octet-stream"
-    return Response(content=data, media_type=media,
+    return Response(content=data, media_type="application/pdf",
                     headers={"Cache-Control": "no-store",
-                             "X-Render": "page" if fenetre else "full"})
+                             "X-Render": "full" if not fenetre else "page"})
 
 
 # ── DELETE /documents/{id} ───────────────────────────────────────────────────

@@ -381,9 +381,17 @@ export default function StorySection({
                       sourceFile={selectedFile}
                       translatedBlob={translatedBlob}
                       ext={previewExt}
+                      translatedExt={
+                        // Pendant le streaming PPTX/DOCX, le blob traduit
+                        // (partial) est déjà un PDF converti par le backend.
+                        // Après la traduction, le résultat final est au format
+                        // d'origine et sera converti normalement.
+                        previewExt !== 'pdf' && isTranslating ? 'pdf' : undefined
+                      }
                       currentPage={currentPage}
                       zoom={zoom}
                       isTrialMode={isTrialMode}
+                      previewLoading={previewRendering}
                       onPagesLoaded={onPagesLoaded}
                       translatedPageReady={
                         // `previewRendering` PRIME sur tout le reste. Pendant

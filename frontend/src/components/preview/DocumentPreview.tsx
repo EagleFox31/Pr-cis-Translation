@@ -9,6 +9,9 @@ interface DocumentPreviewProps {
   translatedBlob?: Blob | null;
   /** Format du document (pdf, docx, pptx, txt). */
   ext: string;
+  /** Extension du blob traduit. Si absente, utilise `ext`.
+   *   Utile pour le streaming PPTX : le partial est déjà un PDF. */
+  translatedExt?: string;
   currentPage: number;
   zoom: number;
   isTrialMode: boolean;
@@ -19,6 +22,8 @@ interface DocumentPreviewProps {
   translatedPageStatus?: string;
   sourceLabel?: string;
   targetLabel?: string;
+  /** true = chargement en cours (ne PAS afficher la démo). */
+  previewLoading?: boolean;
 }
 
 /**
@@ -30,6 +35,7 @@ export default function DocumentPreview({
   sourceFile,
   translatedBlob,
   ext,
+  translatedExt,
   currentPage,
   zoom,
   isTrialMode,
@@ -38,9 +44,10 @@ export default function DocumentPreview({
   translatedPageStatus,
   sourceLabel,
   targetLabel,
+  previewLoading,
 }: DocumentPreviewProps) {
   const { t } = useTranslation();
-  const { sourcePdf, translatedPdf, loading, error } = usePdfPreview(sourceFile, translatedBlob, ext);
+  const { sourcePdf, translatedPdf, loading, error } = usePdfPreview(sourceFile, translatedBlob, ext, translatedExt);
 
   if (loading) {
     return (
@@ -104,6 +111,7 @@ export default function DocumentPreview({
       translatedPageReady={translatedPageReady}
       translatedPageStatus={translatedPageStatus}
       sourceLabel={sourceLabel}
+      previewLoading={previewLoading}
       targetLabel={targetLabel}
     />
   );
