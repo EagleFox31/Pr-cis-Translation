@@ -257,6 +257,7 @@ app.include_router(payments_router)
 
 # ── Route quota stockage ─────────────────────────────────────────────────────
 from auth import require_auth, verify_access_token
+import render_cache
 from pricing import (zone_for_country, CURRENCY, CURRENCY_DECIMALS,
                      page_price, plan_price)
 from models import (User, Document, get_plan_page_limit, get_plan_storage,
@@ -846,6 +847,22 @@ def _run_pdf_v2_job(
 
         if not os.path.exists(output_path):
             raise ValueError("Le fichier traduit est introuvable après génération.")
+
+        # Le rendu complet vient d'être produit — on le CONSERVE au lieu de le
+        # laisser au GC des transitoires. C'est lui qui rend l'aperçu et le
+        # téléchargement instantanés ensuite (mesuré : 280 s à reconstruire
+        # sur 285 pages). Seule la sortie CANONIQUE est conservée : un rendu
+        # de débogage ou remis en page ne doit jamais être resservi comme la
+        # traduction fidèle.
+        if not debug and "_STRUCTURE" not in output_filename \
+                and output_filename.endswith(".pdf") \
+                and "_TRADUIT." in output_filename:
+            try:
+                with open(output_path, "rb") as f:
+                    render_cache.store_render(f.read(), translation_path)
+            except OSError as e:
+                logger.warning("Rendu du job non conservé : %s", e)
+
         _job_done(job_id, output_path, output_filename,
                   translation_path=translation_path)
 

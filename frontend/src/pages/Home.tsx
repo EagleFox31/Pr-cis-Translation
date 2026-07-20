@@ -38,6 +38,11 @@ export default function Home() {
   // et la comparaison côte à côte disparaissait.
   const openToken = useRef(0);    // une ouverture d'aperçu
   const pageToken = useRef(0);    // une demande de page
+  // Pages déjà reçues (clé `docId:page`) et document dont on possède le rendu
+  // COMPLET : c'est ce qui rend la navigation instantanée au retour sur une
+  // page, et muette côté réseau quand le serveur a livré tout le document.
+  const pageBlobCache = useRef(new Map<string, Blob>());
+  const fullDocFor = useRef<string | null>(null);
   // Document de la BIBLIOTHÈQUE en cours d'aperçu (null = traduction en direct,
   // qui reçoit ses pages par le flux et n'a rien à redemander).
   const [libraryDocId, setLibraryDocId] = useState<string | null>(null);
@@ -155,6 +160,11 @@ export default function Home() {
       setTranslatedBlob(null);
       setSelectedFile(null);
       setTranslatedFilename(req.filename);
+      // Caches d'aperçu REMIS À ZÉRO : ils appartiennent à l'ouverture
+      // précédente. Les garder servirait les pages d'une traduction
+      // potentiellement retraduite depuis.
+      pageBlobCache.current.clear();
+      fullDocFor.current = null;
       setLibraryDocId(req.docId);
       setCurrentPage(1);
       setPreviewLoading(true);
@@ -174,21 +184,43 @@ export default function Home() {
     [stream],
   );
 
-  // ---- Aperçu bibliothèque : une page à la fois ----------------------------
+  // ---- Aperçu bibliothèque : réseau seulement quand on ne SAIT pas ---------
   //
-  // Le serveur ne reconstruit que la page regardée (280 s → 8 s sur un document
-  // de 285 pages). Il faut donc la redemander à chaque changement de page —
-  // c'est le prix de ne plus tout rendre, et il est très inférieur au gain.
+  // Trois niveaux, du plus rapide au plus lent, et on s'arrête au premier :
+  //   1. le serveur a déjà envoyé le rendu COMPLET (`X-Render: full`) →
+  //      navigation 100 % locale, plus une seule requête ;
+  //   2. la page a déjà été visitée → blob repris du cache mémoire, instantané
+  //      (revenir sur une page relançait ~10 s de reconstruction serveur) ;
+  //   3. sinon seulement, on demande la page au serveur.
   useEffect(() => {
     if (!libraryDocId || !showPreview) return;
+    if (fullDocFor.current === libraryDocId) return;          // niveau 1
+    const key = `${libraryDocId}:${currentPage}`;
+    const hit = pageBlobCache.current.get(key);
+    if (hit) { setTranslatedBlob(hit); setPreviewLoading(false); return; }  // niveau 2
+
     const token = ++pageToken.current;
     setPreviewLoading(true);
     getPreviewBlob(libraryDocId, currentPage)
-      .then((blob) => {
+      .then((res) => {
         // Jeton : tourner vite les pages lance plusieurs requêtes, et rien ne
         // garantit qu'elles reviennent dans l'ordre. Sans lui, une page lente
         // demandée avant écrase la page rapide demandée après.
-        if (pageToken.current === token && blob) setTranslatedBlob(blob);
+        if (pageToken.current !== token || !res) return;
+        if (res.full) {
+          // Tout le document est là : les blobs par page n'ont plus d'objet.
+          fullDocFor.current = libraryDocId;
+          pageBlobCache.current.clear();
+        } else {
+          pageBlobCache.current.set(key, res.blob);
+          // Borne mémoire : ~3 Mo par blob, on garde les 20 dernières pages
+          // visitées (FIFO — Map préserve l'ordre d'insertion).
+          while (pageBlobCache.current.size > 20) {
+            const oldest = pageBlobCache.current.keys().next().value as string;
+            pageBlobCache.current.delete(oldest);
+          }
+        }
+        setTranslatedBlob(res.blob);
       })
       .catch(() => { /* le lecteur garde son écran d'attente */ })
       .finally(() => { if (pageToken.current === token) setPreviewLoading(false); });
@@ -312,7 +344,6 @@ export default function Home() {
         onDelete={deleteDocument}
         onClearAll={clearAll}
         getBlob={getBlob}
-        getPreviewBlob={getPreviewBlob}
         getOriginalBlob={getOriginalBlob}
         onPaid={() => { refresh(); refreshUser(); }}
       />

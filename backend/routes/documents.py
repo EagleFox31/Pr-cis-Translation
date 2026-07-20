@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import render_cache
 from database import get_db
 from models import User, Document, is_paid_plan
 from auth import require_auth
@@ -251,9 +252,23 @@ async def download_document(
             raise HTTPException(status_code=404, detail="Fichier introuvable sur le serveur.")
         return FileResponse(doc.original_path, filename=doc.original_name)
 
-    # `translated_path` désigne la TRADUCTION stockée (JSON), pas un rendu : on
-    # recalcule le document à la demande, sans rappeler DeepSeek.
-    data = _render_or_404(doc, ext)
+    # `translated_path` désigne la TRADUCTION stockée (JSON), pas un rendu.
+    # Le rendu complet en cache sert d'abord : reconstruire 285 pages dans la
+    # requête prenait 280 s — un téléchargement qui expire, pas un
+    # téléchargement lent. À défaut, on reconstruit dans un thread (la boucle
+    # d'événements ne se fige pas) et on CONSERVE le résultat : la lenteur ne
+    # se paie qu'une fois.
+    def _build() -> bytes:
+        cached = render_cache.cache_valid(doc.translated_path)
+        if cached:
+            with open(cached, "rb") as f:
+                return f.read()
+        data = _render_or_404(doc, ext)
+        if ext == "pdf":
+            render_cache.store_render(data, doc.translated_path)
+        return data
+
+    data = await run_in_threadpool(_build)
     base = os.path.splitext(doc.original_name)[0]
     dl_name = f"{base}_TRADUIT.{ext}"
     media = "application/pdf" if ext == "pdf" else "application/octet-stream"
@@ -334,6 +349,25 @@ async def preview_document(
     # « Aperçu » figeait TOUTE l'application jusqu'à la fin du rendu. On les
     # sort dans un thread, et on n'en fait qu'un aller-retour (les deux étapes
     # sont enchaînées côté thread plutôt qu'en deux bascules).
+    # ── Chemin RAPIDE : le rendu complet est en cache ─────────────────────
+    #
+    # Une fois servi, le client a TOUT le document traduit : plus une seule
+    # requête pendant la navigation (l'en-tête `X-Render: full` le lui dit).
+    # Réservé au CLAIR : la version d'essai est rastérisée à la demande, et
+    # rastériser 285 pages par requête coûterait plus que ce qu'on évite.
+    if ext == "pdf" and clear and doc.translated_path:
+        cached = render_cache.cache_valid(doc.translated_path)
+        if cached:
+            data = await run_in_threadpool(lambda: open(cached, "rb").read())
+            return Response(content=data, media_type="application/pdf",
+                            headers={"Cache-Control": "no-store",
+                                     "X-Render": "full"})
+        # Pas de cache (document traduit avant son existence, ou moteur mis à
+        # jour) : on le construit UNE fois en tâche de fond pendant qu'on sert
+        # la page demandée. Quelques minutes plus tard, tout est instantané.
+        render_cache.ensure_background_build(
+            doc.original_path, doc.translated_path, ext, doc.target_lang)
+
     # L'aperçu n'affiche QU'UNE page à la fois. En reconstruire l'intégralité
     # pour en montrer une était le blocage : mesuré sur un document de 285
     # pages, 280 s pour tout rendre contre 8 s pour la seule page demandée.
@@ -355,7 +389,8 @@ async def preview_document(
     data = await run_in_threadpool(_build)
     media = "application/pdf" if ext == "pdf" else "application/octet-stream"
     return Response(content=data, media_type=media,
-                    headers={"Cache-Control": "no-store"})
+                    headers={"Cache-Control": "no-store",
+                             "X-Render": "page" if fenetre else "full"})
 
 
 # ── DELETE /documents/{id} ───────────────────────────────────────────────────

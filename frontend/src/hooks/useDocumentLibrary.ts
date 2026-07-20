@@ -153,17 +153,23 @@ export function useDocumentLibrary() {
    *  qu'un compte gratuit récupérait sa traduction en clair. */
   const getPreviewBlob = useCallback(async (
     id: string, page?: number,
-  ): Promise<Blob | undefined> => {
+  ): Promise<{ blob: Blob; full: boolean } | undefined> => {
     if (user) {
-      // `page` restreint le RENDU à la page regardée. Sans lui, le serveur
-      // reconstruit tout le document : mesuré à 280 s sur 285 pages, contre
-      // 8 s pour une seule. Le document rendu garde toutes ses pages (les
-      // autres sont recopiées de l'original), donc la pagination ne bouge pas.
+      // `page` restreint le RENDU à la page regardée (280 s le document
+      // entier contre ~10 s la page seule, mesuré sur 285 pages). Mais si le
+      // serveur possède le rendu COMPLET en cache, il l'envoie directement et
+      // le dit par `X-Render: full` : le client a alors tout le document
+      // traduit et n'a PLUS RIEN à demander pendant la navigation.
       const q = page && page > 0 ? `?page=${page}` : '';
       const res = await authFetch(`/api/documents/${id}/preview${q}`);
-      return res.ok ? res.blob() : undefined;
+      if (!res.ok) return undefined;
+      return {
+        blob: await res.blob(),
+        full: res.headers.get('X-Render') === 'full',
+      };
     }
-    return documents.find(d => d.id === id)?._blob;
+    const blob = documents.find(d => d.id === id)?._blob;
+    return blob ? { blob, full: true } : undefined;
   }, [user, documents]);
 
   /** Le fichier SOURCE tel que déposé — panneau gauche de l'aperçu.

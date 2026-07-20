@@ -60,7 +60,6 @@ interface DocumentLibraryProps {
   onDelete: (id: string) => void;
   onClearAll: () => void;
   getBlob: (id: string) => Promise<Blob | undefined>;
-  getPreviewBlob: (id: string, page?: number) => Promise<Blob | undefined>;
   getOriginalBlob: (id: string) => Promise<Blob | undefined>;
   /** Un paiement vient d'aboutir : la liste doit être relue (le `paid` du
    *  document a changé côté serveur). */
@@ -69,7 +68,7 @@ interface DocumentLibraryProps {
 
 export default function DocumentLibrary({
   isOpen, onClose, documents, onPreview, onDelete, onClearAll,
-  getBlob, getPreviewBlob, getOriginalBlob, onPaid,
+  getBlob, getOriginalBlob, onPaid,
 }: DocumentLibraryProps) {
   // Le serveur refuse le téléchargement d'une traduction à un plan d'essai
   // (402). On lit le MÊME plan côté client pour ne pas promettre un bouton qui
@@ -102,7 +101,7 @@ export default function DocumentLibrary({
       ext: doc.ext,
       source: getOriginalBlob(doc.id),
     });
-  }, [getPreviewBlob, getOriginalBlob, onPreview]);
+  }, [getOriginalBlob, onPreview]);
 
   const handleDownload = useCallback(async (doc: DocMeta) => {
     // Le droit tient au DOCUMENT. Un compte gratuit dont le document est payé
