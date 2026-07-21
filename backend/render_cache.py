@@ -1,5 +1,14 @@
 """
-Cache disque du RENDU complet d'une traduction.
+Cache disque du RENDU d'APERÇU d'une traduction — TOUJOURS un PDF.
+
+⚠ CE CACHE NE CONTIENT QUE DES PDF, et ne sert QU'À ACCÉLÉRER LA PRÉVISUALISATION.
+Le viewer affiche tout en PDF (un PPTX/DOCX est converti en PDF avant affichage) :
+le cache tient donc cette conversion. Pour un document PDF, ce rendu est aussi le
+fichier téléchargeable — le téléchargement peut le réutiliser. Pour un PPTX/DOCX,
+le cache est une IMAGE D'APERÇU, pas le document natif : le téléchargement ne doit
+JAMAIS le servir (sinon on livre un PDF déguisé en .pptx que l'application Office
+refuse). Cette règle est appliquée dans `download_document` (routes/documents.py),
+qui ne consulte le cache que pour `ext == "pdf"`.
 
 Le modèle « on ne conserve pas le rendu, on le reconstruit à la demande »
 était honnête mais aveugle au coût : mesuré sur un document de 285 pages,

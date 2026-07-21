@@ -257,20 +257,30 @@ async def download_document(
                         headers={"Content-Disposition": f'attachment; filename="{doc.original_name}"'})
 
     # `translated_path` désigne la TRADUCTION stockée (JSON), pas un rendu.
-    # Le rendu complet en cache sert d'abord : reconstruire 285 pages dans la
-    # requête prenait 280 s — un téléchargement qui expire, pas un
-    # téléchargement lent. À défaut, on reconstruit dans un thread (la boucle
-    # d'événements ne se fige pas) et on CONSERVE le résultat : la lenteur ne
-    # se paie qu'une fois.
+    #
+    # Le cache de rendu ne contient QUE des PDF (c'est un cache d'APERÇU, cf.
+    # render_cache.py). Pour un PDF, ce rendu EST le fichier téléchargeable —
+    # on le réutilise. Pour tout autre format (PPTX, DOCX), le cache tient une
+    # CONVERSION PDF de l'aperçu, PAS le document natif : le servir ici rendait
+    # un PDF déguisé en .pptx que PowerPoint refusait d'ouvrir. On ne touche
+    # donc au cache que pour le PDF ; les autres formats se régénèrent toujours
+    # dans leur format natif.
+    #
+    # Reconstruire 285 pages dans la requête prenait 280 s (téléchargement qui
+    # expire) : on reconstruit dans un thread (la boucle d'événements ne se fige
+    # pas) et, pour le PDF, on CONSERVE le résultat — la lenteur ne se paie
+    # qu'une fois.
     def _build() -> bytes:
-        cached = render_cache.cache_valid(doc.translated_path)
-        if cached:
-            with open(cached, "rb") as f:
-                return f.read()
-        data = _render_or_404(doc, ext)
         if ext == "pdf":
+            cached = render_cache.cache_valid(doc.translated_path)
+            if cached:
+                with open(cached, "rb") as f:
+                    return f.read()
+            data = _render_or_404(doc, ext)
             render_cache.store_render(data, doc.translated_path)
-        return data
+            return data
+        # Format natif non-PDF : jamais le cache d'aperçu.
+        return _render_or_404(doc, ext)
 
     data = await run_in_threadpool(_build)
     base = os.path.splitext(doc.original_name)[0]

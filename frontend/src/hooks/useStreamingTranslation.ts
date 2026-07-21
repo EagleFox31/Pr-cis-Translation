@@ -186,15 +186,31 @@ export function useStreamingTranslation() {
 
                 // 402 = le FORFAIT parle, ce n'est pas une panne. Un plan
                 // d'essai n'a pas droit au résultat téléchargeable ; il a droit
-                // à l'aperçu, qu'il a déjà reçu (partiel rastérisé et
-                // filigrané). Traiter ce refus comme une erreur laissait la
-                // traduction bloquée sur « page en attente » alors qu'elle
-                // avait parfaitement abouti.
-                if (dlRes.status === 402 && lastPartialRef.current) {
-                  const blob = lastPartialRef.current;
-                  setState((s) => ({ ...s, isTranslating: false, result: { blob, filename } }));
-                  resolve({ blob, filename });
-                  return;
+                // à l'aperçu (partiel rastérisé et filigrané). Traiter ce refus
+                // comme une erreur laissait la traduction bloquée sur « page en
+                // attente » alors qu'elle avait parfaitement abouti.
+                //
+                // On REDEMANDE le partiel ICI, maintenant qu'il est GARANTI
+                // complet côté serveur. Indispensable pour le PPTX : son partiel
+                // est converti en PDF de façon asynchrone (LibreOffice, ~10 s) et
+                // n'était souvent pas encore prêt au dernier événement `page` —
+                // `lastPartialRef` restait alors vide et l'essai voyait une
+                // erreur au lieu de son aperçu.
+                if (dlRes.status === 402) {
+                  let blob = lastPartialRef.current;
+                  try {
+                    const pr = await fetch(`${API_BASE}/api/translate/partial/${job_id}`, {
+                      headers: { 'X-API-Key': API_KEY, ...authHeader() },
+                    });
+                    if (pr.ok) blob = await pr.blob();
+                  } catch {
+                    // réseau : on se rabat sur le dernier partiel connu
+                  }
+                  if (blob) {
+                    setState((s) => ({ ...s, isTranslating: false, partialBlob: blob, result: { blob, filename } }));
+                    resolve({ blob, filename });
+                    return;
+                  }
                 }
                 if (!dlRes.ok) {
                   const err = await dlRes.json().catch(() => ({}));

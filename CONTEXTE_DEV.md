@@ -64,6 +64,23 @@ Contient uniquement le fix CSS `scroll-margin-top: 0` pour le footer + PROMPT_FA
 
 ---
 
+## Correctifs 2026-07-21 (session Fable/Opus)
+
+| Sujet | Correctif | Preuve |
+|-------|-----------|--------|
+| **PPTX téléchargé corrompu** (« PowerPoint ne peut pas lire … .pptx ») | Le cache de rendu ne contient QUE des PDF (aperçu). `download_document` le servait pour TOUT format → PDF déguisé en .pptx. Désormais le cache n'est lu au téléchargement que pour `ext == "pdf"` ; les autres formats se régénèrent en natif. Caches empoisonnés purgés. | `test_download_format_integrity.py` 3/3 + mutation ; download HTTP starter → `PK`, ZIP valide |
+| **`build_partial_pptx` destructif** | Il réécrivait `presentation.xml`/rels/`[Content_Types].xml` DANS le temp dir en retirant les slides > k : un 2ᵉ appel amputait le PPTX final (1 slide au lieu de N). Rendu NON-destructif (contrôle recalculé en mémoire, écrit dans le zip), atomique. | Appels répétés (1,3,5,26) → partiels valides, final 26 slides intact |
+| **Preview PPTX progressive** | Un convertisseur de partiel PDF en arrière-plan (coalescé, 1 thread) rend l'avant/après slide par slide comme le PDF v2. `partial_path` (.pdf) complet garanti avant le job-done ; le front redemande le partiel frais sur 402. | E2E HTTP free+starter : progression par slide, partiel PDF, 402 free rastérisé (0 fuite) |
+| **Layout viewer** | Suppression du bug de framing (l'`isLandscape` était lu avant que son `setState` prenne effet → 1ʳᵉ frame mal cadrée). Les deux pages sont TOUJOURS côte à côte (horizontal), dimensionnées sans état → cadrage correct dès le départ. | `tsc --noEmit` OK |
+
+## Correctifs 2026-07-21 (session 2 — OLE, layout, serveur)
+
+| Sujet | Correctif | Preuve |
+|-------|-----------|--------|
+| **Aperçu OLE Excel en langue source** | `regenerate_ole_previews` (moteur PPTX) : rend le xlsx traduit en image via LibreOffice (1 invocation ≈ 20 s), recadre au contenu, remplace l'EMF par un PNG. Câblé dans `inject_translation` (aperçu+download) et le job progressif. Sans Windows/macro. **Piège** : l'image OLE est référencée 2× (VML `mc:Choice` + DrawingML `mc:Fallback`) — repointer TOUTES les rels, pas juste le blip. | Rendu visuel : tableaux+graphiques Excel traduits ; français OLE éliminé du PDF final |
+| **Layout viewer paysage** | Restauré en VERTICAL (panneaux empilés) pour les pages paysage, détecté PAR PAGE (orientations mixtes gérées), sans le bug de cadrage (orientation lue en local avant rendu, plus via un state en retard). | `tsc` OK |
+| **Start/stop serveur (zombies)** | `scripts/dev.py` remplace `concurrently` : démarre backend puis frontend, sortie concise, et un Ctrl+C tue les DEUX arbres de processus (`taskkill /T`) + balaie les ports. Bonus : le prochain démarrage balaie aussi les ports. | Test cycle de vie : 2 ports up → signal → 2 ports libérés, code 0 |
+
 ## Pipeline PPTX — État actuel
 
 ### Ce qui fonctionne

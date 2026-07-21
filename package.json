@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Precis Translator root project configuration",
   "scripts": {
-    "dev": "concurrently --names \"backend,frontend\" --prefix-colors \"cyan,magenta\" --kill-others \"npm run --silent dev:backend\" \"npm run --silent dev:frontend\"",
+    "dev": "backend\\venv\\Scripts\\python scripts/dev.py",
     "dev:backend": "backend\\venv\\Scripts\\python scripts/run_uvicorn.py 8000",
     "dev:frontend": "npm --prefix frontend run --silent dev",
     "stop": "scripts\\stop.cmd"

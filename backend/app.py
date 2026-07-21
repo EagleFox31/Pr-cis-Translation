@@ -874,6 +874,71 @@ def _run_pptx_progressive_job(
         done_lock = threading.Lock()
         max_workers = 5 if is_admin else 1
 
+        # ── Aperçu PROGRESSIF : un convertisseur de partiel en arrière-plan ──
+        # Après chaque slide traitée on veut montrer l'avant/après SANS attendre
+        # la fin du document (comme le PDF v2). La conversion PPTX→PDF
+        # (LibreOffice) coûte plusieurs secondes et se sérialise : on la confie
+        # à UN thread dédié qui, à tout instant, ne rend QUE le plus haut numéro
+        # de slide prêt (coalescence). Si la traduction va plus vite que la
+        # conversion, on saute les états intermédiaires — le lecteur voit
+        # toujours le partiel le plus récent, jamais une file qui s'accumule.
+        #
+        # Réservé au mode SÉQUENTIEL : en parallèle (admin), le dossier
+        # temporaire est muté par plusieurs slides à la fois et un partiel lu au
+        # vol serait incohérent. L'admin échange l'aperçu progressif contre la
+        # vitesse (il verra le partiel final, comme avant).
+        _progressive = (max_workers == 1)
+        _partial_cv = threading.Condition()
+        _partial_target = [0]           # plus haut slide prêt à rendre (0 = rien)
+        _partial_stop = [False]
+
+        def _write_pptx_pdf_partial(up_to: int):
+            """Construit le PPTX partiel (1..up_to), le convertit en PDF et
+            l'écrit ATOMIQUEMENT dans partial_path — c'est ce PDF que /partial
+            sert (rastérisé et filigrané pour un plan d'essai)."""
+            with tempfile.TemporaryDirectory() as td:
+                ppx = os.path.join(td, "partial.pptx")
+                pptx_engine.build_partial_pptx(ppx, up_to)
+                with open(ppx, "rb") as f:
+                    pptx_bytes = f.read()
+            pdf_bytes = convert_to_pdf_bytes(pptx_bytes, "pptx")
+            tmp = partial_path + ".tmp"
+            with open(tmp, "wb") as f:
+                f.write(pdf_bytes)
+            os.replace(tmp, partial_path)
+
+        def _partial_worker():
+            while True:
+                with _partial_cv:
+                    while _partial_target[0] == 0 and not _partial_stop[0]:
+                        _partial_cv.wait()
+                    if _partial_stop[0] and _partial_target[0] == 0:
+                        return
+                    up_to = _partial_target[0]
+                    _partial_target[0] = 0
+                try:
+                    _write_pptx_pdf_partial(up_to)
+                except Exception as e:
+                    # Best-effort : un partiel manqué n'interrompt jamais la
+                    # traduction ; le prochain slide en produira un plus récent.
+                    logger.warning("Partiel PPTX (jusqu'à slide %s) non généré : %s",
+                                   up_to, e)
+
+        def _request_partial(up_to: int):
+            if not _progressive:
+                return
+            with _partial_cv:
+                if up_to > _partial_target[0]:
+                    _partial_target[0] = up_to
+                _partial_cv.notify()
+
+        _partial_thread = None
+        if _progressive:
+            _partial_thread = threading.Thread(
+                target=_partial_worker, daemon=True,
+                name=f"pptx-partial-{job_id[:8]}")
+            _partial_thread.start()
+
         def _process_one_slide(slide_num: int):
             nonlocal done
             _job_emit(job_id, "page", {"page": slide_num, "status": "extracting",
@@ -887,6 +952,7 @@ def _run_pptx_progressive_job(
                 _job_emit(job_id, "page", {"page": slide_num, "status": "copied",
                              "done": cur_done, "total": total})
                 _sync_document_progress(job_id, cur_done, total)
+                _request_partial(slide_num)
                 return
 
             _job_emit(job_id, "page", {"page": slide_num, "status": "translating",
@@ -960,6 +1026,7 @@ def _run_pptx_progressive_job(
             _job_emit(job_id, "page", {"page": slide_num, "status": "done",
                          "done": cur_done, "total": total})
             _sync_document_progress(job_id, cur_done, total)
+            _request_partial(slide_num)
 
         if max_workers > 1:
             from concurrent.futures import ThreadPoolExecutor
@@ -971,11 +1038,30 @@ def _run_pptx_progressive_job(
             for sn in slides_to_process:
                 _process_one_slide(sn)
 
+        # Arrêter le convertisseur de partiel AVANT de bâtir le fichier final :
+        # plus aucun accès concurrent au dossier temporaire pendant que le PPTX
+        # final se construit et que le temp dir est nettoyé.
+        if _partial_thread is not None:
+            with _partial_cv:
+                _partial_stop[0] = True
+                _partial_cv.notify()
+            _partial_thread.join(timeout=130)
+
+        # ── Aperçus OLE Excel : régénérés depuis les classeurs traduits ────
+        # Pour que le fichier téléchargé (et l'aperçu final) montre les
+        # tableaux/graphiques Excel EN LANGUE CIBLE sans devoir activer l'objet
+        # dans PowerPoint. Best-effort : un échec n'interrompt pas la traduction.
+        try:
+            _job_emit(job_id, "progress", {"step": "ole", "message": "Régénération des aperçus Excel...", "page": 0, "total": None})
+            n_ole = pptx_engine.regenerate_ole_previews(soffice_path=SOFFICE_PATH)
+            if n_ole:
+                logger.info(f"Job {job_id}: {n_ole} aperçu(s) OLE Excel régénéré(s)")
+        except Exception as e:
+            logger.warning(f"Job {job_id}: régénération OLE ignorée : {e}")
+
         # ── PPTX final ────────────────────────────────────────────────────
         _job_emit(job_id, "progress", {"step": "inject", "message": "Génération du PPTX final...", "page": 0, "total": None})
         pptx_engine.build_partial_pptx(output_path, max(slides_to_process))
-        pptm_auto_path = output_path[:-5] + "_autorefresh.pptm" if output_path.endswith(".pptx") else output_path + "_autorefresh.pptm"
-        pptx_engine.generate_autorefresh_pptm(output_path, pptm_auto_path)
 
         # ── Sauvegarde de la traduction (JSON complet pour reprise) ───────
         all_slides = []
@@ -993,6 +1079,14 @@ def _run_pptx_progressive_job(
 
     except Exception as e:
         logger.error(f"Job PPTX {job_id} failed: {e}")
+        # Réveiller le convertisseur de partiel pour qu'il s'arrête (sinon il
+        # attend indéfiniment sur sa condition).
+        try:
+            with _partial_cv:
+                _partial_stop[0] = True
+                _partial_cv.notify()
+        except Exception:
+            pass
         try:
             pptx_engine._cleanup_temp()
         except Exception:

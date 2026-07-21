@@ -46,7 +46,9 @@ export default function PdfViewer({
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   // True quand le canevas traduit affiche RÉELLEMENT la page courante.
   const [translatedShown, setTranslatedShown] = useState(false);
-  // Détection du format : paysage → stacked vertical, portrait → côte à côte.
+  // Orientation de la PAGE COURANTE : paysage → panneaux empilés (vertical),
+  // portrait → panneaux côte à côte (horizontal). Détectée par page — un même
+  // document peut mêler des pages paysage et portrait, et la disposition suit.
   const [isLandscape, setIsLandscape] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -121,6 +123,22 @@ export default function PdfViewer({
         const pageSource = pdfOrig ?? pdfTrad;
         if (pageSource) onPagesLoaded?.(pageSource.numPages);
 
+        // Orientation de la PAGE COURANTE, déterminée UNE fois AVANT tout rendu.
+        // On la calcule ici (valeur locale `landscape`) et non depuis l'état
+        // React : un `setIsLandscape` ne prend effet qu'au rendu suivant, donc
+        // lire l'état ici donnait l'orientation de la page PRÉCÉDENTE et cadrait
+        // mal la première frame. La source et la traduction sont la même page,
+        // donc une seule mesure suffit pour les deux panneaux.
+        let landscape = false;
+        if (pageSource) {
+          const probeNum = Math.min(Math.max(1, currentPage), pageSource.numPages);
+          const probe = await pageSource.getPage(probeNum);
+          if (!active) return;
+          const pv = probe.getViewport({ scale: 1.0 });
+          landscape = pv.width > pv.height;
+        }
+        setIsLandscape(landscape);
+
         const renderPage = async (pdf: any, canvasId: string, pageNum: number) => {
           // Borne la page demandée : un document mono-page recevait encore le
           // numéro de page de l'état précédent → « Invalid page request ».
@@ -128,19 +146,17 @@ export default function PdfViewer({
           const page = await pdf.getPage(safePage);
           if (!active) return;
 
-          // Détection paysage/portrait PAR PAGE (un document peut mixer
-          // les deux orientations — ex. slide paysage + annexe portrait).
-          const unscaled = page.getViewport({ scale: 1.0 });
-          setIsLandscape(unscaled.width > unscaled.height);
           const canvas = document.getElementById(canvasId) as HTMLCanvasElement;
           if (!canvas) return;
 
+          // Paysage : chaque panneau prend toute la largeur (empilés verticalement,
+          // donc lisibles). Portrait : chaque panneau prend la moitié (côte à côte).
+          // Le dimensionnement lit la valeur LOCALE `landscape`, jamais l'état —
+          // il est donc juste dès la première frame, sans saut d'encadrement.
           let containerWidth = 600;
           const scrollEl = document.getElementById('scroll');
           if (scrollEl) {
-            // Paysage : chaque panneau occupe toute la largeur (stacked vertical).
-            // Portrait : chaque panneau occupe la moitié (côte à côte).
-            containerWidth = isLandscape
+            containerWidth = landscape
               ? scrollEl.clientWidth - 24
               : (scrollEl.clientWidth - 70) / 2;
           } else {
@@ -255,7 +271,8 @@ export default function PdfViewer({
         </div>
       </div>
 
-      {/* Separator — vertical en portrait, horizontal en paysage */}
+      {/* Séparateur : horizontal quand les panneaux sont empilés (paysage),
+          vertical quand ils sont côte à côte (portrait) */}
       <div
         style={{
           width: isLandscape ? '100%' : '1px',
