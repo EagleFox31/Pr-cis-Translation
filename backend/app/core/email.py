@@ -1,13 +1,35 @@
-"""
-Service d'envoi d'emails — Gmail SMTP (aiosmtplib).
+"""Envoi des e-mails transactionnels — SMTP (aiosmtplib).
 
-Template de vérification : code 6 chiffres + lien cliquable.
+CE QUE FAIT CE MODULE, ET CE QU'IL NE FAIT PAS
+----------------------------------------------
+Il compose et il envoie. Ce qui est ÉCRIT — les phrases, les langues, les
+couleurs de marque — vit dans `email_content.py`. Les mélanger obligeait à
+relire une fonction d'envoi pour corriger une virgule.
+
+LE LOGO EST EMBARQUÉ, PAS LIÉ
+-----------------------------
+Il voyage dans le message (pièce jointe `cid:`) au lieu d'être chargé depuis une
+URL. Deux raisons :
+
+  * la plupart des clients de messagerie BLOQUENT les images distantes par
+    défaut — un logo lié s'affiche en cadre vide chez la majorité des
+    destinataires ;
+  * une image distante est un mouchard : elle dit à l'expéditeur quand et où
+    le message a été ouvert. Nous n'avons pas à le savoir.
+
+Il est aplati sur du blanc : de nombreux clients rendent la transparence en
+NOIR, ce qui donnait un logo illisible sur fond clair.
 """
 from __future__ import annotations
-import os
+
 import logging
-from email.mime.text import MIMEText
+import os
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from pathlib import Path
+
+from app.core.email_content import MARQUE, normaliser_langue, textes
 
 logger = logging.getLogger("email_service")
 
@@ -18,70 +40,56 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 EMAIL_ENABLED = os.getenv("EMAIL_ENABLED", "true").lower() == "true"
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
-# ── Template HTML ────────────────────────────────────────────────────────────
+LOGO_PATH = Path(__file__).resolve().parent / "assets" / "logo.png"
+LOGO_CID = "logo-precis"
 
-VERIFICATION_HTML = """\
+
+# ── Gabarit ──────────────────────────────────────────────────────────────────
+# Tableaux et styles en ligne : c'est laid, et c'est la seule chose qui tienne
+# dans Outlook, Gmail et Apple Mail à la fois. Aucune feuille de style externe,
+# aucun flex, aucune grille — ils sont ignorés ou cassés selon le client.
+GABARIT = """\
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{lang}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f1f5f9;font-family:system-ui,-apple-system,sans-serif">
+<body style="margin:0;padding:0;background:{fond};font-family:system-ui,-apple-system,'Segoe UI',sans-serif">
   <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 16px">
     <tr><td align="center">
-      <table width="100%" style="max-width:440px;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.05),0 8px 24px rgba(0,0,0,.04)">
+      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:420px;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.05)">
 
-        <!-- En-tête -->
-        <tr>
-          <td style="padding:32px 32px 0;text-align:center">
-            <div style="display:inline-block;width:40px;height:40px;background:linear-gradient(135deg,#1a4dc7,#3b82f6);border-radius:10px;margin-bottom:12px"></div>
-            <h1 style="font-size:20px;font-weight:700;color:#0f172a;margin:0 0 4px">Précis</h1>
-            <p style="font-size:13px;color:#64748b;margin:0 0 24px">Vérification de connexion</p>
-            <div style="height:1px;background:#e2e8f0;margin:0 -32px"></div>
-          </td>
-        </tr>
+        <tr><td style="padding:32px 32px 20px;text-align:center">
+          <img src="cid:{cid}" width="48" alt="{marque}"
+               style="display:block;margin:0 auto 10px;border:0">
+          <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:{gris_clair}">{bandeau}</div>
+        </td></tr>
 
-        <!-- Corps -->
-        <tr>
-          <td style="padding:28px 32px">
-            <p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 8px">
-              Bonjour,
-            </p>
-            <p style="font-size:14px;color:#475569;line-height:1.6;margin:0 0 28px">
-              Voici votre code de vérification pour vous connecter à votre compte
-              <strong style="color:#0f172a">Précis</strong>.
-            </p>
+        <tr><td style="padding:0 32px">
+          <div style="height:1px;background:{trait}"></div>
+        </td></tr>
 
-            <!-- Code -->
-            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:24px 16px;text-align:center;margin-bottom:24px">
-              <div style="font-size:36px;font-weight:800;letter-spacing:10px;color:#0f172a;font-family:'SF Mono','Fira Code',monospace;margin-bottom:16px;user-select:all">
-                {code}
-              </div>
-              <p style="font-size:12px;color:#94a3b8;margin:0">Ou cliquez sur le bouton ci-dessous</p>
-            </div>
+        <tr><td style="padding:26px 32px 30px;text-align:center">
+          <h1 style="font-size:19px;font-weight:700;color:{encre};margin:0 0 4px">{titre}</h1>
+          <p style="font-size:13px;color:{gris};margin:0 0 22px">{sous_titre}</p>
 
-            <!-- Bouton -->
-            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px">
-              <tr><td align="center">
-                <a href="{verify_url}"
-                   style="display:inline-block;background:#1a4dc7;color:#fff;padding:12px 36px;
-                          border-radius:10px;text-decoration:none;font-weight:600;font-size:14px">
-                  Vérifier mon email
-                </a>
-              </td></tr>
-            </table>
+          <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px">
+            <tr><td align="center">
+              <a href="{url}" style="display:inline-block;background:{bleu};color:#fff;
+                 padding:13px 40px;border-radius:10px;text-decoration:none;
+                 font-weight:600;font-size:14px">{bouton}</a>
+            </td></tr>
+          </table>
 
-            <p style="font-size:12px;color:#94a3b8;line-height:1.5;margin:0 0 16px">
-              Ce code expire dans <strong style="color:#64748b">15 minutes</strong>.
-              Si vous n'avez pas demandé ce code, ignorez simplement cet email —
-              personne n'a accès à votre compte.
-            </p>
+          <p style="font-size:12px;color:{gris_clair};margin:0 0 10px">{ou}</p>
+          <div style="font-size:30px;font-weight:800;letter-spacing:9px;color:{encre};
+                      font-family:'SF Mono','Fira Code',Consolas,monospace">{code}</div>
+        </td></tr>
 
-            <div style="height:1px;background:#e2e8f0"></div>
+        <tr><td style="padding:0 32px 26px">
+          <div style="height:1px;background:{trait};margin-bottom:14px"></div>
+          <p style="font-size:12px;color:{gris_clair};text-align:center;margin:0 0 4px">{ignorer}</p>
+          <p style="font-size:11px;color:{trait};text-align:center;margin:0">{auto}</p>
+        </td></tr>
 
-            <p style="font-size:11px;color:#cbd5e1;text-align:center;margin:16px 0 0">
-              Ceci est un message automatique, merci de ne pas y répondre.
-            </p>
-          </td>
-        </tr>
       </table>
     </td></tr>
   </table>
@@ -89,35 +97,73 @@ VERIFICATION_HTML = """\
 </html>"""
 
 
-def _build_verification_email(email: str, code: str, token: str) -> MIMEMultipart:
-    verify_url = f"{FRONTEND_URL}/verify-email?token={token}"
-    html = VERIFICATION_HTML.format(code=code, verify_url=verify_url)
-    text = (
-        f"Code de vérification Précis : {code}\n\n"
-        f"Ou utilisez ce lien : {verify_url}\n\n"
-        f"Ce code expire dans 15 minutes.\n"
-        f"Ceci est un message automatique, merci de ne pas y répondre."
-    )
+def _logo() -> MIMEImage | None:
+    """Le logo en pièce jointe INLINE, ou None s'il est introuvable.
 
-    msg = MIMEMultipart("alternative")
-    # L'expéditeur affiché est « Précis » — l'adresse Gmail sous-jacente
-    # est requise par le serveur SMTP mais n'apparaît pas dans la plupart
-    # des clients de messagerie.
-    msg["From"] = f"Précis <{SMTP_USER}>"
+    Introuvable n'est pas fatal : le message part sans logo plutôt que pas du
+    tout. Un code de connexion qui n'arrive pas coûte un compte ; un logo
+    manquant coûte une image.
+    """
+    try:
+        with open(LOGO_PATH, "rb") as f:
+            img = MIMEImage(f.read(), _subtype="png")
+        img.add_header("Content-ID", f"<{LOGO_CID}>")
+        img.add_header("Content-Disposition", "inline", filename="precis.png")
+        return img
+    except Exception as exc:
+        logger.warning("Logo d'e-mail introuvable (%s) : %s", LOGO_PATH, exc)
+        return None
+
+
+def _message_verification(email: str, code: str, token: str,
+                          langue: str) -> MIMEMultipart:
+    t = textes(langue)
+    url = f"{FRONTEND_URL}/verify-email?token={token}"
+
+    html = GABARIT.format(lang=langue, cid=LOGO_CID, code=code, url=url,
+                          marque=MARQUE["nom"], **MARQUE, **t)
+    texte = t["texte_brut"].format(code=code, url=url)
+
+    # `related` enveloppe `alternative` : le HTML et son image forment UN tout,
+    # dont la version texte est l'alternative. L'ordre inverse fait apparaître
+    # le logo comme une pièce jointe séparée dans plusieurs clients.
+    msg = MIMEMultipart("related")
+    # L'expéditeur AFFICHÉ est « Précis » — l'adresse sous-jacente est exigée
+    # par le serveur SMTP mais n'apparaît pas dans la plupart des clients.
+    msg["From"] = f"{MARQUE['nom']} <{SMTP_USER}>"
     msg["To"] = email
-    msg["Subject"] = f"{code} est votre code de vérification Précis"
+    msg["Subject"] = t["sujet_verification"].format(code=code)
     msg["Reply-To"] = "noreply@precis.app"
-    msg.attach(MIMEText(text, "plain", "utf-8"))
-    msg.attach(MIMEText(html, "html", "utf-8"))
+    # Un e-mail transactionnel ne doit JAMAIS déclencher de réponse
+    # automatique : ni absence du bureau, ni accusé de réception.
+    msg["Auto-Submitted"] = "auto-generated"
+    msg["X-Auto-Response-Suppress"] = "All"
+
+    corps = MIMEMultipart("alternative")
+    corps.attach(MIMEText(texte, "plain", "utf-8"))
+    corps.attach(MIMEText(html, "html", "utf-8"))
+    msg.attach(corps)
+
+    logo = _logo()
+    if logo is not None:
+        msg.attach(logo)
     return msg
 
 
-async def send_verification_email(email: str, code: str, token: str) -> None:
-    """Envoie l'email de vérification (code + lien)."""
-    msg = _build_verification_email(email, code, token)
+async def send_verification_email(email: str, code: str, token: str,
+                                  accept_language: str | None = None) -> None:
+    """Envoie le code de connexion, dans la langue de l'interface.
+
+    `accept_language` vient de l'en-tête de la requête qui a déclenché l'envoi :
+    c'est la langue dans laquelle l'utilisateur venait de lire le bouton sur
+    lequel il a cliqué. Absent, on retombe sur le français.
+    """
+    langue = normaliser_langue(accept_language)
+    msg = _message_verification(email, code, token, langue)
 
     if not EMAIL_ENABLED or not SMTP_HOST:
-        logger.info(f"[DEV] Email vérification → {email} | code={code} | token={token}")
+        logger.info("[DEV] Vérification → %s | langue=%s | code=%s | token=%s",
+                    email, langue, code, token)
         return
 
     import aiosmtplib
@@ -132,7 +178,7 @@ async def send_verification_email(email: str, code: str, token: str) -> None:
             start_tls=True,
             use_tls=(SMTP_PORT == 465),
         )
-        logger.info(f"Email vérification envoyé à {email}")
+        logger.info("Vérification envoyée à %s (%s)", email, langue)
     except Exception as exc:
-        logger.error(f"Échec envoi email à {email} : {exc}")
+        logger.error("Échec envoi à %s : %s", email, exc)
         raise

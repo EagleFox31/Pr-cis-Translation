@@ -14,3 +14,8 @@ import sys
 _BACKEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _BACKEND not in sys.path:
     sys.path.insert(0, _BACKEND)
+
+# Les suites montent l'application des dizaines de fois : une banniere par
+# montage noierait leur sortie, et c'est cette sortie qu'on lit pour savoir ce
+# qui a echoue.
+os.environ.setdefault("PRECIS_NO_BANNER", "1")

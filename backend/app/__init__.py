@@ -48,7 +48,30 @@ async def _lifespan(_app: FastAPI):
     await reconcilier_jobs_orphelins()
     balayer_partiels_orphelins()
     office.prewarm()
+    _afficher_banniere()
     yield
+
+
+def _afficher_banniere() -> None:
+    """Bannière du démarrage DIRECT (`uvicorn main:app`).
+
+    `npm run dev` a la sienne, affichée quand les DEUX serveurs écoutent et qui
+    pointe l'interface. Ici, l'API tourne seule : elle est la destination.
+
+    Silencieuse si `PRECIS_NO_BANNER` est posé — les tests montent l'application
+    des dizaines de fois, et une bannière par montage noierait leur sortie.
+    """
+    import os
+
+    if os.getenv("PRECIS_NO_BANNER"):
+        return
+    try:
+        from app import banner, versions
+        port = int(os.getenv("PORT") or os.getenv("UVICORN_PORT") or 8000)
+        cadre = banner.construire(None, port, versions.toutes())
+        print("\n" + cadre + "\n", flush=True)
+    except Exception:
+        pass    # un décor ne fait jamais échouer un démarrage
 
 
 def create_app() -> FastAPI:

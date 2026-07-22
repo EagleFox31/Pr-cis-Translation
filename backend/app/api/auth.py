@@ -7,7 +7,7 @@ import os
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi import APIRouter, Depends, Header, HTTPException, status, Body
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
@@ -21,6 +21,21 @@ from app.core.security import (
     hash_password, verify_password,
 )
 from app.core.email import send_verification_email
+
+
+def langue_ui(accept_language: str | None = Header(default=None)) -> str | None:
+    """La langue de l'INTERFACE, telle que le client l'annonce.
+
+    Le frontend pose son `Accept-Language` depuis i18n : c'est la langue dans
+    laquelle l'utilisateur vient de lire le bouton sur lequel il a cliqué, et
+    non celle de son système. Quelqu'un dont Windows est en anglais mais qui a
+    mis Précis en français attend un e-mail en français.
+
+    Declaree en DEPENDANCE plutot que lue depuis `Request` dans chaque route :
+    l'en-tete apparait ainsi dans la documentation OpenAPI, et le jour ou un
+    autre e-mail s'ajoute, il n'y a rien a se rappeler.
+    """
+    return accept_language
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +167,8 @@ async def _generate_verification(db: AsyncSession, user: User) -> VerificationCo
 # ── POST /register ───────────────────────────────────────────────────────────
 
 @router.post("/register", status_code=201)
-async def register(body: EmailBody, db: AsyncSession = Depends(get_db)):
+async def register(body: EmailBody, db: AsyncSession = Depends(get_db),
+                   langue: str | None = Depends(langue_ui)):
     """Inscription sans mot de passe : crée le compte, envoie le code de vérification."""
     email = body.email.lower().strip()
     existing = await db.execute(select(User).where(User.email == email))
@@ -165,7 +181,7 @@ async def register(body: EmailBody, db: AsyncSession = Depends(get_db)):
     await db.refresh(user)
 
     vc = await _generate_verification(db, user)
-    await send_verification_email(user.email, vc.code, vc.token)
+    await send_verification_email(user.email, vc.code, vc.token, langue)
 
     return {"message": "Code envoyé. Vérifiez votre email pour continuer.", "email": email}
 
@@ -173,7 +189,8 @@ async def register(body: EmailBody, db: AsyncSession = Depends(get_db)):
 # ── POST /login ──────────────────────────────────────────────────────────────
 
 @router.post("/login", status_code=201)
-async def login(body: EmailBody, db: AsyncSession = Depends(get_db)):
+async def login(body: EmailBody, db: AsyncSession = Depends(get_db),
+                langue: str | None = Depends(langue_ui)):
     """Connexion sans mot de passe : envoie un code de vérification.
     Si l'utilisateur n'existe pas, le crée automatiquement (inscription implicite)."""
     email = body.email.lower().strip()
@@ -190,7 +207,7 @@ async def login(body: EmailBody, db: AsyncSession = Depends(get_db)):
         await db.refresh(user)
 
     vc = await _generate_verification(db, user)
-    await send_verification_email(user.email, vc.code, vc.token)
+    await send_verification_email(user.email, vc.code, vc.token, langue)
 
     is_new = not user.email_verified
     return {
@@ -223,7 +240,8 @@ async def _issue(db: AsyncSession, user: User) -> AuthResponse:
 
 @router.post("/register-password", status_code=201)
 async def register_password(body: PasswordRegisterBody,
-                            db: AsyncSession = Depends(get_db)):
+                            db: AsyncSession = Depends(get_db),
+                            langue: str | None = Depends(langue_ui)):
     """Inscription avec mot de passe. L'email reste à vérifier par code."""
     email = body.email.lower().strip()
     _check_password_strength(body.password)
@@ -240,7 +258,7 @@ async def register_password(body: PasswordRegisterBody,
     await db.refresh(user)
 
     vc = await _generate_verification(db, user)
-    await send_verification_email(user.email, vc.code, vc.token)
+    await send_verification_email(user.email, vc.code, vc.token, langue)
     return {"message": "Compte créé. Vérifiez votre email pour l'activer.",
             "email": email, "is_new": True}
 
@@ -266,7 +284,8 @@ async def login_password(body: PasswordLoginBody,
 
 
 @router.post("/forgot-password", status_code=201)
-async def forgot_password(body: ForgotBody, db: AsyncSession = Depends(get_db)):
+async def forgot_password(body: ForgotBody, db: AsyncSession = Depends(get_db),
+                          langue: str | None = Depends(langue_ui)):
     """Envoie un code de réinitialisation — vérification de l'email d'abord."""
     email = body.email.lower().strip()
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
@@ -283,7 +302,7 @@ async def forgot_password(body: ForgotBody, db: AsyncSession = Depends(get_db)):
     if user is not None:
         try:
             vc = await _generate_verification(db, user)
-            await send_verification_email(user.email, vc.code, vc.token)
+            await send_verification_email(user.email, vc.code, vc.token, langue)
         except Exception:
             logger.exception("forgot-password : envoi du code impossible")
     return {"message": "Si un compte existe pour cet email, un code vient d'être envoyé.",
@@ -533,7 +552,9 @@ async def google_auth(body: GoogleBody, db: AsyncSession = Depends(get_db)):
 # ── POST /resend-verification ────────────────────────────────────────────────
 
 @router.post("/resend-verification", status_code=201)
-async def resend_verification(email: EmailStr = Body(..., embed=True), db: AsyncSession = Depends(get_db)):
+async def resend_verification(email: EmailStr = Body(..., embed=True),
+                              db: AsyncSession = Depends(get_db),
+                              langue: str | None = Depends(langue_ui)):
     """Renvoie un email de vérification."""
     stmt = select(User).where(User.email == email.lower().strip())
     result = await db.execute(stmt)
@@ -547,6 +568,6 @@ async def resend_verification(email: EmailStr = Body(..., embed=True), db: Async
         return {"message": "Cet email est déjà vérifié."}
 
     vc = await _generate_verification(db, user)
-    await send_verification_email(user.email, vc.code, vc.token)
+    await send_verification_email(user.email, vc.code, vc.token, langue)
 
     return {"message": "Un nouveau code de vérification a été envoyé."}

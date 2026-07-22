@@ -64,29 +64,42 @@ def _cadre(lignes: list[str]) -> str:
     return "\n".join([haut, *corps, bas])
 
 
-def construire(port_front: int, port_api: int, versions: dict,
+def construire(port_front: int | None, port_api: int, versions: dict,
                extras: list[str] | None = None) -> str:
-    """La bannière complète, prête à imprimer."""
+    """La bannière complète, prête à imprimer.
+
+    `port_front=None` — l'API tourne SEULE (`uvicorn main:app`, un service, une
+    tâche planifiée). Elle devient alors la destination, et l'on n'annonce pas
+    une interface qui n'écoute pas : une adresse morte fait douter de toute
+    l'installation.
+    """
     v = versions
     moteurs = v.get("moteurs", {})
     ligne_moteurs = " · ".join(f"{k} {val}" for k, val in sorted(moteurs.items()))
+    seul = port_front is None
 
-    lignes: list[str] = []
-    for l in TITRE.strip("\n").split("\n"):
-        lignes.append(l)
+    lignes: list[str] = list(TITRE.strip("\n").split("\n"))
     lignes.append("")
     lignes.append(DESCRIPTION)
     lignes.append("")
-    lignes.append(f"Version    {v.get('projet', '?')}"
-                  f"        backend {v.get('backend', '?')}"
-                  f"   ·   frontend {v.get('frontend', '?')}")
+
+    versions_ligne = (f"Version    {v.get('projet', '?')}"
+                      f"        backend {v.get('backend', '?')}")
+    if not seul:
+        versions_ligne += f"   ·   frontend {v.get('frontend', '?')}"
+    lignes.append(versions_ligne)
     if ligne_moteurs:
         lignes.append(f"Moteurs    {ligne_moteurs}")
     lignes.append("")
-    lignes.append(f"Local      http://localhost:{port_front}")
+
+    port_cible = port_api if seul else port_front
+    lignes.append(f"Local      http://localhost:{port_cible}")
     for ip in adresses_reseau():
-        lignes.append(f"Réseau     http://{ip}:{port_front}")
-    lignes.append(f"API        http://localhost:{port_api}   ·   /docs")
-    for e in (extras or []):
-        lignes.append(e)
+        lignes.append(f"Réseau     http://{ip}:{port_cible}")
+    if seul:
+        lignes.append(f"Doc API    http://localhost:{port_api}/docs")
+    else:
+        lignes.append(f"API        http://localhost:{port_api}   ·   /docs")
+
+    lignes.extend(extras or [])
     return _cadre(lignes)

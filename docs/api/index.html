@@ -94,6 +94,9 @@ main — corriger la docstring ou la signature de la route, puis regénérer.</d
 <h3><span class="badge" style="background:#16a34a">POST</span><code>/api/auth/forgot-password</code></h3>
 <p class="resume">Forgot Password</p>
 <div class="desc"><p>Envoie un code de réinitialisation — vérification de l&#x27;email d&#x27;abord.</p></div>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>accept-language</code></td><td>header</td><td>non</td><td>—</td></tr>
+</tbody></table>
 <h4>Exemple d'appel</h4><pre><code>curl -X POST \
   &#x27;http://localhost:8000/api/auth/forgot-password&#x27; \
   -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
@@ -125,6 +128,9 @@ main — corriger la docstring ou la signature de la route, puis regénérer.</d
 <p class="resume">Login</p>
 <div class="desc"><p>Connexion sans mot de passe : envoie un code de vérification.</p>
 <p>Si l&#x27;utilisateur n&#x27;existe pas, le crée automatiquement (inscription implicite).</p></div>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>accept-language</code></td><td>header</td><td>non</td><td>—</td></tr>
+</tbody></table>
 <h4>Exemple d'appel</h4><pre><code>curl -X POST \
   &#x27;http://localhost:8000/api/auth/login&#x27; \
   -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
@@ -194,6 +200,9 @@ main — corriger la docstring ou la signature de la route, puis regénérer.</d
 <h3><span class="badge" style="background:#16a34a">POST</span><code>/api/auth/register</code></h3>
 <p class="resume">Register</p>
 <div class="desc"><p>Inscription sans mot de passe : crée le compte, envoie le code de vérification.</p></div>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>accept-language</code></td><td>header</td><td>non</td><td>—</td></tr>
+</tbody></table>
 <h4>Exemple d'appel</h4><pre><code>curl -X POST \
   &#x27;http://localhost:8000/api/auth/register&#x27; \
   -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
@@ -209,6 +218,9 @@ main — corriger la docstring ou la signature de la route, puis regénérer.</d
 <h3><span class="badge" style="background:#16a34a">POST</span><code>/api/auth/register-password</code></h3>
 <p class="resume">Register Password</p>
 <div class="desc"><p>Inscription avec mot de passe. L&#x27;email reste à vérifier par code.</p></div>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>accept-language</code></td><td>header</td><td>non</td><td>—</td></tr>
+</tbody></table>
 <h4>Exemple d'appel</h4><pre><code>curl -X POST \
   &#x27;http://localhost:8000/api/auth/register-password&#x27; \
   -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
@@ -224,6 +236,9 @@ main — corriger la docstring ou la signature de la route, puis regénérer.</d
 <h3><span class="badge" style="background:#16a34a">POST</span><code>/api/auth/resend-verification</code></h3>
 <p class="resume">Resend Verification</p>
 <div class="desc"><p>Renvoie un email de vérification.</p></div>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>accept-language</code></td><td>header</td><td>non</td><td>—</td></tr>
+</tbody></table>
 <h4>Exemple d'appel</h4><pre><code>curl -X POST \
   &#x27;http://localhost:8000/api/auth/resend-verification&#x27; \
   -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
