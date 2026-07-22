@@ -8,7 +8,7 @@
 interface ProgressBarProps {
   /** 0 à 100. */
   value: number;
-  tone?: 'blue' | 'gold' | 'danger';
+  tone?: 'blue' | 'gold' | 'green' | 'danger';
   height?: number;
   /** Décrit ce que la barre mesure, pour les lecteurs d'écran. */
   label?: string;

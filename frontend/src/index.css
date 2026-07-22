@@ -2485,6 +2485,7 @@ footer {
 }
 .ui-progress__barre--blue   { background: linear-gradient(90deg, var(--blue), var(--blue-bright)); }
 .ui-progress__barre--gold   { background: linear-gradient(90deg, var(--gold), var(--gold-light)); }
+.ui-progress__barre--green  { background: linear-gradient(90deg, #16a34a, #4ade80); }
 .ui-progress__barre--danger { background: linear-gradient(90deg, #dc2626, #f87171); }
 
 /* ── État vide ──────────────────────────────────────────────────────────── */

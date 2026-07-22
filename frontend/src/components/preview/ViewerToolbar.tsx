@@ -1,17 +1,15 @@
 import { useTranslation } from 'react-i18next';
-import { motion } from 'motion/react';
 import {
   ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
   Download, Loader2, CheckCircle2, ArrowRight, Lock,
 } from 'lucide-react';
 
-const LANG_LABELS: Record<string, string> = {
-  'fr-FR': 'FR', 'fr': 'FR',
-  'en-US': 'EN', 'en': 'EN',
-  'es': 'ES', 'de': 'DE', 'it': 'IT',
-  'pt-BR': 'PT', 'pt': 'PT',
-  'ar': 'AR', 'zh': 'ZH', 'ja': 'JA',
-};
+import { baseCode } from '../../lib/languages';
+import ProgressBar from '../ui/ProgressBar';
+
+// Le badge de langue passait par une table `LANG_LABELS` codée à la main —
+// dix entrées, à tenir à jour à chaque langue ajoutée, et un doublon de ce que
+// `baseCode` fait déjà (et que `DocumentCard` utilise). « en-US » -> « EN ».
 
 interface ViewerToolbarProps {
   zoom: number;
@@ -131,7 +129,7 @@ export default function ViewerToolbar({
               background: 'var(--blue-light, #eff6ff)', color: 'var(--blue)',
               padding: '2px 7px', borderRadius: '999px', flexShrink: 0,
             }}>
-              {LANG_LABELS[targetLang] ?? targetLang.toUpperCase()}
+              {baseCode(targetLang).toUpperCase()}
             </span>
           )}
         </div>
@@ -147,13 +145,8 @@ export default function ViewerToolbar({
           paddingLeft: '12px', marginLeft: '2px', flexShrink: 0,
         }}>
           {isTranslating ? (
-            <motion.span
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-              style={{ display: 'inline-flex', color: 'var(--blue)' }}
-            >
-              <Loader2 size={14} strokeWidth={2.5} />
-            </motion.span>
+            <Loader2 size={14} strokeWidth={2.5} className="ui-spin"
+              style={{ color: 'var(--blue)' }} />
           ) : (
             <CheckCircle2 size={14} strokeWidth={2.2} style={{ color: '#16a34a' }} />
           )}
@@ -167,19 +160,11 @@ export default function ViewerToolbar({
                 ? t('viewer.pages_done', '{{done}}/{{total}} pages', { done: doneCount, total: numPages })
                 : t('viewer.translation_done', 'Traduction terminée')}
             </span>
-            <span style={{
-              display: 'block', height: '3px', borderRadius: '999px',
-              background: 'var(--gray-200, #e2e8f0)', overflow: 'hidden',
-            }}>
-              <motion.span
-                animate={{ width: `${isComplete ? 100 : pct}%` }}
-                transition={{ duration: 0.4, ease: 'easeOut' }}
-                style={{
-                  display: 'block', height: '100%', borderRadius: '999px',
-                  background: isTranslating ? 'var(--blue)' : '#16a34a',
-                }}
-              />
-            </span>
+            <ProgressBar
+              value={isComplete ? 100 : pct}
+              tone={isTranslating ? 'blue' : 'green'}
+              height={3}
+            />
           </div>
         </div>
       )}
