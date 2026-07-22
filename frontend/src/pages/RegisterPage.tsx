@@ -71,10 +71,11 @@ export default function RegisterPage() {
   }
 
   return (
-    <AuthLayout retour={{ label: t('nav.home'), to: '/home' }}>
-      <h1 className="auth-titre">{t('auth.create_account')}</h1>
-      <p className="auth-sous-titre">{t('auth.register_subtitle')}</p>
-
+    <AuthLayout
+      retour={{ label: t('nav.home'), to: '/home' }}
+      titre={t('auth.create_account')}
+      sousTitre={t('auth.register_subtitle')}
+    >
       <form onSubmit={handleRegister} className="auth-form">
         {error && <Alert tone="error">{error}</Alert>}
 

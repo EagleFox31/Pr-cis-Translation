@@ -2806,13 +2806,41 @@ footer {
 }
 .auth-carte__voile span { color: var(--gray-700); }
 
-/* La marque, UNE fois. Deux logos se suivaient sur 48 px de hauteur. */
+/* En-tête de marque : le « P » et « récis » à gauche, l'identité à droite. */
 .auth-marque {
-  display: block;
-  height: 42px;
-  width: auto;
-  margin: 0 auto 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
 }
+.auth-marque__nom { display: flex; align-items: center; }
+.auth-marque__logo { height: 44px; width: auto; }
+.auth-marque__identite { height: 46px; width: auto; opacity: .9; }
+
+/* Le retour et le titre partagent UNE ligne. Empilés, ils coûtaient 34 px de
+   hauteur à un écran qu'on trouvait déjà trop long — et le retour, seul sur sa
+   ligne, pesait autant que le titre.
+
+   Le titre est centré sur la CARTE, pas sur l'espace qui reste à droite du
+   retour : d'où le retour en position absolue. Un simple `flex: 1` l'aurait
+   décalé vers la droite de la moitié de la largeur du lien, et le décalage
+   aurait changé avec la langue — « Accueil » et « Home » n'ont pas la même
+   longueur. */
+.auth-ligne-titre {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  margin-bottom: 4px;
+}
+.auth-ligne-titre .auth-retour {
+  position: absolute;
+  left: 0;
+  margin-bottom: 0;
+}
+.auth-ligne-titre .auth-titre { margin: 0; text-align: center; }
 
 .auth-retour {
   display: inline-flex;
@@ -2830,6 +2858,7 @@ footer {
   transition: color .15s ease;
 }
 .auth-retour:hover { color: var(--gray-700); }
+.auth-retour:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: 3px; }
 
 .auth-titre {
   margin: 0 0 4px;
@@ -2842,9 +2871,15 @@ footer {
   font-size: 13.5px;
   line-height: 1.5;
   color: var(--gray-500);
+  text-align: center;
 }
-.auth-titre + .auth-form,
-.auth-titre + .ui-alerte { margin-top: 18px; }
+.auth-ligne-titre + .auth-form,
+.auth-ligne-titre + .ui-alerte { margin-top: 18px; }
+
+/* Écrans étroits : l'identité s'efface plutôt que d'écraser le nom. */
+@media (max-width: 360px) {
+  .auth-marque__identite { display: none; }
+}
 
 .auth-form { display: flex; flex-direction: column; gap: 14px; }
 

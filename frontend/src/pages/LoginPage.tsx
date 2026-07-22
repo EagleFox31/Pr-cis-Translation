@@ -12,7 +12,8 @@
  * passe, ou recevez un code ») que les commandes en dessous proposent. Trois
  * formulations de la même chose : il n'en reste qu'une, sur le lien lui-même.
  *
- * Et la marque n'apparaît plus qu'UNE fois — deux logos se suivaient.
+ * La hauteur gagnée vient de là, et du retour qui partage sa ligne avec le
+ * titre — pas de la marque : les deux signatures visuelles restent.
  */
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
@@ -132,10 +133,9 @@ export default function LoginPage() {
   return (
     <AuthLayout
       retour={{ label: t('nav.home'), to: '/home' }}
+      titre={t('auth.sign_in')}
       attente={googleBusy ? t('auth.signing_in') : null}
     >
-      <h1 className="auth-titre">{t('auth.sign_in')}</h1>
-
       {verified && (
         <Alert tone="success">
           <CheckCircle2 size={15} aria-hidden /> {t('auth.email_verified')}
