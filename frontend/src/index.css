@@ -2978,3 +2978,50 @@ footer {
   display: inline-flex;
   gap: 30px;
 }
+
+/* ── Option à cocher (`ui/CheckboxOption`) ──────────────────────────────── */
+/* L'étiquette enveloppe la case : cliquer sur le titre, la description ou la
+   marge coche l'option. Une case de 16 px est une cible difficile, surtout au
+   doigt. */
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background .2s ease, border-color .2s ease;
+}
+.option--allumee { background: #fef9c3; border-color: #facc15; }
+.option--inactive { cursor: not-allowed; opacity: .6; }
+.option:has(.option__case:focus-visible) {
+  outline: 2px solid var(--blue-bright);
+  outline-offset: 2px;
+}
+
+.option__case {
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  flex-shrink: 0;
+  cursor: inherit;
+}
+.option__case--plain { accent-color: var(--blue); }
+.option__case--highlight { accent-color: #ca8a04; }
+
+.option__texte { display: flex; flex-direction: column; gap: 2px; }
+.option__intitule {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--gray-800, var(--gray-700));
+}
+.option--allumee .option__intitule { color: #854d0e; }
+.option__desc {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--gray-500);
+}

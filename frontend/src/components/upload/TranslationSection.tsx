@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useTranslation as useI18n } from 'react-i18next';
 import { motion, AnimatePresence } from 'motion/react';
+
+import CheckboxOption from '../ui/CheckboxOption';
 import {
   Check, ArrowRight, Loader2, Languages, Wand2, FileText,
   SlidersHorizontal, ChevronDown, ScanSearch, Info,
@@ -296,76 +298,28 @@ export default function TranslationSection({
 
                       {/* Mode précis (admin) */}
                       {isAdmin && (
-                        <label
-                          htmlFor="precise"
-                          style={{
-                            display: 'flex', alignItems: 'flex-start', gap: '10px',
-                            cursor: isTranslating ? 'not-allowed' : 'pointer',
-                            padding: '12px', borderRadius: '10px',
-                            background: preciseMode ? '#fef9c3' : 'transparent',
-                            border: preciseMode ? '1px solid #facc15' : '1px solid transparent',
-                            transition: 'all 0.2s',
-                          }}
-                        >
-                          <input
-                            id="precise"
-                            type="checkbox"
-                            checked={preciseMode}
-                            onChange={(e) => setPreciseMode(e.target.checked)}
-                            disabled={isTranslating}
-                            style={{
-                              width: '16px', height: '16px', marginTop: '1px',
-                              accentColor: '#ca8a04', flexShrink: 0, cursor: 'inherit',
-                            }}
-                          />
-                          <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                            <span style={{
-                              display: 'inline-flex', alignItems: 'center', gap: '6px',
-                              fontSize: '12.5px', fontWeight: 600,
-                              color: preciseMode ? '#854d0e' : 'var(--gray-800)',
-                            }}>
-                              <Wand2 size={13} strokeWidth={2.2} />
-                              Mode précis (admin)
-                            </span>
-                            <span style={{ fontSize: '11px', color: 'var(--gray-500)', lineHeight: 1.45 }}>
-                              Utilise le modèle de raisonnement — plus lent (~2 min/page) mais plus fiable sur les mises en page complexes.
-                            </span>
-                          </span>
-                        </label>
+                        <CheckboxOption
+                          id="precise"
+                          checked={preciseMode}
+                          onChange={setPreciseMode}
+                          disabled={isTranslating}
+                          tone="highlight"
+                          icon={<Wand2 size={13} strokeWidth={2.2} />}
+                          label={t('story.precise_label')}
+                          description={t('story.precise_desc')}
+                        />
                       )}
 
                       {/* Mode structure (diagnostic) */}
-                      <label
-                        htmlFor="structure"
-                        style={{
-                          display: 'flex', alignItems: 'flex-start', gap: '10px',
-                          cursor: isTranslating ? 'not-allowed' : 'pointer',
-                        }}
-                      >
-                        <input
-                          id="structure"
-                          type="checkbox"
-                          checked={structureMode}
-                          onChange={(e) => setStructureMode(e.target.checked)}
-                          disabled={isTranslating}
-                          style={{
-                            width: '16px', height: '16px', marginTop: '1px',
-                            accentColor: 'var(--blue)', flexShrink: 0, cursor: 'inherit',
-                          }}
-                        />
-                        <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                          <span style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '6px',
-                            fontSize: '12.5px', fontWeight: 600, color: 'var(--gray-800)',
-                          }}>
-                            <ScanSearch size={13} strokeWidth={2.2} />
-                            {t('story.structure_label')}
-                          </span>
-                          <span style={{ fontSize: '11px', color: 'var(--gray-500)', lineHeight: 1.45 }}>
-                            {t('story.structure_desc')}
-                          </span>
-                        </span>
-                      </label>
+                      <CheckboxOption
+                        id="structure"
+                        checked={structureMode}
+                        onChange={setStructureMode}
+                        disabled={isTranslating}
+                        icon={<ScanSearch size={13} strokeWidth={2.2} />}
+                        label={t('story.structure_label')}
+                        description={t('story.structure_desc')}
+                      />
                     </div>
                   </motion.div>
                 )}
