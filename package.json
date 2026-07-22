@@ -6,7 +6,8 @@
     "dev": "backend\\venv\\Scripts\\python scripts/dev.py",
     "dev:backend": "backend\\venv\\Scripts\\python scripts/run_uvicorn.py 8000",
     "dev:frontend": "npm --prefix frontend run --silent dev",
-    "stop": "scripts\\stop.cmd"
+    "stop": "scripts\\stop.cmd",
+    "docs:api": "backend\\venv\\Scripts\\python scripts/docs_api.py"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

@@ -198,10 +198,10 @@ def main() -> int:
 
     backend = Server(
         "backend", "  api │", _CYAN,
-        [py, "-m", "uvicorn", "app:app",
+        [py, "-m", "uvicorn", "main:app",
          "--app-dir", "backend",
          "--host", "0.0.0.0", "--port", str(BACKEND_PORT),
-         "--reload", "--reload-dir", "backend", "--reload-dir", "pdf_engine_v2",
+         "--reload", "--reload-dir", "backend",
          "--log-level", "warning"],
         cwd=ROOT,
     )

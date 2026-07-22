@@ -89,12 +89,11 @@ if __name__ == "__main__":
     #   process startup). On affiche notre propre ligne de confirmation plus bas.
     uvicorn_args = [
         sys.executable, "-m", "uvicorn",
-        "app:app",
+        "main:app",
         "--app-dir", "backend",
         "--host", "0.0.0.0",
         "--reload",
         "--reload-dir", "backend",
-        "--reload-dir", "pdf_engine_v2",
         "--log-level", "warning",
         "--port", str(port),
     ]

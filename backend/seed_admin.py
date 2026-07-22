@@ -13,8 +13,8 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 from sqlalchemy import select
-from models import User
-from database import async_session as _asm, engine
+from app.models import User
+from app.core.database import async_session as _asm, engine
 
 ADMIN_EMAIL = "mbowouibrah@gmail.com"
 ADMIN_NAME = "Ibrahim Mbowou"
