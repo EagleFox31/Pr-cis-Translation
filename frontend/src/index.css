@@ -2969,3 +2969,12 @@ footer {
   .code { gap: 5px; }
   .code__chiffre { width: 42px; height: 52px; font-size: 20px; }
 }
+
+/* Groupe de mots d'une bande défilante (`hero/LanguageMarquee`).
+   La gouttière était un style en ligne recopié quatre fois : `display:
+   inline-flex; gap: 30px`. Les enfants DIRECTS sont les mots et les puces —
+   voir le commentaire du composant avant d'y toucher. */
+.lang-line__groupe {
+  display: inline-flex;
+  gap: 30px;
+}

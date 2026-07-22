@@ -128,7 +128,9 @@
     "page_waiting": "Waiting",
     "pages_label": "Pages to translate",
     "pages_placeholder": "E.g. 1-5, 8, 11-13",
-    "pages_hint": "Leave empty to translate everything. Unselected pages stay in their original language."
+    "pages_hint": "Leave empty to translate everything. Unselected pages stay in their original language.",
+    "free_plan_title": "Free plan — 1 page / month",
+    "free_plan_hint": "Upgrade to Starter to translate whole documents."
   },
   "library": {
     "title": "My documents",

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import Navbar from '../components/navbar/Navbar';
 import HeroSection from '../components/hero/HeroSection';
+import LanguageMarquee from '../components/hero/LanguageMarquee';
 import FeaturesGrid from '../components/features/FeaturesGrid';
 import StorySection from '../components/story/StorySection';
 import PricingSection from '../components/pricing/PricingSection';
@@ -147,7 +148,7 @@ export default function Home() {
           });
           // Forfait freemium = 1 page max, on invite à upgrader
           if (user?.plan === 'free') {
-            showToast('success', 'Forfait Gratuit — 1 page / mois', 'Passez à Starter pour traduire des documents complets.');
+            showToast('success', t('story.free_plan_title'), t('story.free_plan_hint'));
           } else {
             showToast('success', t('story.success_done'), result.filename);
           }
@@ -317,77 +318,7 @@ export default function Home() {
         onLibraryOpen={() => setShowLibrary(true)}
       />
 
-      {/* Fixed lang lines overlay — stays in viewport across all sections */}
-      <div className="page-bg-lang-lines">
-        <div className="hero-lang-lines">
-          <div className="lang-line lang-line-left">
-            {[1, 2, 3].map((i) => (
-              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
-                <span>Translation</span><span>•</span>
-                <span>Traduction</span><span>•</span>
-                <span>Traducción</span><span>•</span>
-                <span>Übersetzung</span><span>•</span>
-                <span>Traduzione</span><span>•</span>
-                <span>Overzetting</span><span>•</span>
-                <span>翻訳</span><span>•</span>
-                <span>번역</span><span>•</span>
-                <span>翻译</span><span>•</span>
-                <span>ترجمة</span><span>•</span>
-                <span>Перевод</span><span>•</span>
-              </span>
-            ))}
-          </div>
-          <div className="lang-line lang-line-right">
-            {[1, 2, 3].map((i) => (
-              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
-                <span>Documents</span><span>•</span>
-                <span>Actes</span><span>•</span>
-                <span>Certificats</span><span>•</span>
-                <span>Contrats</span><span>•</span>
-                <span>Diplômes</span><span>•</span>
-                <span>書類</span><span>•</span>
-                <span>문서</span><span>•</span>
-                <span>文档</span><span>•</span>
-                <span>عقود</span><span>•</span>
-                <span>Справки</span><span>•</span>
-              </span>
-            ))}
-          </div>
-          <div className="lang-line lang-line-left">
-            {[1, 2, 3].map((i) => (
-              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
-                <span>Precision</span><span>•</span>
-                <span>Précision</span><span>•</span>
-                <span>Precisión</span><span>•</span>
-                <span>Präzision</span><span>•</span>
-                <span>Precisione</span><span>•</span>
-                <span>Precisie</span><span>•</span>
-                <span>精度</span><span>•</span>
-                <span>정밀도</span><span>•</span>
-                <span>精确</span><span>•</span>
-                <span>دقة</span><span>•</span>
-                <span>Точность</span><span>•</span>
-              </span>
-            ))}
-          </div>
-          <div className="lang-line lang-line-right">
-            {[1, 2, 3].map((i) => (
-              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
-                <span>AI &amp; Human</span><span>•</span>
-                <span>IA &amp; Humain</span><span>•</span>
-                <span>IA y Humano</span><span>•</span>
-                <span>KI &amp; Mensch</span><span>•</span>
-                <span>IA &amp; Umano</span><span>•</span>
-                <span>AI &amp; Mens</span><span>•</span>
-                <span>AI &amp; 人間</span><span>•</span>
-                <span>AI &amp; 인간</span><span>•</span>
-                <span>AI &amp; 人类</span><span>•</span>
-                <span>ذكاء بشري واصطناعي</span><span>•</span>
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
+      <LanguageMarquee />
 
       <DocumentLibrary
         isOpen={showLibrary}
