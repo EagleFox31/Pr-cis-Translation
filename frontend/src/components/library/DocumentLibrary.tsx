@@ -16,7 +16,7 @@
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { FolderOpen } from 'lucide-react';
+import { FolderOpen, LogOut, X } from 'lucide-react';
 
 import type { DocMeta } from '../../hooks/useDocumentLibrary';
 import { useAuth } from '../../contexts/AuthContext';
@@ -28,7 +28,6 @@ import IconButton from '../ui/IconButton';
 import PaymentModal from '../payment/PaymentModal';
 import AccountPanel from './AccountPanel';
 import DocumentCard from './DocumentCard';
-import { X } from 'lucide-react';
 
 interface DocumentLibraryProps {
   isOpen: boolean;
@@ -123,7 +122,7 @@ export default function DocumentLibrary({
   return (
     <>
       <Drawer open={isOpen} onClose={onClose} label={t('library.title')}>
-        {user && <AccountPanel user={user} onClose={onClose} onLogout={logout} />}
+        {user && <AccountPanel user={user} />}
 
         <header className="biblio__tete">
           <div>
@@ -186,6 +185,22 @@ export default function DocumentLibrary({
             ))
           )}
         </div>
+
+        {/* Pied de panneau — la déconnexion.
+            Elle était au bas du bloc de compte, en gris clair sur blanc : on ne
+            savait pas qu'elle était là. Ici, elle ne défile pas avec la liste
+            et reste visible quel que soit le nombre de documents. Le ton
+            « danger » lui donne sa présence sans en faire l'action principale :
+            c'est une sortie, pas une suppression. */}
+        {user && (
+          <footer className="biblio__pied">
+            <Button variant="danger" size="md" block
+              icon={<LogOut size={15} strokeWidth={2.2} />}
+              onClick={async () => { onClose(); await logout(); }}>
+              {t('account.logout')}
+            </Button>
+          </footer>
+        )}
       </Drawer>
 
       <PaymentModal

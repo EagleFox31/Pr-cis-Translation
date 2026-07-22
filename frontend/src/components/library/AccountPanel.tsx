@@ -5,23 +5,27 @@
  * Tout y était écrit en français EN DUR — « Déconnexion », « Illimité »,
  * « Utilisateur », « Traduction seule — sans stockage ». L'interface anglaise
  * affichait donc du français à cet endroit précis, et seulement là.
+ *
+ * LA DÉCONNEXION N'EST PLUS ICI
+ * -----------------------------
+ * Elle vivait au bas de ce bloc, en gris clair sur blanc, et se perdait : on
+ * ne savait pas qu'elle existait. Elle est descendue en PIED DE PANNEAU, où
+ * elle reste visible quelle que soit la position de la liste — le seul endroit
+ * qui ne défile jamais. Voir `DocumentLibrary`.
  */
 import { useTranslation } from 'react-i18next';
-import { LogOut, Crown, HardDrive } from 'lucide-react';
+import { Crown, HardDrive } from 'lucide-react';
 
 import type { AuthUser } from '../../contexts/AuthContext';
 import { formatSize, percent } from '../../lib/format';
 import Avatar from '../ui/Avatar';
-import Button from '../ui/Button';
 import ProgressBar from '../ui/ProgressBar';
 
 interface AccountPanelProps {
   user: AuthUser;
-  onClose: () => void;
-  onLogout: () => Promise<void>;
 }
 
-export default function AccountPanel({ user, onClose, onLogout }: AccountPanelProps) {
+export default function AccountPanel({ user }: AccountPanelProps) {
   const { t } = useTranslation();
 
   const illimite = user.storage_limit <= 0 && user.plan === 'admin';
@@ -71,12 +75,6 @@ export default function AccountPanel({ user, onClose, onLogout }: AccountPanelPr
           </>
         )}
       </div>
-
-      <Button variant="ghost" size="sm" block
-        icon={<LogOut size={14} strokeWidth={2.2} />}
-        onClick={async () => { onClose(); await onLogout(); }}>
-        {t('account.logout')}
-      </Button>
     </section>
   );
 }

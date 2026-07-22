@@ -2562,7 +2562,17 @@ footer {
   color: var(--gray-500);
   font-variant-numeric: tabular-nums;
 }
-.compte .ui-btn { margin-top: 12px; }
+
+/* ── Pied de panneau : la déconnexion ───────────────────────────────────── */
+/* Elle vivait au bas du bloc de compte, en gris clair sur blanc, et se
+   perdait. Ici elle NE DÉFILE PAS avec la liste : c'est la seule zone du
+   panneau qui reste à l'écran quel que soit le nombre de documents. */
+.biblio__pied {
+  flex-shrink: 0;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gray-100);
+  background: var(--white);
+}
 
 /* ── En-tête de la bibliothèque ─────────────────────────────────────────── */
 .biblio__tete {
