@@ -1,59 +1,86 @@
+/**
+ * La grille des offres.
+ *
+ * CE QUI A CHANGÉ
+ * ---------------
+ * Le CONTENU des cartes était écrit en français dans le code — « Volume
+ * illimité », « Aucun abonnement », « Sur devis », « Forfait actif ». Neuf
+ * chaînes que l'interface anglaise affichait en français. Elles vivent
+ * maintenant dans les dictionnaires ; le composant ne fait plus que choisir la
+ * bonne clé selon l'offre.
+ *
+ * Et un TROISIÈME `formatBytes` maison écrivait « Go / Mo / Ko » en dur — le
+ * même que la barre latérale et le compte avaient déjà chacun le leur. Il est
+ * remplacé par `lib/format.formatSize`, dont les unités suivent la langue.
+ *
+ * CE QUI N'A PAS CHANGÉ
+ * ---------------------
+ * On parle de PAGES partout, jamais de mots. Une carte se compare d'un coup
+ * d'œil : mélanger « 10 000 mots » et « 50 pages » selon les offres, c'était
+ * deux unités qu'on ne peut pas rapporter l'une à l'autre de tête.
+ */
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { motion } from 'motion/react';
+
 import { useAuth } from '../../contexts/AuthContext';
 import { usePricing, formatMoney, type PricingPlan } from '../../hooks/usePricing';
+import { formatSize } from '../../lib/format';
 import Skeleton from '../ui/Skeleton';
 
 interface PricingCardsProps {
   isAnnual: boolean;
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes >= 1_073_741_824) return `${Math.round(bytes / 1_073_741_824)} Go`;
-  if (bytes >= 1_048_576) return `${Math.round(bytes / 1_048_576)} Mo`;
-  return `${Math.round(bytes / 1024)} Ko`;
+interface Feature {
+  text: string;
+  /** Barré : présent dans l'offre pour la comparaison, mais pas fourni. */
+  off?: boolean;
 }
 
-/** Ce que chaque offre promet, en trois lignes maximum.
- *
- *  La règle tenue ici : une carte se COMPARE d'un coup d'œil. L'ancienne
- *  version mélangeait un quota de mots (« 10 000 mots / mois ») et un quota de
- *  pages selon les cartes — deux unités qu'on ne peut pas comparer de tête. On
- *  parle donc de PAGES partout, parce que c'est ce que l'utilisateur dépose.
- */
-function features(plan: PricingPlan, p: { currency: string; decimals: number; page_price: number },
-                 locale: string): { text: string; off?: boolean }[] {
-  const pages = plan.monthly_pages;
-  const storage = plan.storage > 0 ? `${formatBytes(plan.storage)} de stockage` : null;
+/** Les lignes d'une carte, dans la langue de l'interface. */
+function features(
+  plan: PricingPlan,
+  p: { currency: string; decimals: number; page_price: number },
+  locale: string,
+  t: TFunction,
+): Feature[] {
+  const stockage = (): Feature => ({
+    text: t('pricing.feat_storage', { size: formatSize(plan.storage, t) }),
+  });
 
   if (plan.key === 'free') {
     return [
-      { text: '1 page traduite offerte chaque mois' },
-      // LE point de l'offre gratuite, et la raison pour laquelle elle a sa
-      // place à côté d'abonnements : au-delà de la page offerte, on paie
+      { text: t('pricing.feat_free_page') },
+      // LE point de l'offre gratuite : au-delà de la page offerte, on paie
       // l'unité, sans s'engager. Le prix est annoncé ici, pas découvert au
       // moment de payer.
-      { text: `Puis ${formatMoney(p.page_price, p.currency, p.decimals, locale)} par page — payées avant traduction` },
-      { text: 'Aucun abonnement, aucune carte à enregistrer' },
-      { text: 'Aucun stockage — vos documents ne sont pas conservés', off: true },
+      { text: t('pricing.feat_free_then', {
+          price: formatMoney(p.page_price, p.currency, p.decimals, locale) }) },
+      { text: t('pricing.feat_free_no_sub') },
+      { text: t('pricing.feat_free_no_storage'), off: true },
     ];
   }
 
   if (plan.key === 'enterprise') {
     return [
-      { text: 'Volume illimité, engagement annuel' },
-      { text: 'Accès API et facturation automatique' },
-      { text: 'Support dédié et SLA garanti' },
-      { text: `${formatBytes(plan.storage)} de stockage` },
+      { text: t('pricing.feat_ent_unlimited') },
+      { text: t('pricing.feat_ent_api') },
+      { text: t('pricing.feat_ent_support') },
+      stockage(),
     ];
   }
 
-  const base = [
-    { text: pages === null ? 'Pages illimitées' : `${pages} pages par mois` },
-    { text: 'Téléchargement des traductions inclus' },
-    { text: plan.key === 'pro' ? 'Support prioritaire' : 'Support standard' },
+  const base: Feature[] = [
+    { text: plan.monthly_pages === null
+        ? t('pricing.feat_pages_unlimited')
+        : t('pricing.feat_pages_monthly', { count: plan.monthly_pages }) },
+    { text: t('pricing.feat_download') },
+    { text: plan.key === 'pro'
+        ? t('pricing.feat_support_priority')
+        : t('pricing.feat_support_standard') },
   ];
-  if (storage) base.push({ text: storage });
+  if (plan.storage > 0) base.push(stockage());
   return base;
 }
 
@@ -77,11 +104,7 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
   // Le serveur n'a pas répondu. On le dit, plutôt que d'afficher des prix de
   // secours qui pourraient ne plus être ceux pratiqués.
   if (!pricing) {
-    return (
-      <p style={{ textAlign: 'center', color: 'var(--gray-500)', fontSize: '14px' }}>
-        Les tarifs sont momentanément indisponibles. Réessayez dans un instant.
-      </p>
-    );
+    return <p className="pricing-indispo">{t('pricing.unavailable')}</p>;
   }
 
   const locale = i18n.language || 'fr';
@@ -97,7 +120,11 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
         return (
           <motion.div
             key={plan.key}
-            className={`pricing-card ${isPopular ? 'popular' : ''} ${isActive ? 'active' : ''}`}
+            className={[
+              'pricing-card',
+              isPopular ? 'popular' : '',
+              isActive ? 'active' : '',
+            ].filter(Boolean).join(' ')}
             initial={{ opacity: 0, y: 30 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.1 }}
@@ -105,9 +132,6 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
             whileHover={isPopular
               ? { y: -8, boxShadow: '0 24px 60px rgba(13,27,62,0.18)' }
               : { y: -4, boxShadow: '0 16px 40px rgba(13,27,62,0.12)' }}
-            style={isActive
-              ? { border: '2px solid var(--blue)', boxShadow: '0 0 0 4px rgba(26,77,199,0.12)' }
-              : undefined}
           >
             {isPopular && <div className="popular-badge">{t('pricing.recommended')}</div>}
 
@@ -115,13 +139,13 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
 
             <div className="pricing-price">
               {onQuote ? (
-                <span className="period">Sur devis</span>
+                <span className="period">{t('pricing.on_quote')}</span>
               ) : amount === 0 ? (
-                <>0<span className="period">/mois</span></>
+                <>0<span className="period">{t('pricing.per_month')}</span></>
               ) : (
                 <>
                   {formatMoney(amount, pricing.currency, pricing.decimals, locale)}
-                  <span className="period">/mois</span>
+                  <span className="period">{t('pricing.per_month')}</span>
                 </>
               )}
             </div>
@@ -129,31 +153,26 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
             {/* L'engagement annuel se facture à l'année : le dire ici évite de
                 laisser croire qu'on peut résilier au mois à ce prix-là. */}
             {isAnnual && !onQuote && amount !== 0 && (
-              <p style={{ fontSize: '12px', color: 'var(--blue)', margin: '0 0 8px', fontWeight: 600 }}>
-                facturé annuellement
-              </p>
+              <p className="pricing-annuel">{t('pricing.billed_annually')}</p>
             )}
 
             <div className="pricing-divider" />
 
             <ul className="pricing-features">
-              {features(plan, pricing, locale).map((f, i) => (
+              {features(plan, pricing, locale, t).map((f, i) => (
                 <li key={i} className={f.off ? 'unavailable' : ''}>{f.text}</li>
               ))}
             </ul>
 
             <a
               href={!user && plan.key === 'free' ? '/login' : '#'}
-              className="btn-pricing"
+              className={`btn-pricing${isActive ? ' btn-pricing--actif' : ''}`}
               onClick={(e) => { if (!(!user && plan.key === 'free')) e.preventDefault(); }}
-              style={isActive
-                ? { background: 'var(--gray-200)', borderColor: 'var(--gray-300)', color: 'var(--gray-500)', cursor: 'default', pointerEvents: 'none' }
-                : undefined}
             >
-              {isActive ? 'Forfait actif'
-                : plan.key === 'free' ? 'Commencer gratuitement'
-                : onQuote ? 'Nous contacter'
-                : `Choisir ${plan.label}`}
+              {isActive ? t('pricing.active_plan')
+                : plan.key === 'free' ? t('pricing.start_free')
+                : onQuote ? t('pricing.contact_us')
+                : t('pricing.choose', { plan: plan.label })}
             </a>
           </motion.div>
         );

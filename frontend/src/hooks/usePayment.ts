@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import api from '../services/api';
+import i18n from '../i18n';
 
 /**
  * Paiement mobile money — devis, encaissement, attente.
@@ -82,7 +83,7 @@ export function usePayment() {
     });
     if (!res.ok) {
       const detail = (res.data as any)?.detail;
-      setState((s) => ({ ...s, phase: 'failed', error: detail || "Le paiement n'a pas pu être lancé." }));
+      setState((s) => ({ ...s, phase: 'failed', error: detail || i18n.t('payment.pay_launch_failed') }));
       return false;
     }
 
@@ -97,7 +98,7 @@ export function usePayment() {
           stop();
           setState((s) => ({
             ...s, phase: 'failed',
-            error: "L'invite a expiré sans validation. Aucun montant n'a été prélevé.",
+            error: i18n.t('payment.pay_expired'),
           }));
           resolve(false);
           return;
@@ -118,7 +119,7 @@ export function usePayment() {
           stop();
           setState((s) => ({
             ...s, phase: 'failed',
-            error: 'Paiement refusé ou annulé. Aucun montant n’a été prélevé.',
+            error: i18n.t('payment.pay_refused'),
           }));
           resolve(false);
         }

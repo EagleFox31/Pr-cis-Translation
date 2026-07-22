@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { authHeader } from '../services/api';
+import i18n from '../i18n';
 
 const API_KEY = import.meta.env.VITE_API_KEY || 'precis_frontend_secure_key_2026_xK9mP2vL';
 const API_BASE = import.meta.env.VITE_API_BASE || '';

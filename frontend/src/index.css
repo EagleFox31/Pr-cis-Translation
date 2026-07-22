@@ -1379,6 +1379,37 @@ section {
 }
 .pricing-card.popular .btn-pricing:hover { background: var(--gold); border-color: var(--gold); }
 
+/* Offre en cours de l'utilisateur : mise en avant et bouton neutralisé.
+   C'étaient des styles en ligne — le cadre et le halo dans le `motion.div`, le
+   bouton grisé dans le `<a>`. En classe, ils se voient et se règlent ici. */
+.pricing-card.active {
+  border: 2px solid var(--blue);
+  box-shadow: 0 0 0 4px rgba(26, 77, 199, .12);
+}
+.btn-pricing--actif {
+  background: var(--gray-200);
+  border-color: var(--gray-300);
+  color: var(--gray-500);
+  cursor: default;
+  pointer-events: none;
+}
+.btn-pricing--actif:hover { background: var(--gray-200); color: var(--gray-500); }
+
+/* Précision « facturé annuellement » sous le prix. */
+.pricing-annuel {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--blue);
+}
+
+/* Tarifs indisponibles : message centré, pas de grille. */
+.pricing-indispo {
+  text-align: center;
+  font-size: 14px;
+  color: var(--gray-500);
+}
+
 /* ============================
    FORMATS SECTION (PARALLAX)
    ============================ */

@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { authHeader, accessToken } from '../services/api';
+import i18n from '../i18n';
 
 const API_KEY = import.meta.env.VITE_API_KEY || 'precis_frontend_secure_key_2026_xK9mP2vL';
 const API_BASE = import.meta.env.VITE_API_BASE || '';
@@ -214,7 +215,7 @@ export function useStreamingTranslation() {
                 }
                 if (!dlRes.ok) {
                   const err = await dlRes.json().catch(() => ({}));
-                  throw new Error(err.detail || 'Téléchargement du résultat échoué');
+                  throw new Error(err.detail || i18n.t('common.download_failed'));
                 }
                 const blob = await dlRes.blob();
                 setState((s) => ({

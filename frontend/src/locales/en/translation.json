@@ -162,7 +162,28 @@
     "monthly": "Monthly",
     "annual": "Annual",
     "discount": "-20%",
-    "recommended": "Recommended"
+    "recommended": "Recommended",
+    "unavailable": "Pricing is momentarily unavailable. Please try again shortly.",
+    "on_quote": "On request",
+    "per_month": "/month",
+    "billed_annually": "billed annually",
+    "active_plan": "Active plan",
+    "start_free": "Start for free",
+    "contact_us": "Contact us",
+    "choose": "Choose {{plan}}",
+    "feat_free_page": "1 translated page free every month",
+    "feat_free_then": "Then {{price}} per page — paid before translation",
+    "feat_free_no_sub": "No subscription, no card to register",
+    "feat_free_no_storage": "No storage — your documents are not kept",
+    "feat_ent_unlimited": "Unlimited volume, annual commitment",
+    "feat_ent_api": "API access and automatic billing",
+    "feat_ent_support": "Dedicated support and guaranteed SLA",
+    "feat_pages_unlimited": "Unlimited pages",
+    "feat_pages_monthly": "{{count}} pages per month",
+    "feat_download": "Translation downloads included",
+    "feat_support_priority": "Priority support",
+    "feat_support_standard": "Standard support",
+    "feat_storage": "{{size}} of storage"
   },
   "about": {
     "tag": "About Trigenys Group",
@@ -267,5 +288,16 @@
     "info_code_sent_if_account": "If an account exists for this email, a code has just been sent.",
     "verify": "Verify",
     "your_address": "your address"
+  },
+  "payment": {
+    "pay_launch_failed": "The payment could not be started.",
+    "pay_expired": "The prompt expired without validation. No amount was charged.",
+    "pay_refused": "Payment refused or cancelled. No amount was charged."
+  },
+  "common": {
+    "preview_conv_failed": "Preview conversion failed.",
+    "download_failed": "Downloading the result failed.",
+    "mascot_alt": "Précis mascot",
+    "logo_alt": "Précis logo"
   }
 }

@@ -162,7 +162,28 @@
     "monthly": "Mensuel",
     "annual": "Annuel",
     "discount": "-20%",
-    "recommended": "Recommandé"
+    "recommended": "Recommandé",
+    "unavailable": "Les tarifs sont momentanément indisponibles. Réessayez dans un instant.",
+    "on_quote": "Sur devis",
+    "per_month": "/mois",
+    "billed_annually": "facturé annuellement",
+    "active_plan": "Forfait actif",
+    "start_free": "Commencer gratuitement",
+    "contact_us": "Nous contacter",
+    "choose": "Choisir {{plan}}",
+    "feat_free_page": "1 page traduite offerte chaque mois",
+    "feat_free_then": "Puis {{price}} par page — payées avant traduction",
+    "feat_free_no_sub": "Aucun abonnement, aucune carte à enregistrer",
+    "feat_free_no_storage": "Aucun stockage — vos documents ne sont pas conservés",
+    "feat_ent_unlimited": "Volume illimité, engagement annuel",
+    "feat_ent_api": "Accès API et facturation automatique",
+    "feat_ent_support": "Support dédié et SLA garanti",
+    "feat_pages_unlimited": "Pages illimitées",
+    "feat_pages_monthly": "{{count}} pages par mois",
+    "feat_download": "Téléchargement des traductions inclus",
+    "feat_support_priority": "Support prioritaire",
+    "feat_support_standard": "Support standard",
+    "feat_storage": "{{size}} de stockage"
   },
   "about": {
     "tag": "À Propos de Trigenys Group",
@@ -267,5 +288,16 @@
     "info_code_sent_if_account": "Si un compte existe pour cet email, un code vient d’être envoyé.",
     "verify": "Vérifier",
     "your_address": "votre adresse"
+  },
+  "payment": {
+    "pay_launch_failed": "Le paiement n'a pas pu être lancé.",
+    "pay_expired": "L'invite a expiré sans validation. Aucun montant n'a été prélevé.",
+    "pay_refused": "Paiement refusé ou annulé. Aucun montant n'a été prélevé."
+  },
+  "common": {
+    "preview_conv_failed": "La conversion de l'aperçu a échoué.",
+    "download_failed": "Le téléchargement du résultat a échoué.",
+    "mascot_alt": "Mascotte Précis",
+    "logo_alt": "Logo Précis"
   }
 }
