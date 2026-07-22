@@ -10,7 +10,7 @@ import { motion } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import {
   Eye, Download, Trash2, Lock, AlertTriangle, Loader2,
-  FileType2, FileText, Presentation, File as FileIcon,
+  FileType2, FileText, Presentation, Sheet, File as FileIcon,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -22,7 +22,8 @@ import IconButton from '../ui/IconButton';
 import ProgressBar from '../ui/ProgressBar';
 
 const EXT_ICONS: Record<string, LucideIcon> = {
-  pdf: FileType2, docx: FileText, pptx: Presentation, txt: FileText,
+  pdf: FileType2, docx: FileText, pptx: Presentation,
+  xlsx: Sheet, txt: FileText,
 };
 
 interface DocumentCardProps {

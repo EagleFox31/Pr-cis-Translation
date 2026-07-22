@@ -1,0 +1,114 @@
+# Moteur XLSX — contexte
+
+Version **0.1.0** · `engines/xlsx/` · inscrit au registre sous `xlsx`
+
+> ## ⚠ C'est un SQUELETTE
+>
+> Le **chemin** est complet : un classeur est accepté, décompressé, parcouru,
+> ses chaînes relevées et balisées, la traduction réinjectée, le fichier
+> réassemblé. Un `.xlsx` entre et ressort ouvrable par Excel.
+>
+> La **couverture du format** ne l'est pas. Excel range du texte à une dizaine
+> d'endroits ; deux sont traités. Les autres sont recensés plus bas — pas
+> oubliés, pas masqués.
+>
+> D'où le **0.1.0** et non 1.0.0 : une version majeure dit « le contrat est
+> stable ». Le déclarer en 1.0.0 ferait croire l'inverse à qui lit `/health`.
+
+> À lire d'abord : [`../CONTEXTE.md`](../CONTEXTE.md) — la règle
+> d'indépendance, l'instance par opération, les balises de runs.
+
+## Le principe
+
+Un `.xlsx` est un ZIP d'XML, comme un `.docx` ou un `.pptx`. On le décompresse,
+on modifie les nœuds de texte **sur place** avec lxml, on re-zippe. Aucun nœud
+n'est supprimé ni recréé : styles, largeurs de colonnes, mises en forme
+conditionnelles et formules survivent par construction.
+
+```python
+eng = engines.new_engine("xlsx")          # instance NEUVE, obligatoire
+data, path = eng.extract_text(xlsx, json_out)
+ok, msg    = eng.inject_translation(original, json_traduit, sortie)
+```
+
+## Deux règles qu'un classeur impose et qu'un document n'impose pas
+
+### On ne traduit jamais un nombre
+
+« 1 234,50 » passé au modèle revient parfois en « 1,234.50 », parfois en toutes
+lettres. La cellule cesse alors d'être numérique, **et toute formule qui la lit
+se casse**. Une seule cellule suffit à propager `#VALUE!` dans une feuille
+entière.
+
+### On ne touche jamais à une formule
+
+Une formule est du **code**. Traduire `SUM` en `SOMME` produit `#NAME?` — et
+Excel ne localise les noms de fonctions qu'à l'affichage, jamais dans le
+fichier. Les formules ne sont donc même pas relevées.
+
+## Le piège déjà payé
+
+**La garde numérique se décide sur la cellule ENTIÈRE, jamais morceau par
+morceau.**
+
+Une cellule mise en forme est découpée en plusieurs `<t>` : « Total » en gras,
+« 2026 » en maigre. La première version écartait les morceaux numériques un à
+un — donc « 2026 » — et ne balisait que « Total ». À l'injection, la règle des
+balises veut qu'aucun nœud ne conserve son texte source : le nœud non couvert
+était **vidé**. La cellule perdait la moitié de son contenu, **sans la moindre
+erreur**.
+
+Trouvé par le classeur **synthétique** de `test_xlsx_squelette.py`, pas par un
+fichier réel : une cellule à deux graisses est rare, et le défaut n'apparaît
+que là. C'est précisément pourquoi la preuve se fait sur du synthétique.
+
+## Ce qui est fait
+
+| Partie | État |
+|---|---|
+| `xl/sharedStrings.xml` | ✅ le gros du texte — Excel y déduplique les chaînes |
+| Cellules `t="inlineStr"` | ✅ chaîne écrite dans la feuille, sans magasin partagé |
+
+La seconde n'est pas un détail : beaucoup d'exports automatiques n'utilisent
+**que** cette forme et ne produisent aucun `sharedStrings.xml`. Ne lire que le
+magasin partagé rendrait ces classeurs **inchangés sans lever d'erreur** — le
+pire des échecs, celui qui se croit réussi.
+
+## Ce qui n'est pas encore fait
+
+Recensé dans `_PARTIES` (`engine.py`), avec le motif de chacun. C'est le **plan
+de travail**, ordonné par importance et non par ordre alphabétique.
+
+| Partie | Pourquoi ça compte |
+|---|---|
+| `xl/workbook.xml` — noms d'onglets | Visibles, **et cités par les formules** (`=Feuil1!A1`). Les traduire impose de réécrire les formules qui les citent : à faire d'un seul geste, sinon le classeur casse. |
+| `xl/charts/chart*.xml` | Titres, légendes, étiquettes d'axes. Le moteur PPTX les traite déjà — logique à **reprendre**, pas à inventer. |
+| `xl/drawings/drawing*.xml` | Zones de texte et formes posées sur la feuille. |
+| `comments*.xml` / `threadedComments` | Deux formats coexistent, l'ancien et le moderne. |
+| `xl/tables/table*.xml` | En-têtes de tableaux structurés — visibles, et cités en références structurées. |
+| `pivotCache` / `pivotTables` | Les libellés sont **dupliqués** entre le cache et la table. N'en traduire qu'un des deux désaligne le croisé au premier rafraîchissement. |
+| `xl/styles.xml` — formats personnalisés | Un format peut contenir du texte littéral (`#\ ##0\ "F CFA"`). C'est du visible, et la syntaxe doit rester intacte autour du mot. |
+| `docProps/core.xml` | Titre et sujet. Rarement décisifs — en dernier. |
+
+`XLSXTranslatorEngine.couverture()` rend cette table, et le relevé d'extraction
+transporte la liste des manques sous `workbook.non_traite`. **L'écart entre la
+promesse et le code reste ainsi mesurable**, au lieu d'être une impression.
+
+## Limites au-delà du texte
+
+* pas d'aperçu progressif : le classeur est traité d'un bloc ;
+* l'aperçu passe par LibreOffice, comme tout format non-PDF ;
+* **l'expansion n'est pas gérée** — une traduction plus longue que sa source
+  déborde de sa colonne ou s'affiche en `#####`. Les moteurs PDF et PPTX
+  ajustent ; celui-ci ne le fait pas encore, et c'est le premier vrai chantier
+  de fidélité après la couverture des parties.
+
+## Vérifier
+
+```bash
+backend/venv/Scripts/python.exe backend/tests/test_xlsx_squelette.py
+```
+
+29 contrôles sur un classeur **synthétique** écrit par la suite elle-même.
+Prouvé par mutation : garde numérique remise par-morceau → 28/29 ; lecture des
+chaînes en ligne retirée → 27/29.

@@ -152,10 +152,13 @@ function useJustifiedLines(ref: React.RefObject<HTMLHeadingElement | null>, deps
 /** Faits vérifiables, tirés du produit — pas de chiffre invérifiable.
  *  Les FORMATS sont des noms techniques : la chasse fixe les rend lisibles
  *  d'un coup d'œil et distingue la donnée du discours. */
+// `seul` : la mention occupe SA ligne. Le compte de langues se lit comme une
+// donnée, pas comme un mot-clé de plus dans une énumération — collé aux
+// formats, il s'y fondait.
 const PROOFS = [
-  { key: 'layout', Icon: LayoutTemplate, mono: false },
-  { key: 'formats', Icon: FileType2, mono: true },
-  { key: 'langs', Icon: Languages, mono: false },
+  { key: 'layout', Icon: LayoutTemplate, mono: false, seul: false },
+  { key: 'formats', Icon: FileType2, mono: true, seul: false },
+  { key: 'langs', Icon: Languages, mono: false, seul: true },
 ];
 
 export default function HeroSection() {
@@ -275,10 +278,11 @@ export default function HeroSection() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.55, ease: [0.16, 1, 0.3, 1] }}
           >
-            {PROOFS.map(({ key, Icon, mono }, i) => (
+            {PROOFS.map(({ key, Icon, mono, seul }, i) => (
               <motion.li
                 key={key}
-                className={mono ? 'hero-proof--mono' : undefined}
+                className={[mono ? 'hero-proof--mono' : '',
+                            seul ? 'hero-proof--seul' : ''].filter(Boolean).join(' ') || undefined}
                 initial={{ opacity: 0, x: -8 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.5, delay: 0.65 + i * 0.09 }}

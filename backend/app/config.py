@@ -56,7 +56,7 @@ ALLOWED_ORIGINS = list(set(
 
 # ── Envois ───────────────────────────────────────────────────────────────────
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 Mo
-ALLOWED_EXTENSIONS = {"txt", "pdf", "docx", "pptx"}
+ALLOWED_EXTENSIONS = {"txt", "pdf", "docx", "pptx", "xlsx"}
 
 # ── Stockage ─────────────────────────────────────────────────────────────────
 TRANSLATIONS_DIR = str(BACKEND_DIR / "translations")

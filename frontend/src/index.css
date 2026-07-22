@@ -813,6 +813,9 @@ button { font-family: inherit; cursor: pointer; border: none; }
   font-size: 12.5px;
   letter-spacing: .02em;
 }
+/* Occupe SA ligne. `flex-basis: 100%` force le retour dans un conteneur
+   `flex-wrap`, sans rien casser si l'ordre des mentions change. */
+.hero-proof--seul { flex-basis: 100%; }
 
 /* Lien d'action secondaire */
 .btn-ghost {

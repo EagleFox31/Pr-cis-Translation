@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'motion/react';
-import { UploadCloud, FileText, FileType2, Presentation, File as FileIcon, X, AlertCircle } from 'lucide-react';
+import { UploadCloud, FileText, FileType2, Presentation, Sheet, File as FileIcon, X, AlertCircle } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 interface FileUploaderProps {
@@ -10,7 +10,7 @@ interface FileUploaderProps {
   disabled?: boolean;
 }
 
-const ACCEPTED = ['pdf', 'docx', 'pptx', 'txt'] as const;
+const ACCEPTED = ['pdf', 'docx', 'pptx', 'xlsx', 'txt'] as const;
 const MAX_BYTES = 100 * 1024 * 1024;
 
 /** Hauteur commune aux deux états de la zone (vide / document choisi). Sans
@@ -23,6 +23,7 @@ const EXT_ICONS: Record<string, LucideIcon> = {
   pdf: FileType2,
   docx: FileText,
   pptx: Presentation,
+  xlsx: Sheet,
   txt: FileText,
 };
 
@@ -132,7 +133,7 @@ export default function FileUploader({ selectedFile, onFileSelect, disabled }: F
         <input
           ref={inputRef}
           type="file"
-          accept=".pdf,.docx,.pptx,.txt"
+          accept=".pdf,.docx,.pptx,.xlsx,.txt"
           hidden
           disabled={disabled}
           onChange={(e) => {
@@ -150,7 +151,7 @@ export default function FileUploader({ selectedFile, onFileSelect, disabled }: F
       <input
         ref={inputRef}
         type="file"
-        accept=".pdf,.docx,.pptx,.txt"
+        accept=".pdf,.docx,.pptx,.xlsx,.txt"
         hidden
         disabled={disabled}
         onChange={(e) => {

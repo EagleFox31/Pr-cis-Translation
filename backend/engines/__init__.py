@@ -32,6 +32,15 @@ except ImportError as _e:                       # pragma: no cover
     PPTXTranslatorEngine = None
     INDISPONIBLES["pptx"] = str(_e)
 
+# XLSX — SQUELETTE (0.1.0). Le chemin est complet, la couverture du format ne
+# l'est pas : voir `xlsx/CONTEXTE.md`, section « Ce qui n'est pas encore fait ».
+try:
+    from .xlsx.engine import XLSXTranslatorEngine
+    _REGISTRE["xlsx"] = XLSXTranslatorEngine
+except ImportError as _e:                       # pragma: no cover
+    XLSXTranslatorEngine = None
+    INDISPONIBLES["xlsx"] = str(_e)
+
 
 def engine_class_for(ext: str) -> type | None:
     """La classe de moteur qui traite cette extension, ou None."""
@@ -59,4 +68,4 @@ def formats() -> list[str]:
 
 __all__ = ["TranslationEngine", "INDISPONIBLES", "engine_class_for",
            "new_engine", "supports", "formats", "DOCXTranslatorEngine",
-           "PPTXTranslatorEngine"]
+           "PPTXTranslatorEngine", "XLSXTranslatorEngine"]
