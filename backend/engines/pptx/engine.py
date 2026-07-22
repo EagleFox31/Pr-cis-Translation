@@ -1025,10 +1025,19 @@ class PPTXTranslatorEngine:
     # déclenchait l'avertissement de sécurité macro.
 
     def regenerate_ole_previews(self, soffice_path: str | None = None,
-                                progress_callback=None) -> int:
+                                progress_callback=None,
+                                only_slides: set[int] | None = None) -> int:
         """Régénère l'image de remplacement de chaque objet OLE Excel depuis le
         classeur TRADUIT (déjà réinjecté dans le dossier temporaire). À appeler
         APRÈS l'injection, AVANT le repack. Retourne le nombre d'aperçus refaits.
+
+        `only_slides` — ne traiter que ces diapositives. L'aperçu progressif
+        affiche une diapositive dès qu'elle est traduite : sans ce filtre, il
+        faudrait attendre la fin du document pour que les tableaux Excel
+        passent en langue cible, et une diapositive « terminée » montrerait
+        encore un tableau en langue source. Le classeur d'une diapositive est
+        traduit en même temps qu'elle : on peut donc régénérer son aperçu tout
+        de suite.
 
         Best-effort : en cas d'échec (LibreOffice absent, classeur illisible),
         on laisse l'EMF d'origine plutôt que d'interrompre la traduction."""
@@ -1047,6 +1056,10 @@ class PPTXTranslatorEngine:
         tasks = []
         rels_cache = {}
         for slide_path in sorted(slides_dir.glob("slide*.xml")):
+            if only_slides is not None:
+                m = re.fullmatch(r"slide(\d+)\.xml", slide_path.name)
+                if m is None or int(m.group(1)) not in only_slides:
+                    continue
             rels_path = slides_dir / "_rels" / (slide_path.name + ".rels")
             if not rels_path.exists():
                 continue
@@ -1120,10 +1133,15 @@ class PPTXTranslatorEngine:
             for i, x in enumerate(uniq):
                 copie = os.path.join(td, f"rendu{i}_{Path(x).stem}.xlsx")
                 rendu_de[x] = copie if self._xlsx_ajuste_une_page(x, copie) else x
-            prof = "file:///" + os.path.join(td, "prof").replace(os.sep, "/")
-            cmd = [soffice_path, "--headless", "--norestore", "--nolockcheck",
-                   f"-env:UserInstallation={prof}",
-                   "--convert-to", "pdf", "--outdir", td] + list(rendu_de.values())
+            # PROFIL PARTAGE. Cette conversion construisait le sien dans `td`,
+            # donc payait 4,3 s de démarrage à CHAQUE appel (mesuré). Avec
+            # l'aperçu progressif, elle est appelée une fois par diapositive
+            # porteuse d'un classeur : le profil jetable la rendait inabordable.
+            from engines.office import profil_argument
+            cmd = ([soffice_path, "--headless", "--norestore", "--nolockcheck",
+                    profil_argument(),
+                    "--convert-to", "pdf", "--outdir", td]
+                   + list(rendu_de.values()))
             # MÊME VERROU que les autres conversions. LibreOffice ne supporte
             # pas deux invocations concurrentes, et cet appel-ci s'en
             # affranchissait : il pouvait tomber en même temps que la

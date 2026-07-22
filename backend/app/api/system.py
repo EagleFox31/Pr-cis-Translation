@@ -13,6 +13,7 @@ from app.core.security import require_auth
 from app.models import (PLAN_LABELS, User, get_plan_monthly_pages,
                         get_plan_storage)
 from app.rate_limit import rate_limit_decorator
+from app import versions
 
 router = APIRouter(tags=["Service"])
 
@@ -20,7 +21,17 @@ router = APIRouter(tags=["Service"])
 @router.get("/health")
 @rate_limit_decorator("10/minute")
 async def health_check(request: Request):
-    return {"status": "healthy", "service": "Précis Translator API"}
+    """État du service et versions de ses composants.
+
+    Les versions y figurent parce que c'est la PREMIÈRE chose qu'on interroge
+    en exploitation : « quelle version tourne sur cette machine ? ». La deviner
+    depuis un tag git suppose que le déploiement corresponde au dépôt.
+    """
+    return {
+        "status": "healthy",
+        "service": "Précis Translator API",
+        "versions": versions.toutes(),
+    }
 
 
 @router.get("/api/user/storage")

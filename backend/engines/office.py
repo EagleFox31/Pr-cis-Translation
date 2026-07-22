@@ -104,11 +104,22 @@ def _profil_uri() -> str:
         return "file:///" + _PROFIL_DIR.replace(os.sep, "/")
 
 
+def profil_argument() -> str:
+    """L'argument `-env:UserInstallation=...` du profil partagé.
+
+    Exposé pour les appelants qui composent leur propre ligne de commande — la
+    régénération des aperçus OLE convertit plusieurs classeurs d'un coup, ce que
+    `convert_to_pdf` ne sait pas faire. Sans cette porte, ils reconstruisaient
+    un profil jetable et repayaient les 4,3 s de démarrage.
+    """
+    return f"-env:UserInstallation={_profil_uri()}"
+
+
 def _cmd(src_path: str, outdir: str) -> list[str]:
     """Ligne de commande de conversion, profil partagé compris."""
     return [
         SOFFICE_PATH, "--headless", "--norestore", "--nolockcheck",
-        f"-env:UserInstallation={_profil_uri()}",
+        profil_argument(),
         "--convert-to", "pdf", "--outdir", outdir, src_path,
     ]
 

@@ -512,6 +512,11 @@ main — corriger la docstring ou la signature de la route, puis regénérer.</d
 <section id="get--health">
 <h3><span class="badge" style="background:#2563eb">GET</span><code>/health</code></h3>
 <p class="resume">Health Check</p>
+<div class="desc"><p>État du service et versions de ses composants.</p>
+
+<p>Les versions y figurent parce que c&#x27;est la PREMIÈRE chose qu&#x27;on interroge</p>
+<p>en exploitation : « quelle version tourne sur cette machine ? ». La deviner</p>
+<p>depuis un tag git suppose que le déploiement corresponde au dépôt.</p></div>
 <h4>Exemple d'appel</h4><pre><code>curl -X GET \
   &#x27;http://localhost:8000/health&#x27; \
   -H &#x27;X-API-Key: &lt;cle&gt;&#x27;</code></pre>

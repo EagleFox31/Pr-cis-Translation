@@ -257,8 +257,28 @@ def main() -> int:
     else:
         _log("  web │", _RED, "n'a pas démarré dans le délai imparti.")
 
-    print(f"{_GREEN}  ● Application prête  →  http://localhost:{FRONTEND_PORT}{_RESET}")
-    print(f"{_GREY}    (le hot-reload est actif — modifiez le code, l'app se met à jour){_RESET}")
+    # ── Bannière ─────────────────────────────────────────────────────────
+    # Affichée APRÈS que les deux serveurs écoutent : une adresse annoncée
+    # avant que le port réponde envoie l'utilisateur sur une page morte.
+    #
+    # Le rendu vient du backend (`app.banner`), qui est le seul à connaître les
+    # versions des moteurs. Recopier ces numéros ici les ferait diverger au
+    # premier correctif.
+    try:
+        sys.path.insert(0, os.path.join(ROOT, "backend"))
+        from app import banner as _banner, versions as _versions
+        print()
+        print(_banner.construire(FRONTEND_PORT, BACKEND_PORT,
+                                 _versions.toutes(),
+                                 extras=["",
+                                         "Hot-reload actif · Ctrl+C pour tout arrêter"]))
+        print()
+    except Exception as _e:
+        # La bannière est un CONFORT : son échec ne doit pas masquer le fait
+        # que l'application, elle, tourne.
+        print(f"{_GREEN}  ● Application prête  →  "
+              f"http://localhost:{FRONTEND_PORT}{_RESET}")
+        print(f"{_GREY}    (bannière indisponible : {_e}){_RESET}")
 
     # Surveille : si un serveur meurt tout seul, on arrête l'autre.
     try:

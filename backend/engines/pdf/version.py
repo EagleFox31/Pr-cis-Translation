@@ -1,58 +1,49 @@
-"""Version du moteur de rendu PDF — entre dans les clés de cache.
+"""Version du moteur PDF — et clé de cache des rendus.
 
-POURQUOI CE FICHIER EXISTE
+DEUX RÔLES, UN SEUL NUMÉRO
 --------------------------
-Le résultat d'une traduction était mis en cache sous une clé faite du nom, du
-hash du contenu, de la langue, de la qualité et de la sélection de pages. Aucune
-de ces cinq valeurs ne bouge quand on CORRIGE LE MOTEUR. Un document déjà
-traduit continuait donc à servir éternellement le PDF d'avant le correctif :
-P15 à P20 livrés, et l'utilisateur voyait toujours l'ancienne mise en page.
+Ce numéro dit ce que vaut le moteur, ET il entre dans le nom des rendus mis en
+cache. Ce n'était pas le cas : un jeton de cache (`v27`) vivait à côté d'une
+version implicite, et rien ne les liait.
+
+POURQUOI LA CLÉ DE CACHE EN DÉPEND
+----------------------------------
+Le résultat d'une traduction est mis en cache sous une clé faite du nom, du hash
+du contenu, de la langue, de la qualité et de la sélection de pages. Aucune de
+ces cinq valeurs ne bouge quand on CORRIGE LE MOTEUR. Un document déjà traduit
+continuait donc à servir éternellement le PDF d'avant le correctif.
 
 Le cache n'était pas de trop : il était MALHONNÊTE. Il prétendait que la sortie
-ne dépendait que de l'entrée, alors qu'elle dépend aussi du code qui la produit.
+ne dépend que de l'entrée, alors qu'elle dépend aussi du code qui la produit.
 `v2_pages.json` ne stocke d'ailleurs pas que la traduction — il stocke les
 DÉCISIONS du moteur (`align`, `container_bbox`, ~55 fois par page). Le rejouer,
 c'est rejouer la géométrie d'une version antérieure.
 
-QUAND LA CHANGER
-----------------
-À tout correctif qui peut changer un PIXEL du rendu : géométrie, alignement,
-regroupement en paragraphes, reflow, choix de police. Une modification qui ne
-touche ni le rendu ni le découpage (journalisation, tests, commentaires) ne la
-concerne pas.
+QUAND L'INCRÉMENTER
+-------------------
+* **patch** (1.0.x) — tout correctif qui peut changer un PIXEL du rendu :
+  géométrie, alignement, regroupement en paragraphes, reflow, choix de police.
+  Les rendus en cache deviennent introuvables, ce qui est le but.
+* **mineure** (1.x.0) — une capacité nouvelle, sans rupture d'interface.
+* **majeure** (x.0.0) — le contrat d'extraction ou d'injection change.
 
-Ne pas la changer quand il le fallait, c'est resservir un rendu périmé sans que
-rien ne le signale — le bug est SILENCIEUX, et c'est ce qui le rend coûteux :
-on croit avoir corrigé, l'utilisateur voit le contraire, et on cherche le
-défaut dans le moteur alors qu'il est dans la clé.
+Une modification qui ne touche ni le rendu ni le découpage (journalisation,
+tests, commentaires) ne concerne aucun des trois.
+
+Ne pas l'incrémenter quand il le fallait, c'est resservir un rendu périmé sans
+que rien ne le signale — le bug est SILENCIEUX, et c'est ce qui le rend coûteux :
+on croit avoir corrigé, l'utilisateur voit le contraire, et on cherche le défaut
+dans le moteur alors qu'il est dans la clé.
+
+HISTORIQUE
+----------
+Le suivi repart de **1.0.0** le 22/07/2026. Les jetons `v20` à `v28` qui
+précèdent appartiennent à la phase de mise au point ; leurs caches ont été
+purgés, aucune collision n'est possible.
 """
 
-# Historique — une ligne par incrément, pour que la raison survive au commit.
-#   v20 : état à la livraison de P15-P17 (colonnes justifiées, corridors)
-#   v21 : P18-P20 — légendes centrées, cadre surplombant, listes numérotées
-#   v22 : P21-P26 — satellites exposants, graisse pondérée, padding cellule,
-#         plancher global, césure >=3, glossaire de document. Le bump avait été
-#         OUBLIÉ à leur livraison : les rendus d'avant correctif continuaient
-#         d'être servis.
-#   v23 : aperçu PPTX — les rendus en cache ont pu être produits par des moteurs
-#         PPTX concurrents qui partageaient un dossier temporaire. Un tel rendu
-#         peut contenir la traduction d'UNE AUTRE LANGUE : il ne suffit pas de
-#         corriger le moteur, il faut rendre ces fichiers introuvables.
-#   v24 : contrat des balises de runs (runtags) — un run non couvert ou recopié
-#         en langue source n'affiche plus l'original collé à la traduction. Le
-#         rendu d'un PPTX change, les anciens sont périmés.
-#   v25 : aperçus OLE Excel — la feuille est rendue sur UNE page (le graphique
-#         posé à côté du tableau n'est plus jeté avec la 2e page) et l'image
-#         prend les proportions de son cadre (plus d'étirement).
-#   v26 : parties PARTAGÉES (slideLayout, slideMaster) extraites et injectées
-#         une seule fois par document. Leur identité change (`slide0_…`) et le
-#         texte des masques n'est plus celui de la dernière diapositive traitée :
-#         le rendu diffère, les caches antérieurs sont périmés.
-#   v27 : aperçus OLE TRANSPARENTS. L'image de remplacement était un aplat
-#         opaque là où l'EMF d'origine ne peint rien : toute forme posée sous
-#         le cadre OLE (flèche, filigrane, bandeau) disparaissait. Le pixel
-#         change partout où le cadre survole autre chose que le fond.
-#   v28 : apercu progressif page par page. Le PDF d'apercu part du document
-#         d'ORIGINE puis chaque page traduite REMPLACE la sienne. Ce qu'un
-#         cache anterieur contient n'a plus la meme signification.
-ENGINE_VERSION = "v28"
+__version__ = "1.0.0"
+
+#: Jeton porté par le NOM des rendus en cache (`…render.v1.0.0.pdf`).
+#: DÉRIVÉ de la version : les deux ne peuvent plus diverger.
+ENGINE_VERSION = f"v{__version__}"

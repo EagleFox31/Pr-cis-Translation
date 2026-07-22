@@ -359,6 +359,10 @@ def run_pptx_progressive_job(
         _partial_attente: set[int] = set()   # diapositives prêtes, pas encore rendues
         _partial_stop = [False]
 
+        # Diapositives dont les aperçus Excel ont DÉJÀ été refaits par le
+        # convertisseur progressif. La passe finale ne repassera pas dessus.
+        _ole_faits: set[int] = set()
+
         _apercu = ProgressivePreview(
             extraire=lambda chemin, pages: pptx_eng.build_partial_pptx(
                 chemin, max(pages), only_slides=pages),
@@ -403,6 +407,24 @@ def run_pptx_progressive_job(
                     lot = sorted(_partial_attente)
                     _partial_attente.clear()
                 try:
+                    # PIÈCES JOINTES D'ABORD. Un objet Excel incorporé s'affiche
+                    # via une IMAGE de remplacement figée à la création, que
+                    # rien ne régénère : sans cette passe, une diapositive
+                    # « terminée » montrerait son tableau en langue SOURCE
+                    # jusqu'à la fin du document. Le classeur est traduit en
+                    # même temps que sa diapositive — on peut donc refaire son
+                    # aperçu tout de suite, et seulement pour ce lot.
+                    #
+                    # Best-effort et silencieux si rien à faire : la très
+                    # grande majorité des diapositives n'ont aucun objet OLE, et
+                    # `regenerate_ole_previews` sort alors sans appeler
+                    # LibreOffice.
+                    try:
+                        pptx_eng.regenerate_ole_previews(
+                            soffice_path=SOFFICE_PATH, only_slides=set(lot))
+                        _ole_faits.update(lot)
+                    except Exception as e:
+                        logger.warning("Aperçus Excel du lot %s : %s", lot, e)
                     ecrire_atomiquement(partial_path, _apercu.greffer(lot))
                     jobs.emit(job_id, "partial",
                               {"ready": True, "pages": _apercu.pages_traduites})
@@ -562,7 +584,14 @@ def run_pptx_progressive_job(
         # dans PowerPoint. Best-effort : un échec n'interrompt pas la traduction.
         try:
             jobs.emit(job_id, "progress", {"step": "ole", "message": "Régénération des aperçus Excel...", "page": 0, "total": None})
-            n_ole = pptx_eng.regenerate_ole_previews(soffice_path=SOFFICE_PATH)
+            # Ce qui RESTE : les diapositives que le convertisseur progressif
+            # n'a pas traitées — mode parallèle (admin), lot en échec, ou aperçu
+            # désactivé. `None` = tout le document, le comportement d'origine.
+            reste = ({n for n in slides_to_process if n not in _ole_faits}
+                     if _ole_faits else None)
+            n_ole = (0 if reste == set() else
+                     pptx_eng.regenerate_ole_previews(
+                         soffice_path=SOFFICE_PATH, only_slides=reste))
             if n_ole:
                 logger.info(f"Job {job_id}: {n_ole} aperçu(s) OLE Excel régénéré(s)")
         except Exception as e:

@@ -29,6 +29,7 @@ import os
 import sys
 import tempfile
 import zipfile
+from pathlib import Path
 
 import racine  # noqa: F401  -- met backend/ sur le chemin
 
@@ -184,6 +185,58 @@ def main() -> int:
            and int((ac == 0).sum()) > int((a == 0).sum()),
            f"mode={cible.mode} avant={int((a==0).sum())} "
            f"apres={int((ac==0).sum())}")
+
+    # ── 6. Le filtre par diapositive ─────────────────────────────────────
+    # L'apercu progressif refait les apercus Excel d'un LOT de diapositives,
+    # pas de tout le document : sans cela, une diapositive « terminee »
+    # montrerait son tableau en langue SOURCE jusqu'a la fin du job.
+    #
+    # On verifie que le filtre EXCLUT vraiment, en comptant les diapositives
+    # visitees -- une signature qui accepterait `only_slides` sans s'en servir
+    # passerait tous les autres controles.
+    with tempfile.TemporaryDirectory() as td:
+        e2 = PPTXTranslatorEngine()
+        temp = Path(td) / "paquet"
+        (temp / "ppt" / "slides" / "_rels").mkdir(parents=True)
+        for n in (1, 2, 3):
+            (temp / "ppt" / "slides" / f"slide{n}.xml").write_text(
+                '<p:sld xmlns:p="%s"/>' % NAMESPACES['p'], encoding="utf-8")
+            (temp / "ppt" / "slides" / "_rels" / f"slide{n}.xml.rels").write_text(
+                '<Relationships xmlns="http://schemas.openxmlformats.org/'
+                'package/2006/relationships"/>', encoding="utf-8")
+        e2.temp_dir = temp
+
+        vues = []
+        vraie = e2._get_temp_dir
+
+        import re as _re
+        # On instrumente la lecture des rels : c'est le seul point ou une
+        # diapositive est reellement examinee.
+        from lxml import etree as _et
+        vrai_parse = _et.parse
+
+        def parse_espion(chemin, *a, **k):
+            m = _re.search(r"slide(\d+)\.xml\.rels$", str(chemin))
+            if m:
+                vues.append(int(m.group(1)))
+            return vrai_parse(chemin, *a, **k)
+
+        _et.parse = parse_espion
+        try:
+            e2.regenerate_ole_previews(soffice_path="soffice",
+                                       only_slides={2})
+            vues_filtre = sorted(set(vues))
+            vues.clear()
+            e2.regenerate_ole_previews(soffice_path="soffice")
+            vues_toutes = sorted(set(vues))
+        finally:
+            _et.parse = vrai_parse
+            e2.temp_dir = None
+
+        ok("FILTRE  only_slides={2} n'examine QUE la diapositive 2",
+           vues_filtre == [2], str(vues_filtre))
+        ok("FILTRE  sans filtre, les trois diapositives sont examinees",
+           vues_toutes == [1, 2, 3], str(vues_toutes))
 
     print()
     n_ok = sum(1 for _, c, _ in checks if c)
