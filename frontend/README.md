@@ -76,10 +76,12 @@ comprise.
 Le backend a été restructuré en couches ; **l'interface ne l'a pas encore
 été**, et c'est le chantier en cours. Ce qui est déjà repéré :
 
-* `@google/genai` et `GEMINI_API_KEY` (`vite.config.ts`) sont **totalement
-  inutilisés** — aucun import dans `src/` ;
+* ~~`@google/genai` et `GEMINI_API_KEY`~~ — **retirés** : aucun import dans
+  `src/`, donc jamais dans le bundle. Ce qu'on gagne n'est pas du poids servi,
+  c'est une dépendance de moins à installer, à auditer et à mettre à jour ;
 * plusieurs composants dépassent 400 lignes en mêlant état, appels et rendu ;
-* l'alias `@` pointe la racine du projet, pas `src/`.
+* l'alias `@` pointe la racine du projet, pas `src/`, et **n'est utilisé nulle
+  part** (déclaré deux fois : `vite.config.ts` et `tsconfig.json`).
 
 La consigne tient en une phrase : **nettoyer et restructurer sans changer le
 fonctionnement**. `npm run lint` propre et l'application identique à l'écran
