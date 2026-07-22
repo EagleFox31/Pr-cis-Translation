@@ -35,13 +35,31 @@ interface AuthLayoutProps {
 export default function AuthLayout({
   retour, titre, sousTitre, attente, children,
 }: AuthLayoutProps) {
+  // Le retour est un bouton ROND, sans son libellé.
+  //
+  // Deux dispositions ont échoué avant celle-ci. Le libellé posé à gauche d'un
+  // titre centré laissait un bord droit vide : un élément à gauche, un au
+  // centre, rien en face — et le déséquilibre CHANGEAIT avec la langue, puisque
+  // « Accueil » et « Home » n'ont pas la même longueur.
+  //
+  // Réduit à sa flèche, le retour forme un seul bloc avec le titre, aligné à
+  // gauche. Plus rien ne flotte, et la mise en page ne dépend plus des mots.
+  // Le libellé n'est pas perdu : il reste le nom accessible du bouton et son
+  // infobulle — annoncé par un lecteur d'écran, lisible au survol.
+  //
+  // Les classes sont celles de `ui/IconButton` : même apparence, même état de
+  // focus, une seule définition. Un `<Link>` ne peut pas être ce composant
+  // (c'est un `<button>`), mais il peut en porter l'habit.
+  const CLASSES_RETOUR = 'ui-iconbtn ui-iconbtn--ghost ui-iconbtn--md auth-retour';
   const lienRetour = retour && (
     retour.to
-      ? <Link to={retour.to} className="auth-retour">
-          <ArrowLeft size={14} aria-hidden /> {retour.label}
+      ? <Link to={retour.to} className={CLASSES_RETOUR}
+              aria-label={retour.label} title={retour.label}>
+          <ArrowLeft size={16} aria-hidden />
         </Link>
-      : <button type="button" className="auth-retour" onClick={retour.onClick}>
-          <ArrowLeft size={14} aria-hidden /> {retour.label}
+      : <button type="button" className={CLASSES_RETOUR} onClick={retour.onClick}
+                aria-label={retour.label} title={retour.label}>
+          <ArrowLeft size={16} aria-hidden />
         </button>
   );
 
