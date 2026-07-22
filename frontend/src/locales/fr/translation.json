@@ -142,7 +142,15 @@
     "cancel": "Annuler",
     "view_action": "Voir dans la bibliothèque",
     "error_status": "Échec de la traduction",
-    "unlock": "Débloquer"
+    "unlock": "Débloquer",
+    "empty_guest": "Connectez-vous pour retrouver vos traductions ici.",
+    "translating": "Traduction en cours",
+    "in_progress": "En cours…",
+    "download_wait": "Disponible à la fin de la traduction",
+    "download_locked": "Réglez les pages de ce document pour le télécharger",
+    "unlock_label": "Débloquer « {{name}} »",
+    "clear_confirm_question": "Effacer tous les documents ?",
+    "retry": "Réessayer"
   },
   "pricing": {
     "tag": "Nos Tarifs Transparents",
@@ -185,7 +193,8 @@
   "units": {
     "b": "o",
     "kb": "Ko",
-    "mb": "Mo"
+    "mb": "Mo",
+    "gb": "Go"
   },
   "preview": {
     "source_label": "Document original",
@@ -199,5 +208,19 @@
     "page_pending": "Cette page est en attente de traduction.",
     "trial_hover": "Version d'essai — Survolez pour apercevoir",
     "trial_buy": "Acheter pour télécharger"
+  },
+  "account": {
+    "default_name": "Utilisateur",
+    "storage": "Stockage",
+    "unlimited": "Illimité",
+    "no_storage": "Traduction seule — sans stockage",
+    "logout": "Déconnexion"
+  },
+  "plans": {
+    "free": "Gratuit",
+    "starter": "Starter",
+    "pro": "Pro",
+    "enterprise": "Enterprise",
+    "admin": "Admin"
   }
 }

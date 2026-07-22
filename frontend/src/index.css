@@ -2310,3 +2310,384 @@ footer {
     align-items: stretch;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PRIMITIVES D'INTERFACE  (composants de src/components/ui/)
+
+   Tout ce qui vit ici est PARTAGÉ. Un écran qui a besoin d'un bouton prend
+   `<Button>` ; il n'en réécrit pas un en style en ligne.
+
+   Les états (:hover, :focus-visible, :disabled) sont ici et nulle part
+   ailleurs : un style en ligne ne sait pas les exprimer, et le code les
+   simulait en mutant le DOM sur onMouseEnter — invisible au clavier.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Bouton ─────────────────────────────────────────────────────────────── */
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  font-family: inherit;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, color .15s ease,
+              transform .12s ease, box-shadow .15s ease;
+}
+.ui-btn:active:not(:disabled) { transform: translateY(1px); }
+.ui-btn:focus-visible {
+  outline: 2px solid var(--blue-bright);
+  outline-offset: 2px;
+}
+.ui-btn:disabled { cursor: not-allowed; opacity: .55; }
+.ui-btn--block { width: 100%; }
+
+.ui-btn--sm { padding: 6px 12px; font-size: 12px; }
+.ui-btn--md { padding: 9px 16px; font-size: 13px; }
+.ui-btn--lg { padding: 12px 24px; font-size: 14px; }
+
+.ui-btn--primary { background: var(--blue); color: #fff; }
+.ui-btn--primary:hover:not(:disabled) {
+  background: var(--blue-bright);
+  box-shadow: 0 4px 14px rgba(26, 77, 199, .28);
+}
+
+.ui-btn--secondary {
+  background: #fff;
+  color: var(--blue);
+  border-color: var(--blue);
+}
+.ui-btn--secondary:hover:not(:disabled) { background: var(--blue-light); }
+
+.ui-btn--ghost {
+  background: transparent;
+  color: var(--gray-500);
+  border-color: var(--gray-200);
+}
+.ui-btn--ghost:hover:not(:disabled) {
+  background: var(--gray-50);
+  color: var(--gray-700);
+}
+
+.ui-btn--danger {
+  background: #fff;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+.ui-btn--danger:hover:not(:disabled) { background: #fef2f2; border-color: #fca5a5; }
+
+/* ── Bouton-icône ───────────────────────────────────────────────────────── */
+.ui-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.ui-iconbtn:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: 2px; }
+.ui-iconbtn:disabled { cursor: not-allowed; opacity: .5; }
+.ui-iconbtn--sm { width: 28px; height: 28px; }
+.ui-iconbtn--md { width: 34px; height: 34px; }
+
+.ui-iconbtn--neutral { background: var(--gray-100); color: var(--gray-700); }
+.ui-iconbtn--neutral:hover:not(:disabled) { background: var(--gray-200); }
+
+.ui-iconbtn--ghost { background: transparent; color: var(--gray-500); border-color: var(--gray-200); }
+.ui-iconbtn--ghost:hover:not(:disabled) { background: var(--gray-50); color: var(--gray-700); }
+
+.ui-iconbtn--danger { background: #fff; color: var(--gray-500); border-color: var(--gray-200); }
+.ui-iconbtn--danger:hover:not(:disabled) { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
+
+/* ── Panneau latéral ────────────────────────────────────────────────────── */
+.ui-drawer__voile {
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 27, 62, .38);
+  backdrop-filter: blur(3px);
+  z-index: 1100;
+}
+.ui-drawer {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  z-index: 1101;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--white);
+}
+.ui-drawer--right { right: 0; box-shadow: -8px 0 40px rgba(13, 27, 62, .18); }
+.ui-drawer--left  { left: 0;  box-shadow:  8px 0 40px rgba(13, 27, 62, .18); }
+
+/* ── Avatar ─────────────────────────────────────────────────────────────── */
+.ui-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 999px;
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: .01em;
+}
+
+/* ── Barre de progression ───────────────────────────────────────────────── */
+.ui-progress {
+  width: 100%;
+  border-radius: 999px;
+  background: var(--gray-200);
+  overflow: hidden;
+}
+.ui-progress__barre {
+  height: 100%;
+  border-radius: 999px;
+  transition: width .4s cubic-bezier(.4, 0, .2, 1);
+}
+.ui-progress__barre--blue   { background: linear-gradient(90deg, var(--blue), var(--blue-bright)); }
+.ui-progress__barre--gold   { background: linear-gradient(90deg, var(--gold), var(--gold-light)); }
+.ui-progress__barre--danger { background: linear-gradient(90deg, #dc2626, #f87171); }
+
+/* ── État vide ──────────────────────────────────────────────────────────── */
+.ui-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 56px 24px;
+  text-align: center;
+}
+.ui-empty__icone { color: var(--gray-300); }
+.ui-empty__titre {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-700);
+}
+.ui-empty__texte {
+  margin: 0;
+  max-width: 30ch;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--gray-500);
+}
+
+/* ── Rotation (indicateur de chargement) ────────────────────────────────── */
+.ui-spin { animation: ui-rotation 1s linear infinite; }
+@keyframes ui-rotation { to { transform: rotate(360deg); } }
+
+/* Respecte le réglage système : une animation perpétuelle peut déclencher des
+   troubles vestibulaires, et c'est un réglage que la personne a déjà exprimé. */
+@media (prefers-reduced-motion: reduce) {
+  .ui-spin { animation-duration: 2.4s; }
+  .ui-btn, .ui-iconbtn, .ui-progress__barre { transition: none; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BARRE LATÉRALE — compte et bibliothèque de documents
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Compte ─────────────────────────────────────────────────────────────── */
+.compte {
+  flex-shrink: 0;
+  padding: 22px 22px 18px;
+  border-bottom: 1px solid var(--gray-100);
+  background: linear-gradient(158deg, #f8fafc 0%, #eef2ff 100%);
+}
+.compte__identite {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.compte__noms { flex: 1; min-width: 0; }
+.compte__nom {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gray-900);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.compte__email {
+  margin: 1px 0 0;
+  font-size: 12px;
+  color: var(--gray-500);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.compte__forfait {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.compte__forfait--base { background: var(--gray-100); color: var(--gray-500); }
+.compte__forfait--paye { background: var(--blue-light); color: var(--blue); }
+
+.compte__stockage {
+  padding: 11px 13px;
+  border: 1px solid var(--gray-100);
+  border-radius: 10px;
+  background: var(--white);
+}
+.compte__quota {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.compte__ligne {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--gray-600, var(--gray-500));
+}
+.compte__ligne--discrete { color: var(--gray-500); font-style: italic; }
+.compte__couronne { color: #ca8a04; }
+.compte__chiffres {
+  font-size: 12px;
+  color: var(--gray-500);
+  font-variant-numeric: tabular-nums;
+}
+.compte .ui-btn { margin-top: 12px; }
+
+/* ── En-tête de la bibliothèque ─────────────────────────────────────────── */
+.biblio__tete {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--gray-100);
+}
+.biblio__titre {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.biblio__compte {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--gray-500);
+}
+.biblio__outils { display: flex; align-items: center; gap: 6px; }
+
+.biblio__liste {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px 16px;
+}
+
+/* ── Carte d'un document ────────────────────────────────────────────────── */
+.doc-carte {
+  padding: 12px 14px;
+  border: 1px solid var(--gray-200);
+  border-radius: 12px;
+  background: var(--gray-50);
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.doc-carte:hover {
+  background: var(--white);
+  border-color: var(--gray-300);
+  box-shadow: 0 2px 10px rgba(13, 27, 62, .06);
+}
+.doc-carte__tete {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.doc-carte__icone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--gray-200);
+  border-radius: 9px;
+  background: var(--white);
+  color: var(--blue);
+}
+.doc-carte__ident { flex: 1; min-width: 0; }
+.doc-carte__nom {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--navy);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-carte__meta {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--gray-500);
+}
+.doc-carte__langue {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--blue-light);
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.doc-carte__avancement { margin-bottom: 10px; }
+.doc-carte__avancement-ligne {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 5px;
+}
+.doc-carte__etat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--blue);
+}
+.doc-carte__compte {
+  font-size: 11px;
+  color: var(--gray-500);
+  font-variant-numeric: tabular-nums;
+}
+
+.doc-carte__erreur {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fef2f2;
+  font-size: 12px;
+  font-weight: 500;
+  color: #991b1b;
+}
+.doc-carte__erreur > span { flex: 1; }
+
+.doc-carte__actions { display: flex; gap: 6px; }
+.doc-carte__actions .ui-btn { flex: 1; min-width: 0; }
+.doc-carte__actions .ui-iconbtn { flex-shrink: 0; }
