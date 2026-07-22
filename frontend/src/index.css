@@ -2691,3 +2691,261 @@ footer {
 .doc-carte__actions { display: flex; gap: 6px; }
 .doc-carte__actions .ui-btn { flex: 1; min-width: 0; }
 .doc-carte__actions .ui-iconbtn { flex-shrink: 0; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   FORMULAIRES  (ui/Field, ui/Alert) et ÉCRANS D'AUTHENTIFICATION
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Champ ──────────────────────────────────────────────────────────────── */
+.champ { display: flex; flex-direction: column; }
+.champ__entete {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+.champ__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gray-700);
+}
+.champ__facultatif { font-size: 12px; color: var(--gray-400); }
+.champ__boite { position: relative; display: flex; }
+.champ__icone {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  color: var(--gray-400);
+  pointer-events: none;
+  transition: color .15s ease;
+}
+.champ__saisie {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1.5px solid var(--gray-200);
+  border-radius: 10px;
+  background: var(--gray-50);
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--gray-900);
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
+}
+.champ__saisie--avec-icone { padding-left: 38px; }
+/* Le focus est rendu par le NAVIGATEUR. Il était simulé en JavaScript, sur
+   onFocus/onBlur, en écrivant dans `e.target.style` — donc invisible à toute
+   navigation qui n'émet pas ces évènements dans l'ordre attendu. */
+.champ__saisie:focus {
+  border-color: var(--blue);
+  background: var(--white);
+  box-shadow: 0 0 0 3px rgba(26, 77, 199, .12);
+}
+.champ__boite:focus-within .champ__icone { color: var(--blue); }
+.champ__saisie::placeholder { color: var(--gray-300); }
+.champ__aide {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--gray-400);
+}
+
+/* ── Bandeau de message ─────────────────────────────────────────────────── */
+.ui-alerte {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.ui-alerte--error   { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+.ui-alerte--info    { background: #eff6ff; color: #1e40af; border-color: #bfdbfe; }
+.ui-alerte--success { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }
+
+/* ── Page d'authentification ────────────────────────────────────────────── */
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: linear-gradient(160deg, #f8fafc 0%, #eef2ff 40%, #f0f4ff 100%);
+  font-family: inherit;
+}
+.auth-carte {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 400px;
+  padding: 30px 28px 26px;
+  border: 1px solid var(--gray-100);
+  border-radius: 20px;
+  background: var(--white);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .04), 0 8px 32px rgba(0, 0, 0, .06);
+}
+.auth-carte__voile {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, .88);
+  backdrop-filter: blur(2px);
+  color: var(--blue);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.auth-carte__voile span { color: var(--gray-700); }
+
+/* La marque, UNE fois. Deux logos se suivaient sur 48 px de hauteur. */
+.auth-marque {
+  display: block;
+  height: 42px;
+  width: auto;
+  margin: 0 auto 18px;
+}
+
+.auth-retour {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 14px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--gray-400);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color .15s ease;
+}
+.auth-retour:hover { color: var(--gray-700); }
+
+.auth-titre {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--gray-900);
+}
+.auth-sous-titre {
+  margin: 0 0 18px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--gray-500);
+}
+.auth-titre + .auth-form,
+.auth-titre + .ui-alerte { margin-top: 18px; }
+
+.auth-form { display: flex; flex-direction: column; gap: 14px; }
+
+.auth-lien {
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--blue);
+  cursor: pointer;
+}
+.auth-lien:hover { text-decoration: underline; }
+.auth-lien:disabled { color: var(--gray-400); cursor: not-allowed; }
+
+.auth-lien-discret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--gray-500);
+  cursor: pointer;
+  transition: color .15s ease;
+}
+.auth-lien-discret:hover { color: var(--blue); }
+
+.auth-separateur {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0;
+  color: var(--gray-400);
+  font-size: 11px;
+}
+.auth-separateur::before,
+.auth-separateur::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--gray-200);
+}
+
+.auth-google { display: flex; justify-content: center; overflow: hidden; }
+
+.auth-pied {
+  margin: 18px 0 0;
+  text-align: center;
+  font-size: 13.5px;
+  color: var(--gray-500);
+}
+.auth-pied a {
+  color: var(--blue);
+  font-weight: 600;
+  text-decoration: none;
+}
+.auth-pied a:hover { text-decoration: underline; }
+
+/* ── Étape « un code vous attend » ──────────────────────────────────────── */
+.auth-etape { text-align: center; margin-bottom: 22px; }
+.auth-etape__pastille {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 12px;
+  border-radius: 13px;
+  background: var(--blue);
+  color: var(--white);
+}
+.auth-etape .auth-sous-titre { margin-bottom: 0; }
+.auth-etape strong { color: var(--gray-700); font-weight: 600; }
+
+.code { display: flex; justify-content: center; gap: 8px; }
+.code__chiffre {
+  width: 46px;
+  height: 56px;
+  border: 1.5px solid var(--gray-200);
+  border-radius: 10px;
+  background: var(--gray-50);
+  font-family: inherit;
+  font-size: 22px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--gray-900);
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
+}
+.code__chiffre:focus {
+  border-color: var(--blue);
+  background: var(--white);
+  box-shadow: 0 0 0 3px rgba(26, 77, 199, .12);
+}
+
+@media (max-width: 380px) {
+  .code { gap: 5px; }
+  .code__chiffre { width: 42px; height: 52px; font-size: 20px; }
+}
