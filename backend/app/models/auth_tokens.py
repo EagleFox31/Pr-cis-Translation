@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    String, Boolean, BigInteger, Integer, DateTime, ForeignKey,
+    String, Boolean, Integer, DateTime, ForeignKey,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 

@@ -7,7 +7,7 @@ Sans accents ni emoji : la console Windows est en cp1252, et un caractere hors
 de cette page fait planter le script APRES que la base a ete modifiee -- une
 erreur qui ment alors sur ce qui s'est reellement passe.
 """
-import os, sys, asyncio
+import os, asyncio
 
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))

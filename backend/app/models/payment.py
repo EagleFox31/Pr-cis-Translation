@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
-
 from sqlalchemy import (
-    String, Boolean, BigInteger, Integer, DateTime, ForeignKey,
+    String, Boolean, Integer, DateTime, ForeignKey,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, new_uuid, utcnow
 

@@ -3,9 +3,8 @@ Routes documents — CRUD par utilisateur.
 """
 from __future__ import annotations
 import os
-from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import Response
 from fastapi.concurrency import run_in_threadpool
 # FileResponse retiré : ses réponses Range/206 faisaient échouer
@@ -154,7 +153,7 @@ def _render_or_404(doc: Document, ext: str,
         return render_translation_bytes(
             doc.original_path, doc.translated_path, ext, doc.target_lang,
             only_pages=only_pages)
-    except Exception as e:
+    except Exception:
         logger.exception("Rendu impossible (doc %s, %s)", getattr(doc, "id", "?"), ext)
         raise HTTPException(status_code=500,
                             detail="Le rendu du document a échoué. Réessayez dans quelques instants.")

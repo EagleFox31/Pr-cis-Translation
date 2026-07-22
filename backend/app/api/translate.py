@@ -9,17 +9,14 @@ l'application, flux SSE compris, qui se fige.
 from __future__ import annotations
 
 import asyncio
-import glob
 import json
 import os
 import queue
-import shutil
 import threading
-import time
 from datetime import datetime, timezone
 
 from fastapi import (APIRouter, Depends, File, Form, Header, HTTPException,
-                     Request, UploadFile, status)
+                     Request, UploadFile)
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,12 +29,11 @@ from app.core.security import require_auth, verify_access_token
 from app.models import (Document, User, get_plan_page_limit,
                         get_plan_storage,
                         get_plan_monthly_pages, is_paid_plan)
-from app.rate_limit import rate_limit_decorator, verify_api_key
+from app.rate_limit import verify_api_key
 from app.services.documents import (build_job_paths, cap_pages_for_plan,
                                     count_pages)
 from app.services.jobs import jobs
 from app.services.office import convert_to_pdf_bytes
-from engines.translation_ai import TranslatorAI
 from app.services.translation_runner import (run_pdf_v2_job,
                                              run_pptx_progressive_job,
                                              run_translation_job)
@@ -86,7 +82,7 @@ async def preview_pdf_endpoint(
 
     try:
         file_bytes = await file.read()
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=400, detail="Impossible de lire le fichier. Vérifiez qu'il n'est pas corrompu et réessayez.")
 
     if len(file_bytes) > MAX_FILE_SIZE:
@@ -174,7 +170,7 @@ async def translate_endpoint(
 
     try:
         file_bytes = await file.read()
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=400, detail="Impossible de lire le fichier. Vérifiez qu'il n'est pas corrompu et réessayez.")
 
     if len(file_bytes) > MAX_FILE_SIZE:

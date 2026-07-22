@@ -298,7 +298,7 @@ class PDFObjectEngine:
             page_name2xref = defaultdict(list)   # nom propre -> [xref] (cette page)
             try:
                 for entry in doc.get_page_fonts(pno):
-                    xref, ext, _ftype, basefont = entry[0], entry[1], entry[2], entry[3]
+                    xref, ext, basefont = entry[0], entry[1], entry[3]
                     if ext == "n/a":
                         continue
                     clean = basefont.split("+")[-1] if "+" in basefont else basefont

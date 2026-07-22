@@ -1,95 +1,81 @@
-# Précis Translation Platform
+# Précis Translator
 
-A secure translation web application with a React (Vite/TypeScript/Tailwind) frontend and a FastAPI (Python) backend.
+**Traduire un document sans lui faire perdre sa mise en forme.**
 
-## Architecture
+Le texte est relevé avec sa géométrie et ses styles, traduit, puis réinjecté
+dans le document d'origine — jamais reconstruit. PDF, PPTX, DOCX.
 
-```
-traduction_app/
-├── backend/                   # FastAPI Python backend
-│   ├── app.py                 # Main FastAPI application
-│   ├── translator.py          # DeepSeek API integration (httpx async)
-│   ├── file_handlers.py       # TXT/PDF/DOCX extraction
-│   ├── requirements.txt       # Python dependencies
-│   ├── .env                   # Local configuration
-│   └── .env.example           # Environment variables template
-├── frontend/                  # React Vite/TS/Tailwind frontend
-│   ├── public/                # Static assets (mascot, PDFs, etc.)
-│   ├── src/
-│   │   ├── components/        # React components (SplashScreen, etc.)
-│   │   ├── hooks/             # useTranslation.ts hook
-│   │   ├── locales/           # i18n locales (en, fr)
-│   │   ├── pages/             # Home.tsx main page
-│   │   ├── App.tsx            # Main React Entrypoint
-│   │   └── main.tsx           # React bootstrap
-│   ├── package.json           # Vite and React dependencies
-│   ├── tsconfig.json          # TS config
-│   ├── vite.config.ts         # Vite proxy configuration
-│   └── .env                   # Local Vite configuration
-└── README.md                  # Project documentation
-```
+Projet **1.0.0** · backend 1.1.0 · frontend 1.0.0 · moteurs PDF 1.0.0, PPTX
+1.0.0, DOCX 1.0.0
 
-## Security Features
+## Démarrer
 
-- **Frontend Security**: API Key verification using `X-API-Key` headers (never exposes DeepSeek key).
-- **Backend Validation**: CORS settings configured to restrict access to trusted origins.
-- **Rate Limiting**: Integrated `slowapi` rate limiter allowing 10 requests per minute per IP address.
-- **File Limits**: Strict file size validation (max 5MB) and type validation (.txt, .pdf, .docx).
-- **Data Protection**: Incoming logs exclude sensitive document contents or translations.
-
-## Setup & Running Instructions
-
-### 1. Copy Static Assets to Frontend
-First, copy the public static assets from the root `/public` folder to `/frontend/public/` (required for logo animations and interactive PDF preview):
 ```bash
-# From project root
-mkdir -p frontend/public
-cp public/* frontend/public/
+npm install                      # à la racine (concurrently)
+npm run dev                      # backend + interface, avec les adresses
 ```
 
-### 2. Backend (FastAPI Python)
-Open a terminal in the `backend` directory:
+Séparément : [`backend/README.md`](backend/README.md) ·
+[`frontend/README.md`](frontend/README.md)
+
+Prérequis : Python 3.12+, Node 20+, PostgreSQL, et **LibreOffice** pour les
+aperçus non-PDF.
+
+## Où lire quoi
+
+| | |
+|---|---|
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Les couches, la règle de dépendance, le chemin d'une traduction |
+| [`backend/README.md`](backend/README.md) | API, configuration, tests |
+| [`frontend/README.md`](frontend/README.md) | Interface, flux d'aperçu, variables `VITE_` |
+| [`backend/engines/CONTEXTE.md`](backend/engines/CONTEXTE.md) | Ce que tous les moteurs partagent |
+| [`backend/engines/pdf/CONTEXTE.md`](backend/engines/pdf/CONTEXTE.md) | Le moteur PDF — et sa clé de cache |
+| [`backend/engines/pptx/CONTEXTE.md`](backend/engines/pptx/CONTEXTE.md) | Le moteur PPTX — parties partagées, objets OLE |
+| [`backend/engines/docx/CONTEXTE.md`](backend/engines/docx/CONTEXTE.md) | Le moteur DOCX |
+| `docs/api/index.html` | Les 32 opérations HTTP (`npm run docs:api`) |
+
+Les fichiers `CONTEXTE_*.md`, `PROBLEMES_*.md` et `ETUDE_OCR.md` à la racine
+sont des **carnets de campagne** : ce qui a été mesuré, tenté, et abandonné. Ils
+citent parfois des chemins d'avant la réorganisation en couches — la carte
+actuelle est dans `ARCHITECTURE.md`.
+
+## Les commandes
+
+```bash
+npm run dev              # backend + frontend
+npm run dev:backend      # uvicorn seul
+npm run dev:frontend     # Vite seul
+npm run docs:api         # régénère docs/api/index.html
+npm run stop             # arrête les deux
+```
+
+## Ce qui ne se négocie pas
+
+**Un moteur n'importe jamais l'application.** `api → services → engines → rien`.
+Le contrôle tient en une ligne, et il doit rester vrai :
+
+```bash
+cd backend && venv/Scripts/python.exe -c "import engines, sys; \
+  print([m for m in sys.modules if m.startswith('app')])"     # => []
+```
+
+**Rien de bloquant dans un `async def`.** Un seul appel synchrone y fige
+l'application entière, flux SSE compris.
+
+**Aucune heuristique calée sur un document.** Un correctif se prouve sur un
+document **synthétique**, jamais sur celui qui a révélé le défaut — sinon il
+tiendra jusqu'au document suivant.
+
+**Le cache de rendu est versionné.** Tout correctif qui peut changer un pixel
+impose d'incrémenter la version du moteur PDF. L'oublier resert un rendu périmé
+**en silence** : on croit avoir corrigé, l'utilisateur voit le contraire.
+
+## Vérifier
+
 ```bash
 cd backend
-python -m venv venv
-# On Windows:
-venv\Scripts\activate
-# On macOS/Linux:
-source venv/bin/activate
-
-pip install -r requirements.txt
-cp .env.example .env
-# Edit backend/.env and fill in your DEEPSEEK_API_KEY
+for t in tests/test_*.py; do venv/Scripts/python.exe "$t"; done
 ```
 
-To run the backend development server:
-```bash
-uvicorn app:app --reload --port 8000
-```
-Verify backend is healthy by visiting `http://localhost:8000/health`.
-
-### 3. Frontend (React Vite)
-Open a new terminal in the `frontend` directory:
-```bash
-cd frontend
-npm install
-npm run dev
-```
-Open `http://localhost:5173` in your browser. Vite is configured to proxy `/api` calls to the FastAPI server running on `http://localhost:8000`.
-
-## Environment Variables
-
-### Backend Configuration (`backend/.env`)
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DEEPSEEK_API_KEY` | Your DeepSeek developer API key | *Required* |
-| `DEEPSEEK_API_URL` | DeepSeek chat completions URL | `https://api.deepseek.com/v1/chat/completions` |
-| `DEEPSEEK_MODEL` | AI Model to use for translating | `deepseek-chat` |
-| `FRONTEND_API_KEY` | Key verified in incoming `X-API-Key` | `precis_frontend_secure_key_2026_xK9mP2vL` |
-| `ALLOWED_ORIGINS` | CORS origins (comma-separated) | `http://localhost:5173,http://localhost:8000...` |
-
-### Frontend Configuration (`frontend/.env`)
-
-- `VITE_API_KEY` matches the backend's `FRONTEND_API_KEY` value.
-- `VITE_API_BASE` points to the local backend base URL (e.g. `http://localhost:8000`).
+Douze suites, **284 contrôles**, hors ligne. Une suite doit sortir en `exit=0` :
+un score vert avec un code de retour non nul cache toujours quelque chose.

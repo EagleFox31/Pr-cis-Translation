@@ -1,7 +1,10 @@
-# pdf_engine_v2
+# Moteur PDF — référence technique
 
-Moteur PDF minimaliste, **from scratch**, indépendant de l'ancien moteur
-(`backend/pdf_translator_engine.py`, qui reste intact).
+`engines/pdf/` · version 1.0.0
+
+> Le **contexte** — pourquoi ce moteur a cette forme, les pièges déjà payés, la
+> clé de cache — vit dans [`CONTEXTE.md`](CONTEXTE.md). Cette page-ci est la
+> référence : format JSON, CLI, règles de détection.
 
 Il fait **une seule chose**, en deux temps :
 
@@ -21,29 +24,29 @@ le PDF original) — c'est un vrai test de fidélité de l'extraction.
 
 ## Utilisation
 
-Depuis la racine du projet, avec le venv du backend :
+Depuis `backend/`, avec son venv :
 
 ```bash
 # Extraction  ->  <pdf>_objects.json  (images encodées en base64 dans le JSON)
-backend/venv/Scripts/python.exe -m pdf_engine_v2.cli extract "mon.pdf"
+backend/venv/Scripts/python.exe -m engines.pdf.cli extract "mon.pdf"
 
 # Extraction avec images en dossier annexe (JSON plus léger)
-backend/venv/Scripts/python.exe -m pdf_engine_v2.cli extract "mon.pdf" --assets
+backend/venv/Scripts/python.exe -m engines.pdf.cli extract "mon.pdf" --assets
 
 # Réinjection : reconstruit le PDF depuis le JSON, avec bordures
-backend/venv/Scripts/python.exe -m pdf_engine_v2.cli reinject "mon_objects.json" "sortie.pdf"
+backend/venv/Scripts/python.exe -m engines.pdf.cli reinject "mon_objects.json" "sortie.pdf"
 
 # Réinjection sans bordures
-backend/venv/Scripts/python.exe -m pdf_engine_v2.cli reinject "mon_objects.json" "sortie.pdf" --no-borders
+backend/venv/Scripts/python.exe -m engines.pdf.cli reinject "mon_objects.json" "sortie.pdf" --no-borders
 
 # Aller-retour complet (extraire puis reconstruire) — test de fidélité
-backend/venv/Scripts/python.exe -m pdf_engine_v2.cli roundtrip "mon.pdf" "sortie.pdf"
+backend/venv/Scripts/python.exe -m engines.pdf.cli roundtrip "mon.pdf" "sortie.pdf"
 ```
 
 En Python :
 
 ```python
-from pdf_engine_v2 import PDFObjectEngine
+from engines.pdf import PDFObjectEngine
 
 engine = PDFObjectEngine()
 data, json_path = engine.extract("mon.pdf")      # PDF -> JSON

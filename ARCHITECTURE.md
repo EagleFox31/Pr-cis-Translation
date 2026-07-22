@@ -51,7 +51,7 @@ cd backend && venv/Scripts/python.exe -c "import engines, sys; \
 | `backend/app/models/` | Modèles SQLAlchemy et forfaits. | contenir des règles de traduction |
 | `backend/app/services/` | Le travail : jobs, exécuteurs, cache de rendu, aperçu d'essai. | importer FastAPI |
 | `backend/engines/` | Les moteurs, et ce qu'ils partagent (LibreOffice, balises, client IA). | importer `app` |
-| `backend/tests/` | Huit suites, **213 contrôles**, exécutables séparément. | dépendre du réseau |
+| `backend/tests/` | Douze suites, **284 contrôles**, exécutables séparément. | dépendre du réseau |
 
 ---
 
@@ -65,7 +65,20 @@ directement — ils demandent « qui traite le `.xlsx` ? ».
    `TranslationEngine` (`engines/base.py`) et honore ses deux méthodes :
    `extract_text` et `inject_translation`.
 2. L'inscrire dans `_REGISTRE`.
-3. C'est tout. Aucune route, aucun exécuteur à modifier.
+3. Lui donner un `version.py` (à `1.0.0`) et un `CONTEXTE.md`.
+4. C'est tout. Aucune route, aucun exécuteur à modifier.
+
+Le **moteur PDF fait exception** : il ne figure pas au registre. Il n'a pas le
+contrat en deux temps — sa traduction est progressive par construction
+(`engines/pdf/stream.py`), page extraite puis traduite puis rendue avant de
+passer à la suivante. L'exécuteur l'appelle nommément. L'asymétrie est assumée ;
+la maquiller derrière une fausse conformité coûterait plus qu'elle ne rapporte.
+
+Chaque moteur porte son propre contexte :
+[commun](backend/engines/CONTEXTE.md) ·
+[PDF](backend/engines/pdf/CONTEXTE.md) ·
+[PPTX](backend/engines/pptx/CONTEXTE.md) ·
+[DOCX](backend/engines/docx/CONTEXTE.md).
 
 ### Une instance par opération — jamais un singleton
 
@@ -152,7 +165,7 @@ se corrige dans la route, jamais dans le HTML.
 npm run dev                    # backend + frontend
 npm run dev:backend            # uvicorn main:app --app-dir backend
 
-# Les huit suites — hors ligne, aucun appel à DeepSeek
+# Les douze suites — hors ligne, aucun appel à DeepSeek
 cd backend
 for t in tests/test_*.py; do venv/Scripts/python.exe "$t"; done
 ```

@@ -27,12 +27,10 @@ import os
 import shutil
 import tempfile
 import threading
-import time
 
-import fitz                # assemblage du PDF partiel, page par page
 
 import engines
-from app.config import logger, note, resolve_quality
+from app.config import logger, note
 from app.services import render_cache
 from engines import runtags
 from app.services.jobs import jobs

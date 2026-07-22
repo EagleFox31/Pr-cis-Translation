@@ -30,7 +30,7 @@ except ImportError:  # exécution directe : python cli.py ...
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="pdf_engine_v2",
+    parser = argparse.ArgumentParser(prog="engines.pdf",
                                      description="Extraction/réinjection objet par objet.")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
