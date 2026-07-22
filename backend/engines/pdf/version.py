@@ -52,4 +52,7 @@ défaut dans le moteur alors qu'il est dans la clé.
 #         opaque là où l'EMF d'origine ne peint rien : toute forme posée sous
 #         le cadre OLE (flèche, filigrane, bandeau) disparaissait. Le pixel
 #         change partout où le cadre survole autre chose que le fond.
-ENGINE_VERSION = "v27"
+#   v28 : apercu progressif page par page. Le PDF d'apercu part du document
+#         d'ORIGINE puis chaque page traduite REMPLACE la sienne. Ce qu'un
+#         cache anterieur contient n'a plus la meme signification.
+ENGINE_VERSION = "v28"

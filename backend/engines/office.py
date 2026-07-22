@@ -70,6 +70,68 @@ def find_soffice() -> str | None:
 SOFFICE_PATH = find_soffice()
 
 
+# ── Profil PERSISTANT ────────────────────────────────────────────────────────
+# LibreOffice construit son profil utilisateur au démarrage. Le recréer à chaque
+# appel, c'est le payer à chaque appel.
+#
+# MESURÉ (deck de 26 diapositives, 12,8 Mo) :
+#     profil neuf ........ 6,99 s
+#     profil réutilisé ... 2,66 s
+#     économie ........... 4,26 s PAR CONVERSION
+#
+# C'est ce coût, et non le poids du document, qui rendait l'aperçu diapositive
+# par diapositive inabordable (11 s l'unité, 288 s le deck) et m'avait fait
+# conclure à tort que le page-par-page était impossible. Une diapositive isolée
+# avec profil chaud revient à 1,58 s.
+#
+# Mesuré aussi, et contraire à l'intuition : ÉLAGUER LES MÉDIAS ne gagne RIEN.
+# Passer un extrait d'une diapositive de 12,7 Mo à 0,5 Mo ne change pas le temps
+# d'un centième — LibreOffice ne lit pas les images que rien ne référence. Ne
+# pas réécrire cette optimisation-là, elle a déjà été mesurée inutile.
+#
+# Le profil est partagé, donc protégé par `preview_lock` comme le reste : deux
+# instances de LibreOffice sur le même profil se le disputeraient.
+_PROFIL_DIR: str | None = None
+_profil_guard = threading.Lock()
+
+
+def _profil_uri() -> str:
+    """URI du profil partagé, créé à la première demande."""
+    global _PROFIL_DIR
+    with _profil_guard:
+        if _PROFIL_DIR is None or not os.path.isdir(_PROFIL_DIR):
+            _PROFIL_DIR = tempfile.mkdtemp(prefix="precis_lo_profil_")
+        return "file:///" + _PROFIL_DIR.replace(os.sep, "/")
+
+
+def _cmd(src_path: str, outdir: str) -> list[str]:
+    """Ligne de commande de conversion, profil partagé compris."""
+    return [
+        SOFFICE_PATH, "--headless", "--norestore", "--nolockcheck",
+        f"-env:UserInstallation={_profil_uri()}",
+        "--convert-to", "pdf", "--outdir", outdir, src_path,
+    ]
+
+
+def convert_file_to_pdf(src_path: str, outdir: str, timeout: int = 600) -> str:
+    """Convertit UN fichier déjà sur disque. Retourne le chemin du PDF produit.
+
+    Utile quand la source existe déjà — l'aperçu progressif écrit son PPTX
+    partiel sur disque, et le relire en mémoire pour le réécrire ailleurs ne
+    servirait à rien.
+    """
+    if not SOFFICE_PATH:
+        raise RuntimeError("LibreOffice est requis pour convertir ce format en PDF.")
+    with preview_lock:
+        proc = subprocess.run(_cmd(src_path, outdir), capture_output=True,
+                              timeout=timeout)
+    out = os.path.join(outdir, os.path.splitext(os.path.basename(src_path))[0] + ".pdf")
+    if proc.returncode != 0 or not os.path.exists(out):
+        err = proc.stderr.decode("utf-8", "ignore")[:300]
+        raise RuntimeError(f"Conversion LibreOffice échouée : {err}")
+    return out
+
+
 def convert_to_pdf(file_bytes: bytes, ext: str) -> bytes:
     """Convertit un document en PDF. Lève si la conversion échoue.
 
@@ -88,14 +150,9 @@ def convert_to_pdf(file_bytes: bytes, ext: str) -> bytes:
         src_path = os.path.join(tmp, f"input.{ext}")
         with open(src_path, "wb") as f:
             f.write(file_bytes)
-        profile_uri = "file:///" + os.path.join(tmp, "profile").replace(os.sep, "/")
-        cmd = [
-            SOFFICE_PATH, "--headless", "--norestore", "--nolockcheck",
-            f"-env:UserInstallation={profile_uri}",
-            "--convert-to", "pdf", "--outdir", tmp, src_path,
-        ]
         with preview_lock:
-            proc = subprocess.run(cmd, capture_output=True, timeout=120)
+            proc = subprocess.run(_cmd(src_path, tmp), capture_output=True,
+                                  timeout=120)
         out_path = os.path.join(tmp, "input.pdf")
         if proc.returncode != 0 or not os.path.exists(out_path):
             err = proc.stderr.decode("utf-8", "ignore")[:300]

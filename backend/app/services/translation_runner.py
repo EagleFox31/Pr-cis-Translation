@@ -37,6 +37,8 @@ from app.services import render_cache
 from engines import runtags
 from app.services.jobs import jobs
 from app.services.office import SOFFICE_PATH, convert_to_pdf_bytes
+from app.services.progressive_preview import (ProgressivePreview,
+                                              ecrire_atomiquement)
 from engines.translation_ai import TranslatorAI
 from engines.pdf import stream as pdf_v2_stream
 
@@ -48,7 +50,6 @@ try:
 except Exception as _e:                          # pragma: no cover
     ai_translator = None
     ai_active = False
-    from app.config import note
     note(logging.WARNING, f"IA non initialisée : {_e}")
 
 pptx_available = engines.supports("pptx")
@@ -311,35 +312,43 @@ def run_pptx_progressive_job(
         # C'est ce qui devient `translated.json` (cf. plus bas).
         slides_traduites: dict[int, dict] = {}
 
-        # ── Aperçu PROGRESSIF : un convertisseur de partiel en arrière-plan ──
-        # Après chaque slide traitée on veut montrer l'avant/après SANS attendre
-        # la fin du document (comme le PDF v2). La conversion PPTX→PDF passe par
-        # LibreOffice, qui coûte plusieurs secondes et ne s'appelle pas en
-        # parallèle : on la confie à UN thread dédié qui, à tout instant, ne rend
-        # QUE le plus haut numéro de slide prêt (coalescence). Si la traduction
-        # va plus vite que la conversion, on saute les états intermédiaires — le
-        # lecteur voit toujours le partiel le plus récent, jamais une file qui
-        # s'accumule.
+        # ── Aperçu PROGRESSIF : le PDF se remplit page par page ───────────
+        # Le flux est celui du moteur PDF, et il tient en deux temps :
         #
-        # ON CONVERTIT LE DECK ENTIER, PAS SLIDE À SLIDE — c'est contre-intuitif,
-        # et j'ai fait l'erreur inverse. Le raisonnement « à la slide 30 on
-        # re-rend 30 slides, donc c'est en n² » suppose que le coût suit le
-        # nombre de slides. MESURÉ, il ne le suit pas :
+        #   1. SOCLE — le document d'ORIGINE, converti une fois en PDF. Il est
+        #      affichable immédiatement : l'utilisateur voit tout le document,
+        #      en langue source, dès la première seconde.
+        #   2. GREFFE — chaque diapositive traduite est convertie SEULE, et sa
+        #      page remplace la page correspondante du socle. Le document se
+        #      traduit sous les yeux, page après page.
         #
-        #     PPTX minimal, 1 slide, 27 Ko ......  7,05 s   ← plancher
-        #     1 slide extraite d'un deck de 13 Mo  11,06 s
-        #     les 26 slides du même deck .......   16,59 s
+        # POURQUOI C'EST POSSIBLE MAINTENANT, ET PAS AVANT
+        # -------------------------------------------------
+        # La campagne précédente avait mesuré 11 s par diapositive isolée et
+        # conclu — j'avais conclu — que le page-par-page coûtait 288 s contre
+        # 17 s pour le deck entier. La conclusion était juste, la CAUSE était
+        # fausse : ce n'était pas le poids des médias, c'était le PROFIL
+        # LibreOffice, reconstruit à chaque appel.
         #
-        # Le coût est celui du DÉMARRAGE de LibreOffice, pas du rendu. Et une
-        # slide isolée pèse presque autant que le deck (95 % du poids est dans
-        # les médias, qu'on ne peut pas retirer). Convertir slide par slide
-        # revenait donc à 26 × 11 s = 288 s là où le deck entier coûte 17 s :
-        # dix-sept fois plus lent, et le verrou LibreOffice monopolisé pendant
-        # toute la traduction — ce qui affamait AUSSI la conversion du panneau
-        # source, resté vide à l'écran.
+        # MESURÉ à nouveau, profil partagé (cf. `engines/office.py`) :
+        #     profil neuf ...................... 6,99 s
+        #     profil réutilisé ................. 2,66 s
+        #     UNE diapositive, profil chaud .... 1,58 s   ← 7× plus rapide
         #
-        # La coalescence est donc la bonne réponse, et la seule : un partiel
-        # toutes les ~17 s, toujours le plus récent.
+        # Mesuré aussi, et faux : élaguer les médias d'une diapositive isolée
+        # (12,7 Mo → 0,5 Mo) ne gagne RIEN. LibreOffice ne lit pas les images
+        # que rien ne référence. Ne pas réécrire cette optimisation-là.
+        #
+        # LE PRIX, ET CE QUI NOUS EN PROTÈGE
+        # -----------------------------------
+        # 26 × 1,58 s = 41 s de calcul contre 2,66 s pour le deck entier :
+        # quinze fois plus de CPU par document. Invisible pour un utilisateur,
+        # ruineux pour cent. D'où la COALESCENCE : un seul convertisseur par
+        # job, qui prend à chaque tour TOUTES les diapositives en attente et les
+        # convertit d'un coup. Seul, l'utilisateur obtient ses pages une par
+        # une ; sous charge, la conversion prend du retard, les pages
+        # s'accumulent et sont traitées par lots — le système glisse tout seul
+        # vers le régime économe, sans seuil à deviner.
         #
         # Réservé au mode SÉQUENTIEL : en parallèle (admin), le dossier
         # temporaire est muté par plusieurs slides à la fois et un partiel lu au
@@ -347,47 +356,74 @@ def run_pptx_progressive_job(
         # vitesse (il verra le partiel final, comme avant).
         _progressive = (max_workers == 1)
         _partial_cv = threading.Condition()
-        _partial_target = [0]           # plus haut slide prêt à rendre (0 = rien)
+        _partial_attente: set[int] = set()   # diapositives prêtes, pas encore rendues
         _partial_stop = [False]
 
-        def _write_pptx_pdf_partial(up_to: int):
-            """Construit le PPTX partiel (1..up_to), le convertit en PDF et
-            l'écrit ATOMIQUEMENT dans partial_path — c'est ce PDF que /partial
-            sert (rastérisé et filigrané pour un plan d'essai)."""
-            with tempfile.TemporaryDirectory() as td:
-                ppx = os.path.join(td, "partial.pptx")
-                pptx_eng.build_partial_pptx(ppx, up_to)
-                with open(ppx, "rb") as f:
-                    pptx_bytes = f.read()
-            pdf_bytes = convert_to_pdf_bytes(pptx_bytes, "pptx", use_cache=False)
-            tmp = partial_path + ".tmp"
-            with open(tmp, "wb") as f:
-                f.write(pdf_bytes)
-            os.replace(tmp, partial_path)
+        _apercu = ProgressivePreview(
+            extraire=lambda chemin, pages: pptx_eng.build_partial_pptx(
+                chemin, max(pages), only_slides=pages),
+            convertir=lambda octets: convert_to_pdf_bytes(octets, "pptx",
+                                                          use_cache=False),
+            extension="pptx",
+        )
+
+        def _preparer_socle():
+            """Convertit le document d'ORIGINE et l'écrit comme partiel initial.
+
+            Mis en cache par CONTENU : retraduire le même document dans une
+            autre langue ne le reconvertit pas. C'est ce qui rend l'affichage
+            initial quasi instantané dès le deuxième passage.
+            """
+            with open(original_path, "rb") as f:
+                brut = f.read()
+            pdf = convert_to_pdf_bytes(brut, "pptx", use_cache=True)
+            ecrire_atomiquement(partial_path, _apercu.poser_socle(pdf))
 
         def _partial_worker():
+            """Un seul convertisseur par job. Il prend TOUT ce qui attend.
+
+            C'est là que se joue la coalescence : si la traduction va plus vite
+            que la conversion, les diapositives s'accumulent dans
+            `_partial_attente` et partent ensemble au tour suivant. Rien ne
+            s'empile indéfiniment, et aucun seuil n'est à régler.
+            """
+            # Le socle d'abord : le document d'origine doit être visible avant
+            # même la première traduction.
+            try:
+                _preparer_socle()
+                jobs.emit(job_id, "partial", {"ready": True, "pages": 0})
+            except Exception as e:
+                logger.warning("Socle d'aperçu non produit : %s", e)
             while True:
                 with _partial_cv:
-                    while _partial_target[0] == 0 and not _partial_stop[0]:
+                    while not _partial_attente and not _partial_stop[0]:
                         _partial_cv.wait()
-                    if _partial_stop[0] and _partial_target[0] == 0:
+                    if _partial_stop[0] and not _partial_attente:
                         return
-                    up_to = _partial_target[0]
-                    _partial_target[0] = 0
+                    lot = sorted(_partial_attente)
+                    _partial_attente.clear()
                 try:
-                    _write_pptx_pdf_partial(up_to)
+                    ecrire_atomiquement(partial_path, _apercu.greffer(lot))
+                    jobs.emit(job_id, "partial",
+                              {"ready": True, "pages": _apercu.pages_traduites})
                 except Exception as e:
-                    # Best-effort : un partiel manqué n'interrompt jamais la
-                    # traduction ; le prochain slide en produira un plus récent.
-                    logger.warning("Partiel PPTX (jusqu'à slide %s) non généré : %s",
-                                   up_to, e)
+                    # Best-effort : un partiel manqué n'interrompt JAMAIS la
+                    # traduction. Les diapositives du lot sont remises en
+                    # attente — sans quoi une greffe ratée les perdrait pour
+                    # toute la durée du job, et l'aperçu montrerait la source
+                    # jusqu'à la fin sans que rien ne le signale.
+                    with _partial_cv:
+                        _partial_attente.update(lot)
+                    logger.warning("Aperçu partiel (diapositives %s) : %s", lot, e)
+                    if _partial_stop[0]:
+                        return          # inutile de boucler sur un échec en fin de job
 
         def _request_partial(up_to: int):
+            """Signale qu'une diapositive est prête à être rendue."""
             if not _progressive:
                 return
             with _partial_cv:
-                if up_to > _partial_target[0]:
-                    _partial_target[0] = up_to
+                _partial_attente.add(up_to)
                 _partial_cv.notify()
 
         _partial_thread = None
