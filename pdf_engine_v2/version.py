@@ -30,4 +30,26 @@ défaut dans le moteur alors qu'il est dans la clé.
 # Historique — une ligne par incrément, pour que la raison survive au commit.
 #   v20 : état à la livraison de P15-P17 (colonnes justifiées, corridors)
 #   v21 : P18-P20 — légendes centrées, cadre surplombant, listes numérotées
-ENGINE_VERSION = "v21"
+#   v22 : P21-P26 — satellites exposants, graisse pondérée, padding cellule,
+#         plancher global, césure >=3, glossaire de document. Le bump avait été
+#         OUBLIÉ à leur livraison : les rendus d'avant correctif continuaient
+#         d'être servis.
+#   v23 : aperçu PPTX — les rendus en cache ont pu être produits par des moteurs
+#         PPTX concurrents qui partageaient un dossier temporaire. Un tel rendu
+#         peut contenir la traduction d'UNE AUTRE LANGUE : il ne suffit pas de
+#         corriger le moteur, il faut rendre ces fichiers introuvables.
+#   v24 : contrat des balises de runs (runtags) — un run non couvert ou recopié
+#         en langue source n'affiche plus l'original collé à la traduction. Le
+#         rendu d'un PPTX change, les anciens sont périmés.
+#   v25 : aperçus OLE Excel — la feuille est rendue sur UNE page (le graphique
+#         posé à côté du tableau n'est plus jeté avec la 2e page) et l'image
+#         prend les proportions de son cadre (plus d'étirement).
+#   v26 : parties PARTAGÉES (slideLayout, slideMaster) extraites et injectées
+#         une seule fois par document. Leur identité change (`slide0_…`) et le
+#         texte des masques n'est plus celui de la dernière diapositive traitée :
+#         le rendu diffère, les caches antérieurs sont périmés.
+#   v27 : aperçus OLE TRANSPARENTS. L'image de remplacement était un aplat
+#         opaque là où l'EMF d'origine ne peint rien : toute forme posée sous
+#         le cadre OLE (flèche, filigrane, bandeau) disparaissait. Le pixel
+#         change partout où le cadre survole autre chose que le fond.
+ENGINE_VERSION = "v27"

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi import Response
 from fastapi.concurrency import run_in_threadpool
 # FileResponse retiré : ses réponses Range/206 faisaient échouer
@@ -297,13 +297,29 @@ async def original_document(
     doc_id: str,
     user: User = Depends(require_auth),
     db: AsyncSession = Depends(get_db),
+    # EN DERNIER, comme `page` sur /preview : un paramètre inséré avant `user`
+    # décalerait les appels POSITIONNELS existants (dont les tests).
+    as_: str | None = Query(None, alias="as"),
 ):
-    """Le fichier SOURCE, tel qu'il a été déposé.
+    """Le fichier SOURCE, tel qu'il a été déposé — ou converti en PDF.
 
     /download rend la TRADUCTION dès qu'elle existe : impossible d'y récupérer
     la source. L'aperçu depuis la bibliothèque n'avait donc rien à afficher dans
     son panneau de gauche et retombait sur le PDF de DÉMO — on montrait le
     journal d'exemple à côté du CV de l'utilisateur.
+
+    `?as=pdf` — POUR REGARDER, PAS POUR REPARTIR AVEC.
+    Le viewer affiche tout en PDF. Sans ce paramètre, le client téléchargeait le
+    PPTX natif (13,4 Mo mesurés sur un deck de 26 slides) puis le RENVOYAIT au
+    serveur en multipart sur /api/preview/pdf pour que celui-ci le convertisse —
+    alors que le serveur détient déjà cette conversion en cache (2,5 Mo). Trois
+    transferts et une conversion pour un fichier qu'il suffisait de servir : le
+    panneau gauche restait blanc dès que ce détour échouait, sans rien dire.
+    La conversion est mise en cache par CONTENU (cf. convert_to_pdf_bytes) : le
+    coût n'est payé qu'une fois pour tous les utilisateurs du même fichier.
+
+    SANS `as`, on rend toujours les octets d'origine : c'est ce dont dépend la
+    relance d'une traduction, qui a besoin du fichier NATIF.
 
     Aucun contrôle de plan : c'est le fichier de l'utilisateur.
     """
@@ -317,6 +333,17 @@ async def original_document(
     with open(doc.original_path, "rb") as f:
         data = f.read()
     ext = os.path.splitext(doc.original_name)[1].lstrip(".").lower()
+
+    if as_ == "pdf" and ext != "pdf":
+        import app as _app
+        try:
+            data = await run_in_threadpool(_app.convert_to_pdf_bytes, data, ext)
+        except Exception:
+            raise HTTPException(
+                status_code=500,
+                detail="La conversion du document source pour l'aperçu a échoué.")
+        ext = "pdf"
+
     media = "application/pdf" if ext == "pdf" else "application/octet-stream"
     return Response(content=data, media_type=media)
 
@@ -373,56 +400,85 @@ async def preview_document(
     # « Aperçu » figeait TOUTE l'application jusqu'à la fin du rendu. On les
     # sort dans un thread, et on n'en fait qu'un aller-retour (les deux étapes
     # sont enchaînées côté thread plutôt qu'en deux bascules).
-    # ── Chemin RAPIDE : le rendu complet est en cache ─────────────────────
+
+    # ── Rendre UNE page n'a de sens que pour le PDF ───────────────────────
     #
-    # Une fois servi, le client a TOUT le document traduit : plus une seule
-    # requête pendant la navigation (l'en-tête `X-Render: full` le lui dit).
-    # Réservé au CLAIR : la version d'essai est rastérisée à la demande, et
-    # rastériser 285 pages par requête coûterait plus que ce qu'on évite.
+    # Le moteur v2 sait ne reconstruire qu'une page et recopier les autres de
+    # l'original : demander `?page=N` y économise vraiment (280 s le document de
+    # 285 pages, ~8 s la page seule).
+    #
+    # Un PPTX ou un DOCX, lui, se réinjecte D'UN BLOC puis passe en entier par
+    # LibreOffice : `only_pages` n'y change rien, la page demandée coûte le
+    # document entier. Or on jetait ce rendu au motif qu'une page avait été
+    # demandée (`if clear and not fenetre`) — et le frontend envoie TOUJOURS
+    # `?page=N`. Le cache n'était donc jamais écrit, `X-Render: full` jamais
+    # émis : chaque changement de page repayait la réinjection complète plus une
+    # conversion LibreOffice. On paie ce rendu une fois, on le garde, et le
+    # client reçoit tout le document d'un coup.
+    fenetre = {page} if (page and page > 0 and ext == "pdf") else None
+
     # ── Chemin RAPIDE : le rendu complet est en cache ─────────────────────
     #
     # Une fois servi, le client a TOUT le document traduit (converti en PDF) :
-    # plus une seule requête pendant la navigation (l'en-tête `X-Render: full` le lui dit).
-    # Réservé au CLAIR : la version d'essai est rastérisée à la demande, et
-    # rastériser 285 pages par requête coûterait plus que ce qu'on évite.
-    if clear and doc.translated_path:
+    # plus une seule requête pendant la navigation (l'en-tête `X-Render: full`
+    # le lui dit). Réservé au CLAIR : la version d'essai est rastérisée à la
+    # demande, et rastériser 285 pages par requête coûterait plus que ce qu'on
+    # évite.
+    if clear:
         cached = render_cache.cache_valid(doc.translated_path)
         if cached:
             data = await run_in_threadpool(lambda: open(cached, "rb").read())
             return Response(content=data, media_type="application/pdf",
                             headers={"Cache-Control": "no-store",
                                      "X-Render": "full"})
-        # Pas de cache (document traduit avant son existence, ou moteur mis à
-        # jour) : on le construit UNE fois en tâche de fond pendant qu'on sert
-        # la page demandée. Quelques minutes plus tard, tout est instantané.
+
+    def _build_complet() -> bytes:
+        """Rendu INTÉGRAL, en PDF, CONSERVÉ. Un seul à la fois par document.
+
+        Le verrou n'est pas une précaution de style : sans lui, deux requêtes
+        d'aperçu simultanées construisaient le même rendu en parallèle — deux
+        réinjections PPTX dans deux moteurs, deux conversions LibreOffice, pour
+        un seul résultat. Le second entrant retrouve ici le cache déjà écrit.
+        """
+        with render_cache.build_lock(doc.translated_path):
+            cached = render_cache.cache_valid(doc.translated_path)
+            if cached:
+                with open(cached, "rb") as f:
+                    return f.read()
+            data = _render_or_404(doc, ext, only_pages=None)
+            if ext != "pdf":
+                import app as _app
+                data = _app.convert_to_pdf_bytes(data, ext)
+            render_cache.store_render(data, doc.translated_path)
+            return data
+
+    if fenetre is None:
+        data = await run_in_threadpool(_build_complet)
+        if not clear:
+            data = await run_in_threadpool(rasterize_for_trial, data)
+        return Response(content=data, media_type="application/pdf",
+                        headers={"Cache-Control": "no-store",
+                                 "X-Render": "full"})
+
+    # ── PDF, page par page ────────────────────────────────────────────────
+    # Les pages non rendues sont recopiées de l'original, donc la pagination
+    # reste celle du document — le lecteur n'a rien à recalculer. En tâche de
+    # fond, on construit UNE fois le rendu complet : quelques minutes plus tard,
+    # la navigation est instantanée et ne redemande plus rien.
+    if clear:
         render_cache.ensure_background_build(
             doc.original_path, doc.translated_path, ext, doc.target_lang)
 
-    # L'aperçu n'affiche QU'UNE page à la fois. En reconstruire l'intégralité
-    # pour en montrer une était le blocage : mesuré sur un document de 285
-    # pages, 280 s pour tout rendre contre 8 s pour la seule page demandée.
-    # Les pages non rendues sont recopiées de l'original, donc la pagination
-    # reste celle du document — le lecteur n'a rien à recalculer.
-    #
-    # `page` absent = tout le document : c'est le comportement dont dépendent
-    # les appels existants (et les tests), on ne le change pas en douce.
-    fenetre = {page} if page and page > 0 else None
-
-    def _build() -> bytes:
-        data = _render_or_404(doc, ext, only_pages=fenetre if ext == "pdf" else None)
-        if ext != "pdf":
-            import app as _app
-            data = _app.convert_to_pdf_bytes(data, ext)
-            if clear and not fenetre:
-                render_cache.store_render(data, doc.translated_path)
+    def _build_page() -> bytes:
+        data = _render_or_404(doc, ext, only_pages=fenetre)
         if not clear:
             data = rasterize_for_trial(data)      # ext == "pdf" garanti ici
         return data
 
-    data = await run_in_threadpool(_build)
+    data = await run_in_threadpool(_build_page)
     return Response(content=data, media_type="application/pdf",
                     headers={"Cache-Control": "no-store",
-                             "X-Render": "full" if not fenetre else "page"})
+                             "X-Render": "page"})
 
 
 # ── DELETE /documents/{id} ───────────────────────────────────────────────────

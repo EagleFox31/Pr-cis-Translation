@@ -61,7 +61,7 @@ interface DocumentLibraryProps {
   onDelete: (id: string) => void;
   onClearAll: () => void;
   getBlob: (id: string) => Promise<Blob | undefined>;
-  getOriginalBlob: (id: string) => Promise<Blob | undefined>;
+  getOriginalBlob: (id: string, asPdf?: boolean) => Promise<Blob | undefined>;
   /** Un paiement vient d'aboutir : la liste doit être relue (le `paid` du
    *  document a changé côté serveur). */
   onPaid?: () => void;
@@ -102,7 +102,10 @@ export default function DocumentLibrary({
       docId: doc.id,
       filename: doc.filename,
       ext: doc.ext,
-      source: getOriginalBlob(doc.id),
+      // `as=pdf` : le viewer affiche tout en PDF, le serveur détient déjà cette
+      // conversion. Lui renvoyer le natif pour qu'il la refasse était un
+      // aller-retour de plusieurs mégaoctets par ouverture.
+      source: getOriginalBlob(doc.id, true),
     });
   }, [getOriginalBlob, onPreview]);
 

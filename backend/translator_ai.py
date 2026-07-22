@@ -7,9 +7,9 @@ from openai import OpenAI
 from dotenv import load_dotenv
 
 try:
-    from . import glossary                      # importé en paquet
+    from . import runtags                       # importé en paquet
 except ImportError:                             # ... ou à plat (sys.path backend)
-    import glossary
+    import runtags
 
 load_dotenv()
 
@@ -43,6 +43,15 @@ class TranslatorAI:
 
         RÈGLES CRITIQUES :
         1. PRÉSERVE les balises structurelles comme [[n]] et [[/n]] exactement à leur place.
+        1-bis. COMPTE DES BALISES — NON NÉGOCIABLE : si le texte d'entrée contient
+        les balises [[0]]…[[/0]] [[1]]…[[/1]] [[2]]…[[/2]], ta réponse DOIT contenir
+        CES MÊMES TROIS balises, dans le même ordre, chacune avec sa part de la
+        traduction. N'entasse JAMAIS toute la traduction dans [[0]] en omettant les
+        suivantes : chaque balise porte une mise en forme différente (gras, taille,
+        couleur) et une balise omise laisse ce morceau NON TRADUIT dans le document
+        final. Si un morceau n'a pas d'équivalent dans la langue cible (un symbole
+        qui disparaît, un accord qui se déplace), rends la balise VIDE — jamais
+        absente.
         2. Traduis uniquement le contenu textuel à l'intérieur ou autour des balises.
         3. Ne modifie JAMAIS les identifiants "id".
         4. RÉPONDS UNIQUEMENT avec un objet JSON contenant une liste "translations".
@@ -97,19 +106,20 @@ class TranslatorAI:
         return text.strip()
 
     def _translate_batch(self, batch, target_lang, progress_callback, retries=3,
-                         model=None, max_tokens=8192):
+                         model=None, max_tokens=8192, passes=1):
+        """`passes` : passes de QUALITÉ encore autorisées (cf. _passe_qualite).
+        Les scissions de lot le transmettent tel quel ; la passe de qualité le
+        décrémente, ce qui borne la récursion."""
         if not batch:
             return True
 
-        tgt = self._tgt_code(target_lang)
         items = []
         for b in batch:
             it = {"id": b["id"], "text": b["text"]}
-            # SUPPORT joint à TOUT fragment (pas seulement à ceux du glossaire) :
-            # c'est la couche GÉNÉRALE. Savoir qu'un fragment est un titre / un
-            # bandeau / un libellé suffit au modèle pour choisir la formule
-            # consacrée, y compris pour une expression que le glossaire ne
-            # connaît pas. Coût : quelques jetons par item.
+            # SUPPORT joint à TOUT fragment. Savoir qu'un fragment est un titre
+            # / un bandeau / un libellé suffit au modèle pour choisir la formule
+            # consacrée plutôt que la traduction mot à mot. Coût : quelques
+            # jetons par item.
             if b.get("support"):
                 it["support"] = b["support"]
             consignes = []
@@ -117,14 +127,6 @@ class TranslatorAI:
                 # Consigne PAR ITEM (ex. budget de caractères pour une
                 # retraduction compacte) — voir translate.retranslate_overflows.
                 consignes.append(b["consigne"])
-            # Expressions PIÈGES : consigne de terminologie jointe UNIQUEMENT aux
-            # fragments concernés (les autres ne paient rien). `support` et
-            # `contexte` viennent de la mise en page — c'est ce que le modèle
-            # n'avait pas et qui lui manquait pour choisir le bon usage.
-            gl = glossary.consigne_for(b["text"], support=b.get("support", "corps"),
-                                       context=b.get("contexte", ""), tgt=tgt)
-            if gl:
-                consignes.append(gl)
             if consignes:
                 it["consigne"] = "\n".join(consignes)
             items.append(it)
@@ -166,8 +168,8 @@ class TranslatorAI:
                         if progress_callback:
                             progress_callback(f"Lot trop grand ({len(batch)} blocs), scission en deux.")
                         mid = len(batch) // 2
-                        return (self._translate_batch(batch[:mid], target_lang, progress_callback, retries, model, max_tokens)
-                                and self._translate_batch(batch[mid:], target_lang, progress_callback, retries, model, max_tokens))
+                        return (self._translate_batch(batch[:mid], target_lang, progress_callback, retries, model, max_tokens, passes)
+                                and self._translate_batch(batch[mid:], target_lang, progress_callback, retries, model, max_tokens, passes))
                     if max_tokens < 32768:
                         # Bloc unique tronqué : doubler le budget de SORTIE
                         # avant d'abandonner (le modèle divague parfois avant de
@@ -221,24 +223,14 @@ class TranslatorAI:
                 count = 0
                 for b in batch:
                     if b["id"] in res_dict:
-                        out = res_dict[b["id"]]
-                        # FILET DE SÉCURITÉ des expressions pièges : un rendu
-                        # INTERDIT (« dernières minutes ») est corrigé ici, quoi
-                        # qu'ait produit le modèle. C'est cette passe — pas le
-                        # prompt — qui rend l'erreur impossible.
-                        out, fixed = glossary.enforce(
-                            b["text"], out, support=b.get("support", "corps"),
-                            context=b.get("contexte", ""), tgt=tgt)
-                        if fixed and progress_callback:
-                            progress_callback(
-                                f"glossaire : rendu interdit corrigé "
-                                f"({', '.join(fixed)}) sur {b['id']}.")
-                        b["translated_text"] = out
+                        b["translated_text"] = res_dict[b["id"]]
                         count += 1
 
                 if count == 0 and len(batch) > 0:
                     raise ValueError(f"Aucune correspondance d'ID trouvée dans la réponse. Début de la réponse : {content[:200]}")
 
+                self._passe_qualite(batch, target_lang, progress_callback,
+                                    retries, model, max_tokens, passes)
                 return True
 
             except Exception as e:
@@ -252,9 +244,64 @@ class TranslatorAI:
             if progress_callback:
                 progress_callback(f"Échec du lot de {len(batch)} blocs, scission en deux.")
             mid = len(batch) // 2
-            return (self._translate_batch(batch[:mid], target_lang, progress_callback, retries, model, max_tokens)
-                    and self._translate_batch(batch[mid:], target_lang, progress_callback, retries, model, max_tokens))
+            return (self._translate_batch(batch[:mid], target_lang, progress_callback, retries, model, max_tokens, passes)
+                    and self._translate_batch(batch[mid:], target_lang, progress_callback, retries, model, max_tokens, passes))
         return False
+
+    # ── Passe de QUALITÉ ─────────────────────────────────────────────────────
+    #
+    # Le modèle se trompe parfois de FORME, pas de sens : il oublie des balises,
+    # recopie un morceau sans le traduire, ou change un chiffre. Ces trois écarts
+    # se CONSTATENT sans rien connaître du document (cf. runtags.defauts) — et
+    # aucun ne se répare en aval sans deviner.
+    #
+    # On ne devine donc pas : on REDEMANDE. C'est le principe du moteur PDF —
+    # mesurer un invariant, et refaire le travail quand il est violé, plutôt que
+    # rafistoler la sortie avec des seuils calés sur un document.
+    #
+    # Coût : un appel supplémentaire pour les seuls fragments fautifs. Un faux
+    # positif (« Almeida » qui ne se traduit pas) coûte cet appel et rend le même
+    # texte — jamais une suppression.
+    _CONSIGNES_DEFAUT = {
+        "balises": ("Ta réponse précédente a OMIS des balises [[n]]. Rends "
+                    "EXACTEMENT les mêmes balises que le texte d'entrée, dans "
+                    "le même ordre, chacune avec sa part de la traduction. Une "
+                    "balise sans équivalent dans la langue cible doit être VIDE, "
+                    "jamais absente."),
+        "recopie": ("Ta réponse précédente a RECOPIÉ un morceau à l'identique "
+                    "alors que les autres étaient traduits. Traduis CHAQUE "
+                    "morceau. Si un morceau est un nom propre, un sigle ou une "
+                    "date qui ne se traduit pas, laisse-le tel quel — c'est "
+                    "légitime — mais vérifie qu'il ne s'agit pas d'un oubli."),
+        "nombres": ("Ta réponse précédente a MODIFIÉ un nombre. Les chiffres "
+                    "d'un document sont des données : reporte-les à l'identique, "
+                    "y compris dans les ordinaux (« 6ème » → « 6th », jamais "
+                    "« 5th »)."),
+    }
+
+    def _passe_qualite(self, batch, target_lang, progress_callback, retries,
+                       model, max_tokens, passes):
+        """Redemande les fragments dont la FORME est fautive."""
+        if passes <= 0:
+            return
+        fautifs = []
+        for b in batch:
+            out = b.get("translated_text")
+            if not out:
+                continue
+            maux = runtags.defauts(b["text"], out)
+            if maux:
+                b["consigne"] = "\n".join(self._CONSIGNES_DEFAUT[m]
+                                          for m in maux
+                                          if m in self._CONSIGNES_DEFAUT)
+                fautifs.append(b)
+        if not fautifs:
+            return
+        if progress_callback:
+            progress_callback(f"contrôle : {len(fautifs)} fragment(s) à "
+                              f"reprendre (forme).")
+        self._translate_batch(fautifs, target_lang, progress_callback, retries,
+                              model, max_tokens, passes - 1)
 
     # Nom ANGLAIS de la langue cible, injecté dans le prompt. Un code absent de
     # cette table y partirait tel quel (« Translate to sv-SE »), ce qui est une
@@ -296,24 +343,6 @@ class TranslatorAI:
         "zh-tw": "Traditional Chinese",
     }
 
-    # Le glossaire est indexé par CODE de langue ('en->fr'), alors que les lots
-    # circulent avec le NOM injecté dans le prompt (« French (Belgium) »). On
-    # revient au code de base : toutes les variantes d'une langue partagent ses
-    # pièges (« dernières minutes » est faux en fr-CA comme en fr-FR).
-    _NAME_TO_CODE = {name.lower(): code.split("-")[0]
-                     for code, name in {
-                         "fr": "French", "en": "English", "es": "Spanish",
-                         "de": "German", "it": "Italian", "pt": "Portuguese",
-                     }.items()}
-
-    @classmethod
-    def _tgt_code(cls, target_lang):
-        """Code de langue cible ('fr') depuis le nom injecté dans le prompt."""
-        t = str(target_lang).strip().lower()
-        for name, code in cls._NAME_TO_CODE.items():
-            if name in t:                       # « Canadian French (Québec…) »
-                return code
-        return t.split("-")[0][:2]
 
     @classmethod
     def lang_name(cls, code):

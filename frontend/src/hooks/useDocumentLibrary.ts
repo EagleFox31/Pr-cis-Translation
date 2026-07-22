@@ -176,9 +176,17 @@ export function useDocumentLibrary() {
    *  `/download` rend la traduction dès qu'elle existe : il ne peut pas servir
    *  à ça. Sans cette route, le viewer n'avait pas de source et affichait le
    *  PDF de DÉMO à côté du document de l'utilisateur. */
-  const getOriginalBlob = useCallback(async (id: string): Promise<Blob | undefined> => {
+  /** @param asPdf demander la source DÉJÀ convertie en PDF (panneau gauche de
+   *   l'aperçu). Sans lui, le client téléchargeait le fichier natif puis le
+   *   renvoyait au serveur pour conversion : trois transferts, et un panneau
+   *   blanc dès que ce détour échouait. La relance d'une traduction, elle, a
+   *   besoin du fichier NATIF — elle appelle donc sans ce drapeau. */
+  const getOriginalBlob = useCallback(async (
+    id: string, asPdf = false,
+  ): Promise<Blob | undefined> => {
     if (user) {
-      const res = await authFetch(`/api/documents/${id}/original`);
+      const q = asPdf ? '?as=pdf' : '';
+      const res = await authFetch(`/api/documents/${id}/original${q}`);
       return res.ok ? res.blob() : undefined;
     }
     return undefined;

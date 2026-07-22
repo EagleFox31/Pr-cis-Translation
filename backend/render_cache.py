@@ -86,6 +86,30 @@ def store_render(data: bytes, translation_path: str) -> None:
             pass
 
 
+# ── Un seul constructeur à la fois par document ──────────────────────────────
+#
+# Deux requêtes d'aperçu simultanées sur le même document construisaient le même
+# rendu en parallèle : deux réinjections, deux conversions LibreOffice, pour un
+# seul résultat. Le verrou sérialise ; le second entrant retrouve le cache déjà
+# écrit et ne construit rien. C'est aussi ce qui empêche deux moteurs PPTX de
+# travailler en même temps sur le même original.
+#
+# La clé est le chemin de la TRADUCTION : deux langues du même document ont des
+# chemins différents et ne s'attendent pas.
+
+_locks: dict[str, threading.Lock] = {}
+_locks_guard = threading.Lock()
+
+
+def build_lock(translation_path: str) -> threading.Lock:
+    with _locks_guard:
+        lock = _locks.get(translation_path)
+        if lock is None:
+            lock = threading.Lock()
+            _locks[translation_path] = lock
+        return lock
+
+
 # ── Construction en arrière-plan ─────────────────────────────────────────────
 #
 # Pour les documents traduits AVANT ce cache (leur rendu de job a été jeté),
@@ -117,11 +141,14 @@ def ensure_background_build(original_path: str, translation_path: str,
             # `app.render_translation_bytes` — passer par l'attribut au moment
             # de l'appel respecte leur substitution.
             import app as _app
-            data = _app.render_translation_bytes(
-                original_path, translation_path, ext, target_lang)
-            if ext != "pdf":
-                data = _app.convert_to_pdf_bytes(data, ext)
-            store_render(data, translation_path)
+            with build_lock(translation_path):
+                if cache_valid(translation_path):
+                    return          # une requête l'a construit entre-temps
+                data = _app.render_translation_bytes(
+                    original_path, translation_path, ext, target_lang)
+                if ext != "pdf":
+                    data = _app.convert_to_pdf_bytes(data, ext)
+                store_render(data, translation_path)
             logger.info("Rendu complet mis en cache (PDF) : %s", cp)
         except Exception as e:
             logger.warning("Construction du rendu en cache échouée (%s) : %s",

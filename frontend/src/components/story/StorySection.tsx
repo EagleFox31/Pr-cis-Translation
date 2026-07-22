@@ -12,8 +12,14 @@ import { baseCode } from '../../lib/languages';
 interface StorySectionProps {
   showPreview: boolean;
   translatedBlob: Blob | null;
+  /** Le blob traduit est-il DÉJÀ un PDF ? Vrai pour tout ce qui vient du
+   *  serveur pour être regardé (/preview, /partial) ; faux pour le résultat
+   *  téléchargeable, qui garde son format d'origine. */
+  translatedIsPdf?: boolean;
   translatedFilename: string;
   selectedFile: File | null;
+  /** Le fichier source est-il déjà un PDF (converti par le serveur) ? */
+  sourceIsPdf?: boolean;
   currentPage: number;
   numPages: number;
   zoom: number;
@@ -41,8 +47,10 @@ interface StorySectionProps {
 export default function StorySection({
   showPreview,
   translatedBlob,
+  translatedIsPdf = false,
   translatedFilename,
   selectedFile,
+  sourceIsPdf = false,
   currentPage,
   numPages,
   zoom,
@@ -380,13 +388,18 @@ export default function StorySection({
                     <DocumentPreview
                       sourceFile={selectedFile}
                       translatedBlob={translatedBlob}
-                      ext={previewExt}
+                      // `ext` désigne le format de la SOURCE. Servie convertie
+                      // par le serveur, elle n'a plus rien à faire convertir.
+                      ext={sourceIsPdf ? 'pdf' : previewExt}
                       translatedExt={
-                        // Pendant le streaming PPTX/DOCX, le blob traduit
-                        // (partial) est déjà un PDF converti par le backend.
-                        // Après la traduction, le résultat final est au format
-                        // d'origine et sera converti normalement.
-                        previewExt !== 'pdf' && isTranslating ? 'pdf' : undefined
+                        // Le blob traduit est déjà un PDF chaque fois qu'il
+                        // vient du serveur pour être REGARDÉ : partiel du
+                        // streaming ET aperçu bibliothèque. La condition ne
+                        // couvrait que le streaming — hors streaming, on
+                        // renvoyait donc au serveur, sous le nom `.pptx`, un
+                        // PDF qu'il venait lui-même de produire, pour un
+                        // aller-retour LibreOffice complet à chaque page.
+                        translatedIsPdf ? 'pdf' : undefined
                       }
                       currentPage={currentPage}
                       zoom={zoom}

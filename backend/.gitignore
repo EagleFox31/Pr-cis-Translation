@@ -6,3 +6,7 @@ __pycache__/
 *.pyc
 .env
 _generic_tmp/
+
+# Reliquat SQLite : la base est PostgreSQL (voir database.py). Un precis.db
+# vide traînait, suivi par git, sans que rien ne l'écrive jamais.
+*.db

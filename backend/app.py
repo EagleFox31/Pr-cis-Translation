@@ -11,6 +11,7 @@ import shutil
 import hashlib
 import subprocess
 import tempfile
+import fitz                # assemblage du PDF partiel, page par page
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException, status, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -166,6 +167,19 @@ def pages_token(pages_set) -> str:
 PREVIEW_CACHE_DIR = os.path.join(TRANSLATIONS_DIR, "_previews")
 _preview_lock = threading.Lock()
 
+# NOTE — une file PRIORITAIRE a été écrite ici, puis retirée.
+#
+# L'idée : faire passer les conversions qu'un écran attend devant celles du
+# travail de fond, en soupçonnant que le panneau source restait blanc parce
+# qu'il était affamé derrière le convertisseur de partiel. Le test de mutation a
+# tranché : en NEUTRALISANT la priorité, aucun contrôle ne tombait. `Lock` de
+# CPython réveille déjà le thread en attente au premier relâchement — le
+# mécanisme ne changeait donc rien, et la vraie cause était ailleurs (le partiel
+# n'était jamais écrit, cf. `_write_pptx_pdf_partial`).
+#
+# Un mécanisme dont on ne peut pas prouver qu'il agit ne se garde pas : il ne
+# se lit plus comme du code, mais comme une intention.
+
 def _find_soffice():
     candidates = [
         os.getenv("SOFFICE_PATH"),
@@ -192,23 +206,38 @@ if SOFFICE_PATH:
 else:
     _STARTUP_NOTES.append((logging.WARNING, "LibreOffice introuvable : l'aperçu des formats non-PDF sera indisponible."))
 
-def convert_to_pdf_bytes(file_bytes: bytes, ext: str) -> bytes:
+def convert_to_pdf_bytes(file_bytes: bytes, ext: str,
+                         use_cache: bool = True) -> bytes:
     """Convertit un document en PDF (bytes) pour l'aperçu. Les PDF sont
-    renvoyés tels quels. Lève une exception si la conversion échoue."""
+    renvoyés tels quels. Lève une exception si la conversion échoue.
+
+    `use_cache=False` pour les documents JETABLES et uniques — le PPTX partiel
+    d'un job, qui change à chaque diapositive traduite : le mettre en cache
+    emplirait `_previews` d'un fichier par état intermédiaire, dont aucun ne
+    resservira jamais.
+    """
     if ext == "pdf":
         return file_bytes
 
-    file_hash = get_file_hash(file_bytes)
-    os.makedirs(PREVIEW_CACHE_DIR, exist_ok=True)
-    cache_path = os.path.join(PREVIEW_CACHE_DIR, f"{file_hash}.pdf")
-    if os.path.exists(cache_path):
-        with open(cache_path, "rb") as f:
-            return f.read()
+    cache_path = None
+    if use_cache:
+        file_hash = get_file_hash(file_bytes)
+        os.makedirs(PREVIEW_CACHE_DIR, exist_ok=True)
+        cache_path = os.path.join(PREVIEW_CACHE_DIR, f"{file_hash}.pdf")
+        if os.path.exists(cache_path):
+            with open(cache_path, "rb") as f:
+                return f.read()
 
     if not SOFFICE_PATH:
         raise RuntimeError("LibreOffice est requis pour convertir ce format en PDF.")
 
-    with tempfile.TemporaryDirectory() as tmp:
+    # `ignore_cleanup_errors` — LibreOffice garde son profil (`profile/user/…`)
+    # ouvert quelques instants APRÈS avoir rendu la main. Sous Windows, effacer
+    # un fichier encore ouvert lève `PermissionError` : sans ce drapeau, une
+    # conversion RÉUSSIE échouait au nettoyage, et l'erreur remontait comme si
+    # la conversion elle-même avait échoué. Ce qui reste est du temporaire, que
+    # le système récupère.
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         src_path = os.path.join(tmp, f"input.{ext}")
         with open(src_path, "wb") as f:
             f.write(file_bytes)
@@ -228,8 +257,9 @@ def convert_to_pdf_bytes(file_bytes: bytes, ext: str) -> bytes:
         with open(out_path, "rb") as f:
             data = f.read()
 
-    with open(cache_path, "wb") as f:
-        f.write(data)
+    if cache_path:
+        with open(cache_path, "wb") as f:
+            f.write(data)
     return data
 
 app = FastAPI(title="Précis Translator API", version="1.0.0", lifespan=lifespan)
@@ -258,6 +288,7 @@ app.include_router(payments_router)
 # ── Route quota stockage ─────────────────────────────────────────────────────
 from auth import require_auth, verify_access_token
 import render_cache
+import runtags        # invariants de traduction (balises, cohérence des termes)
 from pricing import (zone_for_country, CURRENCY, CURRENCY_DECIMALS,
                      page_price, plan_price)
 from models import (User, Document, get_plan_page_limit, get_plan_storage,
@@ -443,10 +474,23 @@ def count_pages(file_bytes: bytes, ext: str) -> int:
 
 
 docx_engine = DOCXTranslatorEngine()
-try:
-    pptx_engine = PPTXTranslatorEngine() if PPTXTranslatorEngine else None
-except:
-    pptx_engine = None
+
+# Le moteur PPTX n'est PAS un singleton : chaque opération (job de traduction,
+# rendu à la demande) crée le sien. Voir la docstring de PPTXTranslatorEngine —
+# une instance partagée faisait se recouvrir les dossiers temporaires de deux
+# traitements simultanés, et l'aperçu d'une langue rendait celui d'une autre.
+# On ne garde ici que la DISPONIBILITÉ du moteur.
+pptx_available = PPTXTranslatorEngine is not None
+
+
+def new_pptx_engine():
+    """Un moteur PPTX neuf, à usage unique. None si le moteur est indisponible."""
+    if PPTXTranslatorEngine is None:
+        return None
+    try:
+        return PPTXTranslatorEngine()
+    except Exception:
+        return None
 
 try:
     ai_translator = TranslatorAI()
@@ -456,7 +500,7 @@ except Exception as e:
     _STARTUP_NOTES.append((logging.WARNING, f"IA non initialisée : {e}"))
 
 _ready = ["PDF v2 progressif (page par page)", "DOCX"]
-if pptx_engine:
+if pptx_available:
     _ready.append("PPTX")
 if ai_active:
     _ready.append("IA")
@@ -473,7 +517,11 @@ def _prewarm_soffice():
         return
     try:
         import tempfile as _tf, subprocess as _sp
-        with _tf.TemporaryDirectory() as _td:
+        # Voir `convert_to_pdf_bytes` : le profil reste verrouillé un instant.
+        # Ici le nettoyage a lieu dans un thread démon, et son échec était
+        # signalé au tout dernier moment — d'où le `PermissionError` affiché
+        # APRÈS le score vert d'une suite de tests.
+        with _tf.TemporaryDirectory(ignore_cleanup_errors=True) as _td:
             src = os.path.join(_td, "warm.docx")
             # Fichier DOCX minimal pour que LibreOffice ait quelque chose à ouvrir
             with open(src, "wb") as _f:
@@ -734,6 +782,9 @@ def _run_translation_job(
     `translated_path` (translated.json) est la traduction PERSISTANTE ; le rendu
     `output_path` est transitoire. Un document déjà traduit relit ce JSON et se
     contente de ré-injecter (aucun appel DeepSeek)."""
+    # Moteur PPTX PROPRE à ce job : son dossier temporaire ne doit être partagé
+    # avec aucun autre traitement (cf. PPTXTranslatorEngine).
+    pptx_eng = new_pptx_engine() if ext == "pptx" else None
     try:
         _job_emit(job_id, "progress", {"step": "start", "message": "Démarrage du job...", "page": 0, "total": None})
 
@@ -750,9 +801,9 @@ def _run_translation_job(
             if ext == "docx":
                 filters = {"paragraphs": True, "tables": True, "headers_footers": True, "text_boxes": True, "smartarts": True}
                 extraction, _ = docx_engine.extract_text(original_path, extraction_path, filters=filters, progress_callback=cb_extract)
-            elif ext == "pptx" and pptx_engine:
+            elif ext == "pptx" and pptx_eng:
                 filters = {"shapes": True, "smartarts": True, "tables": True, "connectors": True}
-                extraction, _ = pptx_engine.extract_text(original_path, extraction_path, filters=filters, progress_callback=cb_extract, pages=pages_set)
+                extraction, _ = pptx_eng.extract_text(original_path, extraction_path, filters=filters, progress_callback=cb_extract, pages=pages_set)
             else:
                 raise ValueError(f"Type de fichier .{ext} non supporté.")
             if not extraction:
@@ -794,11 +845,11 @@ def _run_translation_job(
         _job_emit(job_id, "progress", {"step": "inject", "message": "Génération du document traduit...", "page": 0, "total": None})
         if ext == "docx":
             inj_ok, inj_msg = docx_engine.inject_translation(original_path, translated_path, output_path, format_options=format_opts)
-        elif ext == "pptx" and pptx_engine:
-            inj_ok, inj_msg = pptx_engine.inject_translation(original_path, translated_path, output_path, format_options=format_opts)
+        elif ext == "pptx" and pptx_eng:
+            inj_ok, inj_msg = pptx_eng.inject_translation(original_path, translated_path, output_path, format_options=format_opts)
             if inj_ok:
                 pptm_auto_path = output_path[:-5] + "_autorefresh.pptm" if output_path.endswith(".pptx") else output_path + "_autorefresh.pptm"
-                pptx_engine.generate_autorefresh_pptm(output_path, pptm_auto_path)
+                pptx_eng.generate_autorefresh_pptm(output_path, pptm_auto_path)
         else:
             raise ValueError("Type de fichier non supporté pour la génération.")
 
@@ -818,6 +869,100 @@ def _run_translation_job(
         _job_error(job_id, "La traduction a rencontré une erreur. Réessayez ou contactez le support.")
 
 
+def _elements_de(slide_data: dict):
+    """Tous les fragments traduisibles d'une slide, à plat.
+
+    Le même parcours était recopié à chaque usage (construction de la carte de
+    réinjection, mode debug, contrôles) : cinq copies à tenir d'accord, et une
+    famille oubliée quelque part passait inaperçue.
+    """
+    yield from slide_data.get("text_elements", [])
+    for groupe in ("diagram_elements", "chart_elements", "layout_elements"):
+        for bloc in slide_data.get(groupe, []):
+            yield from bloc.get("text_elements", [])
+    yield from slide_data.get("excel_elements", [])
+
+
+# ── Cohérence terminologique du DOCUMENT ─────────────────────────────────────
+#
+# Un même mot source doit recevoir la même traduction d'un bout à l'autre d'un
+# document. Le modèle traduit slide par slide et n'a aucune mémoire d'une slide
+# à l'autre : il a rendu « Gerbeur » par « Stacker » quinze fois, et l'a laissé
+# en français une seizième (mesuré, slide 17). Aucune règle de FORME ne peut
+# l'attraper — le fragment est parfaitement bien balisé.
+#
+# La preuve vient du document lui-même (cf. runtags.termes_incoherents), jamais
+# d'une liste de termes. Reste que les COGNATS (« motivation », « progression »)
+# y ressemblent à s'y méprendre : la consigne ci-dessous est donc écrite pour
+# qu'un cognat reste INCHANGÉ sans dommage, et pour que la reprise ne touche
+# QUE le terme — pas le reste d'une phrase déjà correcte.
+
+_CONSIGNE_COHERENCE = (
+    "COHÉRENCE DU DOCUMENT. Dans ta traduction ci-dessous, ces termes sont "
+    "restés identiques à la source : {termes}. Ailleurs dans le MÊME document, "
+    "tu les as traduits. Reprends ta traduction en ne changeant QUE ce qui "
+    "concerne ces termes — garde le reste MOT POUR MOT.\n"
+    "Si l'un d'eux s'écrit de la même façon dans la langue cible, ou s'il "
+    "s'agit d'un nom propre, d'une marque ou d'un sigle, LAISSE-LE TEL QUEL : "
+    "c'est légitime, et le changer serait une faute.\n"
+    "Ta traduction précédente : {precedente}"
+)
+
+
+def _coherence_document(slides_traduites: dict, pptx_eng, target_lang: str,
+                        progress_cb=None) -> int:
+    """Reprend les fragments qui laissent en langue source un terme que le
+    document traduit ailleurs. Renvoie le nombre de fragments repris.
+
+    Best-effort : toute erreur laisse la traduction en l'état. Une passe de
+    confort ne doit jamais faire échouer un travail déjà abouti.
+    """
+    fragments = [(sn, el) for sn, sd in slides_traduites.items()
+                 for el in _elements_de(sd) if el.get("translated_text")]
+    if not fragments:
+        return 0
+
+    incoherents = runtags.termes_incoherents(
+        (el["text"], el["translated_text"]) for _sn, el in fragments)
+    if not incoherents:
+        return 0
+
+    a_reprendre, slides_touchees = [], set()
+    for sn, el in fragments:
+        termes = runtags.termes_a_reprendre(el["text"], el["translated_text"],
+                                            incoherents)
+        if not termes:
+            continue
+        el["consigne"] = _CONSIGNE_COHERENCE.format(
+            termes=", ".join(termes), precedente=el["translated_text"])
+        a_reprendre.append(el)
+        slides_touchees.add(sn)
+    if not a_reprendre:
+        return 0
+
+    if progress_cb:
+        progress_cb(f"cohérence : {len(a_reprendre)} fragment(s) repris "
+                    f"({len(incoherents)} terme(s) concerné(s)).")
+    # `_translate_batch` écrit `translated_text` DANS ces dictionnaires, qui
+    # sont ceux de `slides_traduites` : la correction se propage donc au JSON
+    # persistant sans qu'on ait à le reconstruire.
+    ai_translator._translate_batch(a_reprendre, target_lang, progress_cb,
+                                   passes=0)
+    for el in a_reprendre:
+        el.pop("consigne", None)
+
+    # Réinjection des seules slides touchées. L'injection écrit par
+    # identifiant de paragraphe : la repasser sur un XML déjà injecté remplace
+    # simplement le texte des runs, sans avoir besoin de la source.
+    for sn in sorted(slides_touchees):
+        sd = slides_traduites.get(sn)
+        if sd:
+            pptx_eng.inject_slide(sn, {
+                el["id"]: (el.get("translated_text") or el["text"])
+                for el in _elements_de(sd)})
+    return len(a_reprendre)
+
+
 def _run_pptx_progressive_job(
     job_id: str, file_bytes: bytes, original_path: str,
     output_path: str, output_filename: str, partial_path: str,
@@ -830,11 +975,13 @@ def _run_pptx_progressive_job(
 
     Optimisation ADMIN : si is_admin=True, traduit 5 slides en parallèle (5 workers)
     pour diviser le temps de traitement PPTX par 5."""
+    # Moteur PROPRE à ce job. Il était partagé avec les aperçus : le
+    # `_cleanup_temp()` d'un aperçu ouvert pendant la traduction supprimait le
+    # dossier temporaire SOUS le job (cf. PPTXTranslatorEngine).
+    pptx_eng = new_pptx_engine()
     try:
-        if not pptx_engine:
+        if not pptx_eng:
             raise ValueError("Moteur PPTX indisponible.")
-
-        pptx_engine._cleanup_temp()
 
         # ── Sauvegarde de l'original ──────────────────────────────────────
         if not os.path.exists(original_path):
@@ -843,8 +990,8 @@ def _run_pptx_progressive_job(
 
         # ── Décompression ─────────────────────────────────────────────────
         _job_emit(job_id, "progress", {"step": "extract", "message": "Décompression du PPTX...", "page": 0, "total": None})
-        pptx_engine._extract_zip(original_path)
-        total_slides = pptx_engine.slide_count()
+        pptx_eng._extract_zip(original_path)
+        total_slides = pptx_eng.slide_count()
 
         if not total_slides:
             raise ValueError("Aucune slide trouvée dans le PPTX.")
@@ -873,15 +1020,39 @@ def _run_pptx_progressive_job(
         done = 0
         done_lock = threading.Lock()
         max_workers = 5 if is_admin else 1
+        # Slide -> son extraction AVEC sa traduction, retenue avant injection.
+        # C'est ce qui devient `translated.json` (cf. plus bas).
+        slides_traduites: dict[int, dict] = {}
 
         # ── Aperçu PROGRESSIF : un convertisseur de partiel en arrière-plan ──
         # Après chaque slide traitée on veut montrer l'avant/après SANS attendre
-        # la fin du document (comme le PDF v2). La conversion PPTX→PDF
-        # (LibreOffice) coûte plusieurs secondes et se sérialise : on la confie
-        # à UN thread dédié qui, à tout instant, ne rend QUE le plus haut numéro
-        # de slide prêt (coalescence). Si la traduction va plus vite que la
-        # conversion, on saute les états intermédiaires — le lecteur voit
-        # toujours le partiel le plus récent, jamais une file qui s'accumule.
+        # la fin du document (comme le PDF v2). La conversion PPTX→PDF passe par
+        # LibreOffice, qui coûte plusieurs secondes et ne s'appelle pas en
+        # parallèle : on la confie à UN thread dédié qui, à tout instant, ne rend
+        # QUE le plus haut numéro de slide prêt (coalescence). Si la traduction
+        # va plus vite que la conversion, on saute les états intermédiaires — le
+        # lecteur voit toujours le partiel le plus récent, jamais une file qui
+        # s'accumule.
+        #
+        # ON CONVERTIT LE DECK ENTIER, PAS SLIDE À SLIDE — c'est contre-intuitif,
+        # et j'ai fait l'erreur inverse. Le raisonnement « à la slide 30 on
+        # re-rend 30 slides, donc c'est en n² » suppose que le coût suit le
+        # nombre de slides. MESURÉ, il ne le suit pas :
+        #
+        #     PPTX minimal, 1 slide, 27 Ko ......  7,05 s   ← plancher
+        #     1 slide extraite d'un deck de 13 Mo  11,06 s
+        #     les 26 slides du même deck .......   16,59 s
+        #
+        # Le coût est celui du DÉMARRAGE de LibreOffice, pas du rendu. Et une
+        # slide isolée pèse presque autant que le deck (95 % du poids est dans
+        # les médias, qu'on ne peut pas retirer). Convertir slide par slide
+        # revenait donc à 26 × 11 s = 288 s là où le deck entier coûte 17 s :
+        # dix-sept fois plus lent, et le verrou LibreOffice monopolisé pendant
+        # toute la traduction — ce qui affamait AUSSI la conversion du panneau
+        # source, resté vide à l'écran.
+        #
+        # La coalescence est donc la bonne réponse, et la seule : un partiel
+        # toutes les ~17 s, toujours le plus récent.
         #
         # Réservé au mode SÉQUENTIEL : en parallèle (admin), le dossier
         # temporaire est muté par plusieurs slides à la fois et un partiel lu au
@@ -898,10 +1069,10 @@ def _run_pptx_progressive_job(
             sert (rastérisé et filigrané pour un plan d'essai)."""
             with tempfile.TemporaryDirectory() as td:
                 ppx = os.path.join(td, "partial.pptx")
-                pptx_engine.build_partial_pptx(ppx, up_to)
+                pptx_eng.build_partial_pptx(ppx, up_to)
                 with open(ppx, "rb") as f:
                     pptx_bytes = f.read()
-            pdf_bytes = convert_to_pdf_bytes(pptx_bytes, "pptx")
+            pdf_bytes = convert_to_pdf_bytes(pptx_bytes, "pptx", use_cache=False)
             tmp = partial_path + ".tmp"
             with open(tmp, "wb") as f:
                 f.write(pdf_bytes)
@@ -944,7 +1115,7 @@ def _run_pptx_progressive_job(
             _job_emit(job_id, "page", {"page": slide_num, "status": "extracting",
                          "done": done, "total": total})
             _sync_document_progress(job_id, done, total)
-            slide_data, info = pptx_engine.extract_slide(slide_num, filters)
+            slide_data, info = pptx_eng.extract_slide(slide_num, filters)
             if not slide_data:
                 with done_lock:
                     done += 1
@@ -977,7 +1148,7 @@ def _run_pptx_progressive_job(
                 if not ai_active:
                     raise ValueError("Le traducteur IA n'est pas disponible.")
                 mini_json = os.path.join(
-                    pptx_engine._get_temp_dir(), f"_slide{slide_num}.json")
+                    pptx_eng._get_temp_dir(), f"_slide{slide_num}.json")
                 with open(mini_json, "w", encoding="utf-8") as f:
                     json.dump({"slides": [slide_data]}, f, ensure_ascii=False)
 
@@ -1002,22 +1173,21 @@ def _run_pptx_progressive_job(
                          "done": done, "total": total})
             _sync_document_progress(job_id, done, total)
 
-            tmap = {}
-            for el in slide_data.get("text_elements", []):
-                tmap[el["id"]] = el.get("translated_text", el["text"])
-            for diag in slide_data.get("diagram_elements", []):
-                for el in diag.get("text_elements", []):
-                    tmap[el["id"]] = el.get("translated_text", el["text"])
-            for chart in slide_data.get("chart_elements", []):
-                for el in chart.get("text_elements", []):
-                    tmap[el["id"]] = el.get("translated_text", el["text"])
-            for layout in slide_data.get("layout_elements", []):
-                for el in layout.get("text_elements", []):
-                    tmap[el["id"]] = el.get("translated_text", el["text"])
-            for el in slide_data.get("excel_elements", []):
-                tmap[el["id"]] = el.get("translated_text", el["text"])
+            tmap = {el["id"]: (el.get("translated_text") or el["text"])
+                    for el in _elements_de(slide_data)}
 
-            pptx_engine.inject_slide(slide_num, tmap)
+            # La traduction PERSISTANTE se retient ICI, AVANT l'injection —
+            # c'est le seul moment où l'on tient encore la SOURCE et la CIBLE
+            # côte à côte. Elle était reconstituée à la fin en ré-extrayant les
+            # XML DÉJÀ INJECTÉS : `text` y contenait la traduction et
+            # `translated_text` valait None. Le document perdait donc sa source,
+            # le rendu à la demande resservait une traduction prise pour un
+            # original, et aucune vérification ultérieure n'avait plus de quoi
+            # comparer.
+            with done_lock:
+                slides_traduites[slide_num] = slide_data
+
+            pptx_eng.inject_slide(slide_num, tmap)
 
             with done_lock:
                 done += 1
@@ -1047,13 +1217,29 @@ def _run_pptx_progressive_job(
                 _partial_cv.notify()
             _partial_thread.join(timeout=130)
 
+        # ── Cohérence terminologique, une fois TOUT le document connu ──────
+        # Elle ne peut pas se faire plus tôt : la preuve qu'un terme est
+        # traduisible vient des AUTRES slides. Après l'arrêt du convertisseur
+        # de partiel, donc sans accès concurrent au dossier temporaire.
+        if not debug and ai_active:
+            try:
+                _job_emit(job_id, "progress", {"step": "coherence", "message": "Contrôle de cohérence des termes...", "page": 0, "total": None})
+                n_coh = _coherence_document(
+                    slides_traduites, pptx_eng, target_lang,
+                    _make_progress_cb(job_id, "coherence"))
+                if n_coh:
+                    logger.info(f"Job {job_id}: {n_coh} fragment(s) repris "
+                                f"pour cohérence terminologique")
+            except Exception as e:
+                logger.warning(f"Job {job_id}: contrôle de cohérence ignoré : {e}")
+
         # ── Aperçus OLE Excel : régénérés depuis les classeurs traduits ────
         # Pour que le fichier téléchargé (et l'aperçu final) montre les
         # tableaux/graphiques Excel EN LANGUE CIBLE sans devoir activer l'objet
         # dans PowerPoint. Best-effort : un échec n'interrompt pas la traduction.
         try:
             _job_emit(job_id, "progress", {"step": "ole", "message": "Régénération des aperçus Excel...", "page": 0, "total": None})
-            n_ole = pptx_engine.regenerate_ole_previews(soffice_path=SOFFICE_PATH)
+            n_ole = pptx_eng.regenerate_ole_previews(soffice_path=SOFFICE_PATH)
             if n_ole:
                 logger.info(f"Job {job_id}: {n_ole} aperçu(s) OLE Excel régénéré(s)")
         except Exception as e:
@@ -1061,19 +1247,19 @@ def _run_pptx_progressive_job(
 
         # ── PPTX final ────────────────────────────────────────────────────
         _job_emit(job_id, "progress", {"step": "inject", "message": "Génération du PPTX final...", "page": 0, "total": None})
-        pptx_engine.build_partial_pptx(output_path, max(slides_to_process))
+        pptx_eng.build_partial_pptx(output_path, max(slides_to_process))
 
         # ── Sauvegarde de la traduction (JSON complet pour reprise) ───────
-        all_slides = []
-        for sn in slides_to_process:
-            sd, _ = pptx_engine.extract_slide(sn, filters)
-            if sd:
-                all_slides.append(sd)
-        full_json = {"slides": all_slides}
+        # Assemblée depuis ce qu'on a retenu AVANT injection : `text` y est la
+        # SOURCE et `translated_text` la traduction. Ré-extraire les XML ici
+        # revenait à relire notre propre sortie et à la déclarer originale.
+        full_json = {"slides": [slides_traduites[sn]
+                                for sn in slides_to_process
+                                if sn in slides_traduites]}
         with open(translation_path, "w", encoding="utf-8") as f:
             json.dump(full_json, f, ensure_ascii=False)
 
-        pptx_engine._cleanup_temp()
+        pptx_eng._cleanup_temp()
         _job_done(job_id, output_path, output_filename,
                   translation_path=translation_path)
 
@@ -1088,7 +1274,7 @@ def _run_pptx_progressive_job(
         except Exception:
             pass
         try:
-            pptx_engine._cleanup_temp()
+            pptx_eng._cleanup_temp()
         except Exception:
             pass
         _job_error(job_id, "La traduction a rencontré une erreur. Réessayez ou contactez le support.")
@@ -1222,9 +1408,12 @@ def render_translation_bytes(original_path: str, translation_path: str,
                                                      translation_path, out)
             if not ok:
                 raise ValueError(f"Ré-injection DOCX échouée : {msg}")
-        elif ext == "pptx" and pptx_engine:
-            ok, msg = pptx_engine.inject_translation(original_path,
-                                                     translation_path, out)
+        elif ext == "pptx" and pptx_available:
+            # Moteur NEUF à chaque rendu. Un moteur partagé faisait se recouvrir
+            # deux rendus simultanés dans le même dossier temporaire : l'aperçu
+            # d'une langue ressortait dans celui d'une autre.
+            ok, msg = new_pptx_engine().inject_translation(original_path,
+                                                          translation_path, out)
             if not ok:
                 raise ValueError(f"Ré-injection PPTX échouée : {msg}")
         else:

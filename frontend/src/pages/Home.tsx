@@ -23,7 +23,23 @@ export default function Home() {
   const [numPages, setNumPages] = useState(1);
   const [zoom, setZoom] = useState(1.0);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  // Le fichier SOURCE affiché est-il déjà un PDF ? Vrai pour un aperçu ouvert
+  // depuis la bibliothèque (le serveur le convertit). Faux pour une traduction
+  // en direct, où la source est le fichier local que l'utilisateur vient de
+  // déposer, dans son format d'origine.
+  const [sourceIsPdf, setSourceIsPdf] = useState(false);
   const [translatedBlob, setTranslatedBlob] = useState<Blob | null>(null);
+  // Le blob traduit affiché est-il DÉJÀ un PDF ?
+  //
+  // Il l'est chaque fois qu'il vient du serveur pour être REGARDÉ (/preview,
+  // /partial : le backend y convertit lui-même). Il est au format d'origine
+  // seulement quand c'est le RÉSULTAT téléchargeable de la traduction.
+  //
+  // Sans cette distinction, l'aperçu bibliothèque d'un PPTX renvoyait le PDF
+  // reçu au serveur sous le nom `preview.pptx` : LibreOffice l'importait dans
+  // Draw et le ré-exportait, à chaque changement de page. Un aller-retour de
+  // plusieurs secondes pour ne rien changer — et un rendu abîmé au passage.
+  const [translatedIsPdf, setTranslatedIsPdf] = useState(false);
   const [translatedFilename, setTranslatedFilename] = useState<string>('');
   const [showLibrary, setShowLibrary] = useState(false);
   const [targetLang, setTargetLang] = useState('en');
@@ -104,6 +120,7 @@ export default function Home() {
       // variante régionale à réduire avant l'envoi.
       const { file, targetLang, pages, debug, precise } = config;
       setSelectedFile(file);
+      setSourceIsPdf(false);      // fichier local, format d'origine
       setTargetLang(targetLang);
       // Une traduction EN DIRECT reçoit ses pages par le flux : elle n'a rien
       // à redemander au serveur. Sans cette remise à zéro, l'effet d'aperçu
@@ -120,6 +137,7 @@ export default function Home() {
         .start(file, targetLang, pages, debug, precise)
         .then((result) => {
           setTranslatedBlob(result.blob);
+          setTranslatedIsPdf(false);   // le RÉSULTAT est au format d'origine
           setTranslatedFilename(result.filename);
           const ext = result.filename.split('.').pop()?.toLowerCase() ?? 'pdf';
           saveDocument(result.blob, result.filename, {
@@ -175,8 +193,11 @@ export default function Home() {
       document.getElementById('story')?.scrollIntoView({ behavior: 'smooth' });
       setShowPreview(true);   // ← l'aperçu est visible AVANT le premier octet
 
-      // Le fichier source est servi tel quel : il arrive presque tout de suite
-      // et remplit le panneau gauche pendant que la traduction se rastérise.
+      // La source arrive DÉJÀ CONVERTIE en PDF (`?as=pdf`) : le panneau gauche
+      // s'affiche sans un seul appel de plus. Elle était servie au format natif,
+      // et le viewer la retournait au serveur pour conversion — un aller-retour
+      // de plusieurs mégaoctets qui, en échouant, laissait le panneau blanc.
+      setSourceIsPdf(true);
       req.source.then((src) => {
         if (fresh() && src) {
           setSelectedFile(new File([src], req.filename, { type: 'application/pdf' }));
@@ -221,7 +242,10 @@ export default function Home() {
     if (fullDocFor.current === libraryDocId) return;          // niveau 1
     const key = `${libraryDocId}:${currentPage}`;
     const hit = pageBlobCache.current.get(key);
-    if (hit) { setTranslatedBlob(hit); setPreviewLoading(false); return; }  // niveau 2
+    if (hit) {                                                    // niveau 2
+      setTranslatedBlob(hit); setTranslatedIsPdf(true);
+      setPreviewLoading(false); return;
+    }
 
     const token = ++pageToken.current;
     setPreviewLoading(true);
@@ -244,7 +268,9 @@ export default function Home() {
             pageBlobCache.current.delete(oldest);
           }
         }
+        // `/preview` renvoie TOUJOURS un PDF, quel que soit le format d'origine.
         setTranslatedBlob(res.blob);
+        setTranslatedIsPdf(true);
       })
       .catch(() => { /* le lecteur garde son écran d'attente */ })
       .finally(() => { if (pageToken.current === token) setPreviewLoading(false); });
@@ -276,6 +302,9 @@ export default function Home() {
   // Aperçu du panneau « traduit » : blob final si dispo, sinon PDF partiel
   // (pages déjà prêtes), mis à jour au fil de l'eau pendant le streaming.
   const previewTranslatedBlob = translatedBlob ?? stream.partialBlob;
+  // Le partiel du flux est TOUJOURS un PDF (le backend le convertit avant de
+  // le servir), y compris pour un PPTX.
+  const previewTranslatedIsPdf = translatedBlob ? translatedIsPdf : true;
   const effectiveNumPages = stream.totalPages ?? numPages;
 
   return (
@@ -381,8 +410,10 @@ export default function Home() {
         <StorySection
           showPreview={showPreview}
           translatedBlob={previewTranslatedBlob}
+          translatedIsPdf={previewTranslatedIsPdf}
           translatedFilename={translatedFilename}
           selectedFile={selectedFile}
+          sourceIsPdf={sourceIsPdf}
           currentPage={currentPage}
           numPages={effectiveNumPages}
           zoom={zoom}

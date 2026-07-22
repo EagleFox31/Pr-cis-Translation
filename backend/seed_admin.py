@@ -1,7 +1,11 @@
-"""Seed : promeut mbowouibrah@gmail.com en admin (compte existant ou création).
+r"""Seed : promeut mbowouibrah@gmail.com en admin (compte existant ou creation).
 
 Usage unique :
     backend\venv\Scripts\python.exe backend\seed_admin.py
+
+Sans accents ni emoji : la console Windows est en cp1252, et un caractere hors
+de cette page fait planter le script APRES que la base a ete modifiee -- une
+erreur qui ment alors sur ce qui s'est reellement passe.
 """
 import os, sys, asyncio
 
@@ -26,24 +30,24 @@ async def main():
                 name=ADMIN_NAME,
                 email_verified=True,
                 plan="admin",
-                storage_limit=0,  # 0 = illimité (traité spécialement)
+                storage_limit=0,  # 0 = illimite (traite specialement)
             )
             db.add(user)
             await db.commit()
             await db.refresh(user)
-            print(f"✅ Compte admin créé : {user.email}")
+            print(f"OK  Compte admin cree : {user.email}")
         else:
             user.plan = "admin"
             user.email_verified = True
-            user.storage_limit = 0  # 0 = illimité
+            user.storage_limit = 0  # 0 = illimite
             user.name = user.name or ADMIN_NAME
             await db.commit()
             await db.refresh(user)
-            print(f"✅ Compte promu admin : {user.email}")
+            print(f"OK  Compte promu admin : {user.email}")
 
         print(f"   Plan    : {user.plan}")
-        print(f"   Stockage: {'Illimité' if user.storage_limit == 0 else f'{user.storage_limit / 1024 / 1024:.0f} Mo'}")
-        print(f"   Vérifié : {user.email_verified}")
+        print(f"   Stockage: {'Illimite' if user.storage_limit == 0 else f'{user.storage_limit / 1024 / 1024:.0f} Mo'}")
+        print(f"   Verifie : {user.email_verified}")
 
     await engine.dispose()
 
