@@ -363,6 +363,20 @@ def run_pptx_progressive_job(
         # convertisseur progressif. La passe finale ne repassera pas dessus.
         _ole_faits: set[int] = set()
 
+        # Un lot qui échoue est remis en attente — mais PAS indéfiniment.
+        #
+        # La première version rejouait immédiatement : la boucle retrouvait le
+        # lot dans la file, repartait sans dormir, et monopolisait le verrou
+        # LibreOffice en affamant TOUTES les autres conversions du serveur.
+        # Une panne locale (un classeur illisible) devenait une panne globale.
+        #
+        # Deux bornes : un nombre d'essais par diapositive, et une PAUSE entre
+        # deux tentatives. Au-delà, la diapositive est abandonnée pour l'aperçu
+        # — jamais pour le document : la conversion finale la reprendra.
+        _MAX_TENTATIVES = 3
+        _PAUSE_APRES_ECHEC = 5.0        # secondes
+        _echecs: dict[int, int] = {}
+
         _apercu = ProgressivePreview(
             extraire=lambda chemin, pages: pptx_eng.build_partial_pptx(
                 chemin, max(pages), only_slides=pages),
@@ -407,6 +421,12 @@ def run_pptx_progressive_job(
                     lot = sorted(_partial_attente)
                     _partial_attente.clear()
                 try:
+                    # Le socle a pu manquer au premier essai (LibreOffice
+                    # occupé, disque plein). Sans lui, TOUTE greffe échoue :
+                    # on retente ici, une fois par tour et pas plus.
+                    if not _apercu.pret:
+                        _preparer_socle()
+
                     # PIÈCES JOINTES D'ABORD. Un objet Excel incorporé s'affiche
                     # via une IMAGE de remplacement figée à la création, que
                     # rien ne régénère : sans cette passe, une diapositive
@@ -430,15 +450,30 @@ def run_pptx_progressive_job(
                               {"ready": True, "pages": _apercu.pages_traduites})
                 except Exception as e:
                     # Best-effort : un partiel manqué n'interrompt JAMAIS la
-                    # traduction. Les diapositives du lot sont remises en
-                    # attente — sans quoi une greffe ratée les perdrait pour
-                    # toute la durée du job, et l'aperçu montrerait la source
-                    # jusqu'à la fin sans que rien ne le signale.
+                    # traduction. Les diapositives sont remises en attente —
+                    # sans quoi une greffe ratée les perdrait pour toute la
+                    # durée du job, et l'aperçu montrerait la source jusqu'à la
+                    # fin sans que rien ne le signale.
                     with _partial_cv:
-                        _partial_attente.update(lot)
+                        for n in lot:
+                            _echecs[n] = _echecs.get(n, 0) + 1
+                        reprendre = [n for n in lot
+                                     if _echecs[n] < _MAX_TENTATIVES]
+                        abandon = [n for n in lot if n not in reprendre]
+                        _partial_attente.update(reprendre)
+                        if abandon:
+                            logger.warning(
+                                "Aperçu : diapositives %s abandonnées après "
+                                "%d tentatives (le document final les "
+                                "contiendra)", abandon, _MAX_TENTATIVES)
+                        if _partial_stop[0]:
+                            return      # fin de job : inutile de réessayer
+                        if reprendre:
+                            # PAUSE, verrou relâché : sans elle la boucle
+                            # repartirait à l'instant même. `wait` est
+                            # interrompu par la demande d'arrêt.
+                            _partial_cv.wait(timeout=_PAUSE_APRES_ECHEC)
                     logger.warning("Aperçu partiel (diapositives %s) : %s", lot, e)
-                    if _partial_stop[0]:
-                        return          # inutile de boucler sur un échec en fin de job
 
         def _request_partial(up_to: int):
             """Signale qu'une diapositive est prête à être rendue."""

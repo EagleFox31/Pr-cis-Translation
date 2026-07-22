@@ -87,9 +87,30 @@ def create_app() -> FastAPI:
         lifespan=_lifespan,
     )
 
+    # CORS — une LISTE, jamais `*`.
+    #
+    # `allow_origins=["*"]` avec `allow_credentials=True` : Starlette renvoie
+    # alors l'origine de l'appelant, QUELLE QU'ELLE SOIT, accompagnée de
+    # `Access-Control-Allow-Credentials: true`. MESURÉ : une origine
+    # `https://un-site-malveillant.example` recevait l'autorisation complète.
+    #
+    # Le vol de session n'était pas possible — les jetons vivent dans
+    # `localStorage` et aucun cookie n'est posé, donc une origine tierce ne peut
+    # pas forger l'en-tête `Authorization`. Mais la clé d'API, elle, est
+    # PUBLIQUE (elle voyage dans le bundle du frontend) : n'importe quelle page
+    # pouvait déclencher nos conversions LibreOffice, qui coûtent des secondes
+    # de CPU chacune. Et le jour où un cookie apparaît, le trou devient un vol
+    # de session.
+    #
+    # `ALLOWED_ORIGINS` existait déjà dans la configuration et n'était utilisée
+    # NULLE PART. Le lien manquait, voilà tout.
+    #
+    # En développement, le frontend passe par le proxy Vite (même origine) :
+    # CORS n'intervient pas du tout. Ce réglage ne concerne qu'un déploiement où
+    # l'interface et l'API sont sur deux domaines.
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=ALLOWED_ORIGINS,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

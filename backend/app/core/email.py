@@ -40,6 +40,14 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 EMAIL_ENABLED = os.getenv("EMAIL_ENABLED", "true").lower() == "true"
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
+class EmailIndisponible(RuntimeError):
+    """Le service d'envoi est momentanement injoignable.
+
+    Distincte d'une erreur de programmation : l'appelant sait qu'il peut
+    proposer de reessayer, plutot que de rendre une trace technique.
+    """
+
+
 LOGO_PATH = Path(__file__).resolve().parent / "assets" / "logo.png"
 LOGO_CID = "logo-precis"
 
@@ -180,5 +188,16 @@ async def send_verification_email(email: str, code: str, token: str,
         )
         logger.info("Vérification envoyée à %s (%s)", email, langue)
     except Exception as exc:
+        # Le serveur SMTP est injoignable, ou refuse. L'exception BRUTE
+        # remontait jusqu'au client : une trace technique en 500 pour une panne
+        # qui n'a rien à voir avec sa demande, et rien qui lui dise quoi faire.
+        #
+        # On lève une erreur PARLANTE. Le compte, lui, existe déjà : l'appelant
+        # pourra redemander un code (`/auth/resend-verification`) dès que le
+        # service d'envoi sera rétabli — rien n'est perdu.
+        #
+        # On ne l'avale PAS : répondre « c'est envoyé » quand rien n'est parti,
+        # c'est laisser quelqu'un attendre un e-mail qui n'arrivera jamais.
         logger.error("Échec envoi à %s : %s", email, exc)
-        raise
+        raise EmailIndisponible(
+            "L'envoi de l'e-mail a échoué. Réessayez dans un instant.") from exc
