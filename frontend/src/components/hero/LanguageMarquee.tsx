@@ -17,8 +17,22 @@
  *
  * Rien à traduire ici — c'est justement la démonstration : les mots restent
  * dans leur langue, c'est tout le propos.
+ *
+ * DEUX VARIANTES, UN SEUL COMPOSANT
+ * ---------------------------------
+ * `page` (défaut) — le fond fixe des sections CLAIRES : texte navy à 12 %,
+ * couvre tout le défilement. C'est l'usage d'origine.
+ *
+ * `hero` — le même motif dans l'en-tête, qui a un fond SOMBRE. Le navig y était
+ * invisible (navy sur navy) : la variante hero peint donc en BLANC, et plus
+ * DISCRÈTEMENT encore (~5 %), pour rester un décor derrière le titre et la
+ * démo, jamais un concurrent.
  */
 import { Fragment } from 'react';
+
+interface LanguageMarqueeProps {
+  variant?: 'page' | 'hero';
+}
 
 const BANDES: readonly (readonly string[])[] = [
   ['Translation', 'Traduction', 'Traducción', 'Übersetzung', 'Traduzione',
@@ -33,11 +47,14 @@ const BANDES: readonly (readonly string[])[] = [
 
 const REPETITIONS = 3;
 
-export default function LanguageMarquee() {
+export default function LanguageMarquee({ variant = 'page' }: LanguageMarqueeProps) {
   return (
     // `aria-hidden` : c'est un décor. Sans lui, un lecteur d'écran énonce cent
     // vingt mots sans rapport avant d'atteindre le contenu de la page.
-    <div className="page-bg-lang-lines" aria-hidden>
+    <div
+      className={variant === 'hero' ? 'hero-lang-marquee' : 'page-bg-lang-lines'}
+      aria-hidden
+    >
       <div className="hero-lang-lines">
         {BANDES.map((mots, bande) => (
           <div

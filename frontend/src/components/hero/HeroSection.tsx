@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { motion, useScroll, useTransform } from 'motion/react';
 import { ArrowRight, LayoutTemplate, FileType2, Languages } from 'lucide-react';
 import DocumentDemo from './DocumentDemo';
+import LanguageMarquee from './LanguageMarquee';
 
 /** Légère marge : les lignes ne touchent pas tout à fait le bord, ce qui laisse
  *  aussi respirer les repères de coupe, qui débordent du mot. */
@@ -184,6 +185,8 @@ export default function HeroSection() {
   return (
     <section className="hero" id="hero" ref={heroRef}>
       <motion.div className="hero-grid" style={{ y: gridY }} />
+      {/* Le motif des langues, discret, derrière le contenu du hero. */}
+      <LanguageMarquee variant="hero" />
       <div className="hero-glow" />
 
       <motion.div className="hero-content" style={{ y: contentY, opacity: contentOpacity }}>

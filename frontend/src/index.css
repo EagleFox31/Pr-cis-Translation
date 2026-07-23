@@ -276,6 +276,25 @@ button { font-family: inherit; cursor: pointer; border: none; }
   pointer-events: none;
 }
 
+/* Variante HERO du décor de langues (`LanguageMarquee variant="hero"`).
+   Le fond du hero est SOMBRE : le texte navy à 12 % de la variante page y était
+   invisible. Ici il peint en BLANC et plus discrètement (~5 %) — un motif
+   derrière le titre et la démo, jamais un concurrent. Posé DANS le hero
+   (position: absolute, z-index 0), sous le contenu qui est à z-index 10. */
+.hero-lang-marquee {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  pointer-events: none;
+}
+.hero-lang-marquee .lang-line {
+  color: rgba(255, 255, 255, 0.05);
+}
+
 .lang-line {
   font-family: var(--font-display);
   font-size: clamp(1.8rem, 4vw, 3.6rem);
@@ -3006,10 +3025,13 @@ footer {
 }
 
 /* Groupe de mots d'une bande défilante (`hero/LanguageMarquee`).
-   La gouttière était un style en ligne recopié quatre fois : `display:
-   inline-flex; gap: 30px`. Les enfants DIRECTS sont les mots et les puces —
-   voir le commentaire du composant avant d'y toucher. */
-.lang-line__groupe {
+   La gouttière était un style EN LIGNE (`display: inline-flex; gap: 30px`), qui
+   l'emporte toujours. Passée en classe, elle perdait contre la règle
+   `.lang-line span { display: inline-block }` (spécificité supérieure) : le
+   groupe redevenait `inline-block`, le `gap` était ignoré, les mots se
+   collaient et la boucle de défilement (-33,333 %) n'était plus raccord.
+   D'où le sélecteur descendant, qui repasse DEVANT `.lang-line span`. */
+.lang-line .lang-line__groupe {
   display: inline-flex;
   gap: 30px;
 }
