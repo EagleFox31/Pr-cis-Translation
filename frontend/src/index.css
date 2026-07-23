@@ -280,7 +280,10 @@ button { font-family: inherit; cursor: pointer; border: none; }
   font-family: var(--font-display);
   font-size: clamp(1.8rem, 4vw, 3.6rem);
   font-weight: 300;
-  color: rgba(13, 27, 62, 0.12);
+  /* Opacité du décor. Montée de 0.12 (l'origine, presque invisible) à 0.20 :
+     nettement lisible sur les sections claires. Sans effet sur le hero, dont le
+     fond sombre rend ce navy invisible quelle que soit l'opacité. */
+  color: rgba(13, 27, 62, 0.20);
   white-space: nowrap;
   display: flex;
   gap: clamp(16px, 3vw, 40px);
