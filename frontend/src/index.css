@@ -41,6 +41,23 @@
   --radius: 12px;
   --radius-lg: 20px;
   --transition: 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* CADRE COMMUN — la même largeur et la même gouttière pour la navbar, les
+     sections ET le hero. Sans ce cadre partagé, le hero vivait à 1720px pendant
+     que tout le reste tenait à 1240px : ses bords débordaient de ceux de la
+     navbar, d'où le désalignement (titre plus à gauche que le logo, démo plus à
+     droite que le profil). Un seul endroit fixe la mesure, tout s'y aligne. */
+  --frame-max: 1240px;
+  --frame-pad: 24px;
+
+  /* Hauteur de la navbar fixe, et le dégagement d'une section snappée sous elle.
+     `--section-top` = navbar + respiration : le contenu ne se colle plus au bas
+     de la navbar. Le padding-top valait PILE 72px (la navbar), donc le titre la
+     touchait — la respiration qu'on croyait avoir venait en fait de la marge
+     basse de la section précédente, invisible une fois qu'on a snappé au sommet
+     de la suivante. */
+  --nav-h: 72px;
+  --section-top: 108px;
 }
 
 /* ============================
@@ -114,10 +131,10 @@ button { font-family: inherit; cursor: pointer; border: none; }
   box-shadow: var(--shadow-md);
 }
 .nav-inner {
-  max-width: 1240px;
+  max-width: var(--frame-max);
   margin: 0 auto;
-  padding: 0 24px;
-  height: 72px;
+  padding: 0 var(--frame-pad);
+  height: var(--nav-h);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -345,9 +362,9 @@ button { font-family: inherit; cursor: pointer; border: none; }
   /* La démo EST l'argument : on lui laisse la place. Le hero occupe presque
      toute la largeur (au lieu d'une gouttière de 1240px héritée des sections
      de contenu) et la colonne de droite reçoit la part majoritaire. */
-  max-width: 1720px;
+  max-width: var(--frame-max);
   margin: 0 auto;
-  padding: 72px clamp(24px, 3.5vw, 56px) 40px;
+  padding: 72px var(--frame-pad) 40px;
   display: grid;
   grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
   gap: clamp(40px, 4vw, 72px);
@@ -864,9 +881,9 @@ section {
   padding: 40px 24px;
 }
 .section-inner {
-  max-width: 1240px;
+  max-width: var(--frame-max);
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 var(--frame-pad);
 }
 .section-tag {
   display: flex;
@@ -2086,8 +2103,23 @@ footer {
        de 100vh) déborde alors de 72px sous le viewport, et c'est ce morceau,
        jamais atteignable en scroll-snap, qui contient le pied de page. */
     scroll-margin-top: 0;
-    padding-top: 72px !important;
+    padding-top: var(--section-top) !important;   /* navbar + respiration */
     padding-bottom: 24px !important;
+  }
+
+  /* Le contenu des sections DENSES est aligné en HAUT, pas centré.
+     Centrées, elles collaient leur titre au bas de la navbar : quand le
+     contenu est grand, `justify-content: center` le remonte jusque sous la
+     navbar et le dégagement du padding est absorbé. Alignées en haut, elles
+     partent TOUTES à la même distance sous la navbar (`--section-top`), quelle
+     que soit la hauteur du contenu — le titre respire, et de façon identique
+     d'une section à l'autre.
+
+     Le hero reste centré : son contenu est calibré pour la hauteur d'écran et
+     ce centrage lui va — il n'était pas concerné. */
+  .story-band,
+  .pricing-section {
+    justify-content: flex-start;
   }
 
   /* Le pied de page vit DANS la dernière section, qui est une boîte de 100vh
@@ -2116,7 +2148,7 @@ footer {
     height: auto;
     overflow: visible;
     scroll-snap-align: start;
-    padding-top: 72px !important;
+    padding-top: var(--section-top) !important;
     padding-bottom: 24px !important;
   }
   
@@ -2134,9 +2166,9 @@ footer {
 
   .section-inner {
     width: 100%;
-    max-width: 1240px;
+    max-width: var(--frame-max);
     margin: 0 auto;
-    padding: 0 24px;
+    padding: 0 var(--frame-pad);
     box-sizing: border-box;
   }
 }
