@@ -276,25 +276,6 @@ button { font-family: inherit; cursor: pointer; border: none; }
   pointer-events: none;
 }
 
-/* Variante HERO du décor de langues (`LanguageMarquee variant="hero"`).
-   Le fond du hero est SOMBRE : le texte navy à 12 % de la variante page y était
-   invisible. Ici il peint en BLANC et plus discrètement (~5 %) — un motif
-   derrière le titre et la démo, jamais un concurrent. Posé DANS le hero
-   (position: absolute, z-index 0), sous le contenu qui est à z-index 10. */
-.hero-lang-marquee {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  pointer-events: none;
-}
-.hero-lang-marquee .lang-line {
-  color: rgba(255, 255, 255, 0.05);
-}
-
 .lang-line {
   font-family: var(--font-display);
   font-size: clamp(1.8rem, 4vw, 3.6rem);
