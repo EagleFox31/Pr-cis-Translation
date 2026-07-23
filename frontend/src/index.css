@@ -1955,13 +1955,13 @@ footer {
   width: 46px; height: 46px;
   border-radius: 12px;
   background: var(--blue-light);
+  color: var(--blue);            /* le SVG hérite via currentColor */
   display: flex; align-items: center; justify-content: center;
   margin-bottom: 16px;
-  transition: background .25s;
+  transition: background .25s, color .25s;
 }
-.feat-card:hover .feat-icon { background: var(--blue); }
 .feat-icon svg { transition: color .25s; }
-.feat-card:hover .feat-icon svg { color: white !important; }
+.feat-card:hover .feat-icon { background: var(--blue); color: #fff; }
 .feat-title {
   font-size: 15px; font-weight: 600;
   color: var(--navy); margin-bottom: 8px;

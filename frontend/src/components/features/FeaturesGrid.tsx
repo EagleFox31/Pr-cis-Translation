@@ -50,10 +50,18 @@ export default function FeaturesGrid() {
                 delay: 0.05 + index * 0.1,
                 ease: [0.16, 1, 0.3, 1],
               }}
-              whileHover={{ y: -4, boxShadow: '0 20px 40px rgba(13,27,62,0.12)' }}
+              // Le SURVOL est entièrement géré en CSS (`.feat-card:hover`) :
+              // translation, ombre, bordure, liseré et bascule de l'icône. Le
+              // `whileHover` de framer posait un `transform` EN LIGNE qui
+              // écrasait celui du CSS — les deux se disputaient la carte et le
+              // rendu sautait. Un seul pilote, plus de conflit.
             >
               <div className="feat-icon">
-                <feat.Icon size={22} strokeWidth={1.7} color="var(--blue)" />
+                {/* Pas de prop `color` ici : elle fixerait `stroke` EN DUR sur
+                    le SVG, et la bascule en blanc au survol ne pourrait plus
+                    l'emporter — l'icône restait bleue sur fond bleu, donc
+                    invisible. La couleur vient du CSS (`currentColor`). */}
+                <feat.Icon size={22} strokeWidth={1.7} />
               </div>
               <div className="feat-title">
                 {t(`features.card_${feat.key}_title`)}
