@@ -201,7 +201,7 @@ export default function DocumentLibrary({
                 quand ça coince, elle doit être à portée sans quitter le compte. */}
             <Button variant="ghost" size="md" block
               icon={<LifeBuoy size={15} strokeWidth={2.2} />}
-              onClick={() => setSupportOpen(true)}>
+              onClick={() => { onClose(); setSupportOpen(true); }}>
               {t('support.open', 'Aide & support')}
             </Button>
             <Button variant="danger" size="md" block
