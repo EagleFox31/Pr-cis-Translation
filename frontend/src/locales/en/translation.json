@@ -328,7 +328,10 @@
     "deleted": "Deleted"
   },
   "admin": {
-    "menu": "Administration"
+    "menu": "Administration",
+    "back": "Back",
+    "back_home": "Back to home",
+    "my_account": "My account"
   },
   "admin_users": {
     "nav": "Accounts",

@@ -8,13 +8,13 @@
  */
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, RefreshCw, Download, CheckCircle2, Trash2, ChevronDown, ChevronRight,
+  RefreshCw, Download, CheckCircle2, Trash2, ChevronDown, ChevronRight,
 } from 'lucide-react';
 
 import { useErrorLogs, type LogOccurrence } from '../hooks/useErrorLogs';
 import { showToast } from '../components/ui/Toast';
+import AdminShell from '../components/admin/AdminShell';
 
 const LEVEL_COLOR: Record<string, string> = {
   critical: '#b91c1c', error: '#dc2626', warning: '#d97706',
@@ -30,7 +30,6 @@ function fmt(iso: string | null): string {
 
 export default function AdminLogsPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const {
     filters, setFilters, groups, total, loading,
     refresh, fetchGroup, markHandled, remove, exportLogs,
@@ -61,33 +60,22 @@ export default function AdminLogsPage() {
   const sel = (v: string) => (v === '' ? undefined : v);
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--gray-50, #f9fafb)', padding: '24px' }}>
-      <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
-
-        {/* En-tête */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '18px' }}>
-          <button onClick={() => navigate('/home')} className="tb-btn ghost"
+    <AdminShell
+      title={t('logs.title', 'Journal des erreurs')}
+      count={t('logs.groups_count', '{{n}} type(s)', { n: total })}
+      actions={
+        <>
+          <button onClick={() => void exportLogs()} className="tb-btn ghost"
             style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <ArrowLeft size={15} strokeWidth={2.2} /> {t('logs.back', 'Retour')}
+            <Download size={15} strokeWidth={2.2} /> {t('logs.export', 'Exporter')}
           </button>
-          <h1 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--navy, #0d1b3e)', margin: 0 }}>
-            {t('logs.title', 'Journal des erreurs')}
-          </h1>
-          <span style={{ fontSize: '12px', color: 'var(--gray-500, #6b7280)' }}>
-            {t('logs.groups_count', '{{n}} type(s)', { n: total })}
-          </span>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-            <button onClick={() => void exportLogs()} className="tb-btn ghost"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Download size={15} strokeWidth={2.2} /> {t('logs.export', 'Exporter')}
-            </button>
-            <button onClick={() => void refresh()} className="tb-btn ghost"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <RefreshCw size={15} strokeWidth={2.2} /> {t('logs.refresh', 'Rafraîchir')}
-            </button>
-          </div>
-        </div>
-
+          <button onClick={() => void refresh()} className="tb-btn ghost"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <RefreshCw size={15} strokeWidth={2.2} /> {t('logs.refresh', 'Rafraîchir')}
+          </button>
+        </>
+      }
+    >
         {/* Filtres */}
         <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
           <select value={filters.source || ''} onChange={(e) => setFilters({ ...filters, source: sel(e.target.value) })} style={selectStyle}>
@@ -200,8 +188,7 @@ export default function AdminLogsPage() {
             </div>
           ))}
         </div>
-      </div>
-    </div>
+    </AdminShell>
   );
 }
 
