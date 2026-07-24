@@ -38,7 +38,10 @@ Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
   d'administration **`/admin/support`** (menu Administration) : liste filtrable,
   détail, cycle **traiter (note interne) → supprimer** (suppression refusée tant
   qu'un ticket est ouvert). Alerte e-mail à l'admin à chaque ticket. Migration
-  `0007_support_tickets`.
+  `0007_support_tickets`. **Référencement automatique du document** : signaler
+  un problème depuis l'aperçu (barre d'outils) ou une carte de bibliothèque
+  attache l'identité du document (id + nom) au ticket — l'utilisateur ne saisit
+  rien, l'admin voit tout de suite de quel document il s'agit.
 - **File de priorité de traduction** : les traductions ne démarrent plus toutes
   en parallèle sans limite. Un ordonnanceur borné (`TRANSLATION_WORKERS`, défaut
   2) mène N traductions de front ; au-delà, les demandes attendent dans une file

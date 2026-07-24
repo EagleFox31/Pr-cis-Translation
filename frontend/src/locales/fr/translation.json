@@ -356,6 +356,9 @@
   },
   "support": {
     "open": "Aide & support",
+    "report": "Signaler un problème",
+    "about": "À propos de",
+    "document_label": "Document",
     "title": "Aide & support",
     "subtitle": "Un souci, une question sur votre offre ? Écrivez-nous.",
     "cat_problem": "Signaler un problème",

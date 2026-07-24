@@ -37,6 +37,12 @@ class TicketBody(BaseModel):
     subject: str = Field(..., min_length=1, max_length=_MAX_SUBJECT)
     message: str = Field(..., min_length=1, max_length=_MAX_MESSAGE)
     url: str | None = Field(None, max_length=1000)
+    # Document concerné, référencé AUTOMATIQUEMENT par le frontend (aperçu /
+    # bibliothèque). L'id peut manquer (aperçu d'une traduction fraîche) ; le nom
+    # suffit à savoir de quel document il s'agit. On ne le CROIT pas : c'est un
+    # repère pour l'admin, pas une clé de droits.
+    document_id: str | None = Field(None, max_length=64)
+    document_name: str | None = Field(None, max_length=300)
 
 
 async def _notify_admins(db: AsyncSession, ticket: SupportTicket) -> None:
@@ -76,6 +82,10 @@ async def create_ticket(
     ctx: dict = {"plan": user.plan}
     if body.url:
         ctx["url"] = body.url
+    if body.document_id:
+        ctx["document_id"] = body.document_id
+    if body.document_name:
+        ctx["document_name"] = body.document_name
     ctx["user_agent"] = request.headers.get("user-agent", "")[:300]
 
     ticket = SupportTicket(

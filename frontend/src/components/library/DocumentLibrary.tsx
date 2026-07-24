@@ -26,7 +26,7 @@ import Drawer from '../ui/Drawer';
 import EmptyState from '../ui/EmptyState';
 import IconButton from '../ui/IconButton';
 import PaymentModal from '../payment/PaymentModal';
-import SupportModal from '../support/SupportModal';
+import { openSupport } from '../support/supportBus';
 import AccountPanel from './AccountPanel';
 import DocumentCard from './DocumentCard';
 
@@ -75,8 +75,6 @@ export default function DocumentLibrary({
   const [confirmClear, setConfirmClear] = useState(false);
   // Document dont on est en train de régler les pages (null = pas de paiement).
   const [payFor, setPayFor] = useState<DocMeta | null>(null);
-  // Fenêtre d'assistance ouverte ?
-  const [supportOpen, setSupportOpen] = useState(false);
 
   // On n'ATTEND rien ici. L'aperçu rastérisé se calcule côté serveur en
   // quelques secondes ; le retenir jusqu'au bout laissait l'utilisateur devant
@@ -201,7 +199,7 @@ export default function DocumentLibrary({
                 quand ça coince, elle doit être à portée sans quitter le compte. */}
             <Button variant="ghost" size="md" block
               icon={<LifeBuoy size={15} strokeWidth={2.2} />}
-              onClick={() => { onClose(); setSupportOpen(true); }}>
+              onClick={() => { onClose(); openSupport(); }}>
               {t('support.open', 'Aide & support')}
             </Button>
             <Button variant="danger" size="md" block
@@ -212,8 +210,6 @@ export default function DocumentLibrary({
           </footer>
         )}
       </Drawer>
-
-      <SupportModal open={supportOpen} onClose={() => setSupportOpen(false)} />
 
       <PaymentModal
         open={!!payFor}

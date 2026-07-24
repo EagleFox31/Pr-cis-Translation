@@ -133,6 +133,17 @@ export default function AdminSupportPage() {
                   {tk.context?.plan ? <span>{t('support.plan_label', 'forfait')} : {String(tk.context.plan)}</span> : null}
                   {tk.context?.url ? <span>{String(tk.context.url)}</span> : null}
                 </div>
+                {/* Document référencé automatiquement, s'il y en a un. */}
+                {tk.context?.document_name ? (
+                  <div style={{
+                    fontSize: '12.5px', marginBottom: 10, padding: '7px 10px', borderRadius: '8px',
+                    background: 'var(--blue-light, #eff6ff)', border: '1px solid #bfdbfe',
+                    color: '#1e40af', display: 'inline-flex', alignItems: 'center', gap: 6,
+                  }}>
+                    📄 {t('support.document_label', 'Document')} : <strong>{String(tk.context.document_name)}</strong>
+                    {tk.context?.document_id ? <span style={{ color: 'var(--gray-400)' }}>· {String(tk.context.document_id)}</span> : null}
+                  </div>
+                ) : null}
                 <p style={{ fontSize: '13.5px', color: 'var(--gray-800, #1f2937)', whiteSpace: 'pre-wrap', margin: 0, lineHeight: 1.55 }}>
                   {tk.message}
                 </p>

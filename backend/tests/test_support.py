@@ -67,7 +67,8 @@ async def main() -> None:
         auth = await db.get(User, author_id)
         r = await create_ticket(
             TicketBody(category="wat", subject=f"{TOKEN} souci",
-                       message="ca ne marche pas", url="/home"),
+                       message="ca ne marche pas", url="/home",
+                       document_id="doc-42", document_name="rapport.pdf"),
             _fake_request(), user=auth, db=db)
     tid = r["id"]
     check(r["ok"] and tid, "create_ticket cree un ticket")
@@ -79,6 +80,9 @@ async def main() -> None:
           "categorie inconnue -> repli 'problem' (pas de valeur fantome)")
     check(tk is not None and (tk.context or {}).get("plan") == "starter",
           "le plan au moment T est capture dans le contexte")
+    check(tk is not None and (tk.context or {}).get("document_name") == "rapport.pdf"
+          and (tk.context or {}).get("document_id") == "doc-42",
+          "le document reference (id + nom) atterrit dans le contexte")
 
     # ── 2. Liste (admin) : ticket present + compteur d'ouverts ────────────────
     async with async_session() as db:
