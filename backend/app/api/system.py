@@ -11,7 +11,7 @@ from app.core.pricing import (CURRENCY, CURRENCY_DECIMALS, page_price,
                               plan_price, zone_for_country)
 from app.core.security import require_auth
 from app.models import (PLAN_LABELS, User, get_plan_monthly_pages,
-                        get_plan_storage)
+                        get_plan_priority, get_plan_storage)
 from app.rate_limit import rate_limit_decorator
 from app import versions
 
@@ -86,6 +86,9 @@ async def pricing(request: Request, country: str | None = None):
                 "annual": plan_price(key, zone, annual=True),
                 "monthly_pages": get_plan_monthly_pages(key),
                 "storage": get_plan_storage(key),
+                # Niveau de vitesse VENDU (la carte l'affiche). Son application
+                # réelle attend le chantier « file de priorité ».
+                "priority": get_plan_priority(key),
             }
             for key in ("free", "starter", "pro", "enterprise")
         ],

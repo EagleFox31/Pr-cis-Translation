@@ -20,6 +20,21 @@ Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
   et cycle **exporter → marquer traité → supprimer** (suppression refusée tant
   qu'un log n'est pas traité). Alerte e-mail à l'admin au-delà d'un seuil de logs
   non traités (throttlée). Migration `0006_error_logs`.
+- **Console d'administration des comptes** (`/admin/users`, réservée admin) :
+  liste filtrable des comptes et changement de plan. Sert à promouvoir un testeur
+  (Starter/Pro) sans desserrer le forfait Gratuit. Garde-fous : plan restreint à
+  une liste blanche, et un admin ne peut pas changer son propre plan
+  (anti-verrouillage).
+- **Vitesse de traitement affichée sur les cartes de tarifs** : le gratuit passe
+  en file standard, chaque palier payant remonte dans la file (priorité 0→3).
+  C'est le nouveau levier de vente. ⚠ L'attribut est *déclaré et vendu* ; son
+  application réelle (l'ordonnancement de la file) reste à faire — chantier
+  « file de priorité ».
+
+### Modifié
+- **Tarifs zone A (Cameroun, FCFA) baissés** pour l'adoption bêta : Starter
+  2 500 → **1 500** F/mois (annuel 1 900 → 1 200), Pro 6 900 → **4 500** F/mois
+  (annuel 5 200 → 3 500), page à l'unité 100 → **75** F. Zones B/C inchangées.
 
 Limites connues (assumées, non bloquantes) : PDF scannés non traduits (aucun OCR,
 étude dans [`docs/etude-ocr.md`](docs/etude-ocr.md)) ; une colonne PDF justifiée de

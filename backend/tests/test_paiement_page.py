@@ -275,8 +275,9 @@ async def run():
             if _sauve is not None:
                 os.environ["PRICING_DEFAULT_COUNTRY"] = _sauve
         # Le vrai risque du multi-devise : confondre les unités mineures.
-        ok("ZONE  100 FCFA la page, 0,19 € la page",
-           page_price("A") == 100 and page_price("C") == 19,
+        # Zone A baissée le 24/07/2026 (100 -> 75 FCFA) ; zone C inchangée.
+        ok("ZONE  75 FCFA la page, 0,19 € la page",
+           page_price("A") == 75 and page_price("C") == 19,
            f"A={page_price('A')} C={page_price('C')}")
     finally:
         appmod.render_translation_bytes = vrai_rendu

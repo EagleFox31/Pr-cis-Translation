@@ -107,9 +107,12 @@ PLAN_PRICES: dict[str, dict[str, dict[str, int | None]]] = {
         "enterprise": {"monthly": None, "annual": None},
     },
     ZONE_AFRICA: {                                    # XAF, francs
+        # Baissé le 24/07/2026 pour l'adoption bêta (2500/6900 → 1500/4500). Le
+        # coût est fixe, pas à la page : sur ce marché, du volume à petit prix
+        # vaut mieux qu'une marge affichée que personne ne teste.
         "free":       {"monthly": 0,    "annual": 0},
-        "starter":    {"monthly": 2500, "annual": 1900},
-        "pro":        {"monthly": 6900, "annual": 5200},
+        "starter":    {"monthly": 1500, "annual": 1200},
+        "pro":        {"monthly": 4500, "annual": 3500},
         "enterprise": {"monthly": None, "annual": None},
     },
 }
@@ -125,7 +128,7 @@ PLAN_PRICES: dict[str, dict[str, dict[str, int | None]]] = {
 PAGE_PRICE: dict[str, int] = {
     ZONE_GLOBAL:   19,    # 0,19 €
     ZONE_EMERGING: 12,    # 0,12 $
-    ZONE_AFRICA:   100,   # 100 FCFA
+    ZONE_AFRICA:   75,    # 75 FCFA (baissé de 100 le 24/07/2026, cf. zone A)
 }
 
 # Les frais Campay (2 % encaissement + 1 % reversement) sont DÉJÀ absorbés dans

@@ -49,6 +49,19 @@ function features(
     text: t('pricing.feat_storage', { size: formatSize(plan.storage, t) }),
   });
 
+  // La VITESSE est le levier de vente principal : le gratuit passe en file
+  // standard, chaque palier payant remonte dans la file. On la nomme sur
+  // chaque carte pour que « payer = aller plus vite » se lise d'un coup d'œil.
+  const vitesse = (): Feature => {
+    const key = plan.priority >= 3 ? 'pricing.feat_speed_dedicated'
+      : plan.priority === 2 ? 'pricing.feat_speed_max'
+      : plan.priority === 1 ? 'pricing.feat_speed_priority'
+      : 'pricing.feat_speed_standard';
+    // La file standard n'est pas un manque : c'est l'offre gratuite. On ne la
+    // barre donc pas — mais elle contraste avec le « prioritaire » d'à côté.
+    return { text: t(key) };
+  };
+
   if (plan.key === 'free') {
     return [
       { text: t('pricing.feat_free_page') },
@@ -57,7 +70,7 @@ function features(
       // moment de payer.
       { text: t('pricing.feat_free_then', {
           price: formatMoney(p.page_price, p.currency, p.decimals, locale) }) },
-      { text: t('pricing.feat_free_no_sub') },
+      vitesse(),
       { text: t('pricing.feat_free_no_storage'), off: true },
     ];
   }
@@ -65,6 +78,7 @@ function features(
   if (plan.key === 'enterprise') {
     return [
       { text: t('pricing.feat_ent_unlimited') },
+      vitesse(),
       { text: t('pricing.feat_ent_api') },
       { text: t('pricing.feat_ent_support') },
       stockage(),
@@ -75,6 +89,7 @@ function features(
     { text: plan.monthly_pages === null
         ? t('pricing.feat_pages_unlimited')
         : t('pricing.feat_pages_monthly', { count: plan.monthly_pages }) },
+    vitesse(),
     { text: t('pricing.feat_download') },
     { text: plan.key === 'pro'
         ? t('pricing.feat_support_priority')

@@ -17,6 +17,9 @@ export interface PricingPlan {
   annual: number | null;
   monthly_pages: number | null;   // null = illimité
   storage: number;                // octets
+  /** Niveau de VITESSE vendu : 0 = file standard, 1 = prioritaire, 2 = max,
+   *  3 = dédié. L'application réelle attend le chantier « file de priorité ». */
+  priority: number;
 }
 
 export interface Pricing {

@@ -16,13 +16,16 @@ DEUX RAISONS de tout importer ici, et pas seulement par confort :
 """
 from .base import Base, new_uuid, utcnow
 from .plans import (
+    ASSIGNABLE_PLANS,
     FREE_PLAN,
     PLAN_LABELS,
     PLAN_MONTHLY_PAGES,
     PLAN_PAGE_LIMIT,
+    PLAN_PRIORITY,
     PLAN_STORAGE,
     get_plan_monthly_pages,
     get_plan_page_limit,
+    get_plan_priority,
     get_plan_storage,
     is_paid_plan,
 )
@@ -36,7 +39,8 @@ __all__ = [
     "Base", "new_uuid", "utcnow",
     "User", "Document", "Payment", "RefreshToken", "VerificationCode",
     "ErrorLog", "LEVELS", "SOURCES", "STATUS_HANDLED", "STATUS_NEW",
-    "FREE_PLAN", "PLAN_LABELS", "PLAN_MONTHLY_PAGES", "PLAN_PAGE_LIMIT",
-    "PLAN_STORAGE", "get_plan_monthly_pages", "get_plan_page_limit",
+    "ASSIGNABLE_PLANS", "FREE_PLAN", "PLAN_LABELS", "PLAN_MONTHLY_PAGES",
+    "PLAN_PAGE_LIMIT", "PLAN_PRIORITY", "PLAN_STORAGE",
+    "get_plan_monthly_pages", "get_plan_page_limit", "get_plan_priority",
     "get_plan_storage", "is_paid_plan",
 ]
