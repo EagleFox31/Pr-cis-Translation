@@ -158,6 +158,43 @@ def _message_verification(email: str, code: str, token: str,
     return msg
 
 
+async def send_plain(to: list[str] | str, subject: str, body: str) -> None:
+    """Envoi d'un e-mail texte simple — alertes internes (journal d'erreurs).
+
+    Pas de gabarit de marque : ce n'est pas un message client, c'est une notif
+    d'exploitation. Comme le reste du module, si l'envoi est coupé
+    (`EMAIL_ENABLED=false` ou pas de SMTP), on JOURNALISE au lieu d'envoyer —
+    ce qui rend la fonction testable hors ligne, et jamais bloquante.
+    """
+    destinataires = [to] if isinstance(to, str) else list(to)
+    destinataires = [d for d in destinataires if d]
+    if not destinataires:
+        return
+
+    if not EMAIL_ENABLED or not SMTP_HOST:
+        logger.info("[DEV] Alerte → %s | %s", ", ".join(destinataires), subject)
+        return
+
+    import aiosmtplib
+
+    msg = MIMEMultipart("alternative")
+    msg["From"] = SMTP_USER or "no-reply@precis"
+    msg["To"] = ", ".join(destinataires)
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain", "utf-8"))
+    try:
+        await aiosmtplib.send(
+            msg, hostname=SMTP_HOST, port=SMTP_PORT,
+            username=SMTP_USER or None, password=SMTP_PASSWORD or None,
+            start_tls=True, use_tls=(SMTP_PORT == 465),
+        )
+        logger.info("Alerte envoyée à %s", ", ".join(destinataires))
+    except Exception as exc:
+        # Une alerte qui échoue ne doit jamais casser l'appelant (souvent un
+        # thread de traitement) : on la note et on passe.
+        logger.warning("Alerte e-mail non envoyée : %s", exc)
+
+
 async def send_verification_email(email: str, code: str, token: str,
                                   accept_language: str | None = None) -> None:
     """Envoie le code de connexion, dans la langue de l'interface.

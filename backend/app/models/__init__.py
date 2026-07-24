@@ -30,10 +30,12 @@ from .user import User
 from .document import Document
 from .payment import Payment
 from .auth_tokens import RefreshToken, VerificationCode
+from .error_log import (ErrorLog, LEVELS, SOURCES, STATUS_HANDLED, STATUS_NEW)
 
 __all__ = [
     "Base", "new_uuid", "utcnow",
     "User", "Document", "Payment", "RefreshToken", "VerificationCode",
+    "ErrorLog", "LEVELS", "SOURCES", "STATUS_HANDLED", "STATUS_NEW",
     "FREE_PLAN", "PLAN_LABELS", "PLAN_MONTHLY_PAGES", "PLAN_PAGE_LIMIT",
     "PLAN_STORAGE", "get_plan_monthly_pages", "get_plan_page_limit",
     "get_plan_storage", "is_paid_plan",

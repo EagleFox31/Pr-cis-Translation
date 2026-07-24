@@ -10,7 +10,16 @@ Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 
 ## [Unreleased]
 
-_Rien en attente._
+### Ajouté
+- **Journal central des erreurs** : toutes les erreurs (interface, backend, API)
+  sont captées et regroupées par empreinte. Capture front (erreurs JS, promesses
+  rejetées, rendu React via `ErrorBoundary`, échecs réseau/5xx) → `POST
+  /api/logs/client` ; capture backend (handler d'exception global + tout
+  `logger.error` via un handler DB). Vue d'administration **`/admin/logs`**
+  (réservée aux comptes admin) : liste groupée, filtres, détail (pile + contexte),
+  et cycle **exporter → marquer traité → supprimer** (suppression refusée tant
+  qu'un log n'est pas traité). Alerte e-mail à l'admin au-delà d'un seuil de logs
+  non traités (throttlée). Migration `0006_error_logs`.
 
 Limites connues (assumées, non bloquantes) : PDF scannés non traduits (aucun OCR,
 étude dans [`docs/etude-ocr.md`](docs/etude-ocr.md)) ; une colonne PDF justifiée de
