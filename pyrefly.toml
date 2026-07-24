@@ -1,0 +1,25 @@
+# Configuration Pyrefly (analyseur de types de l'IDE).
+#
+# POURQUOI CE FICHIER
+# Sans lui, Pyrefly devine l'interpréteur et tombe sur le Python GLOBAL de la
+# machine (ex. 3.14), où les dépendances du projet — fontTools, fastapi… — ne
+# sont pas installées. Il signale alors de faux « missing-import » (fontTools.
+# ttLib, etc.) alors que le code tourne parfaitement dans le venv. Pyrefly ne lit
+# PAS le `python.defaultInterpreterPath` de VS Code : il faut le lui dire ici.
+#
+# On l'ancre donc sur le venv du backend, où tout est installé.
+
+# Interpréteur du projet : Pyrefly l'interroge pour trouver les site-packages.
+python-interpreter = "backend/venv/Scripts/python.exe"
+
+# Fallback explicite, au cas où l'interrogation de l'interpréteur échoue :
+# le dossier où pip a installé fontTools & Cie dans le venv.
+site-package-path = ["backend/venv/Lib/site-packages"]
+
+# Résolution des imports de PREMIER niveau (`import engines`, `import app`…) :
+# leur racine est `backend/`, pas la racine du dépôt.
+search-path = ["backend"]
+
+# Le code Python vit sous backend/ (et scripts/) ; le reste (frontend, docs) est
+# hors périmètre.
+project-includes = ["backend", "scripts"]
