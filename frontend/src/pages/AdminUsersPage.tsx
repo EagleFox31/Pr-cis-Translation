@@ -7,12 +7,12 @@
  */
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Search } from 'lucide-react';
+import { RefreshCw, Search } from 'lucide-react';
 
 import { useAdminUsers, type AdminUser } from '../hooks/useAdminUsers';
 import { useAuth } from '../contexts/AuthContext';
 import { showToast } from '../components/ui/Toast';
+import AdminShell from '../components/admin/AdminShell';
 
 const PLAN_COLOR: Record<string, string> = {
   free: '#6b7280', starter: '#2563eb', pro: '#7c3aed',
@@ -26,7 +26,6 @@ function fmt(iso: string | null): string {
 
 export default function AdminUsersPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const { user } = useAuth();
   const { q, setQ, users, plans, total, loading, refresh, changePlan } = useAdminUsers();
   const [busy, setBusy] = useState<string | null>(null);
@@ -47,29 +46,16 @@ export default function AdminUsersPage() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--gray-50, #f9fafb)', padding: '24px' }}>
-      <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
-
-        {/* En-tête */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '18px' }}>
-          <button onClick={() => navigate('/home')} className="tb-btn ghost"
-            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <ArrowLeft size={15} strokeWidth={2.2} /> {t('admin_users.back', 'Retour')}
-          </button>
-          <h1 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--navy, #0d1b3e)', margin: 0 }}>
-            {t('admin_users.title', 'Comptes utilisateurs')}
-          </h1>
-          <span style={{ fontSize: '12px', color: 'var(--gray-500, #6b7280)' }}>
-            {t('admin_users.count', '{{n}} compte(s)', { n: total })}
-          </span>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-            <button onClick={() => void refresh()} className="tb-btn ghost"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <RefreshCw size={15} strokeWidth={2.2} /> {t('admin_users.refresh', 'Rafraîchir')}
-            </button>
-          </div>
-        </div>
-
+    <AdminShell
+      title={t('admin_users.title', 'Comptes utilisateurs')}
+      count={t('admin_users.count', '{{n}} compte(s)', { n: total })}
+      actions={
+        <button onClick={() => void refresh()} className="tb-btn ghost"
+          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <RefreshCw size={15} strokeWidth={2.2} /> {t('admin_users.refresh', 'Rafraîchir')}
+        </button>
+      }
+    >
         {/* Recherche */}
         <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', alignItems: 'center' }}>
           <div style={{ position: 'relative', flex: 1 }}>
@@ -136,7 +122,6 @@ export default function AdminUsersPage() {
             })}
           </div>
         )}
-      </div>
-    </div>
+    </AdminShell>
   );
 }
