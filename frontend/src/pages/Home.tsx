@@ -48,6 +48,8 @@ export default function Home() {
   // ce drapeau dit au viewer de montrer « rendu en cours » au lieu du sablon
   // « page en attente », qui ferait croire à une traduction inachevée.
   const [previewLoading, setPreviewLoading] = useState(false);
+  // Mode AGRANDI (focus) : l'aperçu prend tout le cadre sous une navbar allégée.
+  const [previewFocus, setPreviewFocus] = useState(false);
   // DEUX compteurs, et non un seul partagé. L'ouverture d'un aperçu et le
   // chargement d'une page sont deux courses distinctes : avec un compteur
   // unique, l'effet de page incrémentait le jeton juste après l'ouverture et
@@ -95,18 +97,28 @@ export default function Home() {
   }, []);
 
   // ---- Preview mode class ----
+  // `preview-active` = l'aperçu est ouvert (ajuste la hauteur de la section pour
+  // qu'elle tienne sur un écran). `preview-focus` = mode agrandi (navbar
+  // allégée, surcouche plein cadre, snap coupé). Le focus n'a de sens que si
+  // l'aperçu est ouvert.
   useEffect(() => {
     const htmlEl = document.documentElement;
-    if (showPreview) {
-      htmlEl.classList.add('preview-active');
-    } else {
+    htmlEl.classList.toggle('preview-active', showPreview);
+    htmlEl.classList.toggle('preview-focus', showPreview && previewFocus);
+    return () => {
       htmlEl.classList.remove('preview-active');
-    }
-    return () => htmlEl.classList.remove('preview-active');
-  }, [showPreview]);
+      htmlEl.classList.remove('preview-focus');
+    };
+  }, [showPreview, previewFocus]);
+
+  const toggleFocus = useCallback(() => setPreviewFocus((v) => !v), []);
 
   // ---- Nav click handler ----
   const handleNavClick = useCallback((sectionId: string) => {
+    // Quitter une autre section depuis le mode agrandi : on revient d'abord au
+    // rendu NORMAL (la surcouche plein cadre `preview-focus` est `position:fixed`
+    // + `overflow:hidden` — sans ça, le scroll vers la cible n'aurait aucun effet).
+    setPreviewFocus(false);
     const el = document.getElementById(sectionId);
     if (el) {
       el.scrollIntoView({ behavior: 'smooth' });
@@ -296,6 +308,7 @@ export default function Home() {
   const handleBack = useCallback(() => {
     stream.cancel();
     setShowPreview(false);
+    setPreviewFocus(false);         // on quitte aussi le mode agrandi
     setLibraryDocId(null);          // plus d'aperçu ouvert : plus rien à charger
     setPreviewLoading(false);
   }, [stream]);
@@ -307,6 +320,47 @@ export default function Home() {
   // le servir), y compris pour un PPTX.
   const previewTranslatedIsPdf = translatedBlob ? translatedIsPdf : true;
   const effectiveNumPages = stream.totalPages ?? numPages;
+
+  // ---- Raccourcis clavier + souris de l'aperçu (simples) ----
+  // Actifs seulement quand l'aperçu est ouvert. Ignorés si l'on tape dans un
+  // champ. Réutilisent les setters existants (page, zoom, focus, retour).
+  useEffect(() => {
+    if (!showPreview) return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      switch (e.key) {
+        case 'ArrowLeft':  setCurrentPage((p) => Math.max(1, p - 1)); break;
+        case 'ArrowRight': setCurrentPage((p) => Math.min(effectiveNumPages, p + 1)); break;
+        case 'Home':       setCurrentPage(1); break;
+        case 'End':        setCurrentPage(effectiveNumPages); break;
+        case '+': case '=': setZoom((z) => Math.min(3, +(z + 0.25).toFixed(2))); break;
+        case '-':          setZoom((z) => Math.max(0.5, +(z - 0.25).toFixed(2))); break;
+        case '0':          setZoom(1); break;
+        case 'f': case 'F': setPreviewFocus((v) => !v); break;
+        case 'Escape':
+          if (previewFocus) setPreviewFocus(false);
+          else handleBack();
+          break;
+        default: return;
+      }
+    };
+    // Ctrl + molette = zoom (comme un lecteur PDF). `passive:false` pour pouvoir
+    // annuler le zoom natif de la page.
+    const scrollEl = document.getElementById('scroll');
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      setZoom((z) => Math.min(3, Math.max(0.5,
+        +(z + (e.deltaY < 0 ? 0.15 : -0.15)).toFixed(2))));
+    };
+    window.addEventListener('keydown', onKey);
+    scrollEl?.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      scrollEl?.removeEventListener('wheel', onWheel);
+    };
+  }, [showPreview, effectiveNumPages, previewFocus, handleBack]);
 
   return (
     <div className="min-h-screen bg-white text-gray-900 font-body">
@@ -356,8 +410,10 @@ export default function Home() {
           previewRendering={previewLoading}
           translationError={stream.error}
           limitReached={stream.limitReached}
+          focus={previewFocus}
           onStartTranslate={handleStartTranslate}
           onBack={handleBack}
+          onToggleFocus={toggleFocus}
           onZoomChange={setZoom}
           onPageChange={setCurrentPage}
           onDownload={handleDownload}

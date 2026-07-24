@@ -18,12 +18,24 @@
  * Rien à traduire ici — c'est justement la démonstration : les mots restent
  * dans leur langue, c'est tout le propos.
  *
- * UN SEUL calque, FIXE, derrière toutes les sections. Il ne se rend qu'une fois
- * (dans `Home`) et persiste au défilement grâce à `position: fixed`. Ne pas en
- * poser d'autre ailleurs : deux marquees se superposent et brouillent la
- * lecture — c'est l'erreur qui a motivé ce commentaire.
+ * DEUX RENDUS, UNE SEULE SOURCE
+ * -----------------------------
+ * `fixed` (défaut) : UN calque navy, fixe, derrière toutes les SECTIONS claires
+ * — il tient pendant que les sections glissent par-dessus (parallaxe). Navy, car
+ * il est posé sur le corps blanc.
+ *
+ * `hero` : le hero a un fond navy ; un décor navy s'y perdrait. On rend donc les
+ * MÊMES bandes en BLANC, dans le hero, au-dessus de son fond mais sous le titre —
+ * contraste franc, et clipé au hero (il défile avec lui). Deux calques, mais
+ * jamais concurrents : chacun n'est visible que là où l'autre s'efface.
  */
 import { Fragment } from 'react';
+
+interface LanguageMarqueeProps {
+  /** `fixed` = décor navy fixe des sections (défaut) ; `hero` = calque blanc
+   *  animé, borné au hero, pour contraster sur son fond sombre. */
+  variant?: 'fixed' | 'hero';
+}
 
 const BANDES: readonly (readonly string[])[] = [
   ['Translation', 'Traduction', 'Traducción', 'Übersetzung', 'Traduzione',
@@ -38,11 +50,14 @@ const BANDES: readonly (readonly string[])[] = [
 
 const REPETITIONS = 3;
 
-export default function LanguageMarquee() {
+export default function LanguageMarquee({ variant = 'fixed' }: LanguageMarqueeProps) {
   return (
     // `aria-hidden` : c'est un décor. Sans lui, un lecteur d'écran énonce cent
     // vingt mots sans rapport avant d'atteindre le contenu de la page.
-    <div className="page-bg-lang-lines" aria-hidden>
+    <div
+      className={variant === 'hero' ? 'hero-decor-lines' : 'page-bg-lang-lines'}
+      aria-hidden
+    >
       <div className="hero-lang-lines">
         {BANDES.map((mots, bande) => (
           <div

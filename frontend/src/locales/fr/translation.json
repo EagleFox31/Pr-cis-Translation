@@ -122,7 +122,7 @@
     "saved_to_library": "Document sauvegardé dans votre bibliothèque.",
     "advanced": "Options avancées",
     "structure_label": "Mode structure (sans traduction)",
-    "structure_desc": "Affiche les contours des blocs détectés, sans traduire — pour diagnostiquer la mise en page.",
+    "structure_desc": "Ré-injecte le texte d'origine sans le traduire (contours des blocs en PDF) — pour éprouver l'extraction et la mise en page sans consommer de crédit IA.",
     "page_ready": "Page traduite",
     "page_progress": "Traduction en cours…",
     "page_waiting": "En attente",
@@ -213,7 +213,9 @@
     "download_wait": "Disponible à la fin de la traduction",
     "download_locked": "Version d'essai — débloquez le téléchargement",
     "pages_done": "{{done}}/{{total}} pages",
-    "translation_done": "Traduction terminée"
+    "translation_done": "Traduction terminée",
+    "enlarge": "Agrandir",
+    "exit_enlarge": "Réduire"
   },
   "units": {
     "b": "o",

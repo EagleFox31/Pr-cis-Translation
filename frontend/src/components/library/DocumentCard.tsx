@@ -1,15 +1,24 @@
 /**
  * Une entrée de la bibliothèque : le document, son état, ses actions.
  *
- * Extrait de `DocumentLibrary` — qui en portait le rendu complet, en styles en
- * ligne, au milieu de la logique du panneau. Isolée, la carte se lit d'un
- * écran et son état se raisonne seul : `en cours`, `en erreur`, `verrouillé`,
- * ou rien de tout cela.
+ * OBJET RECONSTRUIT (`libdoc`)
+ * ----------------------------
+ * L'ancien objet (`doc-carte`) affichait chez un utilisateur une barre d'actions
+ * anormalement haute et sombre qu'aucune règle du dépôt n'expliquait — un résidu
+ * introuvable, insensible au redémarrage du serveur. On est repartis de zéro
+ * avec des classes INÉDITES (`libdoc`) : aucune règle ancienne ou parasite ne
+ * peut plus les cibler. Structure identique, tailles normales garanties.
+ *
+ * La carte a trois états mutuellement exclusifs sous l'en-tête :
+ *   • EN COURS  -> barre d'avancement (pages faites / total) ;
+ *   • EN ERREUR -> ligne d'alerte, et le bouton central devient « Réessayer » ;
+ *   • terminé   -> Aperçu + Télécharger.
+ * Le bouton Supprimer reste à sa place dans tous les cas.
  */
 import { motion } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import {
-  Eye, Download, Trash2, Lock, AlertTriangle, Loader2,
+  Eye, Download, Trash2, Lock, AlertTriangle, Loader2, RotateCcw,
   FileType2, FileText, Presentation, Sheet, File as FileIcon,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -50,8 +59,7 @@ export default function DocumentCard({
 
   const Icone = EXT_ICONS[doc.ext] ?? FileIcon;
 
-  const titreTelechargement = enErreur ? t('library.error_status')
-    : enCours ? t('library.download_wait')
+  const titreTelechargement = enCours ? t('library.download_wait')
     : verrouille ? t('library.download_locked')
     : t('library.download');
 
@@ -62,30 +70,30 @@ export default function DocumentCard({
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, x: 20 }}
-      className="doc-carte"
+      className="libdoc"
     >
-      <header className="doc-carte__tete">
-        <span className="doc-carte__icone" aria-hidden><Icone size={17} strokeWidth={2} /></span>
-        <div className="doc-carte__ident">
-          <p className="doc-carte__nom" title={doc.filename}>{doc.filename}</p>
-          <p className="doc-carte__meta">
+      <div className="libdoc__head">
+        <span className="libdoc__icon" aria-hidden><Icone size={17} strokeWidth={2} /></span>
+        <div className="libdoc__ident">
+          <p className="libdoc__name" title={doc.filename}>{doc.filename}</p>
+          <p className="libdoc__meta">
             {formatDate(doc.date, i18n.language)} · {formatSize(doc.sizeByes, t)}
           </p>
         </div>
-        <span className="doc-carte__langue">{baseCode(doc.targetLang).toUpperCase()}</span>
-      </header>
+        <span className="libdoc__lang">{baseCode(doc.targetLang).toUpperCase()}</span>
+      </div>
 
-      {/* Traduction EN COURS — l'avancement vient de la base, pas du flux : il
-          reste donc visible après un rechargement de page ou une reconnexion,
-          et le travail continue côté serveur même si personne ne regarde. */}
+      {/* EN COURS — l'avancement vient de la base : il survit à un rechargement
+          de page, et le travail continue côté serveur même si personne ne
+          regarde. */}
       {enCours && (
-        <div className="doc-carte__avancement">
-          <div className="doc-carte__avancement-ligne">
-            <span className="doc-carte__etat">
+        <div className="libdoc__progress">
+          <div className="libdoc__progress-row">
+            <span className="libdoc__state">
               <Loader2 size={12} strokeWidth={2.4} className="ui-spin" aria-hidden />
               {t('library.translating')}
             </span>
-            <span className="doc-carte__compte">{doc.pagesDone}/{doc.pageCount}</span>
+            <span className="libdoc__count">{doc.pagesDone}/{doc.pageCount}</span>
           </div>
           <ProgressBar
             value={percent(doc.pagesDone, doc.pageCount)}
@@ -94,22 +102,19 @@ export default function DocumentCard({
         </div>
       )}
 
+      {/* EN ERREUR — ligne d'alerte ; le « Réessayer » est dans la barre d'actions
+          (à la place du Télécharger), pas ici. */}
       {enErreur && (
-        <div className="doc-carte__erreur" role="alert">
+        <div className="libdoc__error" role="alert">
           <AlertTriangle size={14} strokeWidth={2.4} aria-hidden />
           <span>{t('library.error_status')}</span>
-          {onRetry && (
-            <Button variant="danger" size="sm"
-              onClick={(e) => { e.stopPropagation(); onRetry(doc); }}>
-              {t('library.retry')}
-            </Button>
-          )}
         </div>
       )}
 
-      <footer className="doc-carte__actions">
-        {/* L'aperçu passe par /preview (rastérisé, filigrané pour un essai) —
-            JAMAIS par /download, qui rend le PDF en clair. */}
+      {/* Zone d'action, hauteur naturelle. Le fond transparent est aussi posé
+          EN LIGNE : blindage définitif contre toute règle qui tenterait de la
+          colorer, quelle qu'en soit l'origine. */}
+      <div className="libdoc__actions" style={{ background: 'transparent' }}>
         <Button variant="secondary" size="sm" block
           icon={<Eye size={13} strokeWidth={2.2} />}
           disabled={busy || enErreur}
@@ -117,25 +122,33 @@ export default function DocumentCard({
           {t('library.preview')}
         </Button>
 
-        <Button variant="primary" size="sm" block
-          icon={enErreur ? <AlertTriangle size={13} strokeWidth={2.2} />
-            : verrouille ? <Lock size={13} strokeWidth={2.2} />
-            : <Download size={13} strokeWidth={2.2} />}
-          loading={busy}
-          disabled={enCours || enErreur}
-          title={titreTelechargement}
-          onClick={() => onDownload(doc)}>
-          {enErreur ? t('library.error_status')
-            : enCours ? t('library.in_progress')
-            : verrouille ? t('library.unlock')
-            : t('library.download')}
-        </Button>
+        {/* Échec → « Réessayer » au MÊME emplacement que Télécharger. */}
+        {enErreur && onRetry ? (
+          <Button variant="primary" size="sm" block
+            icon={<RotateCcw size={13} strokeWidth={2.2} />}
+            loading={busy}
+            onClick={() => onRetry(doc)}>
+            {t('library.retry')}
+          </Button>
+        ) : (
+          <Button variant="primary" size="sm" block
+            icon={verrouille ? <Lock size={13} strokeWidth={2.2} />
+              : <Download size={13} strokeWidth={2.2} />}
+            loading={busy}
+            disabled={enCours || enErreur}
+            title={titreTelechargement}
+            onClick={() => onDownload(doc)}>
+            {enCours ? t('library.in_progress')
+              : verrouille ? t('library.unlock')
+              : t('library.download')}
+          </Button>
+        )}
 
         <IconButton label={t('library.delete')} variant="danger" size="md"
           onClick={() => onDelete(doc.id)}>
           <Trash2 size={14} strokeWidth={2.2} />
         </IconButton>
-      </footer>
+      </div>
     </motion.article>
   );
 }

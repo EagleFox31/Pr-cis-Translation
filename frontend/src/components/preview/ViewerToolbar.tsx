@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
   Download, Loader2, CheckCircle2, ArrowRight, Lock,
+  Maximize2, Minimize2,
 } from 'lucide-react';
 
 import { baseCode } from '../../lib/languages';
@@ -22,10 +23,13 @@ interface ViewerToolbarProps {
   /** Progression du streaming : pages traduites / total. */
   isTranslating?: boolean;
   doneCount?: number;
+  /** Mode agrandi (focus) actif ? */
+  focus?: boolean;
   onZoomChange: (zoom: number) => void;
   onPageChange: (page: number) => void;
   onBack: () => void;
   onDownload: () => void;
+  onToggleFocus?: () => void;
 }
 
 export default function ViewerToolbar({
@@ -38,10 +42,12 @@ export default function ViewerToolbar({
   targetLang,
   isTranslating = false,
   doneCount = 0,
+  focus = false,
   onZoomChange,
   onPageChange,
   onBack,
   onDownload,
+  onToggleFocus,
 }: ViewerToolbarProps) {
   const { t } = useTranslation();
 
@@ -191,6 +197,19 @@ export default function ViewerToolbar({
           <ChevronRight size={14} strokeWidth={2.4} />
         </button>
       </div>
+
+      {/* Mode agrandi (focus) — exploite tout l'écran, barre du haut allégée */}
+      {onToggleFocus && (
+        <button
+          onClick={onToggleFocus}
+          className="tb-btn ghost"
+          aria-label={focus ? t('viewer.exit_enlarge', 'Réduire') : t('viewer.enlarge', 'Agrandir')}
+          title={focus ? t('viewer.exit_enlarge', 'Réduire') : t('viewer.enlarge', 'Agrandir')}
+          style={{ display: 'flex', alignItems: 'center', padding: '6px' }}
+        >
+          {focus ? <Minimize2 size={15} strokeWidth={2.2} /> : <Maximize2 size={15} strokeWidth={2.2} />}
+        </button>
+      )}
 
       {/* Téléchargement — indisponible tant que la traduction n'est pas finie */}
       <button

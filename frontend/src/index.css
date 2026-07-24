@@ -50,14 +50,26 @@
   --frame-max: 1240px;
   --frame-pad: 24px;
 
-  /* Hauteur de la navbar fixe, et le dégagement d'une section snappée sous elle.
-     `--section-top` = navbar + respiration : le contenu ne se colle plus au bas
-     de la navbar. Le padding-top valait PILE 72px (la navbar), donc le titre la
-     touchait — la respiration qu'on croyait avoir venait en fait de la marge
-     basse de la section précédente, invisible une fois qu'on a snappé au sommet
-     de la suivante. */
+  /* Dégagement des sections sous le hero. Objectif : la MÊME marge du haut sur
+     toutes les sections ET à toutes les tailles d'écran.
+
+     Le centrage vertical (justify-content: center) a été ABANDONNÉ pour ces
+     sections : il rendait la marge du haut DÉPENDANTE de la hauteur du contenu
+     et de l'écran — une section qui remplit l'écran se centrait avec une marge
+     minuscule (Story sur petit écran), une section plus courte flottait au
+     milieu avec une grande marge (Features). Deux sections, deux marges : c'est
+     l'incohérence qu'on corrige.
+
+     Les sections sont maintenant CALÉES EN HAUT (flex-start) à `--section-gap`
+     sous la navbar. Le point de départ ne dépend plus ni du contenu ni de
+     l'écran : identique partout. Le padding haut compense la navbar fixe
+     (`--nav-h + --section-gap`), le bas reprend `--section-gap`.
+
+     Le hero, lui, RESTE centré : son contenu est calibré pour la hauteur d'écran
+     et ce centrage lui va. */
+  --section-gap: 32px;
+
   --nav-h: 72px;
-  --section-top: 108px;
 }
 
 /* ============================
@@ -70,6 +82,13 @@ html {
 }
 @media (min-width: 1025px) {
   html {
+    /* Snap FRANC (`mandatory`) — une section par page. Ce qui empêchait le
+       snap de coexister avec un contenu variable, c'était le `height: 100vh`
+       FIXE des sections : trop de contenu débordait et se faisait couper. La
+       parade n'est PAS d'affaiblir le snap (proximity), mais de laisser les
+       sections grandir : `min-height: 100vh` (voir plus bas). Quand une section
+       dépasse la hauteur du snapport, le navigateur ne piège plus le défilement
+       — on peut la parcourir jusqu'au bout. */
     scroll-snap-type: y mandatory;
   }
 }
@@ -264,11 +283,17 @@ button { font-family: inherit; cursor: pointer; border: none; }
   align-items: center;
   overflow: hidden;
   scroll-margin-top: 0;
+  /* Dégradé de base SEMI-TRANSPARENT (~0.62) : le décor fixe des lignes de
+     langues (calque `page-bg-lang-lines`, navy sur le corps blanc) transparaît
+     nettement sur le hero, si bien qu'il court d'un bout à l'autre de la page en
+     parallaxe. Le hero reste bleuté et sombre — le titre est de toute façon
+     au-dessus (z-index 10) et se lit sans peine. */
   background:
     radial-gradient(ellipse 80% 60% at 70% 40%, rgba(37,99,235,.18) 0%, transparent 70%),
     radial-gradient(ellipse 50% 50% at 20% 70%, rgba(201,168,76,.10) 0%, transparent 60%),
-    linear-gradient(145deg, #0d1b3e 0%, #162248 45%, #0d2060 100%);
+    linear-gradient(145deg, rgba(13,27,62,.95) 0%, rgba(22,34,72,.95) 45%, rgba(13,32,96,.95) 100%);
 }
+
 
 /* Fixed lang lines overlay — visible across all sections */
 .page-bg-lang-lines {
@@ -297,10 +322,11 @@ button { font-family: inherit; cursor: pointer; border: none; }
   font-family: var(--font-display);
   font-size: clamp(1.8rem, 4vw, 3.6rem);
   font-weight: 300;
-  /* Opacité du décor. Montée de 0.12 (l'origine, presque invisible) à 0.20 :
-     nettement lisible sur les sections claires. Sans effet sur le hero, dont le
-     fond sombre rend ce navy invisible quelle que soit l'opacité. */
-  color: rgba(13, 27, 62, 0.20);
+  /* Le décor (z-index:0) est posé sur le CORPS BLANC : les sections (z-index:1)
+     comme le hero transparent le laissent voir par-dessous. Contre du blanc,
+     c'est donc le NAVY — la teinte la plus foncée — qui contraste le mieux, et
+     qui, dimué par le hero semi-transparent, y laisse encore des stries. */
+  color: rgba(13, 27, 62, 0.22);
   white-space: nowrap;
   display: flex;
   gap: clamp(16px, 3vw, 40px);
@@ -310,6 +336,25 @@ button { font-family: inherit; cursor: pointer; border: none; }
 .lang-line span {
   font-style: italic;
   display: inline-block;
+}
+
+/* Calque BLANC, propre au hero (cf. LanguageMarquee variant="hero").
+   FIXE (parallaxe) et posé AU-DESSUS du fond navy mais SOUS le contenu
+   (z-index:10). Blanc TRÈS ténu (~0.05) : juste le même murmure que le décor
+   gris des sections — assez pour deviner le mouvement, trop peu pour disputer
+   la lecture du titre. */
+.hero-decor-lines {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+}
+.hero-decor-lines .lang-line {
+  color: rgba(255, 255, 255, 0.05);
 }
 
 .lang-line-left {
@@ -2046,7 +2091,10 @@ footer {
 .toggle{display:flex;background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:3px;height:32px;gap:2px}
 .tgl-btn{border:none;border-radius:6px;padding:0 12px;height:26px;font-size:12px;font-family:var(--font-sans);cursor:pointer;background:transparent;color:var(--color-text-secondary);transition:all 0.12s}
 .tgl-btn.on{background:var(--color-background-primary);color:var(--color-text-primary);box-shadow:0 1px 2px rgba(0,0,0,0.08)}
-.scroll{flex:1;min-height:0;overflow:auto;background:var(--color-background-tertiary);padding:24px}
+/* Conteneur de rendu de l'aperçu : centre les panneaux (avant/après) au milieu.
+   `safe` : quand le contenu (page zoomée) dépasse, on n'écrase pas le haut —
+   l'alignement retombe sur le bord, le défilement reste accessible. */
+.scroll{flex:1;min-height:0;overflow:auto;background:var(--color-background-tertiary);padding:24px;display:flex;align-items:safe center;justify-content:safe center}
 .cv{background:var(--color-background-primary);border-radius:6px;border:0.5px solid var(--color-border-tertiary);overflow:visible}
 .cv-lang-badge{position:absolute;top:8px;right:8px;font-size:10px;font-weight:500;padding:2px 7px;border-radius:4px}
 .cv-lang-badge.fr{background:#eff6ff;color:#1d4ed8}
@@ -2077,60 +2125,59 @@ footer {
    RESPONSIVE SCROLL SNAP SYSTEM (DESKTOP ONLY)
    ============================ */
 @media (min-width: 1025px) {
-  html:not(.preview-active) {
+  html {
     scroll-snap-type: y mandatory;
     scroll-behavior: smooth;
   }
-  
+
+  /* Le MODE AGRANDI (focus) est le seul cas où le snap est coupé : l'aperçu
+     prend tout l'écran et gère son propre espace. En aperçu NORMAL, le snap
+     fonctionne comme sur toutes les autres sections. */
+  html.preview-focus {
+    scroll-snap-type: none;
+    overflow: hidden;
+  }
+
   .hero,
   .story-band,
   .pricing-section,
   .about-section {
     position: relative;
     z-index: 1;
-    height: 100vh;
+    /* `min-height`, PAS `height` : la section remplit l'écran quand le contenu
+       est court, mais GRANDIT au lieu de le DÉCOUPER quand il est long. Le
+       contenu s'enroule davantage sur un écran étroit et un écran court réduit
+       d'autant `100vh` : avec `height: 100vh; overflow: hidden`, le surplus se
+       faisait couper (« bavure ») — et ce, différemment selon la taille de
+       l'écran. En `min-height` + `overflow: visible`, la boîte contient
+       TOUJOURS son contenu : plus rien n'est découpé, à aucune dimension. */
+    min-height: 100vh;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    overflow: hidden;
+    /* CALAGE EN HAUT : point de départ identique sur toute section et tout
+       écran (voir `--section-gap`). Le hero réactive le centrage plus bas. */
+    justify-content: flex-start;
+    overflow: visible;
     scroll-snap-align: start;
     scroll-snap-stop: always;
-    /* La navbar fixe est déjà compensée par ce padding-top : le sommet de la
-       section doit s'aligner PILE avec le haut du viewport (scroll-margin-top:0).
-       Avec le scroll-margin-top:72px hérité de la règle `section` générale, le
-       point d'ancrage se décale de 72px vers le bas — la section (toujours haute
-       de 100vh) déborde alors de 72px sous le viewport, et c'est ce morceau,
-       jamais atteignable en scroll-snap, qui contient le pied de page. */
     scroll-margin-top: 0;
-    padding-top: var(--section-top) !important;   /* navbar + respiration */
-    padding-bottom: 24px !important;
+    /* Padding haut = navbar + dégagement (la navbar fixe recouvre les 72px du
+       haut), bas = dégagement seul : le titre démarre à `--section-gap` sous la
+       navbar, exactement pareil partout. */
+    padding-top: calc(var(--nav-h) + var(--section-gap)) !important;
+    padding-bottom: var(--section-gap) !important;
   }
 
-  /* Le contenu des sections DENSES est aligné en HAUT, pas centré.
-     Centrées, elles collaient leur titre au bas de la navbar : quand le
-     contenu est grand, `justify-content: center` le remonte jusque sous la
-     navbar et le dégagement du padding est absorbé. Alignées en haut, elles
-     partent TOUTES à la même distance sous la navbar (`--section-top`), quelle
-     que soit la hauteur du contenu — le titre respire, et de façon identique
-     d'une section à l'autre.
-
-     Le hero reste centré : son contenu est calibré pour la hauteur d'écran et
-     ce centrage lui va — il n'était pas concerné. */
-  .story-band,
-  .pricing-section {
-    justify-content: flex-start;
+  /* Le hero garde le centrage vertical : son contenu est calibré pour l'écran. */
+  .hero {
+    justify-content: center;
   }
 
-  /* Le pied de page vit DANS la dernière section, qui est une boîte de 100vh
-     en `overflow: hidden`. Son voisin `.section-inner` porte `flex: 1` — or un
-     enfant flex ne descend JAMAIS sous la hauteur de son contenu tant qu'on ne
-     lui donne pas `min-height: 0`. Il gardait donc toute sa hauteur naturelle
-     et poussait le pied de page hors de la boîte, qui le découpait : sur la
-     dernière section, mentions légales et copyright étaient inatteignables.
-
-     `min-height: 0` autorise le contenu à se comprimer ; `flex-shrink: 0` sur
-     le pied de page garantit que c'est LUI qui reste entier. */
+  /* Le pied de page vit DANS la dernière section (flex column, min-height:100vh).
+     Son voisin `.section-inner` porte `flex: 1` pour pousser le pied en bas —
+     `min-height: 0` l'autorise à se comprimer sous la hauteur de son contenu,
+     et `flex-shrink: 0` sur le pied garantit que c'est LUI qui reste entier. */
   .about-section > .section-inner {
     flex: 1 1 auto;
     min-height: 0;
@@ -2139,17 +2186,28 @@ footer {
     flex: 0 0 auto;
   }
 
-  .hero {
-    background: var(--navy);
-  }
+  /* PAS de fond opaque ici : cette règle (ancienne) posait `background:var(--navy)`
+     et, à spécificité égale mais placée APRÈS la ligne ~279, écrasait le dégradé
+     semi-transparent du hero — le décor fixe restait donc masqué. Le hero garde
+     son dégradé de base (ligne ~279), ajouré pour laisser voir le décor. */
 
   .features-section {
     background: rgba(255,255,255,0.75);
-    height: auto;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
     overflow: visible;
     scroll-snap-align: start;
-    padding-top: var(--section-top) !important;
-    padding-bottom: 24px !important;
+    /* IMPÉRATIF : annuler le `scroll-margin-top: 72px` hérité de la règle
+       générale `section`. Sans ça, le snap arrête Features 72px plus bas, et ces
+       72px s'AJOUTENT au dégagement — Features avait donc ~104px de marge haute
+       là où les autres (qui portent déjà scroll-margin-top:0) en avaient 32.
+       C'était l'unique raison pour laquelle Features restait « toujours haut ». */
+    scroll-margin-top: 0;
+    /* Même calage haut et mêmes marges que toutes les autres sections. */
+    padding-top: calc(var(--nav-h) + var(--section-gap)) !important;
+    padding-bottom: var(--section-gap) !important;
   }
   
   .story-band {
@@ -2170,6 +2228,32 @@ footer {
     margin: 0 auto;
     padding: 0 var(--frame-pad);
     box-sizing: border-box;
+  }
+
+  /* ── APERÇU (normal) : tenir EXACTEMENT sur une hauteur d'écran ──────────
+     `.app` fait déjà `calc(100vh - var(--nav-h))`. Il suffit donc que la
+     section d'aperçu ne garde en haut que le dégagement de la navbar (et rien
+     en bas) : navbar (72) + app (100vh-72) = 100vh pile → la section snappe
+     proprement, sans débordement. */
+  html.preview-active .story-band {
+    padding-top: var(--nav-h) !important;
+    padding-bottom: 0 !important;
+    justify-content: flex-start;
+  }
+
+  /* ── MODE AGRANDI (focus) : l'aperçu prend tout le cadre sous la navbar ──
+     Surcouche fixe, pleine largeur (on retire le cadre de 1240px pour exploiter
+     l'écran), snap coupé (géré sur `html.preview-focus` plus haut). */
+  html.preview-focus .story-band {
+    position: fixed;
+    inset: var(--nav-h) 0 0 0;
+    z-index: 900;
+    min-height: 0;
+    padding: 0 !important;
+  }
+  html.preview-focus .story-band .section-inner {
+    max-width: none !important;
+    padding: 0 !important;
   }
 }
 
@@ -2581,26 +2665,32 @@ footer {
   padding: 14px 16px;
 }
 
-/* ── Carte d'un document ────────────────────────────────────────────────── */
-.doc-carte {
+/* ── Carte d'un document (bibliothèque) — objet NEUF `libdoc` ──────────────
+   Reconstruite à partir de zéro avec des classes INÉDITES. L'ancien objet
+   (`doc-carte`) affichait, chez l'utilisateur, une barre d'actions anormalement
+   haute et sombre qu'AUCUNE règle du dépôt n'expliquait (CSS et TSX vérifiés) —
+   un résidu introuvable. Repartir de noms neufs coupe court : plus aucune règle
+   ancienne ou parasite ne peut les cibler. Fonds explicitement clairs, hauteurs
+   naturelles, barre d'actions transparente sans hauteur imposée. */
+.libdoc {
   padding: 12px 14px;
   border: 1px solid var(--gray-200);
   border-radius: 12px;
   background: var(--gray-50);
   transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
 }
-.doc-carte:hover {
+.libdoc:hover {
   background: var(--white);
   border-color: var(--gray-300);
   box-shadow: 0 2px 10px rgba(13, 27, 62, .06);
 }
-.doc-carte__tete {
+.libdoc__head {
   display: flex;
   align-items: flex-start;
   gap: 10px;
   margin-bottom: 10px;
 }
-.doc-carte__icone {
+.libdoc__icon {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2612,8 +2702,8 @@ footer {
   background: var(--white);
   color: var(--blue);
 }
-.doc-carte__ident { flex: 1; min-width: 0; }
-.doc-carte__nom {
+.libdoc__ident { flex: 1; min-width: 0; }
+.libdoc__name {
   margin: 0;
   font-size: 13px;
   font-weight: 600;
@@ -2622,12 +2712,12 @@ footer {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.doc-carte__meta {
+.libdoc__meta {
   margin: 2px 0 0;
   font-size: 11.5px;
   color: var(--gray-500);
 }
-.doc-carte__langue {
+.libdoc__lang {
   flex-shrink: 0;
   padding: 2px 8px;
   border-radius: 999px;
@@ -2636,15 +2726,14 @@ footer {
   font-size: 11px;
   font-weight: 700;
 }
-
-.doc-carte__avancement { margin-bottom: 10px; }
-.doc-carte__avancement-ligne {
+.libdoc__progress { margin-bottom: 10px; }
+.libdoc__progress-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 5px;
 }
-.doc-carte__etat {
+.libdoc__state {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -2652,13 +2741,12 @@ footer {
   font-weight: 600;
   color: var(--blue);
 }
-.doc-carte__compte {
+.libdoc__count {
   font-size: 11px;
   color: var(--gray-500);
   font-variant-numeric: tabular-nums;
 }
-
-.doc-carte__erreur {
+.libdoc__error {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2671,11 +2759,17 @@ footer {
   font-weight: 500;
   color: #991b1b;
 }
-.doc-carte__erreur > span { flex: 1; }
-
-.doc-carte__actions { display: flex; gap: 6px; }
-.doc-carte__actions .ui-btn { flex: 1; min-width: 0; }
-.doc-carte__actions .ui-iconbtn { flex-shrink: 0; }
+.libdoc__error > span { flex: 1; }
+/* Barre d'actions : hauteur NATURELLE (celle des boutons `sm`), fond
+   transparent. Aucune hauteur imposée — « taille normale » garantie. */
+.libdoc__actions {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+  background: transparent;
+}
+.libdoc__actions .ui-btn { flex: 1; min-width: 0; }
+.libdoc__actions .ui-iconbtn { flex-shrink: 0; }
 
 /* ══════════════════════════════════════════════════════════════════════════
    FORMULAIRES  (ui/Field, ui/Alert) et ÉCRANS D'AUTHENTIFICATION

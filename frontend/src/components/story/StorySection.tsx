@@ -35,8 +35,11 @@ interface StorySectionProps {
   translationError?: string | null;
   /** L'erreur est un 402 → afficher un CTA vers les offres. */
   limitReached?: boolean;
+  /** Mode agrandi (focus) actif ? */
+  focus?: boolean;
   onStartTranslate: (config: TranslateConfig) => void;
   onBack: () => void;
+  onToggleFocus?: () => void;
   onZoomChange: (z: number) => void;
   onPageChange: (p: number) => void;
   onDownload: () => void;
@@ -62,8 +65,10 @@ export default function StorySection({
   previewRendering = false,
   translationError = null,
   limitReached = false,
+  focus = false,
   onStartTranslate,
   onBack,
+  onToggleFocus,
   onZoomChange,
   onPageChange,
   onDownload,
@@ -377,10 +382,12 @@ export default function StorySection({
                     targetLang={targetLang}
                     isTranslating={isTranslating}
                     doneCount={doneCount}
+                    focus={focus}
                     onZoomChange={onZoomChange}
                     onPageChange={onPageChange}
                     onBack={onBack}
                     onDownload={onDownload}
+                    onToggleFocus={onToggleFocus}
                   />
 
 

@@ -15,7 +15,7 @@
     "title_before": "Translate your documents",
     "title_key": "without losing",
     "title_mid": "their",
-    "title_layout": "layout",
+    "title_layout": "page layout",
     "subtitle": "Fonts, columns, tables, images — everything stays in place. As if the document was natively written in the target language.",
     "btn_start": "Translate a document",
     "btn_how": "See how it works",
@@ -122,7 +122,7 @@
     "saved_to_library": "Document saved to your library.",
     "advanced": "Advanced options",
     "structure_label": "Structure mode (no translation)",
-    "structure_desc": "Shows the outlines of detected blocks, without translating — to diagnose the layout.",
+    "structure_desc": "Re-injects the original text without translating (block outlines in PDF) — to test extraction and layout without using any AI credit.",
     "page_ready": "Page translated",
     "page_progress": "Translating…",
     "page_waiting": "Waiting",
@@ -213,7 +213,9 @@
     "download_wait": "Available once translation completes",
     "download_locked": "Trial version — unlock downloads",
     "pages_done": "{{done}}/{{total}} pages",
-    "translation_done": "Translation complete"
+    "translation_done": "Translation complete",
+    "enlarge": "Enlarge",
+    "exit_enlarge": "Shrink"
   },
   "units": {
     "b": "B",

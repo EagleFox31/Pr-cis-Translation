@@ -73,6 +73,20 @@ export default function TranslationSection({
 
   const ext = file?.name.split('.').pop()?.toLowerCase() ?? '';
   const isPdf = ext === 'pdf';
+  const isAdmin = user?.plan === 'admin';
+
+  // CAPACITÉS PAR FORMAT — calquées sur ce que le backend sait vraiment faire,
+  // pas sur le seul PDF comme avant (le panneau entier était gardé par `isPdf`,
+  // donc PowerPoint et les autres n'avaient AUCUNE option) :
+  //   • pages     : parse_page_range côté API ne connaît que PDF et PPTX ;
+  //   • structure : les trois pipelines (PDF v2, PPTX progressif, DOCX) ont une
+  //                 branche « identité » qui ré-injecte le texte SANS appeler
+  //                 l'IA — parfait pour éprouver l'extraction/mise en page sans
+  //                 brûler de crédit ;
+  //   • précis    : modèle de raisonnement, réservé admin.
+  const supportsPages = ext === 'pdf' || ext === 'pptx';
+  const supportsStructure = ext === 'pdf' || ext === 'pptx' || ext === 'docx';
+  const supportsPrecise = isAdmin && supportsStructure;
 
   // Une langue rendable en DOCX peut ne pas l'être en PDF (CJK, arabe : aucune
   // police du document ne porte ces glyphes). Si le document choisi rend la
@@ -96,15 +110,21 @@ export default function TranslationSection({
     onStartTranslate({
       file,
       targetLang,
-      pages: isPdf ? pages.trim() : '',
-      debug: isPdf && structureMode,
-      precise: isPdf && preciseMode,
+      pages: supportsPages ? pages.trim() : '',
+      debug: supportsStructure && structureMode,
+      precise: supportsPrecise && preciseMode,
     });
   };
 
   const ready = !!file && !isTranslating;
-  const isAdmin = user?.plan === 'admin';
-  const advancedCount = (pages.trim() ? 1 : 0) + (structureMode ? 1 : 0) + (preciseMode ? 1 : 0);
+  // Ne compter que les options RÉELLEMENT applicables au format courant : une
+  // case cochée sur un PDF puis un passage à un format qui ne la gère pas ne
+  // doit pas afficher un badge mensonger.
+  const advancedCount =
+    (supportsPages && pages.trim() ? 1 : 0)
+    + (supportsStructure && structureMode ? 1 : 0)
+    + (supportsPrecise && preciseMode ? 1 : 0);
+  const hasAdvanced = !!file && (supportsPages || supportsStructure || supportsPrecise);
 
   return (
     <form
@@ -208,10 +228,11 @@ export default function TranslationSection({
           </span>
         </div>
 
-        {/* Options avancées — repliées : elles ne concernent que le PDF et ne
-            servent qu'à des cas particuliers (extrait, diagnostic). */}
+        {/* Options avancées — repliées : elles servent à des cas particuliers
+            (extrait, diagnostic) et n'apparaissent que pour les formats qui les
+            supportent réellement. */}
         <AnimatePresence>
-          {isPdf && (
+          {hasAdvanced && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
@@ -266,38 +287,41 @@ export default function TranslationSection({
                       borderRadius: '12px', border: '1px solid var(--gray-200)',
                       background: 'var(--gray-50)',
                     }}>
-                      {/* Plage de pages */}
-                      <div>
-                        <label htmlFor="pages" style={LABEL_STYLE}>
-                          {t('story.pages_label')}
-                        </label>
-                        <input
-                          id="pages"
-                          type="text"
-                          inputMode="numeric"
-                          value={pages}
-                          onChange={(e) => setPages(e.target.value.replace(/[^0-9,\-\s]/g, ''))}
-                          disabled={isTranslating}
-                          placeholder={t('story.pages_placeholder')}
-                          aria-describedby="pages-hint"
-                          style={{
-                            width: '100%', boxSizing: 'border-box',
-                            padding: '10px 12px', borderRadius: '9px',
-                            border: '1px solid var(--gray-300)', background: 'var(--white)',
-                            fontSize: '13px', fontFamily: 'inherit', color: 'var(--gray-800)',
-                            outline: 'none',
-                          }}
-                        />
-                        <span id="pages-hint" style={{
-                          display: 'block', marginTop: '6px',
-                          fontSize: '11px', color: 'var(--gray-500)', lineHeight: 1.45,
-                        }}>
-                          {t('story.pages_hint')}
-                        </span>
-                      </div>
+                      {/* Plage de pages — PDF et PPTX (les seuls formats dont
+                          l'extraction sait sélectionner ses pages). */}
+                      {supportsPages && (
+                        <div>
+                          <label htmlFor="pages" style={LABEL_STYLE}>
+                            {t('story.pages_label')}
+                          </label>
+                          <input
+                            id="pages"
+                            type="text"
+                            inputMode="numeric"
+                            value={pages}
+                            onChange={(e) => setPages(e.target.value.replace(/[^0-9,\-\s]/g, ''))}
+                            disabled={isTranslating}
+                            placeholder={t('story.pages_placeholder')}
+                            aria-describedby="pages-hint"
+                            style={{
+                              width: '100%', boxSizing: 'border-box',
+                              padding: '10px 12px', borderRadius: '9px',
+                              border: '1px solid var(--gray-300)', background: 'var(--white)',
+                              fontSize: '13px', fontFamily: 'inherit', color: 'var(--gray-800)',
+                              outline: 'none',
+                            }}
+                          />
+                          <span id="pages-hint" style={{
+                            display: 'block', marginTop: '6px',
+                            fontSize: '11px', color: 'var(--gray-500)', lineHeight: 1.45,
+                          }}>
+                            {t('story.pages_hint')}
+                          </span>
+                        </div>
+                      )}
 
                       {/* Mode précis (admin) */}
-                      {isAdmin && (
+                      {supportsPrecise && (
                         <CheckboxOption
                           id="precise"
                           checked={preciseMode}
@@ -310,16 +334,18 @@ export default function TranslationSection({
                         />
                       )}
 
-                      {/* Mode structure (diagnostic) */}
-                      <CheckboxOption
-                        id="structure"
-                        checked={structureMode}
-                        onChange={setStructureMode}
-                        disabled={isTranslating}
-                        icon={<ScanSearch size={13} strokeWidth={2.2} />}
-                        label={t('story.structure_label')}
-                        description={t('story.structure_desc')}
-                      />
+                      {/* Mode structure (diagnostic, sans IA) */}
+                      {supportsStructure && (
+                        <CheckboxOption
+                          id="structure"
+                          checked={structureMode}
+                          onChange={setStructureMode}
+                          disabled={isTranslating}
+                          icon={<ScanSearch size={13} strokeWidth={2.2} />}
+                          label={t('story.structure_label')}
+                          description={t('story.structure_desc')}
+                        />
+                      )}
                     </div>
                   </motion.div>
                 )}
@@ -360,7 +386,7 @@ export default function TranslationSection({
               </motion.span>
               {t('story.translating')}
             </>
-          ) : structureMode ? (
+          ) : (supportsStructure && structureMode) ? (
             <>
               <ScanSearch size={16} strokeWidth={2.2} />
               {t('story.btn_structure', 'Analyser la structure')}

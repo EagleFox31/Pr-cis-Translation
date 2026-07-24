@@ -154,17 +154,29 @@ export default function PdfViewer({
           // Le dimensionnement lit la valeur LOCALE `landscape`, jamais l'état —
           // il est donc juste dès la première frame, sans saut d'encadrement.
           let containerWidth = 600;
+          let containerHeight = 700;
           const scrollEl = document.getElementById('scroll');
           if (scrollEl) {
             containerWidth = landscape
               ? scrollEl.clientWidth - 24
               : (scrollEl.clientWidth - 70) / 2;
+            // Hauteur disponible : le conteneur moins son padding (24px × 2) et
+            // la hauteur du badge de langue au-dessus de chaque panneau (~34px).
+            // Paysage : deux panneaux EMPILÉS → chacun a la MOITIÉ de la hauteur.
+            const hDispo = scrollEl.clientHeight - 48 - 34;
+            containerHeight = landscape ? (hDispo - 24) / 2 : hDispo;
           } else {
             containerWidth = canvas.parentElement?.clientWidth || 600;
           }
 
           const unscaledViewport = page.getViewport({ scale: 1.0 });
-          const baseScale = containerWidth / unscaledViewport.width;
+          // Caler sur la dimension la PLUS CONTRAIGNANTE : la page tient alors
+          // ENTIÈREMENT dans le cadre (largeur ET hauteur) — plus de débordement,
+          // « tient sur une page ». `zoom` agrandit ensuite au-delà si besoin.
+          const baseScale = Math.max(0.05, Math.min(
+            containerWidth / unscaledViewport.width,
+            containerHeight / unscaledViewport.height,
+          ));
           const scale = baseScale * zoom;
           const viewport = page.getViewport({ scale });
           const context = canvas.getContext('2d');
@@ -256,7 +268,8 @@ export default function PdfViewer({
         display: 'inline-flex',
         flexDirection: isLandscape ? 'column' : 'row',
         gap: isLandscape ? '24px' : '20px',
-        alignItems: isLandscape ? 'center' : 'flex-start',
+        alignItems: 'center',
+        justifyContent: 'center',   // panneaux avant/après centrés dans le cadre
         minWidth: '100%',
       }}
     >

@@ -103,6 +103,15 @@ export function useStreamingTranslation() {
       precise: boolean = false,
     ): Promise<{ blob: Blob; filename: string }> => {
       return new Promise(async (resolve, reject) => {
+        // Fermer TOUT flux encore ouvert avant d'en démarrer un nouveau. Relancer
+        // une traduction alors qu'une était en cours (ou quittée par Retour)
+        // laissait l'ancien `EventSource` ouvert : une connexion fuitée, et ses
+        // événements `page`/`partial` qui venaient se mélanger à ceux du nouveau
+        // job. L'ancien job continue côté serveur et reste dans la bibliothèque
+        // (voulu) ; seul son SUIVI est abandonné proprement.
+        esRef.current?.close();
+        esRef.current = null;
+
         setState({ ...EMPTY, isTranslating: true });
         // Sans ça, un 402 survenant avant le premier partiel du NOUVEAU
         // document résoudrait avec celui du PRÉCÉDENT — on afficherait le
@@ -175,6 +184,24 @@ export function useStreamingTranslation() {
               if (status === 'done' || status === 'copied') {
                 fetchPartial(page);
               }
+            } else if (type === 'partial') {
+              // PPTX PROGRESSIF : le backend signale qu'un nouveau PDF partiel
+              // est PRÊT à être récupéré — d'abord le SOCLE (le document
+              // d'origine, `pages: 0`), puis chaque lot de diapositives
+              // greffées. C'est LE signal d'affichage progressif.
+              //
+              // Sans ce handler, l'aperçu ne se rafraîchissait que sur les
+              // événements `page`. En traduction IA (lente), ça suffisait par
+              // hasard : les `page` s'espaçaient assez pour laisser le partiel
+              // se préparer. Mais en mode STRUCTURE (sans IA), toutes les pages
+              // « terminent » en quelques millisecondes — AVANT que LibreOffice
+              // ait converti la moindre diapositive. Les `fetchPartial` de ces
+              // `page` tombaient dans le vide, et les partiels réellement prêts
+              // (émis APRÈS, en `partial`) étaient ignorés : on ne voyait donc
+              // RIEN jusqu'à la fin. En écoutant `partial`, l'original apparaît
+              // dès que le socle est prêt, puis l'aperçu se remplit au rythme
+              // réel des conversions — quelle que soit la vitesse de traduction.
+              fetchPartial((msg.pages as number) ?? 0);
             } else if (type === 'done') {
               es.close();
               esRef.current = null;
