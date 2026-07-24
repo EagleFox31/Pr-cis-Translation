@@ -9,6 +9,7 @@ import PricingSection from '../components/pricing/PricingSection';
 import AboutSection from '../components/about/AboutSection';
 import ToastContainer, { showToast } from '../components/ui/Toast';
 import SupportModal from '../components/support/SupportModal';
+import PaymentModal from '../components/payment/PaymentModal';
 import DocumentLibrary from '../components/library/DocumentLibrary';
 import { useAuth } from '../contexts/AuthContext';
 import { useDocumentLibrary } from '../hooks/useDocumentLibrary';
@@ -45,6 +46,11 @@ export default function Home() {
   const [translatedFilename, setTranslatedFilename] = useState<string>('');
   const [showLibrary, setShowLibrary] = useState(false);
   const [targetLang, setTargetLang] = useState('en');
+  // Nombre de pages à régler pour débloquer la traduction courante (402 crédits
+  // insuffisants). `null` = pas de paiement en cours. La dernière config est
+  // mémorisée pour REJOUER la traduction telle quelle une fois les pages payées.
+  const [payPages, setPayPages] = useState<number | null>(null);
+  const lastConfigRef = useRef<TranslateConfig | null>(null);
   // Aperçu ouvert depuis la bibliothèque : le panneau s'affiche tout de suite,
   // ce drapeau dit au viewer de montrer « rendu en cours » au lieu du sablon
   // « page en attente », qui ferait croire à une traduction inachevée.
@@ -133,6 +139,8 @@ export default function Home() {
       // Le catalogue ne propose que des codes de base ('en', 'fr'…) : plus de
       // variante régionale à réduire avant l'envoi.
       const { file, targetLang, pages, debug, precise } = config;
+      // Mémorisé pour rejouer À L'IDENTIQUE après un achat de pages (402).
+      lastConfigRef.current = config;
       setSelectedFile(file);
       setSourceIsPdf(false);      // fichier local, format d'origine
       setTargetLang(targetLang);
@@ -368,6 +376,19 @@ export default function Home() {
       <ToastContainer />
       <SupportModal />
 
+      {/* Paiement à la page : achat des crédits nécessaires à la traduction
+          courante (402). Une fois payé, on REJOUE la traduction telle quelle. */}
+      <PaymentModal
+        open={payPages !== null}
+        onClose={() => setPayPages(null)}
+        pages={payPages ?? 1}
+        label={t('payment.buy_pages_label', 'Débloquez la traduction de ce document')}
+        onPaid={() => {
+          const cfg = lastConfigRef.current;
+          if (cfg) handleStartTranslate(cfg);
+        }}
+      />
+
       <Navbar
         activeSection={activeSection}
         onNavClick={handleNavClick}
@@ -413,6 +434,8 @@ export default function Home() {
           previewRendering={previewLoading}
           translationError={stream.error}
           limitReached={stream.limitReached}
+          creditsNeeded={stream.creditsNeeded}
+          onBuyPages={(p) => setPayPages(p)}
           focus={previewFocus}
           onStartTranslate={handleStartTranslate}
           onBack={handleBack}

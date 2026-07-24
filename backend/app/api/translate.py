@@ -264,11 +264,21 @@ async def translate_endpoint(
             # existe, tout le document sinon.
             needed = len(pages_set) if pages_set else count_pages(file_bytes, ext)
             if locked.page_credits < needed:
-                raise HTTPException(
+                # Réponse STRUCTURÉE (pas un simple message) : le client a besoin
+                # du NOMBRE de pages à acheter pour ouvrir directement le paiement
+                # à la page, sans que l'utilisateur ait à deviner ni à retaper.
+                # `reason` distingue ce cas (rattrapable par un achat) d'un 402 de
+                # plan (mensuel), qu'un achat de pages ne débloque pas.
+                return JSONResponse(
                     status_code=402,
-                    detail=(f"Vous avez {locked.page_credits} page(s) disponible(s) "
-                            f"mais ce document en nécessite {needed}. "
-                            "Achetez des pages supplémentaires pour continuer."),
+                    content={
+                        "detail": (f"Vous avez {locked.page_credits} page(s) disponible(s) "
+                                   f"mais ce document en nécessite {needed}. "
+                                   "Achetez des pages supplémentaires pour continuer."),
+                        "reason": "need_credits",
+                        "pages_needed": needed,
+                        "pages_available": locked.page_credits,
+                    },
                 )
             locked.page_credits -= needed
             # Pas de `cap_pages_for_plan` ici : ces pages sont payées, les

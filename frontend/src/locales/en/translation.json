@@ -115,6 +115,7 @@
     "queued_soon": "In queue — starting shortly.",
     "error_limit_reached": "You have reached your plan limit. Upgrade to continue.",
     "error_limit_cta": "See plans",
+    "buy_pages_cta": "Pay for {{count}} page(s)",
     "error_connection_lost": "Server connection lost. Check your internet connection.",
     "error_unknown": "An unexpected error occurred. Please try again.",
     "error_retry": "Retry",
@@ -300,7 +301,8 @@
   "payment": {
     "pay_launch_failed": "The payment could not be started.",
     "pay_expired": "The prompt expired without validation. No amount was charged.",
-    "pay_refused": "Payment refused or cancelled. No amount was charged."
+    "pay_refused": "Payment refused or cancelled. No amount was charged.",
+    "buy_pages_label": "Unlock the translation of this document"
   },
   "common": {
     "preview_conv_failed": "Preview conversion failed.",

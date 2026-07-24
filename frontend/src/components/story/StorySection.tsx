@@ -38,6 +38,10 @@ interface StorySectionProps {
   translationError?: string | null;
   /** L'erreur est un 402 → afficher un CTA vers les offres. */
   limitReached?: boolean;
+  /** 402 rattrapable par un achat : pages à régler pour ce document. */
+  creditsNeeded?: number | null;
+  /** Ouvre le paiement à la page pour `n` pages. */
+  onBuyPages?: (pages: number) => void;
   /** Mode agrandi (focus) actif ? */
   focus?: boolean;
   onStartTranslate: (config: TranslateConfig) => void;
@@ -69,6 +73,8 @@ export default function StorySection({
   previewRendering = false,
   translationError = null,
   limitReached = false,
+  creditsNeeded = null,
+  onBuyPages,
   focus = false,
   onStartTranslate,
   onBack,
@@ -297,6 +303,22 @@ export default function StorySection({
                   <line x1="12" y1="16" x2="12.01" y2="16" />
                 </svg>
                 <span style={{ flex: 1 }}>{translationError}</span>
+                {/* Achat À LA PAGE : l'action naturelle quand il manque des
+                    crédits pour CE document — on paie le nombre exact de pages
+                    et la traduction repart. Le renvoi vers les offres reste en
+                    second, pour qui préfère un abonnement. */}
+                {creditsNeeded && onBuyPages && (
+                  <button
+                    onClick={() => onBuyPages(creditsNeeded)}
+                    style={{
+                      padding: '8px 16px', borderRadius: '8px', border: 'none',
+                      background: '#991b1b', color: 'white', fontSize: '13px',
+                      fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {t('story.buy_pages_cta', 'Payer {{count}} page(s)', { count: creditsNeeded })}
+                  </button>
+                )}
                 {limitReached && (
                   <button
                     onClick={() => {
