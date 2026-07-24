@@ -33,12 +33,14 @@ aperçus non-PDF.
 | [`backend/engines/pptx/CONTEXTE.md`](backend/engines/pptx/CONTEXTE.md) | Le moteur PPTX — parties partagées, objets OLE |
 | [`backend/engines/docx/CONTEXTE.md`](backend/engines/docx/CONTEXTE.md) | Le moteur DOCX |
 | [`backend/engines/xlsx/CONTEXTE.md`](backend/engines/xlsx/CONTEXTE.md) | Le moteur XLSX — **squelette**, couverture partielle |
+| [`docs/etude-ocr.md`](docs/etude-ocr.md) | Étude : traduire des PDF **scannés** (OCR) — feature à venir |
 | `docs/api/index.html` | Les 32 opérations HTTP (`npm run docs:api`) |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | **Ajouter une fonctionnalité** : cycle, checklist, versions, retour arrière |
+| [`CHANGELOG.md`](CHANGELOG.md) | L'historique des versions |
 
-Les fichiers `CONTEXTE_*.md`, `PROBLEMES_*.md` et `ETUDE_OCR.md` à la racine
-sont des **carnets de campagne** : ce qui a été mesuré, tenté, et abandonné. Ils
-citent parfois des chemins d'avant la réorganisation en couches — la carte
-actuelle est dans `ARCHITECTURE.md`.
+> L'historique détaillé des campagnes de correction (mesures, essais, impasses)
+> n'encombre plus la racine : il reste consultable dans l'**historique git**. La
+> carte à jour est dans `ARCHITECTURE.md` et les `CONTEXTE.md` par moteur.
 
 ## Les commandes
 

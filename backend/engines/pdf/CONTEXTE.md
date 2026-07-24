@@ -127,7 +127,7 @@ qui télécharge pendant l'écriture ne voit jamais un fichier tronqué.
 * **texte pivoté** rendu à sa baseline, sans rotation ;
 * **clips et groupes** vectoriels ignorés ;
 * **PDF scannés** : aucun OCR. On ne traduit jamais ce qu'on n'a pas lu — voir
-  `ETUDE_OCR.md` à la racine ;
+  [`../../../docs/etude-ocr.md`](../../../docs/etude-ocr.md) ;
 * une **colonne justifiée de ≤ 5 lignes** peut rester mal recollée.
 
 ## Vérifier

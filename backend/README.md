@@ -116,6 +116,33 @@ Deux exigences :
   vérifie est aveugle — il faut tester l'**accord** entre deux modules, pas la
   valeur.
 
+## Comptes & auth
+
+Authentification **sans mot de passe** (l'app n'en stocke aucun par défaut) :
+
+1. `POST /api/auth/register {email, name?}` ou `login {email}` → un **code** est
+   envoyé par e-mail ;
+2. `POST /api/auth/verify-email {email, code}` → renvoie un **JWT** (+ refresh) ;
+3. `POST /api/auth/google {credential}` → connexion Google, même issue ;
+4. `POST /api/auth/refresh {refresh_token}` → renouvelle le couple.
+
+Deux tables métier portent l'essentiel (SQLAlchemy 2.0 async, dans `app/models/`) :
+
+* **User** — `id`, `email` (unique, minuscule), `password_hash` *nullable*
+  (passwordless / Google), `google_id`, `plan`, `storage_used` / `storage_limit` ;
+* **Document** — `id`, `user_id`, `original_name`, `source_lang` / `target_lang`,
+  `original_path` / `translated_path`, `size_bytes`, `status`
+  (`pending`/`translating`/`done`/`error`), `page_count`.
+
+**Forfaits** : `free` · `starter` · `pro` · `enterprise` · `admin`. Le `free` est
+plafonné à **1 page par mois calendaire** (402 au-delà) ; les payants ont les pages
+illimitées et un stockage croissant. Les valeurs exactes (quotas, prix, zones) ne
+sont **pas** en dur ici : source unique dans `app/models/` et `app/core/` (tarifs).
+Le droit acquis à un paiement porte sur **le document**, pas sur le plan.
+
+Compte administrateur : `seed_admin.py` (usage unique) — stockage illimité et mode
+« précis » activable.
+
 ## Documentation de l'API
 
 ```bash

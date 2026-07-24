@@ -78,6 +78,39 @@ broncher et affiche la clé brute à l'écran. `npm run check:i18n` contrôle qu
 clé employée existe, que les deux dictionnaires portent exactement les mêmes
 clés, et qu'aucune traduction n'est vide. Il est inclus dans `npm run lint`.
 
+## Pièges d'interface (à ne pas refaire)
+
+* **Collision de classes CSS nues.** La spécificité se résout **propriété par
+  propriété**, pas règle par règle : une classe générique (`.tl`) imposait sa
+  `height` à un `.hd-float.tl` qui n'en déclarait pas. → **modificateurs préfixés**
+  (`--tl`, `--br`), jamais de classe d'état nue partagée.
+* **Drapeaux emoji.** Windows ne les rend pas (`🇺🇸` → « US »), et un drapeau colle
+  à tort une langue à un pays. → **puces de code** langue.
+* **La démo prime, sauf sans document.** Le basculement vers le CV de démo se
+  déclenchait dès que la *traduction* manquait — l'état normal au **démarrage** du
+  streaming. → le document choisi prime toujours ; la démo ne sert que si rien n'est
+  chargé.
+* **`white-space: nowrap` sur le titre du hero.** Colonne en `minmax(0, …)` + `.hero`
+  en `overflow: hidden` : un titre insécable trop large est **rogné en silence**. →
+  corps calibré par mesure (`useJustifiedLines`), dégradation visible, jamais muette.
+
+## Le décor du hero
+
+Le fond animé « lignes de langues » (`components/hero/LanguageMarquee.tsx`) existe en
+**deux rendus, une seule source** :
+
+* `variant="fixed"` — un calque **navy, `position: fixed`**, derrière toutes les
+  sections claires : il tient pendant qu'elles glissent (parallaxe), posé sur le corps
+  blanc (d'où le navy, la teinte qui contraste sur clair) ;
+* `variant="hero"` — les **mêmes bandes en blanc très ténu** (`~0.05`), dans le hero,
+  au-dessus de son fond navy mais sous le titre : contraste juste suffisant pour
+  deviner le mouvement, sans disputer la lecture.
+
+> Piège déjà payé : une règle `.hero { background: var(--navy) }` **opaque**, cachée
+> dans une media-query, écrasait le fond du hero (même spécificité, placée après) et
+> masquait tout décor. Le fond du hero se règle à **un seul endroit** — vérifier
+> qu'aucune autre règle `.hero` ne repose un `background`.
+
 ## Configuration (`frontend/.env`)
 
 | Variable | Rôle |
