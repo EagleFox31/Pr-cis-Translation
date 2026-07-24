@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import Navbar from '../components/navbar/Navbar';
 import HeroSection from '../components/hero/HeroSection';
+import LanguageMarquee from '../components/hero/LanguageMarquee';
 import FeaturesGrid from '../components/features/FeaturesGrid';
 import StorySection from '../components/story/StorySection';
 import PricingSection from '../components/pricing/PricingSection';
@@ -23,14 +24,51 @@ export default function Home() {
   const [numPages, setNumPages] = useState(1);
   const [zoom, setZoom] = useState(1.0);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  // Le fichier SOURCE affiché est-il déjà un PDF ? Vrai pour un aperçu ouvert
+  // depuis la bibliothèque (le serveur le convertit). Faux pour une traduction
+  // en direct, où la source est le fichier local que l'utilisateur vient de
+  // déposer, dans son format d'origine.
+  const [sourceIsPdf, setSourceIsPdf] = useState(false);
   const [translatedBlob, setTranslatedBlob] = useState<Blob | null>(null);
+  // Le blob traduit affiché est-il DÉJÀ un PDF ?
+  //
+  // Il l'est chaque fois qu'il vient du serveur pour être REGARDÉ (/preview,
+  // /partial : le backend y convertit lui-même). Il est au format d'origine
+  // seulement quand c'est le RÉSULTAT téléchargeable de la traduction.
+  //
+  // Sans cette distinction, l'aperçu bibliothèque d'un PPTX renvoyait le PDF
+  // reçu au serveur sous le nom `preview.pptx` : LibreOffice l'importait dans
+  // Draw et le ré-exportait, à chaque changement de page. Un aller-retour de
+  // plusieurs secondes pour ne rien changer — et un rendu abîmé au passage.
+  const [translatedIsPdf, setTranslatedIsPdf] = useState(false);
   const [translatedFilename, setTranslatedFilename] = useState<string>('');
   const [showLibrary, setShowLibrary] = useState(false);
   const [targetLang, setTargetLang] = useState('en');
+  // Aperçu ouvert depuis la bibliothèque : le panneau s'affiche tout de suite,
+  // ce drapeau dit au viewer de montrer « rendu en cours » au lieu du sablon
+  // « page en attente », qui ferait croire à une traduction inachevée.
+  const [previewLoading, setPreviewLoading] = useState(false);
+  // Mode AGRANDI (focus) : l'aperçu prend tout le cadre sous une navbar allégée.
+  const [previewFocus, setPreviewFocus] = useState(false);
+  // DEUX compteurs, et non un seul partagé. L'ouverture d'un aperçu et le
+  // chargement d'une page sont deux courses distinctes : avec un compteur
+  // unique, l'effet de page incrémentait le jeton juste après l'ouverture et
+  // périmait le chargement du document SOURCE — le panneau gauche restait vide
+  // et la comparaison côte à côte disparaissait.
+  const openToken = useRef(0);    // une ouverture d'aperçu
+  const pageToken = useRef(0);    // une demande de page
+  // Pages déjà reçues (clé `docId:page`) et document dont on possède le rendu
+  // COMPLET : c'est ce qui rend la navigation instantanée au retour sur une
+  // page, et muette côté réseau quand le serveur a livré tout le document.
+  const pageBlobCache = useRef(new Map<string, Blob>());
+  const fullDocFor = useRef<string | null>(null);
+  // Document de la BIBLIOTHÈQUE en cours d'aperçu (null = traduction en direct,
+  // qui reçoit ses pages par le flux et n'a rien à redemander).
+  const [libraryDocId, setLibraryDocId] = useState<string | null>(null);
 
   // ---- Traduction PROGRESSIVE (page par page) ----
   const stream = useStreamingTranslation();
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
 
   // Mode ESSAI : DÉRIVÉ du plan, jamais stocké. C'était un `useState(true)`
   // dont le setter n'était appelé nulle part — l'aperçu restait donc assombri
@@ -39,7 +77,7 @@ export default function Home() {
   const isTrialMode = isTrialFor(user);
 
   // ---- Document library ----
-  const { documents, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll } = useDocumentLibrary();
+  const { documents, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll } = useDocumentLibrary();
 
   // ---- Scroll spy ----
   useEffect(() => {
@@ -59,18 +97,28 @@ export default function Home() {
   }, []);
 
   // ---- Preview mode class ----
+  // `preview-active` = l'aperçu est ouvert (ajuste la hauteur de la section pour
+  // qu'elle tienne sur un écran). `preview-focus` = mode agrandi (navbar
+  // allégée, surcouche plein cadre, snap coupé). Le focus n'a de sens que si
+  // l'aperçu est ouvert.
   useEffect(() => {
     const htmlEl = document.documentElement;
-    if (showPreview) {
-      htmlEl.classList.add('preview-active');
-    } else {
+    htmlEl.classList.toggle('preview-active', showPreview);
+    htmlEl.classList.toggle('preview-focus', showPreview && previewFocus);
+    return () => {
       htmlEl.classList.remove('preview-active');
-    }
-    return () => htmlEl.classList.remove('preview-active');
-  }, [showPreview]);
+      htmlEl.classList.remove('preview-focus');
+    };
+  }, [showPreview, previewFocus]);
+
+  const toggleFocus = useCallback(() => setPreviewFocus((v) => !v), []);
 
   // ---- Nav click handler ----
   const handleNavClick = useCallback((sectionId: string) => {
+    // Quitter une autre section depuis le mode agrandi : on revient d'abord au
+    // rendu NORMAL (la surcouche plein cadre `preview-focus` est `position:fixed`
+    // + `overflow:hidden` — sans ça, le scroll vers la cible n'aurait aucun effet).
+    setPreviewFocus(false);
     const el = document.getElementById(sectionId);
     if (el) {
       el.scrollIntoView({ behavior: 'smooth' });
@@ -85,7 +133,14 @@ export default function Home() {
       // variante régionale à réduire avant l'envoi.
       const { file, targetLang, pages, debug, precise } = config;
       setSelectedFile(file);
+      setSourceIsPdf(false);      // fichier local, format d'origine
       setTargetLang(targetLang);
+      // Une traduction EN DIRECT reçoit ses pages par le flux : elle n'a rien
+      // à redemander au serveur. Sans cette remise à zéro, l'effet d'aperçu
+      // continuerait de réclamer les pages du document précédent et les
+      // poserait par-dessus celles qui arrivent.
+      setLibraryDocId(null);
+      setPreviewLoading(false);
       setTranslatedBlob(null);
       setTranslatedFilename('');
       setCurrentPage(1);
@@ -95,6 +150,7 @@ export default function Home() {
         .start(file, targetLang, pages, debug, precise)
         .then((result) => {
           setTranslatedBlob(result.blob);
+          setTranslatedIsPdf(false);   // le RÉSULTAT est au format d'origine
           setTranslatedFilename(result.filename);
           const ext = result.filename.split('.').pop()?.toLowerCase() ?? 'pdf';
           saveDocument(result.blob, result.filename, {
@@ -104,14 +160,14 @@ export default function Home() {
           });
           // Forfait freemium = 1 page max, on invite à upgrader
           if (user?.plan === 'free') {
-            showToast('success', 'Forfait Gratuit — 1 page / mois', 'Passez à Starter pour traduire des documents complets.');
+            showToast('success', t('story.free_plan_title'), t('story.free_plan_hint'));
           } else {
             showToast('success', t('story.success_done'), result.filename);
           }
         })
-        .catch((err) => {
-          const msg = err instanceof Error ? err.message : '';
-          showToast('error', t('story.error_default'), msg || undefined);
+        .catch(() => {
+          // L'erreur est déjà dans stream.error (et stream.limitReached pour
+          // les 402) — on laisse StorySection l'afficher en bannière inline.
         });
     },
     [stream, saveDocument, t],
@@ -119,20 +175,119 @@ export default function Home() {
 
   // ---- Library preview ----
   const handleLibraryPreview = useCallback(
-    (blob: Blob, filename: string, _ext: string, source?: Blob) => {
+    (req: {
+      docId: string;
+      filename: string;
+      ext: string;
+      source: Promise<Blob | undefined>;
+    }) => {
+      // Chaque ouverture reçoit un jeton. Sans lui, ouvrir A puis B pendant que
+      // A charge encore laisse la réponse de A — arrivée en dernier — écraser
+      // le document B affiché à l'écran.
+      const token = ++openToken.current;
+      const fresh = () => openToken.current === token;
+
       stream.reset();
-      setTranslatedBlob(blob);
-      setTranslatedFilename(filename);
-      // Sans source, le viewer retombe sur son `demoSource` : on affichait le
-      // journal de DÉMO dans le panneau gauche, à côté du vrai document. On
-      // reconstruit un File (et pas un Blob nu) pour que le nom du fichier
-      // suive — c'est lui que le viewer affiche en en-tête.
-      setSelectedFile(source ? new File([source], filename, { type: 'application/pdf' }) : null);
+      setTranslatedBlob(null);
+      setSelectedFile(null);
+      setTranslatedFilename(req.filename);
+      // Caches d'aperçu REMIS À ZÉRO : ils appartiennent à l'ouverture
+      // précédente. Les garder servirait les pages d'une traduction
+      // potentiellement retraduite depuis.
+      pageBlobCache.current.clear();
+      fullDocFor.current = null;
+      setLibraryDocId(req.docId);
+      setCurrentPage(1);
+      setPreviewLoading(true);
       setShowLibrary(false);
-      setShowPreview(true);
+      // Ramener l'utilisateur sur la section de traduction AVANT d'ouvrir
+      // l'aperçu : s'il était sur les tarifs ou à propos, le panneau de
+      // prévisualisation s'ouvrirait hors de l'écran sans ce scroll.
+      document.getElementById('story')?.scrollIntoView({ behavior: 'smooth' });
+      setShowPreview(true);   // ← l'aperçu est visible AVANT le premier octet
+
+      // La source arrive DÉJÀ CONVERTIE en PDF (`?as=pdf`) : le panneau gauche
+      // s'affiche sans un seul appel de plus. Elle était servie au format natif,
+      // et le viewer la retournait au serveur pour conversion — un aller-retour
+      // de plusieurs mégaoctets qui, en échouant, laissait le panneau blanc.
+      setSourceIsPdf(true);
+      req.source.then((src) => {
+        if (fresh() && src) {
+          setSelectedFile(new File([src], req.filename, { type: 'application/pdf' }));
+        }
+      }).catch(() => { /* panneau gauche vide : le viewer le gère */ });
+
+      // La traduction est chargée par l'effet ci-dessous, page par page.
     },
     [stream],
   );
+
+  // ---- Retry : relance la traduction d'un document en erreur ----------------
+  const handleRetry = useCallback(
+    async (doc: import('../hooks/useDocumentLibrary').DocMeta) => {
+      const blob = await getOriginalBlob(doc.id);
+      if (!blob) return;
+      const file = new File([blob], doc.originalName);
+      deleteDocument(doc.id);
+      // Scroll vers la section de traduction avant de lancer
+      document.getElementById('story')?.scrollIntoView({ behavior: 'smooth' });
+      handleStartTranslate({
+        file,
+        targetLang: doc.targetLang,
+        pages: '',
+        debug: false,
+        precise: false,
+      });
+    },
+    [getOriginalBlob, deleteDocument, handleStartTranslate],
+  );
+
+  // ---- Aperçu bibliothèque : réseau seulement quand on ne SAIT pas ---------
+  //
+  // Trois niveaux, du plus rapide au plus lent, et on s'arrête au premier :
+  //   1. le serveur a déjà envoyé le rendu COMPLET (`X-Render: full`) →
+  //      navigation 100 % locale, plus une seule requête ;
+  //   2. la page a déjà été visitée → blob repris du cache mémoire, instantané
+  //      (revenir sur une page relançait ~10 s de reconstruction serveur) ;
+  //   3. sinon seulement, on demande la page au serveur.
+  useEffect(() => {
+    if (!libraryDocId || !showPreview) return;
+    if (fullDocFor.current === libraryDocId) return;          // niveau 1
+    const key = `${libraryDocId}:${currentPage}`;
+    const hit = pageBlobCache.current.get(key);
+    if (hit) {                                                    // niveau 2
+      setTranslatedBlob(hit); setTranslatedIsPdf(true);
+      setPreviewLoading(false); return;
+    }
+
+    const token = ++pageToken.current;
+    setPreviewLoading(true);
+    getPreviewBlob(libraryDocId, currentPage)
+      .then((res) => {
+        // Jeton : tourner vite les pages lance plusieurs requêtes, et rien ne
+        // garantit qu'elles reviennent dans l'ordre. Sans lui, une page lente
+        // demandée avant écrase la page rapide demandée après.
+        if (pageToken.current !== token || !res) return;
+        if (res.full) {
+          // Tout le document est là : les blobs par page n'ont plus d'objet.
+          fullDocFor.current = libraryDocId;
+          pageBlobCache.current.clear();
+        } else {
+          pageBlobCache.current.set(key, res.blob);
+          // Borne mémoire : ~3 Mo par blob, on garde les 20 dernières pages
+          // visitées (FIFO — Map préserve l'ordre d'insertion).
+          while (pageBlobCache.current.size > 20) {
+            const oldest = pageBlobCache.current.keys().next().value as string;
+            pageBlobCache.current.delete(oldest);
+          }
+        }
+        // `/preview` renvoie TOUJOURS un PDF, quel que soit le format d'origine.
+        setTranslatedBlob(res.blob);
+        setTranslatedIsPdf(true);
+      })
+      .catch(() => { /* le lecteur garde son écran d'attente */ })
+      .finally(() => { if (pageToken.current === token) setPreviewLoading(false); });
+  }, [libraryDocId, currentPage, showPreview, getPreviewBlob]);
 
   // ---- Download (le résultat complet, une fois la traduction terminée) ----
   const handleDownload = useCallback(() => {
@@ -153,12 +308,59 @@ export default function Home() {
   const handleBack = useCallback(() => {
     stream.cancel();
     setShowPreview(false);
+    setPreviewFocus(false);         // on quitte aussi le mode agrandi
+    setLibraryDocId(null);          // plus d'aperçu ouvert : plus rien à charger
+    setPreviewLoading(false);
   }, [stream]);
 
   // Aperçu du panneau « traduit » : blob final si dispo, sinon PDF partiel
   // (pages déjà prêtes), mis à jour au fil de l'eau pendant le streaming.
   const previewTranslatedBlob = translatedBlob ?? stream.partialBlob;
+  // Le partiel du flux est TOUJOURS un PDF (le backend le convertit avant de
+  // le servir), y compris pour un PPTX.
+  const previewTranslatedIsPdf = translatedBlob ? translatedIsPdf : true;
   const effectiveNumPages = stream.totalPages ?? numPages;
+
+  // ---- Raccourcis clavier + souris de l'aperçu (simples) ----
+  // Actifs seulement quand l'aperçu est ouvert. Ignorés si l'on tape dans un
+  // champ. Réutilisent les setters existants (page, zoom, focus, retour).
+  useEffect(() => {
+    if (!showPreview) return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      switch (e.key) {
+        case 'ArrowLeft':  setCurrentPage((p) => Math.max(1, p - 1)); break;
+        case 'ArrowRight': setCurrentPage((p) => Math.min(effectiveNumPages, p + 1)); break;
+        case 'Home':       setCurrentPage(1); break;
+        case 'End':        setCurrentPage(effectiveNumPages); break;
+        case '+': case '=': setZoom((z) => Math.min(3, +(z + 0.25).toFixed(2))); break;
+        case '-':          setZoom((z) => Math.max(0.5, +(z - 0.25).toFixed(2))); break;
+        case '0':          setZoom(1); break;
+        case 'f': case 'F': setPreviewFocus((v) => !v); break;
+        case 'Escape':
+          if (previewFocus) setPreviewFocus(false);
+          else handleBack();
+          break;
+        default: return;
+      }
+    };
+    // Ctrl + molette = zoom (comme un lecteur PDF). `passive:false` pour pouvoir
+    // annuler le zoom natif de la page.
+    const scrollEl = document.getElementById('scroll');
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      setZoom((z) => Math.min(3, Math.max(0.5,
+        +(z + (e.deltaY < 0 ? 0.15 : -0.15)).toFixed(2))));
+    };
+    window.addEventListener('keydown', onKey);
+    scrollEl?.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      scrollEl?.removeEventListener('wheel', onWheel);
+    };
+  }, [showPreview, effectiveNumPages, previewFocus, handleBack]);
 
   return (
     <div className="min-h-screen bg-white text-gray-900 font-body">
@@ -170,77 +372,7 @@ export default function Home() {
         onLibraryOpen={() => setShowLibrary(true)}
       />
 
-      {/* Fixed lang lines overlay — stays in viewport across all sections */}
-      <div className="page-bg-lang-lines">
-        <div className="hero-lang-lines">
-          <div className="lang-line lang-line-left">
-            {[1, 2, 3].map((i) => (
-              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
-                <span>Translation</span><span>•</span>
-                <span>Traduction</span><span>•</span>
-                <span>Traducción</span><span>•</span>
-                <span>Übersetzung</span><span>•</span>
-                <span>Traduzione</span><span>•</span>
-                <span>Overzetting</span><span>•</span>
-                <span>翻訳</span><span>•</span>
-                <span>번역</span><span>•</span>
-                <span>翻译</span><span>•</span>
-                <span>ترجمة</span><span>•</span>
-                <span>Перевод</span><span>•</span>
-              </span>
-            ))}
-          </div>
-          <div className="lang-line lang-line-right">
-            {[1, 2, 3].map((i) => (
-              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
-                <span>Documents</span><span>•</span>
-                <span>Actes</span><span>•</span>
-                <span>Certificats</span><span>•</span>
-                <span>Contrats</span><span>•</span>
-                <span>Diplômes</span><span>•</span>
-                <span>書類</span><span>•</span>
-                <span>문서</span><span>•</span>
-                <span>文档</span><span>•</span>
-                <span>عقود</span><span>•</span>
-                <span>Справки</span><span>•</span>
-              </span>
-            ))}
-          </div>
-          <div className="lang-line lang-line-left">
-            {[1, 2, 3].map((i) => (
-              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
-                <span>Precision</span><span>•</span>
-                <span>Précision</span><span>•</span>
-                <span>Precisión</span><span>•</span>
-                <span>Präzision</span><span>•</span>
-                <span>Precisione</span><span>•</span>
-                <span>Precisie</span><span>•</span>
-                <span>精度</span><span>•</span>
-                <span>정밀도</span><span>•</span>
-                <span>精确</span><span>•</span>
-                <span>دقة</span><span>•</span>
-                <span>Точность</span><span>•</span>
-              </span>
-            ))}
-          </div>
-          <div className="lang-line lang-line-right">
-            {[1, 2, 3].map((i) => (
-              <span key={i} style={{ display: 'inline-flex', gap: '30px' }}>
-                <span>AI &amp; Human</span><span>•</span>
-                <span>IA &amp; Humain</span><span>•</span>
-                <span>IA y Humano</span><span>•</span>
-                <span>KI &amp; Mensch</span><span>•</span>
-                <span>IA &amp; Umano</span><span>•</span>
-                <span>AI &amp; Mens</span><span>•</span>
-                <span>AI &amp; 人間</span><span>•</span>
-                <span>AI &amp; 인간</span><span>•</span>
-                <span>AI &amp; 人类</span><span>•</span>
-                <span>ذكاء بشري واصطناعي</span><span>•</span>
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
+      <LanguageMarquee />
 
       <DocumentLibrary
         isOpen={showLibrary}
@@ -250,8 +382,9 @@ export default function Home() {
         onDelete={deleteDocument}
         onClearAll={clearAll}
         getBlob={getBlob}
-        getPreviewBlob={getPreviewBlob}
         getOriginalBlob={getOriginalBlob}
+        onPaid={() => { refresh(); refreshUser(); }}
+        onRetry={handleRetry}
       />
 
       <main>
@@ -262,8 +395,10 @@ export default function Home() {
         <StorySection
           showPreview={showPreview}
           translatedBlob={previewTranslatedBlob}
+          translatedIsPdf={previewTranslatedIsPdf}
           translatedFilename={translatedFilename}
           selectedFile={selectedFile}
+          sourceIsPdf={sourceIsPdf}
           currentPage={currentPage}
           numPages={effectiveNumPages}
           zoom={zoom}
@@ -272,8 +407,13 @@ export default function Home() {
           isTranslating={stream.isTranslating}
           pageStatuses={stream.pageStatuses}
           renderedUpTo={stream.renderedUpTo}
+          previewRendering={previewLoading}
+          translationError={stream.error}
+          limitReached={stream.limitReached}
+          focus={previewFocus}
           onStartTranslate={handleStartTranslate}
           onBack={handleBack}
+          onToggleFocus={toggleFocus}
           onZoomChange={setZoom}
           onPageChange={setCurrentPage}
           onDownload={handleDownload}

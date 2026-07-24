@@ -1,5 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { authHeader, accessToken } from '../services/api';
+import i18n from '../i18n';
 
 const API_KEY = import.meta.env.VITE_API_KEY || 'precis_frontend_secure_key_2026_xK9mP2vL';
 const API_BASE = import.meta.env.VITE_API_BASE || '';
@@ -25,6 +27,8 @@ export interface StreamingState {
   /** Résultat final complet (quand terminé). */
   result: { blob: Blob; filename: string } | null;
   error: string | null;
+  /** L'erreur vient d'un 402 (limite de forfait atteinte) → afficher un CTA. */
+  limitReached: boolean;
 }
 
 const EMPTY: StreamingState = {
@@ -35,9 +39,11 @@ const EMPTY: StreamingState = {
   renderedUpTo: 0,
   result: null,
   error: null,
+  limitReached: false,
 };
 
 export function useStreamingTranslation() {
+  const { t } = useTranslation();
   const [state, setState] = useState<StreamingState>(EMPTY);
   const esRef = useRef<EventSource | null>(null);
   const jobIdRef = useRef<string | null>(null);
@@ -97,6 +103,15 @@ export function useStreamingTranslation() {
       precise: boolean = false,
     ): Promise<{ blob: Blob; filename: string }> => {
       return new Promise(async (resolve, reject) => {
+        // Fermer TOUT flux encore ouvert avant d'en démarrer un nouveau. Relancer
+        // une traduction alors qu'une était en cours (ou quittée par Retour)
+        // laissait l'ancien `EventSource` ouvert : une connexion fuitée, et ses
+        // événements `page`/`partial` qui venaient se mélanger à ceux du nouveau
+        // job. L'ancien job continue côté serveur et reste dans la bibliothèque
+        // (voulu) ; seul son SUIVI est abandonné proprement.
+        esRef.current?.close();
+        esRef.current = null;
+
         setState({ ...EMPTY, isTranslating: true });
         // Sans ça, un 402 survenant avant le premier partiel du NOUVEAU
         // document résoudrait avec celui du PRÉCÉDENT — on afficherait le
@@ -129,7 +144,10 @@ export function useStreamingTranslation() {
           });
           if (!startRes.ok) {
             const err = await startRes.json().catch(() => ({}));
-            throw new Error(err.detail || err.error || 'Démarrage de la traduction échoué');
+            const detail = err.detail || err.error || t('story.error_default');
+            const is402 = startRes.status === 402;
+            setState((s) => ({ ...s, isTranslating: false, error: detail, limitReached: is402 }));
+            throw new Error(detail);
           }
           const { job_id } = await startRes.json();
           jobIdRef.current = job_id;
@@ -166,6 +184,24 @@ export function useStreamingTranslation() {
               if (status === 'done' || status === 'copied') {
                 fetchPartial(page);
               }
+            } else if (type === 'partial') {
+              // PPTX PROGRESSIF : le backend signale qu'un nouveau PDF partiel
+              // est PRÊT à être récupéré — d'abord le SOCLE (le document
+              // d'origine, `pages: 0`), puis chaque lot de diapositives
+              // greffées. C'est LE signal d'affichage progressif.
+              //
+              // Sans ce handler, l'aperçu ne se rafraîchissait que sur les
+              // événements `page`. En traduction IA (lente), ça suffisait par
+              // hasard : les `page` s'espaçaient assez pour laisser le partiel
+              // se préparer. Mais en mode STRUCTURE (sans IA), toutes les pages
+              // « terminent » en quelques millisecondes — AVANT que LibreOffice
+              // ait converti la moindre diapositive. Les `fetchPartial` de ces
+              // `page` tombaient dans le vide, et les partiels réellement prêts
+              // (émis APRÈS, en `partial`) étaient ignorés : on ne voyait donc
+              // RIEN jusqu'à la fin. En écoutant `partial`, l'original apparaît
+              // dès que le socle est prêt, puis l'aperçu se remplit au rythme
+              // réel des conversions — quelle que soit la vitesse de traduction.
+              fetchPartial((msg.pages as number) ?? 0);
             } else if (type === 'done') {
               es.close();
               esRef.current = null;
@@ -178,19 +214,35 @@ export function useStreamingTranslation() {
 
                 // 402 = le FORFAIT parle, ce n'est pas une panne. Un plan
                 // d'essai n'a pas droit au résultat téléchargeable ; il a droit
-                // à l'aperçu, qu'il a déjà reçu (partiel rastérisé et
-                // filigrané). Traiter ce refus comme une erreur laissait la
-                // traduction bloquée sur « page en attente » alors qu'elle
-                // avait parfaitement abouti.
-                if (dlRes.status === 402 && lastPartialRef.current) {
-                  const blob = lastPartialRef.current;
-                  setState((s) => ({ ...s, isTranslating: false, result: { blob, filename } }));
-                  resolve({ blob, filename });
-                  return;
+                // à l'aperçu (partiel rastérisé et filigrané). Traiter ce refus
+                // comme une erreur laissait la traduction bloquée sur « page en
+                // attente » alors qu'elle avait parfaitement abouti.
+                //
+                // On REDEMANDE le partiel ICI, maintenant qu'il est GARANTI
+                // complet côté serveur. Indispensable pour le PPTX : son partiel
+                // est converti en PDF de façon asynchrone (LibreOffice, ~10 s) et
+                // n'était souvent pas encore prêt au dernier événement `page` —
+                // `lastPartialRef` restait alors vide et l'essai voyait une
+                // erreur au lieu de son aperçu.
+                if (dlRes.status === 402) {
+                  let blob = lastPartialRef.current;
+                  try {
+                    const pr = await fetch(`${API_BASE}/api/translate/partial/${job_id}`, {
+                      headers: { 'X-API-Key': API_KEY, ...authHeader() },
+                    });
+                    if (pr.ok) blob = await pr.blob();
+                  } catch {
+                    // réseau : on se rabat sur le dernier partiel connu
+                  }
+                  if (blob) {
+                    setState((s) => ({ ...s, isTranslating: false, partialBlob: blob, result: { blob, filename } }));
+                    resolve({ blob, filename });
+                    return;
+                  }
                 }
                 if (!dlRes.ok) {
                   const err = await dlRes.json().catch(() => ({}));
-                  throw new Error(err.detail || 'Téléchargement du résultat échoué');
+                  throw new Error(err.detail || i18n.t('common.download_failed'));
                 }
                 const blob = await dlRes.blob();
                 setState((s) => ({
@@ -201,14 +253,14 @@ export function useStreamingTranslation() {
                 }));
                 resolve({ blob, filename });
               } catch (dlErr) {
-                const m = dlErr instanceof Error ? dlErr.message : 'Erreur de téléchargement';
+                const m = dlErr instanceof Error ? dlErr.message : t('story.error_translation_failed');
                 setState((s) => ({ ...s, isTranslating: false, error: m }));
                 reject(new Error(m));
               }
             } else if (type === 'error') {
               es.close();
               esRef.current = null;
-              const m = (msg.message as string) || 'Erreur de traduction';
+              const m = (msg.message as string) || t('story.error_translation_failed');
               setState((s) => ({ ...s, isTranslating: false, error: m }));
               reject(new Error(m));
             }
@@ -220,12 +272,12 @@ export function useStreamingTranslation() {
             setState((s) => {
               // Une coupure APRÈS le done final n'est pas une erreur.
               if (!s.isTranslating) return s;
-              return { ...s, isTranslating: false, error: 'Connexion au serveur perdue' };
+              return { ...s, isTranslating: false, error: t('story.error_connection_lost') };
             });
-            reject(new Error('Connexion au serveur perdue'));
+            reject(new Error(t('story.error_connection_lost')));
           };
         } catch (err) {
-          const m = err instanceof Error ? err.message : 'Erreur inconnue';
+          const m = err instanceof Error ? err.message : t('story.error_unknown');
           setState((s) => ({ ...s, isTranslating: false, error: m }));
           reject(new Error(m));
         }

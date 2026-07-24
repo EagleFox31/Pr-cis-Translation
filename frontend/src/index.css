@@ -41,6 +41,35 @@
   --radius: 12px;
   --radius-lg: 20px;
   --transition: 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* CADRE COMMUN — la même largeur et la même gouttière pour la navbar, les
+     sections ET le hero. Sans ce cadre partagé, le hero vivait à 1720px pendant
+     que tout le reste tenait à 1240px : ses bords débordaient de ceux de la
+     navbar, d'où le désalignement (titre plus à gauche que le logo, démo plus à
+     droite que le profil). Un seul endroit fixe la mesure, tout s'y aligne. */
+  --frame-max: 1240px;
+  --frame-pad: 24px;
+
+  /* Dégagement des sections sous le hero. Objectif : la MÊME marge du haut sur
+     toutes les sections ET à toutes les tailles d'écran.
+
+     Le centrage vertical (justify-content: center) a été ABANDONNÉ pour ces
+     sections : il rendait la marge du haut DÉPENDANTE de la hauteur du contenu
+     et de l'écran — une section qui remplit l'écran se centrait avec une marge
+     minuscule (Story sur petit écran), une section plus courte flottait au
+     milieu avec une grande marge (Features). Deux sections, deux marges : c'est
+     l'incohérence qu'on corrige.
+
+     Les sections sont maintenant CALÉES EN HAUT (flex-start) à `--section-gap`
+     sous la navbar. Le point de départ ne dépend plus ni du contenu ni de
+     l'écran : identique partout. Le padding haut compense la navbar fixe
+     (`--nav-h + --section-gap`), le bas reprend `--section-gap`.
+
+     Le hero, lui, RESTE centré : son contenu est calibré pour la hauteur d'écran
+     et ce centrage lui va. */
+  --section-gap: 32px;
+
+  --nav-h: 72px;
 }
 
 /* ============================
@@ -53,6 +82,13 @@ html {
 }
 @media (min-width: 1025px) {
   html {
+    /* Snap FRANC (`mandatory`) — une section par page. Ce qui empêchait le
+       snap de coexister avec un contenu variable, c'était le `height: 100vh`
+       FIXE des sections : trop de contenu débordait et se faisait couper. La
+       parade n'est PAS d'affaiblir le snap (proximity), mais de laisser les
+       sections grandir : `min-height: 100vh` (voir plus bas). Quand une section
+       dépasse la hauteur du snapport, le navigateur ne piège plus le défilement
+       — on peut la parcourir jusqu'au bout. */
     scroll-snap-type: y mandatory;
   }
 }
@@ -114,10 +150,10 @@ button { font-family: inherit; cursor: pointer; border: none; }
   box-shadow: var(--shadow-md);
 }
 .nav-inner {
-  max-width: 1240px;
+  max-width: var(--frame-max);
   margin: 0 auto;
-  padding: 0 24px;
-  height: 72px;
+  padding: 0 var(--frame-pad);
+  height: var(--nav-h);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -247,11 +283,17 @@ button { font-family: inherit; cursor: pointer; border: none; }
   align-items: center;
   overflow: hidden;
   scroll-margin-top: 0;
+  /* Dégradé de base SEMI-TRANSPARENT (~0.62) : le décor fixe des lignes de
+     langues (calque `page-bg-lang-lines`, navy sur le corps blanc) transparaît
+     nettement sur le hero, si bien qu'il court d'un bout à l'autre de la page en
+     parallaxe. Le hero reste bleuté et sombre — le titre est de toute façon
+     au-dessus (z-index 10) et se lit sans peine. */
   background:
     radial-gradient(ellipse 80% 60% at 70% 40%, rgba(37,99,235,.18) 0%, transparent 70%),
     radial-gradient(ellipse 50% 50% at 20% 70%, rgba(201,168,76,.10) 0%, transparent 60%),
-    linear-gradient(145deg, #0d1b3e 0%, #162248 45%, #0d2060 100%);
+    linear-gradient(145deg, rgba(13,27,62,.95) 0%, rgba(22,34,72,.95) 45%, rgba(13,32,96,.95) 100%);
 }
+
 
 /* Fixed lang lines overlay — visible across all sections */
 .page-bg-lang-lines {
@@ -280,7 +322,11 @@ button { font-family: inherit; cursor: pointer; border: none; }
   font-family: var(--font-display);
   font-size: clamp(1.8rem, 4vw, 3.6rem);
   font-weight: 300;
-  color: rgba(13, 27, 62, 0.12);
+  /* Le décor (z-index:0) est posé sur le CORPS BLANC : les sections (z-index:1)
+     comme le hero transparent le laissent voir par-dessous. Contre du blanc,
+     c'est donc le NAVY — la teinte la plus foncée — qui contraste le mieux, et
+     qui, dimué par le hero semi-transparent, y laisse encore des stries. */
+  color: rgba(13, 27, 62, 0.22);
   white-space: nowrap;
   display: flex;
   gap: clamp(16px, 3vw, 40px);
@@ -290,6 +336,25 @@ button { font-family: inherit; cursor: pointer; border: none; }
 .lang-line span {
   font-style: italic;
   display: inline-block;
+}
+
+/* Calque BLANC, propre au hero (cf. LanguageMarquee variant="hero").
+   FIXE (parallaxe) et posé AU-DESSUS du fond navy mais SOUS le contenu
+   (z-index:10). Blanc TRÈS ténu (~0.05) : juste le même murmure que le décor
+   gris des sections — assez pour deviner le mouvement, trop peu pour disputer
+   la lecture du titre. */
+.hero-decor-lines {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+}
+.hero-decor-lines .lang-line {
+  color: rgba(255, 255, 255, 0.05);
 }
 
 .lang-line-left {
@@ -342,9 +407,9 @@ button { font-family: inherit; cursor: pointer; border: none; }
   /* La démo EST l'argument : on lui laisse la place. Le hero occupe presque
      toute la largeur (au lieu d'une gouttière de 1240px héritée des sections
      de contenu) et la colonne de droite reçoit la part majoritaire. */
-  max-width: 1720px;
+  max-width: var(--frame-max);
   margin: 0 auto;
-  padding: 72px clamp(24px, 3.5vw, 56px) 40px;
+  padding: 72px var(--frame-pad) 40px;
   display: grid;
   grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
   gap: clamp(40px, 4vw, 72px);
@@ -813,6 +878,9 @@ button { font-family: inherit; cursor: pointer; border: none; }
   font-size: 12.5px;
   letter-spacing: .02em;
 }
+/* Occupe SA ligne. `flex-basis: 100%` force le retour dans un conteneur
+   `flex-wrap`, sans rien casser si l'ordre des mentions change. */
+.hero-proof--seul { flex-basis: 100%; }
 
 /* Lien d'action secondaire */
 .btn-ghost {
@@ -858,9 +926,9 @@ section {
   padding: 40px 24px;
 }
 .section-inner {
-  max-width: 1240px;
+  max-width: var(--frame-max);
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 var(--frame-pad);
 }
 .section-tag {
   display: flex;
@@ -1104,93 +1172,6 @@ section {
 /* ============================
    FEATURES SECTION
    ============================ */
-.features-section {
-  padding: 110px 0;
-  background: var(--white);
-}
-.features-header {
-  text-align: left;
-  margin-bottom: 72px;
-}
-.features-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
-}
-.feature-card {
-  background: var(--gray-50);
-  border: 1px solid var(--gray-100);
-  border-radius: var(--radius-lg);
-  padding: 36px 28px;
-  transition: all var(--transition);
-  position: relative;
-  overflow: hidden;
-}
-.feature-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(37,99,235,.04) 0%, transparent 60%);
-  opacity: 0;
-  transition: opacity var(--transition);
-}
-.feature-card:hover {
-  border-color: rgba(37,99,235,.2);
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-4px);
-  background: var(--white);
-}
-.feature-card:hover::before { opacity: 1; }
-.feature-icon {
-  width: 52px; height: 52px;
-  background: var(--navy);
-  border-radius: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 22px;
-  margin-bottom: 20px;
-  transition: background var(--transition);
-}
-.feature-card:hover .feature-icon { background: var(--blue); }
-.feature-card h3 {
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--navy);
-  margin-bottom: 10px;
-}
-.feature-card p {
-  font-size: 14px;
-  color: var(--gray-500);
-  line-height: 1.65;
-}
-.feature-highlight {
-  background: var(--navy) !important;
-  border-color: var(--navy) !important;
-}
-.feature-highlight h3, .feature-highlight p { color: var(--white) !important; }
-.feature-highlight p { opacity: 0.7; }
-.feature-highlight .feature-icon {
-  background: rgba(255,255,255,.12) !important;
-}
-.feature-highlight::before { display: none; }
-.feature-highlight:hover {
-  background: var(--blue-bright) !important;
-  transform: translateY(-4px);
-}
-.feature-tag {
-  display: inline-block;
-  margin-top: 14px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--gold);
-  background: rgba(201,168,76,.12);
-  padding: 3px 10px;
-  border-radius: 100px;
-}
-
 /* ============================
    COMPARISON
    ============================ */
@@ -1238,7 +1219,7 @@ section {
   padding: 40px 0;
   background: rgba(255,255,255,0.75);
 }
-.pricing-header { text-align: left; margin-bottom: 64px; }
+.pricing-header { text-align: left; margin-bottom: 32px; }
 .pricing-toggle {
   display: flex;
   align-items: center;
@@ -1375,6 +1356,37 @@ section {
   border-color: var(--white);
 }
 .pricing-card.popular .btn-pricing:hover { background: var(--gold); border-color: var(--gold); }
+
+/* Offre en cours de l'utilisateur : mise en avant et bouton neutralisé.
+   C'étaient des styles en ligne — le cadre et le halo dans le `motion.div`, le
+   bouton grisé dans le `<a>`. En classe, ils se voient et se règlent ici. */
+.pricing-card.active {
+  border: 2px solid var(--blue);
+  box-shadow: 0 0 0 4px rgba(26, 77, 199, .12);
+}
+.btn-pricing--actif {
+  background: var(--gray-200);
+  border-color: var(--gray-300);
+  color: var(--gray-500);
+  cursor: default;
+  pointer-events: none;
+}
+.btn-pricing--actif:hover { background: var(--gray-200); color: var(--gray-500); }
+
+/* Précision « facturé annuellement » sous le prix. */
+.pricing-annuel {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--blue);
+}
+
+/* Tarifs indisponibles : message centré, pas de grille. */
+.pricing-indispo {
+  text-align: center;
+  font-size: 14px;
+  color: var(--gray-500);
+}
 
 /* ============================
    FORMATS SECTION (PARALLAX)
@@ -1662,7 +1674,6 @@ footer {
 @media (max-width: 1024px) {
   .hero-content { grid-template-columns: 1fr; gap: 60px; }
   .hero-visual { display: none; }
-  .features-grid { grid-template-columns: repeat(2, 1fr); }
   .pricing-grid { grid-template-columns: repeat(2, 1fr); }
   .story-grid { grid-template-columns: 1fr; }
   .footer-grid { grid-template-columns: 1fr 1fr; }
@@ -1671,7 +1682,6 @@ footer {
 @media (max-width: 768px) {
   .nav-links { display: none; }
   .hamburger { display: flex; }
-  .features-grid { grid-template-columns: 1fr; }
   .pricing-grid { grid-template-columns: 1fr; }
   .pricing-card.popular { transform: none; }
   .comparison-row { grid-template-columns: 130px 1fr 1fr; }
@@ -1784,12 +1794,6 @@ footer {
   .features-columns-grid {
     grid-template-columns: 1fr;
     gap: 40px;
-  }
-  .features-left {
-    text-align: left;
-  }
-  .features-header {
-    text-align: left !important;
   }
 }
 
@@ -1918,13 +1922,13 @@ footer {
   width: 46px; height: 46px;
   border-radius: 12px;
   background: var(--blue-light);
+  color: var(--blue);            /* le SVG hérite via currentColor */
   display: flex; align-items: center; justify-content: center;
   margin-bottom: 16px;
-  transition: background .25s;
+  transition: background .25s, color .25s;
 }
-.feat-card:hover .feat-icon { background: var(--blue); }
 .feat-icon svg { transition: color .25s; }
-.feat-card:hover .feat-icon svg { color: white !important; }
+.feat-card:hover .feat-icon { background: var(--blue); color: #fff; }
 .feat-title {
   font-size: 15px; font-weight: 600;
   color: var(--navy); margin-bottom: 8px;
@@ -2087,7 +2091,10 @@ footer {
 .toggle{display:flex;background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:3px;height:32px;gap:2px}
 .tgl-btn{border:none;border-radius:6px;padding:0 12px;height:26px;font-size:12px;font-family:var(--font-sans);cursor:pointer;background:transparent;color:var(--color-text-secondary);transition:all 0.12s}
 .tgl-btn.on{background:var(--color-background-primary);color:var(--color-text-primary);box-shadow:0 1px 2px rgba(0,0,0,0.08)}
-.scroll{flex:1;min-height:0;overflow:auto;background:var(--color-background-tertiary);padding:24px}
+/* Conteneur de rendu de l'aperçu : centre les panneaux (avant/après) au milieu.
+   `safe` : quand le contenu (page zoomée) dépasse, on n'écrase pas le haut —
+   l'alignement retombe sur le bord, le défilement reste accessible. */
+.scroll{flex:1;min-height:0;overflow:auto;background:var(--color-background-tertiary);padding:24px;display:flex;align-items:safe center;justify-content:safe center}
 .cv{background:var(--color-background-primary);border-radius:6px;border:0.5px solid var(--color-border-tertiary);overflow:visible}
 .cv-lang-badge{position:absolute;top:8px;right:8px;font-size:10px;font-weight:500;padding:2px 7px;border-radius:4px}
 .cv-lang-badge.fr{background:#eff6ff;color:#1d4ed8}
@@ -2118,40 +2125,89 @@ footer {
    RESPONSIVE SCROLL SNAP SYSTEM (DESKTOP ONLY)
    ============================ */
 @media (min-width: 1025px) {
-  html:not(.preview-active) {
+  html {
     scroll-snap-type: y mandatory;
     scroll-behavior: smooth;
   }
-  
+
+  /* Le MODE AGRANDI (focus) est le seul cas où le snap est coupé : l'aperçu
+     prend tout l'écran et gère son propre espace. En aperçu NORMAL, le snap
+     fonctionne comme sur toutes les autres sections. */
+  html.preview-focus {
+    scroll-snap-type: none;
+    overflow: hidden;
+  }
+
   .hero,
   .story-band,
   .pricing-section,
   .about-section {
     position: relative;
     z-index: 1;
-    height: 100vh;
+    /* `min-height`, PAS `height` : la section remplit l'écran quand le contenu
+       est court, mais GRANDIT au lieu de le DÉCOUPER quand il est long. Le
+       contenu s'enroule davantage sur un écran étroit et un écran court réduit
+       d'autant `100vh` : avec `height: 100vh; overflow: hidden`, le surplus se
+       faisait couper (« bavure ») — et ce, différemment selon la taille de
+       l'écran. En `min-height` + `overflow: visible`, la boîte contient
+       TOUJOURS son contenu : plus rien n'est découpé, à aucune dimension. */
+    min-height: 100vh;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    overflow: hidden;
-    scroll-snap-align: start;
-    scroll-snap-stop: always;
-    padding-top: 72px !important;
-    padding-bottom: 24px !important;
-  }
-
-  .hero {
-    background: var(--navy);
-  }
-  
-  .features-section {
-    background: rgba(255,255,255,0.75);
-    height: auto;
+    /* CALAGE EN HAUT : point de départ identique sur toute section et tout
+       écran (voir `--section-gap`). Le hero réactive le centrage plus bas. */
+    justify-content: flex-start;
     overflow: visible;
     scroll-snap-align: start;
-    padding-top: 72px !important;
-    padding-bottom: 24px !important;
+    scroll-snap-stop: always;
+    scroll-margin-top: 0;
+    /* Padding haut = navbar + dégagement (la navbar fixe recouvre les 72px du
+       haut), bas = dégagement seul : le titre démarre à `--section-gap` sous la
+       navbar, exactement pareil partout. */
+    padding-top: calc(var(--nav-h) + var(--section-gap)) !important;
+    padding-bottom: var(--section-gap) !important;
+  }
+
+  /* Le hero garde le centrage vertical : son contenu est calibré pour l'écran. */
+  .hero {
+    justify-content: center;
+  }
+
+  /* Le pied de page vit DANS la dernière section (flex column, min-height:100vh).
+     Son voisin `.section-inner` porte `flex: 1` pour pousser le pied en bas —
+     `min-height: 0` l'autorise à se comprimer sous la hauteur de son contenu,
+     et `flex-shrink: 0` sur le pied garantit que c'est LUI qui reste entier. */
+  .about-section > .section-inner {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .about-section > .about-footer {
+    flex: 0 0 auto;
+  }
+
+  /* PAS de fond opaque ici : cette règle (ancienne) posait `background:var(--navy)`
+     et, à spécificité égale mais placée APRÈS la ligne ~279, écrasait le dégradé
+     semi-transparent du hero — le décor fixe restait donc masqué. Le hero garde
+     son dégradé de base (ligne ~279), ajouré pour laisser voir le décor. */
+
+  .features-section {
+    background: rgba(255,255,255,0.75);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    overflow: visible;
+    scroll-snap-align: start;
+    /* IMPÉRATIF : annuler le `scroll-margin-top: 72px` hérité de la règle
+       générale `section`. Sans ça, le snap arrête Features 72px plus bas, et ces
+       72px s'AJOUTENT au dégagement — Features avait donc ~104px de marge haute
+       là où les autres (qui portent déjà scroll-margin-top:0) en avaient 32.
+       C'était l'unique raison pour laquelle Features restait « toujours haut ». */
+    scroll-margin-top: 0;
+    /* Même calage haut et mêmes marges que toutes les autres sections. */
+    padding-top: calc(var(--nav-h) + var(--section-gap)) !important;
+    padding-bottom: var(--section-gap) !important;
   }
   
   .story-band {
@@ -2168,10 +2224,36 @@ footer {
 
   .section-inner {
     width: 100%;
-    max-width: 1240px;
+    max-width: var(--frame-max);
     margin: 0 auto;
-    padding: 0 24px;
+    padding: 0 var(--frame-pad);
     box-sizing: border-box;
+  }
+
+  /* ── APERÇU (normal) : tenir EXACTEMENT sur une hauteur d'écran ──────────
+     `.app` fait déjà `calc(100vh - var(--nav-h))`. Il suffit donc que la
+     section d'aperçu ne garde en haut que le dégagement de la navbar (et rien
+     en bas) : navbar (72) + app (100vh-72) = 100vh pile → la section snappe
+     proprement, sans débordement. */
+  html.preview-active .story-band {
+    padding-top: var(--nav-h) !important;
+    padding-bottom: 0 !important;
+    justify-content: flex-start;
+  }
+
+  /* ── MODE AGRANDI (focus) : l'aperçu prend tout le cadre sous la navbar ──
+     Surcouche fixe, pleine largeur (on retire le cadre de 1240px pour exploiter
+     l'écran), snap coupé (géré sur `html.preview-focus` plus haut). */
+  html.preview-focus .story-band {
+    position: fixed;
+    inset: var(--nav-h) 0 0 0;
+    z-index: 900;
+    min-height: 0;
+    padding: 0 !important;
+  }
+  html.preview-focus .story-band .section-inner {
+    max-width: none !important;
+    padding: 0 !important;
   }
 }
 
@@ -2285,4 +2367,733 @@ footer {
     gap: 12px;
     align-items: stretch;
   }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PRIMITIVES D'INTERFACE  (composants de src/components/ui/)
+
+   Tout ce qui vit ici est PARTAGÉ. Un écran qui a besoin d'un bouton prend
+   `<Button>` ; il n'en réécrit pas un en style en ligne.
+
+   Les états (:hover, :focus-visible, :disabled) sont ici et nulle part
+   ailleurs : un style en ligne ne sait pas les exprimer, et le code les
+   simulait en mutant le DOM sur onMouseEnter — invisible au clavier.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Bouton ─────────────────────────────────────────────────────────────── */
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  font-family: inherit;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, color .15s ease,
+              transform .12s ease, box-shadow .15s ease;
+}
+.ui-btn:active:not(:disabled) { transform: translateY(1px); }
+.ui-btn:focus-visible {
+  outline: 2px solid var(--blue-bright);
+  outline-offset: 2px;
+}
+.ui-btn:disabled { cursor: not-allowed; opacity: .55; }
+.ui-btn--block { width: 100%; }
+
+.ui-btn--sm { padding: 6px 12px; font-size: 12px; }
+.ui-btn--md { padding: 9px 16px; font-size: 13px; }
+.ui-btn--lg { padding: 12px 24px; font-size: 14px; }
+
+.ui-btn--primary { background: var(--blue); color: #fff; }
+.ui-btn--primary:hover:not(:disabled) {
+  background: var(--blue-bright);
+  box-shadow: 0 4px 14px rgba(26, 77, 199, .28);
+}
+
+.ui-btn--secondary {
+  background: #fff;
+  color: var(--blue);
+  border-color: var(--blue);
+}
+.ui-btn--secondary:hover:not(:disabled) { background: var(--blue-light); }
+
+.ui-btn--ghost {
+  background: transparent;
+  color: var(--gray-500);
+  border-color: var(--gray-200);
+}
+.ui-btn--ghost:hover:not(:disabled) {
+  background: var(--gray-50);
+  color: var(--gray-700);
+}
+
+.ui-btn--danger {
+  background: #fff;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+.ui-btn--danger:hover:not(:disabled) { background: #fef2f2; border-color: #fca5a5; }
+
+/* ── Bouton-icône ───────────────────────────────────────────────────────── */
+.ui-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.ui-iconbtn:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: 2px; }
+.ui-iconbtn:disabled { cursor: not-allowed; opacity: .5; }
+.ui-iconbtn--sm { width: 28px; height: 28px; }
+.ui-iconbtn--md { width: 34px; height: 34px; }
+
+.ui-iconbtn--neutral { background: var(--gray-100); color: var(--gray-700); }
+.ui-iconbtn--neutral:hover:not(:disabled) { background: var(--gray-200); }
+
+.ui-iconbtn--ghost { background: transparent; color: var(--gray-500); border-color: var(--gray-200); }
+.ui-iconbtn--ghost:hover:not(:disabled) { background: var(--gray-50); color: var(--gray-700); }
+
+.ui-iconbtn--danger { background: #fff; color: var(--gray-500); border-color: var(--gray-200); }
+.ui-iconbtn--danger:hover:not(:disabled) { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
+
+/* ── Panneau latéral ────────────────────────────────────────────────────── */
+.ui-drawer__voile {
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 27, 62, .38);
+  backdrop-filter: blur(3px);
+  z-index: 1100;
+}
+.ui-drawer {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  z-index: 1101;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--white);
+}
+.ui-drawer--right { right: 0; box-shadow: -8px 0 40px rgba(13, 27, 62, .18); }
+.ui-drawer--left  { left: 0;  box-shadow:  8px 0 40px rgba(13, 27, 62, .18); }
+
+/* ── Avatar ─────────────────────────────────────────────────────────────── */
+.ui-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 999px;
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: .01em;
+}
+
+/* ── Barre de progression ───────────────────────────────────────────────── */
+.ui-progress {
+  width: 100%;
+  border-radius: 999px;
+  background: var(--gray-200);
+  overflow: hidden;
+}
+.ui-progress__barre {
+  height: 100%;
+  border-radius: 999px;
+  transition: width .4s cubic-bezier(.4, 0, .2, 1);
+}
+.ui-progress__barre--blue   { background: linear-gradient(90deg, var(--blue), var(--blue-bright)); }
+.ui-progress__barre--gold   { background: linear-gradient(90deg, var(--gold), var(--gold-light)); }
+.ui-progress__barre--green  { background: linear-gradient(90deg, #16a34a, #4ade80); }
+.ui-progress__barre--danger { background: linear-gradient(90deg, #dc2626, #f87171); }
+
+/* ── État vide ──────────────────────────────────────────────────────────── */
+.ui-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 56px 24px;
+  text-align: center;
+}
+.ui-empty__icone { color: var(--gray-300); }
+.ui-empty__titre {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-700);
+}
+.ui-empty__texte {
+  margin: 0;
+  max-width: 30ch;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--gray-500);
+}
+
+/* ── Rotation (indicateur de chargement) ────────────────────────────────── */
+.ui-spin { animation: ui-rotation 1s linear infinite; }
+@keyframes ui-rotation { to { transform: rotate(360deg); } }
+
+/* Respecte le réglage système : une animation perpétuelle peut déclencher des
+   troubles vestibulaires, et c'est un réglage que la personne a déjà exprimé. */
+@media (prefers-reduced-motion: reduce) {
+  .ui-spin { animation-duration: 2.4s; }
+  .ui-btn, .ui-iconbtn, .ui-progress__barre { transition: none; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BARRE LATÉRALE — compte et bibliothèque de documents
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Compte ─────────────────────────────────────────────────────────────── */
+.compte {
+  flex-shrink: 0;
+  padding: 22px 22px 18px;
+  border-bottom: 1px solid var(--gray-100);
+  background: linear-gradient(158deg, #f8fafc 0%, #eef2ff 100%);
+}
+.compte__identite {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.compte__noms { flex: 1; min-width: 0; }
+.compte__nom {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gray-900);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.compte__email {
+  margin: 1px 0 0;
+  font-size: 12px;
+  color: var(--gray-500);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.compte__forfait {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.compte__forfait--base { background: var(--gray-100); color: var(--gray-500); }
+.compte__forfait--paye { background: var(--blue-light); color: var(--blue); }
+
+.compte__stockage {
+  padding: 11px 13px;
+  border: 1px solid var(--gray-100);
+  border-radius: 10px;
+  background: var(--white);
+}
+.compte__quota {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.compte__ligne {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--gray-600, var(--gray-500));
+}
+.compte__ligne--discrete { color: var(--gray-500); font-style: italic; }
+.compte__couronne { color: #ca8a04; }
+.compte__chiffres {
+  font-size: 12px;
+  color: var(--gray-500);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Pied de panneau : la déconnexion ───────────────────────────────────── */
+/* Elle vivait au bas du bloc de compte, en gris clair sur blanc, et se
+   perdait. Ici elle NE DÉFILE PAS avec la liste : c'est la seule zone du
+   panneau qui reste à l'écran quel que soit le nombre de documents. */
+.biblio__pied {
+  flex-shrink: 0;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gray-100);
+  background: var(--white);
+}
+
+/* ── En-tête de la bibliothèque ─────────────────────────────────────────── */
+.biblio__tete {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--gray-100);
+}
+.biblio__titre {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.biblio__compte {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--gray-500);
+}
+.biblio__outils { display: flex; align-items: center; gap: 6px; }
+
+.biblio__liste {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px 16px;
+}
+
+/* ── Carte d'un document (bibliothèque) — objet NEUF `libdoc` ──────────────
+   Reconstruite à partir de zéro avec des classes INÉDITES. L'ancien objet
+   (`doc-carte`) affichait, chez l'utilisateur, une barre d'actions anormalement
+   haute et sombre qu'AUCUNE règle du dépôt n'expliquait (CSS et TSX vérifiés) —
+   un résidu introuvable. Repartir de noms neufs coupe court : plus aucune règle
+   ancienne ou parasite ne peut les cibler. Fonds explicitement clairs, hauteurs
+   naturelles, barre d'actions transparente sans hauteur imposée. */
+.libdoc {
+  padding: 12px 14px;
+  border: 1px solid var(--gray-200);
+  border-radius: 12px;
+  background: var(--gray-50);
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.libdoc:hover {
+  background: var(--white);
+  border-color: var(--gray-300);
+  box-shadow: 0 2px 10px rgba(13, 27, 62, .06);
+}
+.libdoc__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.libdoc__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--gray-200);
+  border-radius: 9px;
+  background: var(--white);
+  color: var(--blue);
+}
+.libdoc__ident { flex: 1; min-width: 0; }
+.libdoc__name {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--navy);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.libdoc__meta {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--gray-500);
+}
+.libdoc__lang {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--blue-light);
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 700;
+}
+.libdoc__progress { margin-bottom: 10px; }
+.libdoc__progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 5px;
+}
+.libdoc__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--blue);
+}
+.libdoc__count {
+  font-size: 11px;
+  color: var(--gray-500);
+  font-variant-numeric: tabular-nums;
+}
+.libdoc__error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fef2f2;
+  font-size: 12px;
+  font-weight: 500;
+  color: #991b1b;
+}
+.libdoc__error > span { flex: 1; }
+/* Barre d'actions : hauteur NATURELLE (celle des boutons `sm`), fond
+   transparent. Aucune hauteur imposée — « taille normale » garantie. */
+.libdoc__actions {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+  background: transparent;
+}
+.libdoc__actions .ui-btn { flex: 1; min-width: 0; }
+.libdoc__actions .ui-iconbtn { flex-shrink: 0; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   FORMULAIRES  (ui/Field, ui/Alert) et ÉCRANS D'AUTHENTIFICATION
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Champ ──────────────────────────────────────────────────────────────── */
+.champ { display: flex; flex-direction: column; }
+.champ__entete {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+.champ__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gray-700);
+}
+.champ__facultatif { font-size: 12px; color: var(--gray-400); }
+.champ__boite { position: relative; display: flex; }
+.champ__icone {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  color: var(--gray-400);
+  pointer-events: none;
+  transition: color .15s ease;
+}
+.champ__saisie {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1.5px solid var(--gray-200);
+  border-radius: 10px;
+  background: var(--gray-50);
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--gray-900);
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
+}
+.champ__saisie--avec-icone { padding-left: 38px; }
+/* Le focus est rendu par le NAVIGATEUR. Il était simulé en JavaScript, sur
+   onFocus/onBlur, en écrivant dans `e.target.style` — donc invisible à toute
+   navigation qui n'émet pas ces évènements dans l'ordre attendu. */
+.champ__saisie:focus {
+  border-color: var(--blue);
+  background: var(--white);
+  box-shadow: 0 0 0 3px rgba(26, 77, 199, .12);
+}
+.champ__boite:focus-within .champ__icone { color: var(--blue); }
+.champ__saisie::placeholder { color: var(--gray-300); }
+.champ__aide {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--gray-400);
+}
+
+/* ── Bandeau de message ─────────────────────────────────────────────────── */
+.ui-alerte {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.ui-alerte--error   { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+.ui-alerte--info    { background: #eff6ff; color: #1e40af; border-color: #bfdbfe; }
+.ui-alerte--success { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }
+
+/* ── Page d'authentification ────────────────────────────────────────────── */
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: linear-gradient(160deg, #f8fafc 0%, #eef2ff 40%, #f0f4ff 100%);
+  font-family: inherit;
+}
+.auth-carte {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 400px;
+  padding: 30px 28px 26px;
+  border: 1px solid var(--gray-100);
+  border-radius: 20px;
+  background: var(--white);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .04), 0 8px 32px rgba(0, 0, 0, .06);
+}
+.auth-carte__voile {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, .88);
+  backdrop-filter: blur(2px);
+  color: var(--blue);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.auth-carte__voile span { color: var(--gray-700); }
+
+/* En-tête de marque : le « P » et « récis » à gauche, l'identité à droite. */
+.auth-marque {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.auth-marque__nom { display: flex; align-items: center; }
+.auth-marque__logo { height: 44px; width: auto; }
+.auth-marque__identite { height: 46px; width: auto; opacity: .9; }
+
+/* Le retour et le titre forment UN bloc, aligné à gauche.
+   La flèche seule ne varie pas d'une langue à l'autre — un libellé, si. */
+.auth-ligne-titre {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.auth-ligne-titre .auth-titre { margin: 0; }
+
+/* Habit de `ui/IconButton` porté par un `<Link>` : le composant est un
+   `<button>`, mais l'apparence et le focus restent définis à un seul endroit. */
+.auth-retour {
+  flex-shrink: 0;
+  color: var(--gray-500);
+  text-decoration: none;
+}
+
+.auth-titre {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--gray-900);
+}
+.auth-sous-titre {
+  margin: 0 0 18px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--gray-500);
+}
+.auth-ligne-titre + .auth-form,
+.auth-ligne-titre + .ui-alerte { margin-top: 18px; }
+
+/* Écrans étroits : l'identité s'efface plutôt que d'écraser le nom. */
+@media (max-width: 360px) {
+  .auth-marque__identite { display: none; }
+}
+
+.auth-form { display: flex; flex-direction: column; gap: 14px; }
+
+.auth-lien {
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--blue);
+  cursor: pointer;
+}
+.auth-lien:hover { text-decoration: underline; }
+.auth-lien:disabled { color: var(--gray-400); cursor: not-allowed; }
+
+.auth-lien-discret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--gray-500);
+  cursor: pointer;
+  transition: color .15s ease;
+}
+.auth-lien-discret:hover { color: var(--blue); }
+
+.auth-separateur {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0;
+  color: var(--gray-400);
+  font-size: 11px;
+}
+.auth-separateur::before,
+.auth-separateur::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--gray-200);
+}
+
+.auth-google { display: flex; justify-content: center; overflow: hidden; }
+
+.auth-pied {
+  margin: 18px 0 0;
+  text-align: center;
+  font-size: 13.5px;
+  color: var(--gray-500);
+}
+.auth-pied a {
+  color: var(--blue);
+  font-weight: 600;
+  text-decoration: none;
+}
+.auth-pied a:hover { text-decoration: underline; }
+
+/* ── Étape « un code vous attend » ──────────────────────────────────────── */
+.auth-etape { text-align: center; margin-bottom: 22px; }
+.auth-etape__pastille {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 12px;
+  border-radius: 13px;
+  background: var(--blue);
+  color: var(--white);
+}
+.auth-etape .auth-sous-titre { margin-bottom: 0; }
+.auth-etape strong { color: var(--gray-700); font-weight: 600; }
+
+.code { display: flex; justify-content: center; gap: 8px; }
+.code__chiffre {
+  width: 46px;
+  height: 56px;
+  border: 1.5px solid var(--gray-200);
+  border-radius: 10px;
+  background: var(--gray-50);
+  font-family: inherit;
+  font-size: 22px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--gray-900);
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
+}
+.code__chiffre:focus {
+  border-color: var(--blue);
+  background: var(--white);
+  box-shadow: 0 0 0 3px rgba(26, 77, 199, .12);
+}
+
+@media (max-width: 380px) {
+  .code { gap: 5px; }
+  .code__chiffre { width: 42px; height: 52px; font-size: 20px; }
+}
+
+/* Groupe de mots d'une bande défilante (`hero/LanguageMarquee`).
+   La gouttière était un style EN LIGNE (`display: inline-flex; gap: 30px`), qui
+   l'emporte toujours. Passée en classe, elle perdait contre la règle
+   `.lang-line span { display: inline-block }` (spécificité supérieure) : le
+   groupe redevenait `inline-block`, le `gap` était ignoré, les mots se
+   collaient et la boucle de défilement (-33,333 %) n'était plus raccord.
+   D'où le sélecteur descendant, qui repasse DEVANT `.lang-line span`. */
+.lang-line .lang-line__groupe {
+  display: inline-flex;
+  gap: 30px;
+}
+
+/* ── Option à cocher (`ui/CheckboxOption`) ──────────────────────────────── */
+/* L'étiquette enveloppe la case : cliquer sur le titre, la description ou la
+   marge coche l'option. Une case de 16 px est une cible difficile, surtout au
+   doigt. */
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background .2s ease, border-color .2s ease;
+}
+.option--allumee { background: #fef9c3; border-color: #facc15; }
+.option--inactive { cursor: not-allowed; opacity: .6; }
+.option:has(.option__case:focus-visible) {
+  outline: 2px solid var(--blue-bright);
+  outline-offset: 2px;
+}
+
+.option__case {
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  flex-shrink: 0;
+  cursor: inherit;
+}
+.option__case--plain { accent-color: var(--blue); }
+.option__case--highlight { accent-color: #ca8a04; }
+
+.option__texte { display: flex; flex-direction: column; gap: 2px; }
+.option__intitule {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--gray-800, var(--gray-700));
+}
+.option--allumee .option__intitule { color: #854d0e; }
+.option__desc {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--gray-500);
 }

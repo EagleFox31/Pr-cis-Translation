@@ -9,12 +9,12 @@ from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
 from dotenv import load_dotenv
 
-# Ajouter backend/ au path pour que `from models import Base` fonctionne.
+# Ajouter backend/ au path pour que `from app.models import Base` fonctionne.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 load_dotenv()
 
-from models import Base  # noqa: E402
+from app.models import Base  # noqa: E402
 
 config = context.config
 

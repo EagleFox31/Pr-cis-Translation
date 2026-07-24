@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useTranslation as useI18n } from 'react-i18next';
 import { motion, AnimatePresence } from 'motion/react';
+
+import CheckboxOption from '../ui/CheckboxOption';
 import {
   Check, ArrowRight, Loader2, Languages, Wand2, FileText,
   SlidersHorizontal, ChevronDown, ScanSearch, Info,
@@ -71,6 +73,20 @@ export default function TranslationSection({
 
   const ext = file?.name.split('.').pop()?.toLowerCase() ?? '';
   const isPdf = ext === 'pdf';
+  const isAdmin = user?.plan === 'admin';
+
+  // CAPACITÉS PAR FORMAT — calquées sur ce que le backend sait vraiment faire,
+  // pas sur le seul PDF comme avant (le panneau entier était gardé par `isPdf`,
+  // donc PowerPoint et les autres n'avaient AUCUNE option) :
+  //   • pages     : parse_page_range côté API ne connaît que PDF et PPTX ;
+  //   • structure : les trois pipelines (PDF v2, PPTX progressif, DOCX) ont une
+  //                 branche « identité » qui ré-injecte le texte SANS appeler
+  //                 l'IA — parfait pour éprouver l'extraction/mise en page sans
+  //                 brûler de crédit ;
+  //   • précis    : modèle de raisonnement, réservé admin.
+  const supportsPages = ext === 'pdf' || ext === 'pptx';
+  const supportsStructure = ext === 'pdf' || ext === 'pptx' || ext === 'docx';
+  const supportsPrecise = isAdmin && supportsStructure;
 
   // Une langue rendable en DOCX peut ne pas l'être en PDF (CJK, arabe : aucune
   // police du document ne porte ces glyphes). Si le document choisi rend la
@@ -94,15 +110,21 @@ export default function TranslationSection({
     onStartTranslate({
       file,
       targetLang,
-      pages: isPdf ? pages.trim() : '',
-      debug: isPdf && structureMode,
-      precise: isPdf && preciseMode,
+      pages: supportsPages ? pages.trim() : '',
+      debug: supportsStructure && structureMode,
+      precise: supportsPrecise && preciseMode,
     });
   };
 
   const ready = !!file && !isTranslating;
-  const isAdmin = user?.plan === 'admin';
-  const advancedCount = (pages.trim() ? 1 : 0) + (structureMode ? 1 : 0) + (preciseMode ? 1 : 0);
+  // Ne compter que les options RÉELLEMENT applicables au format courant : une
+  // case cochée sur un PDF puis un passage à un format qui ne la gère pas ne
+  // doit pas afficher un badge mensonger.
+  const advancedCount =
+    (supportsPages && pages.trim() ? 1 : 0)
+    + (supportsStructure && structureMode ? 1 : 0)
+    + (supportsPrecise && preciseMode ? 1 : 0);
+  const hasAdvanced = !!file && (supportsPages || supportsStructure || supportsPrecise);
 
   return (
     <form
@@ -206,10 +228,11 @@ export default function TranslationSection({
           </span>
         </div>
 
-        {/* Options avancées — repliées : elles ne concernent que le PDF et ne
-            servent qu'à des cas particuliers (extrait, diagnostic). */}
+        {/* Options avancées — repliées : elles servent à des cas particuliers
+            (extrait, diagnostic) et n'apparaissent que pour les formats qui les
+            supportent réellement. */}
         <AnimatePresence>
-          {isPdf && (
+          {hasAdvanced && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
@@ -264,108 +287,65 @@ export default function TranslationSection({
                       borderRadius: '12px', border: '1px solid var(--gray-200)',
                       background: 'var(--gray-50)',
                     }}>
-                      {/* Plage de pages */}
-                      <div>
-                        <label htmlFor="pages" style={LABEL_STYLE}>
-                          {t('story.pages_label')}
-                        </label>
-                        <input
-                          id="pages"
-                          type="text"
-                          inputMode="numeric"
-                          value={pages}
-                          onChange={(e) => setPages(e.target.value.replace(/[^0-9,\-\s]/g, ''))}
-                          disabled={isTranslating}
-                          placeholder={t('story.pages_placeholder')}
-                          aria-describedby="pages-hint"
-                          style={{
-                            width: '100%', boxSizing: 'border-box',
-                            padding: '10px 12px', borderRadius: '9px',
-                            border: '1px solid var(--gray-300)', background: 'var(--white)',
-                            fontSize: '13px', fontFamily: 'inherit', color: 'var(--gray-800)',
-                            outline: 'none',
-                          }}
-                        />
-                        <span id="pages-hint" style={{
-                          display: 'block', marginTop: '6px',
-                          fontSize: '11px', color: 'var(--gray-500)', lineHeight: 1.45,
-                        }}>
-                          {t('story.pages_hint')}
-                        </span>
-                      </div>
-
-                      {/* Mode précis (admin) */}
-                      {isAdmin && (
-                        <label
-                          htmlFor="precise"
-                          style={{
-                            display: 'flex', alignItems: 'flex-start', gap: '10px',
-                            cursor: isTranslating ? 'not-allowed' : 'pointer',
-                            padding: '12px', borderRadius: '10px',
-                            background: preciseMode ? '#fef9c3' : 'transparent',
-                            border: preciseMode ? '1px solid #facc15' : '1px solid transparent',
-                            transition: 'all 0.2s',
-                          }}
-                        >
+                      {/* Plage de pages — PDF et PPTX (les seuls formats dont
+                          l'extraction sait sélectionner ses pages). */}
+                      {supportsPages && (
+                        <div>
+                          <label htmlFor="pages" style={LABEL_STYLE}>
+                            {t('story.pages_label')}
+                          </label>
                           <input
-                            id="precise"
-                            type="checkbox"
-                            checked={preciseMode}
-                            onChange={(e) => setPreciseMode(e.target.checked)}
+                            id="pages"
+                            type="text"
+                            inputMode="numeric"
+                            value={pages}
+                            onChange={(e) => setPages(e.target.value.replace(/[^0-9,\-\s]/g, ''))}
                             disabled={isTranslating}
+                            placeholder={t('story.pages_placeholder')}
+                            aria-describedby="pages-hint"
                             style={{
-                              width: '16px', height: '16px', marginTop: '1px',
-                              accentColor: '#ca8a04', flexShrink: 0, cursor: 'inherit',
+                              width: '100%', boxSizing: 'border-box',
+                              padding: '10px 12px', borderRadius: '9px',
+                              border: '1px solid var(--gray-300)', background: 'var(--white)',
+                              fontSize: '13px', fontFamily: 'inherit', color: 'var(--gray-800)',
+                              outline: 'none',
                             }}
                           />
-                          <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                            <span style={{
-                              display: 'inline-flex', alignItems: 'center', gap: '6px',
-                              fontSize: '12.5px', fontWeight: 600,
-                              color: preciseMode ? '#854d0e' : 'var(--gray-800)',
-                            }}>
-                              <Wand2 size={13} strokeWidth={2.2} />
-                              Mode précis (admin)
-                            </span>
-                            <span style={{ fontSize: '11px', color: 'var(--gray-500)', lineHeight: 1.45 }}>
-                              Utilise le modèle de raisonnement — plus lent (~2 min/page) mais plus fiable sur les mises en page complexes.
-                            </span>
+                          <span id="pages-hint" style={{
+                            display: 'block', marginTop: '6px',
+                            fontSize: '11px', color: 'var(--gray-500)', lineHeight: 1.45,
+                          }}>
+                            {t('story.pages_hint')}
                           </span>
-                        </label>
+                        </div>
                       )}
 
-                      {/* Mode structure (diagnostic) */}
-                      <label
-                        htmlFor="structure"
-                        style={{
-                          display: 'flex', alignItems: 'flex-start', gap: '10px',
-                          cursor: isTranslating ? 'not-allowed' : 'pointer',
-                        }}
-                      >
-                        <input
-                          id="structure"
-                          type="checkbox"
-                          checked={structureMode}
-                          onChange={(e) => setStructureMode(e.target.checked)}
+                      {/* Mode précis (admin) */}
+                      {supportsPrecise && (
+                        <CheckboxOption
+                          id="precise"
+                          checked={preciseMode}
+                          onChange={setPreciseMode}
                           disabled={isTranslating}
-                          style={{
-                            width: '16px', height: '16px', marginTop: '1px',
-                            accentColor: 'var(--blue)', flexShrink: 0, cursor: 'inherit',
-                          }}
+                          tone="highlight"
+                          icon={<Wand2 size={13} strokeWidth={2.2} />}
+                          label={t('story.precise_label')}
+                          description={t('story.precise_desc')}
                         />
-                        <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                          <span style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '6px',
-                            fontSize: '12.5px', fontWeight: 600, color: 'var(--gray-800)',
-                          }}>
-                            <ScanSearch size={13} strokeWidth={2.2} />
-                            {t('story.structure_label')}
-                          </span>
-                          <span style={{ fontSize: '11px', color: 'var(--gray-500)', lineHeight: 1.45 }}>
-                            {t('story.structure_desc')}
-                          </span>
-                        </span>
-                      </label>
+                      )}
+
+                      {/* Mode structure (diagnostic, sans IA) */}
+                      {supportsStructure && (
+                        <CheckboxOption
+                          id="structure"
+                          checked={structureMode}
+                          onChange={setStructureMode}
+                          disabled={isTranslating}
+                          icon={<ScanSearch size={13} strokeWidth={2.2} />}
+                          label={t('story.structure_label')}
+                          description={t('story.structure_desc')}
+                        />
+                      )}
                     </div>
                   </motion.div>
                 )}
@@ -406,7 +386,7 @@ export default function TranslationSection({
               </motion.span>
               {t('story.translating')}
             </>
-          ) : structureMode ? (
+          ) : (supportsStructure && structureMode) ? (
             <>
               <ScanSearch size={16} strokeWidth={2.2} />
               {t('story.btn_structure', 'Analyser la structure')}

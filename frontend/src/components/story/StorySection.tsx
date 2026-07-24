@@ -12,8 +12,14 @@ import { baseCode } from '../../lib/languages';
 interface StorySectionProps {
   showPreview: boolean;
   translatedBlob: Blob | null;
+  /** Le blob traduit est-il DÉJÀ un PDF ? Vrai pour tout ce qui vient du
+   *  serveur pour être regardé (/preview, /partial) ; faux pour le résultat
+   *  téléchargeable, qui garde son format d'origine. */
+  translatedIsPdf?: boolean;
   translatedFilename: string;
   selectedFile: File | null;
+  /** Le fichier source est-il déjà un PDF (converti par le serveur) ? */
+  sourceIsPdf?: boolean;
   currentPage: number;
   numPages: number;
   zoom: number;
@@ -22,8 +28,18 @@ interface StorySectionProps {
   isTranslating: boolean;
   pageStatuses: Record<number, PageStatus>;
   renderedUpTo: number;
+  /** Aperçu ouvert depuis la bibliothèque, document encore en route. Distinct
+   *  de `isTranslating` : rien n'est traduit ici, on attend un rendu. */
+  previewRendering?: boolean;
+  /** Erreur de traduction à afficher en bannière inline (pas de toast). */
+  translationError?: string | null;
+  /** L'erreur est un 402 → afficher un CTA vers les offres. */
+  limitReached?: boolean;
+  /** Mode agrandi (focus) actif ? */
+  focus?: boolean;
   onStartTranslate: (config: TranslateConfig) => void;
   onBack: () => void;
+  onToggleFocus?: () => void;
   onZoomChange: (z: number) => void;
   onPageChange: (p: number) => void;
   onDownload: () => void;
@@ -34,8 +50,10 @@ interface StorySectionProps {
 export default function StorySection({
   showPreview,
   translatedBlob,
+  translatedIsPdf = false,
   translatedFilename,
   selectedFile,
+  sourceIsPdf = false,
   currentPage,
   numPages,
   zoom,
@@ -44,8 +62,13 @@ export default function StorySection({
   isTranslating,
   pageStatuses,
   renderedUpTo,
+  previewRendering = false,
+  translationError = null,
+  limitReached = false,
+  focus = false,
   onStartTranslate,
   onBack,
+  onToggleFocus,
   onZoomChange,
   onPageChange,
   onDownload,
@@ -230,6 +253,50 @@ export default function StorySection({
               Interface de prévisualisation de traduction de document côte-à-côte
             </h2>
 
+            {translationError && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                padding: '14px 18px',
+                marginBottom: '16px',
+                borderRadius: '12px',
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                color: '#991b1b',
+                fontSize: '14px',
+                lineHeight: 1.5,
+              }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <span style={{ flex: 1 }}>{translationError}</span>
+                {limitReached && (
+                  <button
+                    onClick={() => {
+                      const el = document.getElementById('pricing');
+                      if (el) el.scrollIntoView({ behavior: 'smooth' });
+                    }}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      border: '1px solid #991b1b',
+                      background: 'transparent',
+                      color: '#991b1b',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {t('story.error_limit_cta')}
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="app">
               <div className="body">
                 <div className="sidebar">
@@ -315,10 +382,12 @@ export default function StorySection({
                     targetLang={targetLang}
                     isTranslating={isTranslating}
                     doneCount={doneCount}
+                    focus={focus}
                     onZoomChange={onZoomChange}
                     onPageChange={onPageChange}
                     onBack={onBack}
                     onDownload={onDownload}
+                    onToggleFocus={onToggleFocus}
                   />
 
 
@@ -326,18 +395,41 @@ export default function StorySection({
                     <DocumentPreview
                       sourceFile={selectedFile}
                       translatedBlob={translatedBlob}
-                      ext={previewExt}
+                      // `ext` désigne le format de la SOURCE. Servie convertie
+                      // par le serveur, elle n'a plus rien à faire convertir.
+                      ext={sourceIsPdf ? 'pdf' : previewExt}
+                      translatedExt={
+                        // Le blob traduit est déjà un PDF chaque fois qu'il
+                        // vient du serveur pour être REGARDÉ : partiel du
+                        // streaming ET aperçu bibliothèque. La condition ne
+                        // couvrait que le streaming — hors streaming, on
+                        // renvoyait donc au serveur, sous le nom `.pptx`, un
+                        // PDF qu'il venait lui-même de produire, pour un
+                        // aller-retour LibreOffice complet à chaque page.
+                        translatedIsPdf ? 'pdf' : undefined
+                      }
                       currentPage={currentPage}
                       zoom={zoom}
                       isTrialMode={isTrialMode}
+                      previewLoading={previewRendering}
                       onPagesLoaded={onPagesLoaded}
                       translatedPageReady={
-                        (!isTranslating && Object.keys(pageStatuses).length === 0)
-                        || pageStatuses[currentPage] === 'done'
-                        || pageStatuses[currentPage] === 'copied'
-                        || currentPage <= renderedUpTo
+                        // `previewRendering` PRIME sur tout le reste. Pendant
+                        // le rendu d'une page (bibliothèque), le blob affiché
+                        // est encore celui de la page PRÉCÉDENTE — laisser le
+                        // canevas visible montrait la page recopiée de
+                        // l'original, donc en langue source : en tournant les
+                        // pages, on ne voyait QUE de l'anglais, alors que le
+                        // français arrivait 10 s plus tard. Un spinner honnête
+                        // vaut mieux qu'une page fausse.
+                        !previewRendering && (
+                          (!isTranslating && Object.keys(pageStatuses).length === 0)
+                          || pageStatuses[currentPage] === 'done'
+                          || pageStatuses[currentPage] === 'copied'
+                          || currentPage <= renderedUpTo
+                        )
                       }
-                      translatedPageStatus={pageStatuses[currentPage]}
+                      translatedPageStatus={previewRendering ? 'rendering' : pageStatuses[currentPage]}
                       sourceLabel={t('preview.source_label', 'Document original')}
                       targetLabel={`${baseCode(targetLang ?? 'en').toUpperCase()} — ${t('preview.target_label', 'Traduction')}`}
                     />

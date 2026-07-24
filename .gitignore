@@ -25,6 +25,7 @@ backend/fonts/*.ttc
 # Corpus et artefacts de test du moteur (PDF sources, extractions JSON,
 # sorties traduites, caches) — volumineux et regenerables localement.
 backend/tests files/
+backend/tests/_generic_tmp/
 *.bak
 *.old
 

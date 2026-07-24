@@ -1,106 +1,66 @@
-import { useState, useEffect, type FormEvent } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+/**
+ * Vérification d'e-mail — arrivée depuis le lien reçu, ou saisie du code.
+ *
+ * TROISIÈME copie du même écran, après `LoginPage` et `RegisterPage` : mêmes
+ * constantes de style, même widget à six chiffres (ici en `data-vi`), même
+ * bouton de renvoi. Elle utilise maintenant `CodeStep`, comme les deux autres.
+ */
+import { useEffect, useState, type FormEvent } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+
 import { useAuth } from '../contexts/AuthContext';
-import { Mail, ArrowRight, Loader2, RefreshCw, ArrowLeft, Sparkles } from 'lucide-react';
-import AuthBackground from '../components/auth/AuthBackground';
-
-const logo = '/Logo.png';
-const identityImg = '/Identite Precis.png';
-
-const pageStyle: React.CSSProperties = {
-  minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  background: 'linear-gradient(160deg, #f8fafc 0%, #eef2ff 40%, #f0f4ff 100%)',
-  padding: '24px 16px', fontFamily: 'inherit',
-};
-const cardStyle: React.CSSProperties = {
-  width: '100%', maxWidth: '400px', background: 'white',
-  borderRadius: '20px', boxShadow: '0 1px 3px rgba(0,0,0,.04), 0 8px 32px rgba(0,0,0,.06)',
-  border: '1px solid var(--gray-100)', padding: '36px 28px 32px',
-};
-const btnPrimary: React.CSSProperties = {
-  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  gap: '8px', padding: '11px', borderRadius: '10px', border: 'none',
-  background: 'var(--blue)', color: 'white', fontWeight: 600, fontSize: '14px',
-  cursor: 'pointer', fontFamily: 'inherit',
-};
-const digitBase: React.CSSProperties = {
-  width: '46px', height: '56px', textAlign: 'center', fontSize: '22px',
-  fontWeight: 700, borderRadius: '10px', outline: 'none',
-  border: '1.5px solid var(--gray-200)', background: 'var(--gray-50)',
-  fontFamily: 'inherit', boxSizing: 'border-box',
-};
-const fi = (e: React.FocusEvent<HTMLInputElement>) => { e.target.style.borderColor = 'var(--blue)'; e.target.style.background = 'white'; };
-const fo = (e: React.FocusEvent<HTMLInputElement>) => { e.target.style.borderColor = 'var(--gray-200)'; e.target.style.background = 'var(--gray-50)'; };
+import AuthLayout from '../components/auth/AuthLayout';
+import CodeStep from '../components/auth/CodeStep';
 
 export default function VerifyEmailPage() {
   const { verifyCode, resendVerification } = useAuth();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [params] = useSearchParams();
+
   const email = params.get('email') || '';
   const token = params.get('token');
+
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [resent, setResent] = useState(false);
 
-  // Vérification par lien → redirection navigateur (pas de fetch, pas de CORS)
+  // Vérification par LIEN : redirection navigateur, pas de fetch — le backend
+  // redirige lui-même vers /login?verified=1, et aucun CORS n'entre en jeu.
   useEffect(() => {
     if (!token) return;
-    // Le backend redirige vers /login?verified=1 — on laisse le navigateur suivre
     window.location.href = `/api/auth/verify-email?token=${encodeURIComponent(token)}`;
   }, [token]);
 
-  function h(i: number, v: string) { if (!/^\d?$/.test(v)) return; const n = [...code]; n[i] = v; setCode(n); if (v && i < 5) document.querySelector<HTMLInputElement>(`[data-vi="${i + 1}"]`)?.focus(); }
-  function p(e: React.ClipboardEvent) { const x = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6); if (x.length === 6) { setCode(x.split('')); document.querySelector<HTMLInputElement>('[data-vi="5"]')?.focus(); } }
-  function k(i: number, e: React.KeyboardEvent) { if (e.key === 'Backspace' && !code[i] && i > 0) document.querySelector<HTMLInputElement>(`[data-vi="${i - 1}"]`)?.focus(); }
-
   async function submit(e: FormEvent) {
-    e.preventDefault(); const f = code.join(''); if (f.length !== 6) { setError('6 chiffres requis.'); return; } setError(''); setBusy(true);
-    const r = await verifyCode(email, f); setBusy(false);
-    if (r.ok) navigate('/home', { replace: true });
-    else setError(typeof r.error === 'string' ? r.error : 'Code invalide ou expiré.');
+    e.preventDefault();
+    const full = code.join('');
+    if (full.length !== 6) { setError(t('auth.err_six_digits')); return; }
+    setError(''); setBusy(true);
+    const res = await verifyCode(email, full); setBusy(false);
+    if (res.ok) navigate('/home', { replace: true });
+    else setError(typeof res.error === 'string' ? res.error : t('auth.err_code_invalid'));
+  }
+
+  async function doResend() {
+    if (!email) return;
+    await resendVerification(email);
+    setResent(true);
+    setTimeout(() => setResent(false), 3000);
   }
 
   return (
-    <div style={pageStyle}>
-      <AuthBackground />
-      <div style={{ ...cardStyle, position: 'relative', zIndex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '28px' }}>
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <img src={logo} alt="P" style={{ height: '46px', width: 'auto' }} />
-            <span className="animated-logo-text">récis</span>
-          </div>
-          <img src={identityImg} alt="Précis" style={{ height: '48px', width: 'auto', opacity: 0.9 }} />
-        </div>
-
-        <Link to="/home" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '13px', color: 'var(--gray-400)', marginBottom: '20px', textDecoration: 'none' }}><ArrowLeft size={14} /> Accueil</Link>
-
-        <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '44px', height: '44px', borderRadius: '12px', background: 'var(--blue)', color: 'white', marginBottom: '12px' }}><Sparkles size={20} /></div>
-          <h1 style={{ fontSize: '22px', fontWeight: 700, color: 'var(--gray-900)', margin: '0 0 4px' }}>Vérification</h1>
-          <p style={{ fontSize: '14px', color: 'var(--gray-500)', margin: 0, lineHeight: 1.5 }}>
-            Code envoyé à <span style={{ fontWeight: 600, color: 'var(--gray-700)' }}>{email || 'votre adresse'}</span>
-          </p>
-        </div>
-
-        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-          {error && <div style={{ padding: '10px 12px', borderRadius: '10px', background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', fontSize: '13px' }}>{error}</div>}
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }} onPaste={p}>
-            {code.map((d, i) => (<input key={i} data-vi={i} type="text" inputMode="numeric" maxLength={1} value={d} onChange={e => h(i, e.target.value)} onKeyDown={e => k(i, e)} onFocus={fi} onBlur={fo} style={digitBase} autoFocus={i === 0} />))}
-          </div>
-          <button type="submit" disabled={busy} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }}>
-            {busy ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <ArrowRight size={15} />}
-            Vérifier
-          </button>
-          <div style={{ textAlign: 'center' }}>
-            <button type="button" onClick={async () => { if (!email) return; await resendVerification(email); setResent(true); setTimeout(() => setResent(false), 3000); }}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '13px', color: 'var(--gray-400)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
-              <RefreshCw size={13} style={resent ? { animation: 'spin 1s linear infinite' } : undefined} />
-              {resent ? 'Code renvoyé !' : 'Renvoyer le code'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <AuthLayout retour={{ label: t('nav.home'), to: '/home' }}>
+      <CodeStep
+        email={email || t('auth.your_address')}
+        code={code} onCodeChange={setCode}
+        onSubmit={submit} onResend={doResend} resent={resent}
+        busy={busy} error={error}
+        title={t('auth.verification')}
+        submitLabel={t('auth.verify')}
+      />
+    </AuthLayout>
   );
 }

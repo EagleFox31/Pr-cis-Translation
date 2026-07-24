@@ -20,6 +20,8 @@ interface PdfViewerProps {
   /** Libellés des panneaux (langue source détectée / langue cible). */
   sourceLabel?: string;
   targetLabel?: string;
+  /** true = chargement en cours (ne PAS afficher la démo). */
+  previewLoading?: boolean;
 }
 
 export default function PdfViewer({
@@ -38,11 +40,16 @@ export default function PdfViewer({
   translatedPageStatus,
   sourceLabel,
   targetLabel,
+  previewLoading = false,
 }: PdfViewerProps) {
   const { t } = useTranslation();
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   // True quand le canevas traduit affiche RÉELLEMENT la page courante.
   const [translatedShown, setTranslatedShown] = useState(false);
+  // Orientation de la PAGE COURANTE : paysage → panneaux empilés (vertical),
+  // portrait → panneaux côte à côte (horizontal). Détectée par page — un même
+  // document peut mêler des pages paysage et portrait, et la disposition suit.
+  const [isLandscape, setIsLandscape] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -77,10 +84,11 @@ export default function PdfViewer({
         let pdfSourceOrig: any;
         let pdfSourceTrad: any = null;
 
-        // Le document CHOISI prime toujours. La démo (CV) ne sert que quand
-        // aucun document n'est chargé (vitrine). Auparavant, l'absence de
-        // traduction — cas normal au DÉMARRAGE du streaming — faisait basculer
-        // les DEUX panneaux sur le CV de démo.
+        // Le document CHOISI prime toujours. Sans données, on n'affiche rien :
+        // le composant n'est rendu que dans l'aperçu, jamais en vitrine.
+        // PLUS DE DÉMO : l'ancien fallback chargeait le journal d'exemple
+        // dès que les deux requêtes échouaient — c'est exactement le bug
+        // « un autre document s'affiche » qui revenait à chaque échec.
         if (sourceFile) {
           // Données passées directement à pdf.js (PAS d'URL blob : l'effet se
           // relance à chaque changement de page/zoom et le cleanup révoquait
@@ -94,18 +102,14 @@ export default function PdfViewer({
             pdfSourceTrad = open({ data: tradBuf });
           }
         } else if (translatedBlob) {
-          // Un document RÉEL sans sa source. La démo n'a rien à faire ici : on
-          // affichait le journal d'exemple à côté du document de l'utilisateur,
-          // sans le moindre signal d'erreur. `demoSource` est une vitrine, elle
-          // n'a de sens QUE quand aucun document n'est chargé (branche `else`).
-          // Un panneau vide se remarque ; un panneau qui ment, non.
+          // Un document RÉEL sans sa source.
           const tradBuf = await translatedBlob.arrayBuffer();
           if (!active) return;
           pdfSourceTrad = open({ data: tradBuf });
           pdfSourceOrig = null;
         } else {
-          pdfSourceOrig = open(demoSource);
-          pdfSourceTrad = open(demoTarget);
+          // Aucun document — ni source, ni traduction. On ne montre rien.
+          return;
         }
 
         const pdfOrig = pdfSourceOrig ? await pdfSourceOrig.promise : null;
@@ -119,25 +123,60 @@ export default function PdfViewer({
         const pageSource = pdfOrig ?? pdfTrad;
         if (pageSource) onPagesLoaded?.(pageSource.numPages);
 
+        // Orientation de la PAGE COURANTE, déterminée UNE fois AVANT tout rendu.
+        // On la calcule ici (valeur locale `landscape`) et non depuis l'état
+        // React : un `setIsLandscape` ne prend effet qu'au rendu suivant, donc
+        // lire l'état ici donnait l'orientation de la page PRÉCÉDENTE et cadrait
+        // mal la première frame. La source et la traduction sont la même page,
+        // donc une seule mesure suffit pour les deux panneaux.
+        let landscape = false;
+        if (pageSource) {
+          const probeNum = Math.min(Math.max(1, currentPage), pageSource.numPages);
+          const probe = await pageSource.getPage(probeNum);
+          if (!active) return;
+          const pv = probe.getViewport({ scale: 1.0 });
+          landscape = pv.width > pv.height;
+        }
+        setIsLandscape(landscape);
+
         const renderPage = async (pdf: any, canvasId: string, pageNum: number) => {
           // Borne la page demandée : un document mono-page recevait encore le
           // numéro de page de l'état précédent → « Invalid page request ».
           const safePage = Math.min(Math.max(1, pageNum), pdf.numPages);
           const page = await pdf.getPage(safePage);
           if (!active) return;
+
           const canvas = document.getElementById(canvasId) as HTMLCanvasElement;
           if (!canvas) return;
 
+          // Paysage : chaque panneau prend toute la largeur (empilés verticalement,
+          // donc lisibles). Portrait : chaque panneau prend la moitié (côte à côte).
+          // Le dimensionnement lit la valeur LOCALE `landscape`, jamais l'état —
+          // il est donc juste dès la première frame, sans saut d'encadrement.
           let containerWidth = 600;
+          let containerHeight = 700;
           const scrollEl = document.getElementById('scroll');
           if (scrollEl) {
-            containerWidth = (scrollEl.clientWidth - 70) / 2;
+            containerWidth = landscape
+              ? scrollEl.clientWidth - 24
+              : (scrollEl.clientWidth - 70) / 2;
+            // Hauteur disponible : le conteneur moins son padding (24px × 2) et
+            // la hauteur du badge de langue au-dessus de chaque panneau (~34px).
+            // Paysage : deux panneaux EMPILÉS → chacun a la MOITIÉ de la hauteur.
+            const hDispo = scrollEl.clientHeight - 48 - 34;
+            containerHeight = landscape ? (hDispo - 24) / 2 : hDispo;
           } else {
             containerWidth = canvas.parentElement?.clientWidth || 600;
           }
 
           const unscaledViewport = page.getViewport({ scale: 1.0 });
-          const baseScale = containerWidth / unscaledViewport.width;
+          // Caler sur la dimension la PLUS CONTRAIGNANTE : la page tient alors
+          // ENTIÈREMENT dans le cadre (largeur ET hauteur) — plus de débordement,
+          // « tient sur une page ». `zoom` agrandit ensuite au-delà si besoin.
+          const baseScale = Math.max(0.05, Math.min(
+            containerWidth / unscaledViewport.width,
+            containerHeight / unscaledViewport.height,
+          ));
           const scale = baseScale * zoom;
           const viewport = page.getViewport({ scale });
           const context = canvas.getContext('2d');
@@ -217,7 +256,7 @@ export default function PdfViewer({
         }
       });
     };
-  }, [currentPage, zoom, translatedBlob, sourceFile, isTrialMode, demoSource, demoTarget, onPagesLoaded, translatedPageReady]);
+  }, [currentPage, zoom, translatedBlob, sourceFile, isTrialMode, demoSource, demoTarget, onPagesLoaded, translatedPageReady, previewLoading]);
 
   const [isHovering, setIsHovering] = useState(false);
 
@@ -227,8 +266,10 @@ export default function PdfViewer({
       className={className}
       style={{
         display: 'inline-flex',
-        gap: '20px',
-        alignItems: 'flex-start',
+        flexDirection: isLandscape ? 'column' : 'row',
+        gap: isLandscape ? '24px' : '20px',
+        alignItems: 'center',
+        justifyContent: 'center',   // panneaux avant/après centrés dans le cadre
         minWidth: '100%',
       }}
     >
@@ -243,10 +284,12 @@ export default function PdfViewer({
         </div>
       </div>
 
-      {/* Separator */}
+      {/* Séparateur : horizontal quand les panneaux sont empilés (paysage),
+          vertical quand ils sont côte à côte (portrait) */}
       <div
         style={{
-          width: '1px',
+          width: isLandscape ? '100%' : '1px',
+          height: isLandscape ? '1px' : undefined,
           alignSelf: 'stretch',
           background: 'var(--color-border-tertiary)',
           flexShrink: 0,

@@ -1,8 +1,25 @@
 /**
  * Client HTTP pour l'API backend — gestion automatique du JWT + refresh.
  */
+import i18n from '../i18n';
+
 // Vide = même origine, le proxy Vite redirige /api vers le backend
 const API_BASE = import.meta.env.VITE_API_BASE || '';
+
+/**
+ * La langue de l'INTERFACE, annoncée à chaque appel.
+ *
+ * Le backend s'en sert pour écrire ses e-mails : un code de connexion doit
+ * arriver dans la langue où l'utilisateur vient de cliquer, et non dans celle
+ * de son système d'exploitation. Quelqu'un dont Windows est en anglais mais qui
+ * a mis Précis en français attend un e-mail en français.
+ *
+ * Repli sur `fr` si i18n n'est pas encore initialisé — c'est la langue par
+ * défaut de l'interface, donc le repli ne ment jamais.
+ */
+function uiLanguage(): string {
+  return i18n?.language || 'fr';
+}
 
 let _accessToken: string | null = null;
 let _refreshToken: string | null = null;
@@ -57,7 +74,11 @@ export async function authFetch(path: string, init: RequestInit = {}): Promise<R
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
   const send = () => fetch(url, {
     ...init,
-    headers: { ...(init.headers as Record<string, string> | undefined), ...authHeader() },
+    headers: {
+      'Accept-Language': uiLanguage(),
+      ...(init.headers as Record<string, string> | undefined),
+      ...authHeader(),
+    },
   });
   let res = await send();
   if (res.status === 401 && _refreshToken) {
@@ -95,7 +116,10 @@ async function request(
   body?: unknown,
 ): Promise<{ ok: boolean; status: number; data: unknown }> {
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept-Language': uiLanguage(),
+  };
   if (_accessToken) headers['Authorization'] = `Bearer ${_accessToken}`;
 
   let res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });

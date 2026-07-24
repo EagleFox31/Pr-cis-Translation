@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { motion } from 'motion/react';
+import { useTranslation } from 'react-i18next';
 const logo = "/Logo.png";
 const mascot = "/Identite Precis.png";
 
@@ -8,6 +9,7 @@ interface SplashScreenProps {
 }
 
 export default function SplashScreen({ onComplete }: SplashScreenProps) {
+  const { t } = useTranslation();
 
   useEffect(() => {
     // Wait for 3 seconds (or you can click to skip)
@@ -62,7 +64,7 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
             >
               <img 
                 src={mascot} 
-                alt="Mascotte Précis" 
+                alt={t('common.mascot_alt')} 
                 className="w-10 sm:w-20 md:w-[110px] h-auto"
               />
             </motion.div>
@@ -73,7 +75,7 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
             {/* Logo and Animated Text */}
             <div className="flex flex-col items-start">
               <div className="flex items-center gap-3">
-                <img src={logo} alt="Logo Précis" className="h-6 sm:h-12 md:h-[64px] w-auto" />
+                <img src={logo} alt={t('common.logo_alt')} className="h-6 sm:h-12 md:h-[64px] w-auto" />
                 <span className="animated-logo-text text-2xl sm:text-5xl md:text-[64px]">
                   <span style={{ animationDelay: '0.0s' }}>r</span>
                   <span style={{ animationDelay: '0.1s' }}>é</span>

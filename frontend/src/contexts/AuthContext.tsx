@@ -3,6 +3,7 @@ import {
   type ReactNode,
 } from 'react';
 import api, { setTokens, onTokensRefreshed, onForceLogout } from '../services/api';
+import i18n from '../i18n';
 
 export interface AuthUser {
   id: string;
@@ -79,19 +80,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string) => {
     const res = await api.post('/api/auth/login', { email });
-    if (!res.ok) return { ok: false, error: (res.data as any)?.detail || 'Erreur.' };
+    if (!res.ok) return { ok: false, error: (res.data as any)?.detail || i18n.t('auth.err_generic') };
     return { ok: true }; // code envoyé, pas encore connecté
   }, []);
 
   const register = useCallback(async (email: string, name?: string) => {
     const res = await api.post('/api/auth/register', { email, name });
-    if (!res.ok) return { ok: false, error: (res.data as any)?.detail || "Erreur lors de l'inscription." };
+    if (!res.ok) return { ok: false, error: (res.data as any)?.detail || i18n.t('auth.err_generic') };
     return { ok: true }; // code envoyé
   }, []);
 
   const verifyCode = useCallback(async (email: string, code: string) => {
     const res = await api.post('/api/auth/verify-email', { email, code });
-    if (!res.ok) return { ok: false, error: (res.data as any)?.detail || 'Code invalide ou expiré.' };
+    if (!res.ok) return { ok: false, error: (res.data as any)?.detail || i18n.t('auth.err_code_invalid') };
     const d = res.data as any;
     saveTokens(d.access_token, d.refresh_token);
     setTokens(d.access_token, d.refresh_token);
@@ -106,7 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /** Ouvre la session immédiatement — aucun aller-retour par la boîte mail. */
   const loginPassword = useCallback(async (email: string, password: string) => {
     const res = await api.post('/api/auth/login-password', { email, password });
-    if (!res.ok) return { ok: false, error: (res.data as any)?.detail || 'Email ou mot de passe incorrect.' };
+    if (!res.ok) return { ok: false, error: (res.data as any)?.detail || i18n.t('auth.err_credentials') };
     const d = res.data as any;
     saveTokens(d.access_token, d.refresh_token);
     setTokens(d.access_token, d.refresh_token);
@@ -117,7 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /** Inscription avec mot de passe : l'email reste à vérifier par code. */
   const registerPassword = useCallback(async (email: string, password: string, name?: string) => {
     const res = await api.post('/api/auth/register-password', { email, password, name });
-    if (!res.ok) return { ok: false, error: (res.data as any)?.detail || "Erreur lors de l'inscription." };
+    if (!res.ok) return { ok: false, error: (res.data as any)?.detail || i18n.t('auth.err_generic') };
     return { ok: true }; // code envoyé
   }, []);
 
@@ -128,7 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /** Nouveau mot de passe contre un code reçu par email → session ouverte. */
   const resetPassword = useCallback(async (email: string, code: string, password: string) => {
     const res = await api.post('/api/auth/reset-password', { email, code, password });
-    if (!res.ok) return { ok: false, error: (res.data as any)?.detail || 'Code invalide ou expiré.' };
+    if (!res.ok) return { ok: false, error: (res.data as any)?.detail || i18n.t('auth.err_code_invalid') };
     const d = res.data as any;
     saveTokens(d.access_token, d.refresh_token);
     setTokens(d.access_token, d.refresh_token);
@@ -138,7 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const googleAuth = useCallback(async (credential: string) => {
     const res = await api.post('/api/auth/google', { credential });
-    if (!res.ok) return { ok: false, error: (res.data as any)?.detail || 'Authentification Google échouée.' };
+    if (!res.ok) return { ok: false, error: (res.data as any)?.detail || i18n.t('auth.err_google') };
     const d = res.data as any;
     saveTokens(d.access_token, d.refresh_token);
     setTokens(d.access_token, d.refresh_token);
