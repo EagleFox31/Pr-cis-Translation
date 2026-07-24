@@ -20,9 +20,10 @@ de REGARDER — on protège le fait de REPARTIR AVEC UN DOCUMENT EXPLOITABLE :
 texte sélectionnable, mise en page réutilisable, fichier propre.
 
 Après rastérisation, le document n'est plus que des pixels : aucun mot du texte
-traduit n'est extractible (mesuré : 782 -> 0 ; la seule couche texte qui
-subsiste est celle du FILIGRANE lui-même, qui ne dit rien du document). Plus de
-polices, plus de vecteurs. Pour en tirer un document, il faudrait l'OCR —
+traduit n'est extractible (mesuré : 782 -> 0). AUCUNE couche texte ne subsiste,
+pas même le filigrane : il est CUIT dans les pixels (double rastérisation), donc
+on ne le retire pas en supprimant des objets texte. Plus de polices, plus de
+vecteurs. Pour en tirer un document, il faudrait l'OCR —
 c'est-à-dire refaire soi-même, en moins bien, le travail qu'on vend. Le vol
 devient plus cher que l'abonnement : c'est le seul niveau de protection honnête
 pour du contenu affiché dans un navigateur.
@@ -35,18 +36,25 @@ from __future__ import annotations
 
 import fitz
 
+from app.config import BRAND_NAME, BRAND_TAGLINE, PUBLIC_SITE
+
 # Résolution de l'aperçu d'essai. Assez pour juger la mise en page et lire au
 # projecteur ; pas de quoi produire une réimpression propre. Ce n'est pas un
 # réglage de qualité, c'est le curseur du teaser.
 TRIAL_DPI = 110
 
-# Filigrane — il ne « protège » rien à lui seul (on peut le recadrer) : il rend
-# la fuite IDENTIFIABLE et inutilisable telle quelle dans un vrai contexte.
-TRIAL_MARK = "ESSAI"
-_MARK_SIZE = 26
-_MARK_STEP = 190          # pas de la trame, en points
+# Filigrane = MINI-PUBLICITÉ. Deux lignes : la marque, puis le métier + l'adresse
+# du site. Le contenu est DYNAMIQUE (`app.config`) : changer de domaine ne touche
+# pas ce moteur. Il ne « protège » pas à lui seul (on peut recadrer), mais il rend
+# toute fuite IDENTIFIABLE — et, cuit dans les pixels (voir plus bas), il n'est
+# plus une couche de texte qu'on détache : l'enlever demande de retoucher l'image.
+_MARK_BRAND = BRAND_NAME
+_MARK_SUB = f"{BRAND_TAGLINE} · {PUBLIC_SITE}"
+_MARK_BRAND_SIZE = 19
+_MARK_SUB_SIZE = 10
+_MARK_STEP = 300          # pas de la trame, en points (banderoles espacées)
 _MARK_COLOR = (0.10, 0.20, 0.55)
-_MARK_OPACITY = 0.13
+_MARK_OPACITY = 0.15
 
 
 def rasterize_for_trial(pdf_bytes: bytes, pages=None,
@@ -85,24 +93,43 @@ def rasterize_for_trial(pdf_bytes: bytes, pages=None,
             page = src.new_page(pno=i, width=rect.width, height=rect.height)
             page.insert_image(page.rect, pixmap=pix)
             _stamp(page)
+
+            # CUISSON DU FILIGRANE. `_stamp` pose le texte en COUCHE, détachable
+            # d'un coup en supprimant les objets texte. On re-rastérise donc la
+            # page tamponnée en une image, qu'on repose seule : le filigrane vit
+            # désormais dans les PIXELS. L'enlever demande de retoucher l'image
+            # (bien plus cher qu'un simple « supprimer la couche texte »).
+            baked = page.get_pixmap(dpi=dpi, alpha=False)
+            src.delete_page(i)
+            page = src.new_page(pno=i, width=rect.width, height=rect.height)
+            page.insert_image(page.rect, pixmap=baked)
         return src.tobytes(garbage=3, deflate=True)
     finally:
         src.close()
 
 
 def _stamp(page: fitz.Page) -> None:
-    """Trame de filigranes en diagonale sur toute la page."""
+    """Trame de mini-publicités en diagonale sur toute la page.
+
+    Chaque motif porte DEUX lignes (marque, puis métier + site). Les deux
+    tournent autour du MÊME point d'ancrage (`morph=(base, rot)`) pour rester
+    solidaires — sinon chacune pivoterait sur elle-même et le bloc se disloquerait.
+    """
     rot = fitz.Matrix(1, 1).prerotate(45)
     r = page.rect
     y = -int(r.height)
     while y < r.height + _MARK_STEP:
         x = 0
         while x < r.width + _MARK_STEP:
-            pt = fitz.Point(x, y)
+            base = fitz.Point(x, y)
             try:
-                page.insert_text(pt, TRIAL_MARK, fontsize=_MARK_SIZE,
-                                 fontname="helv", color=_MARK_COLOR,
-                                 fill_opacity=_MARK_OPACITY, morph=(pt, rot))
+                page.insert_text(base, _MARK_BRAND, fontsize=_MARK_BRAND_SIZE,
+                                 fontname="hebo", color=_MARK_COLOR,
+                                 fill_opacity=_MARK_OPACITY, morph=(base, rot))
+                page.insert_text(fitz.Point(x, y + 14), _MARK_SUB,
+                                 fontsize=_MARK_SUB_SIZE, fontname="helv",
+                                 color=_MARK_COLOR, fill_opacity=_MARK_OPACITY,
+                                 morph=(base, rot))
             except Exception:
                 pass          # un filigrane manqué ne doit pas perdre la page
             x += _MARK_STEP
