@@ -29,6 +29,9 @@ export interface StreamingState {
   error: string | null;
   /** L'erreur vient d'un 402 (limite de forfait atteinte) → afficher un CTA. */
   limitReached: boolean;
+  /** En file d'attente : aucun worker libre. `null` = pas en file (démarré ou
+   *  terminé). Le nombre est une estimation des demandes devant la vôtre. */
+  queuePosition: number | null;
 }
 
 const EMPTY: StreamingState = {
@@ -40,6 +43,7 @@ const EMPTY: StreamingState = {
   result: null,
   error: null,
   limitReached: false,
+  queuePosition: null,
 };
 
 export function useStreamingTranslation() {
@@ -165,6 +169,17 @@ export function useStreamingTranslation() {
             let msg: Record<string, unknown>;
             try { msg = JSON.parse(e.data); } catch { return; }
             const type = msg.type as string;
+
+            if (type === 'queued') {
+              // Aucun worker libre : le job attend son tour dans la file de
+              // priorité. On l'affiche sans rien changer d'autre.
+              const ahead = (msg.ahead as number) ?? 0;
+              setState((s) => ({ ...s, queuePosition: ahead }));
+              return;
+            }
+            // Tout autre événement veut dire que le job a QUITTÉ la file (un
+            // worker l'a pris) : on efface l'état d'attente une bonne fois.
+            setState((s) => (s.queuePosition === null ? s : { ...s, queuePosition: null }));
 
             if (type === 'start') {
               const total = (msg.total as number) ?? null;

@@ -111,6 +111,8 @@
     "error_unsupported": "Unsupported format. Use PDF, DOCX, PPTX, XLSX or TXT.",
     "error_default": "An error occurred",
     "error_translation_failed": "Translation failed. Please try again or contact support.",
+    "queued_ahead": "In queue — {{count}} translation(s) ahead of yours. It will start as soon as a slot frees up.",
+    "queued_soon": "In queue — starting shortly.",
     "error_limit_reached": "You have reached your plan limit. Upgrade to continue.",
     "error_limit_cta": "See plans",
     "error_connection_lost": "Server connection lost. Check your internet connection.",

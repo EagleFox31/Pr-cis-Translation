@@ -406,6 +406,7 @@ export default function Home() {
           targetLang={targetLang}
           isTranslating={stream.isTranslating}
           pageStatuses={stream.pageStatuses}
+          queuePosition={stream.queuePosition}
           renderedUpTo={stream.renderedUpTo}
           previewRendering={previewLoading}
           translationError={stream.error}

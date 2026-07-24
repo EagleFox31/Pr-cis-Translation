@@ -31,6 +31,15 @@ Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
   application réelle (l'ordonnancement de la file) reste à faire — chantier
   « file de priorité ».
 
+- **File de priorité de traduction** : les traductions ne démarrent plus toutes
+  en parallèle sans limite. Un ordonnanceur borné (`TRANSLATION_WORKERS`, défaut
+  2) mène N traductions de front ; au-delà, les demandes attendent dans une file
+  ordonnée par le **niveau de plan** (admin > pro > starter > gratuit), FIFO à
+  priorité égale. C'est ce qui rend enfin RÉELLE la vitesse vendue sur la carte.
+  Le client voit un état « en file d'attente » (événement SSE `queued`). Pas de
+  préemption : un job prioritaire passe devant ceux qui attendent, sans couper un
+  job en cours.
+
 ### Modifié
 - **Tarifs zone A (Cameroun, FCFA) baissés** pour l'adoption bêta : Starter
   2 500 → **1 500** F/mois (annuel 1 900 → 1 200), Pro 6 900 → **4 500** F/mois
