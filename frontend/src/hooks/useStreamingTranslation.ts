@@ -29,6 +29,9 @@ export interface StreamingState {
   error: string | null;
   /** L'erreur vient d'un 402 (limite de forfait atteinte) → afficher un CTA. */
   limitReached: boolean;
+  /** 402 rattrapable par un ACHAT : nombre de pages à régler pour ce document
+   *  (le forfait Gratuit n'a plus de crédit). `null` = pas ce cas. */
+  creditsNeeded: number | null;
   /** En file d'attente : aucun worker libre. `null` = pas en file (démarré ou
    *  terminé). Le nombre est une estimation des demandes devant la vôtre. */
   queuePosition: number | null;
@@ -43,6 +46,7 @@ const EMPTY: StreamingState = {
   result: null,
   error: null,
   limitReached: false,
+  creditsNeeded: null,
   queuePosition: null,
 };
 
@@ -150,7 +154,14 @@ export function useStreamingTranslation() {
             const err = await startRes.json().catch(() => ({}));
             const detail = err.detail || err.error || t('story.error_default');
             const is402 = startRes.status === 402;
-            setState((s) => ({ ...s, isTranslating: false, error: detail, limitReached: is402 }));
+            // 402 « crédits insuffisants » : le serveur dit COMBIEN de pages
+            // acheter — on le garde pour ouvrir le paiement à la page directement.
+            const needed = (err.reason === 'need_credits' && typeof err.pages_needed === 'number')
+              ? err.pages_needed as number : null;
+            setState((s) => ({
+              ...s, isTranslating: false, error: detail,
+              limitReached: is402, creditsNeeded: needed,
+            }));
             throw new Error(detail);
           }
           const { job_id } = await startRes.json();

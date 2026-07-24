@@ -51,6 +51,13 @@ Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
   préemption : un job prioritaire passe devant ceux qui attendent, sans couper un
   job en cours.
 
+- **Paiement à la page depuis l'écran de traduction** : quand le forfait Gratuit
+  n'a plus de crédit, le message d'erreur porte désormais un bouton **« Payer N
+  page(s) »** qui ouvre directement le paiement mobile money du nombre exact de
+  pages du document, puis **relance la traduction** une fois payé. Le 402 « crédits
+  insuffisants » renvoie une réponse structurée (`pages_needed`) pour que le client
+  sache quoi facturer sans que l'utilisateur ait à deviner.
+
 ### Modifié
 - **Aperçu d'essai — projecteur à un seul canevas** : la fenêtre nette qui suit
   le curseur ne s'appuie plus sur un second canevas « net » qu'il fallait aligner

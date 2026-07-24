@@ -115,6 +115,7 @@
     "queued_soon": "En file d’attente — démarrage imminent.",
     "error_limit_reached": "Vous avez atteint la limite de votre forfait. Passez à un forfait supérieur pour continuer.",
     "error_limit_cta": "Voir les offres",
+    "buy_pages_cta": "Payer {{count}} page(s)",
     "error_connection_lost": "Connexion au serveur perdue. Vérifiez votre connexion internet.",
     "error_unknown": "Une erreur inattendue est survenue. Réessayez.",
     "error_retry": "Réessayer",
@@ -300,7 +301,8 @@
   "payment": {
     "pay_launch_failed": "Le paiement n'a pas pu être lancé.",
     "pay_expired": "L'invite a expiré sans validation. Aucun montant n'a été prélevé.",
-    "pay_refused": "Paiement refusé ou annulé. Aucun montant n'a été prélevé."
+    "pay_refused": "Paiement refusé ou annulé. Aucun montant n'a été prélevé.",
+    "buy_pages_label": "Débloquez la traduction de ce document"
   },
   "common": {
     "preview_conv_failed": "La conversion de l'aperçu a échoué.",
