@@ -73,12 +73,17 @@ export default function SupportModal({ open, onClose }: SupportModalProps) {
                      zIndex: 1200, backdropFilter: 'blur(3px)' }}
           />
           <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.97 }}
+            initial={{ opacity: 0, y: 20, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.98 }}
+            exit={{ opacity: 0, y: 12, scale: 0.98 }}
             style={{
-              position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
-              width: 'min(440px, 92vw)', background: 'white', borderRadius: '18px',
+              // Ancrée EN BAS À DROITE, là où était le tiroir de compte — mêmes
+              // dimensions qu'avant. `maxHeight` + défilement interne : le bouton
+              // d'envoi reste TOUJOURS visible, même sur un petit écran (il était
+              // coupé quand la modale, centrée, dépassait du bas de l'écran).
+              position: 'fixed', right: '20px', bottom: '20px',
+              width: 'min(440px, 92vw)', maxHeight: 'calc(100vh - 40px)',
+              overflowY: 'auto', background: 'white', borderRadius: '18px',
               boxShadow: '0 24px 70px rgba(13,27,62,0.28)', zIndex: 1201, padding: '26px 24px',
             }}
           >
