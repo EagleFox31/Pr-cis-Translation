@@ -45,6 +45,10 @@ async def _lifespan(_app: FastAPI):
 
     for _level, message in STARTUP_NOTES:
         print(message, flush=True)
+    # Le filet « absolument toutes les erreurs » : tout logger.error/exception
+    # applicatif atterrit désormais aussi dans le journal central.
+    from app.services.error_log import install_db_log_handler
+    install_db_log_handler()
     await reconcilier_jobs_orphelins()
     balayer_partiels_orphelins()
     office.prewarm()
@@ -140,12 +144,31 @@ def create_app() -> FastAPI:
     # partirait au simple `import app`.
     from app.api.auth import router as auth_router
     from app.api.documents import router as documents_router
+    from app.api.logs import router as logs_router
     from app.api.payments import router as payments_router
     from app.api.system import router as system_router
     from app.api.translate import router as translate_router
 
-    for router in (auth_router, documents_router, payments_router,
+    for router in (auth_router, documents_router, logs_router, payments_router,
                    system_router, translate_router):
         application.include_router(router)
+
+    # Toute exception NON rattrapée est journalisée (avec sa pile et le contexte
+    # de la requête) avant de rendre un 500 sobre. Sans ce filet, un défaut
+    # serveur ne laissait qu'une trace en console, perdue au redémarrage.
+    @application.exception_handler(Exception)
+    async def _journaliser_non_rattrapee(request: Request, exc: Exception):
+        import traceback
+        from fastapi.responses import JSONResponse
+        from app.services.error_log import log_error
+        user = getattr(request.state, "user", None)
+        await log_error(
+            "backend", f"{type(exc).__name__}: {exc}", level="error",
+            stack=traceback.format_exc(), location=request.url.path,
+            context={"method": request.method, "path": request.url.path},
+            user_id=getattr(user, "id", None),
+            user_email=getattr(user, "email", None),
+        )
+        return JSONResponse(status_code=500, content={"detail": "Erreur interne."})
 
     return application

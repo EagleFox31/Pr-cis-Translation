@@ -301,5 +301,26 @@
     "download_failed": "Downloading the result failed.",
     "mascot_alt": "Précis mascot",
     "logo_alt": "Précis logo"
+  },
+  "logs": {
+    "nav": "Logs",
+    "title": "Error log",
+    "back": "Back",
+    "export": "Export",
+    "refresh": "Refresh",
+    "groups_count": "{{n}} type(s)",
+    "all_sources": "All sources",
+    "all_levels": "All levels",
+    "all_status": "All statuses",
+    "status_new": "New",
+    "status_handled": "Handled",
+    "search": "Search…",
+    "loading": "Loading…",
+    "empty": "No errors. All good.",
+    "mark_handled": "Mark handled",
+    "delete": "Delete",
+    "delete_blocked_title": "Handle it first",
+    "delete_blocked": "Export then mark as handled before deleting.",
+    "deleted": "Deleted"
   }
 }

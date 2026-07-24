@@ -122,14 +122,38 @@ async function request(
   };
   if (_accessToken) headers['Authorization'] = `Bearer ${_accessToken}`;
 
-  let res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  // Report des échecs vers le journal central — mais JAMAIS pour la route de
+  // report elle-même, sinon un backend en panne se rapporterait en boucle.
+  const reportable = !path.startsWith('/api/logs');
 
-  if (res.status === 401 && _refreshToken) {
-    const newToken = await refreshAccessToken();
-    if (newToken) {
-      headers['Authorization'] = `Bearer ${newToken}`;
-      res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  let res: Response;
+  try {
+    res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    if (res.status === 401 && _refreshToken) {
+      const newToken = await refreshAccessToken();
+      if (newToken) {
+        headers['Authorization'] = `Bearer ${newToken}`;
+        res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
+      }
     }
+  } catch (netErr) {
+    if (reportable) {
+      const { reportClientError } = await import('../lib/errorReporting');
+      reportClientError(`Réseau échoué : ${method} ${path}`, {
+        component: 'api', stack: (netErr as Error)?.stack,
+        context: { path, method, kind: 'network' },
+      });
+    }
+    throw netErr;
+  }
+
+  // Un 5xx est une défaillance SERVEUR : elle a sa trace côté backend, mais on
+  // la double côté client pour savoir qu'un utilisateur l'a vécue, et quand.
+  if (reportable && res.status >= 500) {
+    const { reportClientError } = await import('../lib/errorReporting');
+    reportClientError(`API ${res.status} : ${method} ${path}`, {
+      component: 'api', context: { status: res.status, path, method },
+    });
   }
 
   let data: unknown = null;
@@ -141,7 +165,9 @@ async function request(
 const api = {
   get: (path: string) => request('GET', path),
   post: (path: string, body?: unknown) => request('POST', path, body),
-  delete: (path: string) => request('DELETE', path),
+  // DELETE avec corps facultatif : certaines routes (purge du journal) ciblent
+  // une LISTE d'éléments, pas une ressource unique dans l'URL.
+  delete: (path: string, body?: unknown) => request('DELETE', path, body),
 };
 
 export default api;

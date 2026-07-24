@@ -82,6 +82,21 @@ export default function Navbar({ activeSection, onNavClick, onLibraryOpen }: Nav
             <button className={i18n.language === 'en' ? 'active' : ''} onClick={() => i18n.changeLanguage('en')}>EN</button>
           </div>
 
+          {/* Journal des erreurs — réservé à l'admin */}
+          {user?.plan === 'admin' && (
+            <button
+              onClick={() => navigate('/admin/logs')}
+              title={t('logs.title', 'Journal des erreurs')}
+              style={{
+                height: '34px', padding: '0 12px', borderRadius: '8px',
+                background: 'transparent', color: 'var(--gray-700)',
+                border: '1.5px solid var(--gray-200)', fontWeight: 600,
+                fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit',
+                flexShrink: 0, whiteSpace: 'nowrap',
+              }}
+            >{t('logs.nav', 'Journal')}</button>
+          )}
+
           {/* Profil ou Connexion */}
           {user ? (
             <button

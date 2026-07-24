@@ -143,3 +143,16 @@ async def optional_auth(
         return await db.get(User, payload["sub"])
     except Exception:
         return None
+
+
+async def require_admin(user: User = Depends(require_auth)) -> User:
+    """Réserve une route aux comptes `admin`. 403 sinon.
+
+    S'appuie sur `require_auth` : un visiteur non authentifié reçoit d'abord 401,
+    un utilisateur authentifié mais non-admin reçoit 403. Le plan est la seule
+    marque d'admin (`user.plan == 'admin'`), comme partout ailleurs.
+    """
+    if user.plan != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Réservé à l'administration.")
+    return user

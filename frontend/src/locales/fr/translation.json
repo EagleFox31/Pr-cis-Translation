@@ -301,5 +301,26 @@
     "download_failed": "Le téléchargement du résultat a échoué.",
     "mascot_alt": "Mascotte Précis",
     "logo_alt": "Logo Précis"
+  },
+  "logs": {
+    "nav": "Journal",
+    "title": "Journal des erreurs",
+    "back": "Retour",
+    "export": "Exporter",
+    "refresh": "Rafraîchir",
+    "groups_count": "{{n}} type(s)",
+    "all_sources": "Toutes sources",
+    "all_levels": "Tous niveaux",
+    "all_status": "Tous statuts",
+    "status_new": "Nouveau",
+    "status_handled": "Traité",
+    "search": "Rechercher…",
+    "loading": "Chargement…",
+    "empty": "Aucune erreur. Tout va bien.",
+    "mark_handled": "Marquer traité",
+    "delete": "Supprimer",
+    "delete_blocked_title": "À traiter d’abord",
+    "delete_blocked": "Exportez puis marquez « traité » avant de supprimer.",
+    "deleted": "Supprimé"
   }
 }
