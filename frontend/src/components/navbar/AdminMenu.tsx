@@ -69,6 +69,11 @@ export default function AdminMenu() {
             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
             {t('admin_users.nav_full', 'Comptes utilisateurs')}
           </button>
+          <button role="menuitem" onClick={() => go('/admin/support')} style={itemStyle}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--gray-100)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+            {t('support.admin_title', 'Assistance')}
+          </button>
           <button role="menuitem" onClick={() => go('/admin/logs')} style={itemStyle}
             onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--gray-100)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>

@@ -16,7 +16,7 @@
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { FolderOpen, LogOut, X } from 'lucide-react';
+import { FolderOpen, LifeBuoy, LogOut, X } from 'lucide-react';
 
 import type { DocMeta } from '../../hooks/useDocumentLibrary';
 import { useAuth } from '../../contexts/AuthContext';
@@ -26,6 +26,7 @@ import Drawer from '../ui/Drawer';
 import EmptyState from '../ui/EmptyState';
 import IconButton from '../ui/IconButton';
 import PaymentModal from '../payment/PaymentModal';
+import SupportModal from '../support/SupportModal';
 import AccountPanel from './AccountPanel';
 import DocumentCard from './DocumentCard';
 
@@ -74,6 +75,8 @@ export default function DocumentLibrary({
   const [confirmClear, setConfirmClear] = useState(false);
   // Document dont on est en train de régler les pages (null = pas de paiement).
   const [payFor, setPayFor] = useState<DocMeta | null>(null);
+  // Fenêtre d'assistance ouverte ?
+  const [supportOpen, setSupportOpen] = useState(false);
 
   // On n'ATTEND rien ici. L'aperçu rastérisé se calcule côté serveur en
   // quelques secondes ; le retenir jusqu'au bout laissait l'utilisateur devant
@@ -193,7 +196,14 @@ export default function DocumentLibrary({
             « danger » lui donne sa présence sans en faire l'action principale :
             c'est une sortie, pas une suppression. */}
         {user && (
-          <footer className="biblio__pied">
+          <footer className="biblio__pied" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* Aide au-DESSUS de la déconnexion : c'est une action qu'on cherche
+                quand ça coince, elle doit être à portée sans quitter le compte. */}
+            <Button variant="ghost" size="md" block
+              icon={<LifeBuoy size={15} strokeWidth={2.2} />}
+              onClick={() => setSupportOpen(true)}>
+              {t('support.open', 'Aide & support')}
+            </Button>
             <Button variant="danger" size="md" block
               icon={<LogOut size={15} strokeWidth={2.2} />}
               onClick={async () => { onClose(); await logout(); }}>
@@ -202,6 +212,8 @@ export default function DocumentLibrary({
           </footer>
         )}
       </Drawer>
+
+      <SupportModal open={supportOpen} onClose={() => setSupportOpen(false)} />
 
       <PaymentModal
         open={!!payFor}

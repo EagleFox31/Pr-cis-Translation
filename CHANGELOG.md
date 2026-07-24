@@ -31,6 +31,14 @@ Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
   application réelle (l'ordonnancement de la file) reste à faire — chantier
   « file de priorité ».
 
+- **Assistance / support** : les utilisateurs connectés peuvent **signaler un
+  problème** ou demander de l'**aide sur leur abonnement** depuis une fenêtre
+  (catégorie + sujet + message ; la page d'origine et le plan partent avec la
+  demande sans être saisis). Accessible depuis le tiroir de compte. Vue
+  d'administration **`/admin/support`** (menu Administration) : liste filtrable,
+  détail, cycle **traiter (note interne) → supprimer** (suppression refusée tant
+  qu'un ticket est ouvert). Alerte e-mail à l'admin à chaque ticket. Migration
+  `0007_support_tickets`.
 - **File de priorité de traduction** : les traductions ne démarrent plus toutes
   en parallèle sans limite. Un ordonnanceur borné (`TRANSLATION_WORKERS`, défaut
   2) mène N traductions de front ; au-delà, les demandes attendent dans une file
