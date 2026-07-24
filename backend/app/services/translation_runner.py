@@ -305,7 +305,22 @@ def run_pptx_progressive_job(
         # ── Traduction PROGRESSIVE slide par slide ─────────────────────────
         done = 0
         done_lock = threading.Lock()
-        max_workers = 5 if is_admin else 1
+
+        # PARALLÉLISME PAR CYCLE COMPLET (et non plus par étape).
+        # Chaque worker mène UNE diapositive de bout en bout — extraction →
+        # traduction → injection → conversion → affichage — puis passe à la
+        # suivante. La TRADUCTION (réseau) se recouvre donc entre pages : c'est
+        # le vrai gain en mode IA. En revanche la section d'AFFICHAGE (injection
+        # + conversion + greffe) est SÉRIALISÉE par `_display_lock` : le dossier
+        # temporaire, le PDF partiel et LibreOffice sont partagés, et deux
+        # greffes concurrentes corrompraient le partiel (c'est la raison pour
+        # laquelle l'ancien mode parallèle sautait l'aperçu progressif — ici on
+        # le garde, en protégeant la seule zone qui ne supporte pas la
+        # concurrence). L'aperçu reste donc page par page, mais alimenté par
+        # plusieurs traductions menées de front.
+        _WORKERS = 4
+        _display_lock = threading.Lock()
+        _ = is_admin           # signature conservée ; parallélisme non lié au plan
         # Slide -> son extraction AVEC sa traduction, retenue avant injection.
         # C'est ce qui devient `translated.json` (cf. plus bas).
         slides_traduites: dict[int, dict] = {}
@@ -352,28 +367,9 @@ def run_pptx_progressive_job(
         # temporaire est muté par plusieurs slides à la fois et un partiel lu au
         # vol serait incohérent. L'admin échange l'aperçu progressif contre la
         # vitesse (il verra le partiel final, comme avant).
-        _progressive = (max_workers == 1)
-        _partial_cv = threading.Condition()
-        _partial_attente: set[int] = set()   # diapositives prêtes, pas encore rendues
-        _partial_stop = [False]
-
-        # Diapositives dont les aperçus Excel ont DÉJÀ été refaits par le
-        # convertisseur progressif. La passe finale ne repassera pas dessus.
+        # Diapositives dont l'aperçu Excel incorporé a été refait EN LIGNE : la
+        # passe finale n'y reviendra pas.
         _ole_faits: set[int] = set()
-
-        # Un lot qui échoue est remis en attente — mais PAS indéfiniment.
-        #
-        # La première version rejouait immédiatement : la boucle retrouvait le
-        # lot dans la file, repartait sans dormir, et monopolisait le verrou
-        # LibreOffice en affamant TOUTES les autres conversions du serveur.
-        # Une panne locale (un classeur illisible) devenait une panne globale.
-        #
-        # Deux bornes : un nombre d'essais par diapositive, et une PAUSE entre
-        # deux tentatives. Au-delà, la diapositive est abandonnée pour l'aperçu
-        # — jamais pour le document : la conversion finale la reprendra.
-        _MAX_TENTATIVES = 3
-        _PAUSE_APRES_ECHEC = 5.0        # secondes
-        _echecs: dict[int, int] = {}
 
         _apercu = ProgressivePreview(
             extraire=lambda chemin, pages: pptx_eng.build_partial_pptx(
@@ -395,98 +391,41 @@ def run_pptx_progressive_job(
             pdf = convert_to_pdf_bytes(brut, "pptx", use_cache=True)
             ecrire_atomiquement(partial_path, _apercu.poser_socle(pdf))
 
-        def _partial_worker():
-            """Un seul convertisseur par job. Il prend TOUT ce qui attend.
+        def _afficher_slide(slide_num: int):
+            """Convertit CETTE diapositive et l'affiche — EN LIGNE, tout de suite.
 
-            C'est là que se joue la coalescence : si la traduction va plus vite
-            que la conversion, les diapositives s'accumulent dans
-            `_partial_attente` et partent ensemble au tour suivant. Rien ne
-            s'empile indéfiniment, et aucun seuil n'est à régler.
+            C'est le cœur du page-par-page : la conversion se fait DANS la boucle
+            de traitement, pas dans un thread séparé. L'aperçu suit donc
+            exactement le rythme réel, une diapositive à la fois.
+
+            Best-effort : un échec de rendu n'interrompt JAMAIS la traduction. La
+            diapositive reste correcte dans le document final ; seul son aperçu
+            progressif est manqué, et le socle continue de la montrer.
             """
-            # Le socle d'abord : le document d'origine doit être visible avant
-            # même la première traduction.
             try:
-                _preparer_socle()
-                jobs.emit(job_id, "partial", {"ready": True, "pages": 0})
-            except Exception as e:
-                logger.warning("Socle d'aperçu non produit : %s", e)
-            while True:
-                with _partial_cv:
-                    while not _partial_attente and not _partial_stop[0]:
-                        _partial_cv.wait()
-                    if _partial_stop[0] and not _partial_attente:
-                        return
-                    lot = sorted(_partial_attente)
-                    _partial_attente.clear()
+                # Le socle a pu manquer au premier essai (LibreOffice occupé,
+                # disque plein). Sans lui, toute greffe échoue : on retente.
+                if not _apercu.pret:
+                    _preparer_socle()
+
+                # PIÈCE JOINTE EXCEL D'ABORD. Un objet Excel incorporé s'affiche
+                # via une IMAGE de remplacement figée à la création : sans cette
+                # passe, la diapositive « terminée » montrerait son tableau en
+                # langue SOURCE. Best-effort et silencieux si rien à faire (la
+                # plupart des diapositives n'ont aucun objet OLE).
                 try:
-                    # Le socle a pu manquer au premier essai (LibreOffice
-                    # occupé, disque plein). Sans lui, TOUTE greffe échoue :
-                    # on retente ici, une fois par tour et pas plus.
-                    if not _apercu.pret:
-                        _preparer_socle()
-
-                    # PIÈCES JOINTES D'ABORD. Un objet Excel incorporé s'affiche
-                    # via une IMAGE de remplacement figée à la création, que
-                    # rien ne régénère : sans cette passe, une diapositive
-                    # « terminée » montrerait son tableau en langue SOURCE
-                    # jusqu'à la fin du document. Le classeur est traduit en
-                    # même temps que sa diapositive — on peut donc refaire son
-                    # aperçu tout de suite, et seulement pour ce lot.
-                    #
-                    # Best-effort et silencieux si rien à faire : la très
-                    # grande majorité des diapositives n'ont aucun objet OLE, et
-                    # `regenerate_ole_previews` sort alors sans appeler
-                    # LibreOffice.
-                    try:
-                        pptx_eng.regenerate_ole_previews(
-                            soffice_path=SOFFICE_PATH, only_slides=set(lot))
-                        _ole_faits.update(lot)
-                    except Exception as e:
-                        logger.warning("Aperçus Excel du lot %s : %s", lot, e)
-                    ecrire_atomiquement(partial_path, _apercu.greffer(lot))
-                    jobs.emit(job_id, "partial",
-                              {"ready": True, "pages": _apercu.pages_traduites})
+                    pptx_eng.regenerate_ole_previews(
+                        soffice_path=SOFFICE_PATH, only_slides={slide_num})
+                    _ole_faits.add(slide_num)
                 except Exception as e:
-                    # Best-effort : un partiel manqué n'interrompt JAMAIS la
-                    # traduction. Les diapositives sont remises en attente —
-                    # sans quoi une greffe ratée les perdrait pour toute la
-                    # durée du job, et l'aperçu montrerait la source jusqu'à la
-                    # fin sans que rien ne le signale.
-                    with _partial_cv:
-                        for n in lot:
-                            _echecs[n] = _echecs.get(n, 0) + 1
-                        reprendre = [n for n in lot
-                                     if _echecs[n] < _MAX_TENTATIVES]
-                        abandon = [n for n in lot if n not in reprendre]
-                        _partial_attente.update(reprendre)
-                        if abandon:
-                            logger.warning(
-                                "Aperçu : diapositives %s abandonnées après "
-                                "%d tentatives (le document final les "
-                                "contiendra)", abandon, _MAX_TENTATIVES)
-                        if _partial_stop[0]:
-                            return      # fin de job : inutile de réessayer
-                        if reprendre:
-                            # PAUSE, verrou relâché : sans elle la boucle
-                            # repartirait à l'instant même. `wait` est
-                            # interrompu par la demande d'arrêt.
-                            _partial_cv.wait(timeout=_PAUSE_APRES_ECHEC)
-                    logger.warning("Aperçu partiel (diapositives %s) : %s", lot, e)
+                    logger.warning("Aperçu Excel diapo %s : %s", slide_num, e)
 
-        def _request_partial(up_to: int):
-            """Signale qu'une diapositive est prête à être rendue."""
-            if not _progressive:
-                return
-            with _partial_cv:
-                _partial_attente.add(up_to)
-                _partial_cv.notify()
-
-        _partial_thread = None
-        if _progressive:
-            _partial_thread = threading.Thread(
-                target=_partial_worker, daemon=True,
-                name=f"pptx-partial-{job_id[:8]}")
-            _partial_thread.start()
+                ecrire_atomiquement(partial_path, _apercu.greffer([slide_num]))
+                jobs.emit(job_id, "partial",
+                          {"ready": True, "pages": _apercu.pages_traduites})
+            except Exception as e:
+                logger.warning("Aperçu progressif diapo %s ignoré : %s",
+                               slide_num, e)
 
         def _process_one_slide(slide_num: int):
             nonlocal done
@@ -501,7 +440,8 @@ def run_pptx_progressive_job(
                 jobs.emit(job_id, "page", {"page": slide_num, "status": "copied",
                              "done": cur_done, "total": total})
                 jobs.sync_progress(job_id, cur_done, total)
-                _request_partial(slide_num)
+                # Rien à greffer : sans texte traduisible, la diapositive est
+                # DÉJÀ visible telle quelle dans le socle (l'original).
                 return
 
             jobs.emit(job_id, "page", {"page": slide_num, "status": "translating",
@@ -562,10 +502,15 @@ def run_pptx_progressive_job(
             # le rendu à la demande resservait une traduction prise pour un
             # original, et aucune vérification ultérieure n'avait plus de quoi
             # comparer.
-            with done_lock:
+            # SECTION SÉRIALISÉE — injection + affichage. Le dossier temporaire,
+            # le PDF partiel et LibreOffice sont partagés : deux threads qui
+            # injecteraient/greffieraient à la fois corrompraient le partiel.
+            # La traduction (au-dessus) reste parallèle ; SEULE cette zone est
+            # exclusive. Chaque thread la traverse à son tour pour SA page.
+            with _display_lock:
                 slides_traduites[slide_num] = slide_data
-
-            pptx_eng.inject_slide(slide_num, tmap)
+                pptx_eng.inject_slide(slide_num, tmap)
+                _afficher_slide(slide_num)   # OLE + conversion + greffe + emit
 
             with done_lock:
                 done += 1
@@ -574,26 +519,28 @@ def run_pptx_progressive_job(
             jobs.emit(job_id, "page", {"page": slide_num, "status": "done",
                          "done": cur_done, "total": total})
             jobs.sync_progress(job_id, cur_done, total)
-            _request_partial(slide_num)
 
-        if max_workers > 1:
-            from concurrent.futures import ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = [executor.submit(_process_one_slide, sn) for sn in slides_to_process]
-                for f in futures:
-                    f.result()
-        else:
-            for sn in slides_to_process:
-                _process_one_slide(sn)
+        # ── SOCLE d'abord : l'original, visible AVANT toute traduction ────
+        try:
+            _preparer_socle()
+            jobs.emit(job_id, "partial", {"ready": True, "pages": 0})
+        except Exception as e:
+            logger.warning("Socle d'aperçu non produit : %s", e)
 
-        # Arrêter le convertisseur de partiel AVANT de bâtir le fichier final :
-        # plus aucun accès concurrent au dossier temporaire pendant que le PPTX
-        # final se construit et que le temp dir est nettoyé.
-        if _partial_thread is not None:
-            with _partial_cv:
-                _partial_stop[0] = True
-                _partial_cv.notify()
-            _partial_thread.join(timeout=130)
+        # ── CYCLE COMPLET PAR PAGE, en parallèle ──────────────────────────
+        # `_WORKERS` threads, chacun menant UNE diapositive de bout en bout
+        # (extraction → traduction → injection → conversion → affichage) avant de
+        # prendre la suivante. Les traductions se recouvrent ; les affichages
+        # sont sérialisés par `_display_lock` (cf. `_process_one_slide`). Le
+        # socle est déjà prêt, donc chaque greffe a sa base.
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=_WORKERS) as executor:
+            futures = [executor.submit(_process_one_slide, sn)
+                       for sn in slides_to_process]
+            # `.result()` propage la première exception rencontrée (le job passe
+            # alors en erreur, comportement inchangé).
+            for f in futures:
+                f.result()
 
         # ── Cohérence terminologique, une fois TOUT le document connu ──────
         # Elle ne peut pas se faire plus tôt : la preuve qu'un terme est
@@ -650,14 +597,7 @@ def run_pptx_progressive_job(
 
     except Exception as e:
         logger.error(f"Job PPTX {job_id} failed: {e}")
-        # Réveiller le convertisseur de partiel pour qu'il s'arrête (sinon il
-        # attend indéfiniment sur sa condition).
-        try:
-            with _partial_cv:
-                _partial_stop[0] = True
-                _partial_cv.notify()
-        except Exception:
-            pass
+        # Plus de thread convertisseur à arrêter (traitement séquentiel).
         try:
             pptx_eng._cleanup_temp()
         except Exception:
