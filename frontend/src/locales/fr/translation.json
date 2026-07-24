@@ -183,7 +183,11 @@
     "feat_download": "Téléchargement des traductions inclus",
     "feat_support_priority": "Support prioritaire",
     "feat_support_standard": "Support standard",
-    "feat_storage": "{{size}} de stockage"
+    "feat_storage": "{{size}} de stockage",
+    "feat_speed_standard": "Traitement en file standard",
+    "feat_speed_priority": "Traitement prioritaire",
+    "feat_speed_max": "Priorité maximale — le plus rapide",
+    "feat_speed_dedicated": "File dédiée, traitement immédiat"
   },
   "about": {
     "tag": "À Propos de Trigenys Group",
@@ -322,5 +326,23 @@
     "delete_blocked_title": "À traiter d’abord",
     "delete_blocked": "Exportez puis marquez « traité » avant de supprimer.",
     "deleted": "Supprimé"
+  },
+  "admin_users": {
+    "nav": "Comptes",
+    "title": "Comptes utilisateurs",
+    "back": "Retour",
+    "refresh": "Rafraîchir",
+    "count": "{{n}} compte(s)",
+    "search": "Rechercher un e-mail ou un nom…",
+    "loading": "Chargement…",
+    "empty": "Aucun compte.",
+    "you": "(vous)",
+    "since": "inscrit le {{d}}",
+    "unverified": "non vérifié",
+    "changed": "Plan modifié",
+    "change_refused_title": "Changement refusé",
+    "change_refused": "Un admin ne peut pas changer son propre plan.",
+    "change_error": "Échec",
+    "cant_self": "Vous ne pouvez pas changer votre propre plan"
   }
 }

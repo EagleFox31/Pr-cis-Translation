@@ -183,7 +183,11 @@
     "feat_download": "Translation downloads included",
     "feat_support_priority": "Priority support",
     "feat_support_standard": "Standard support",
-    "feat_storage": "{{size}} of storage"
+    "feat_storage": "{{size}} of storage",
+    "feat_speed_standard": "Standard queue processing",
+    "feat_speed_priority": "Priority processing",
+    "feat_speed_max": "Top priority — the fastest",
+    "feat_speed_dedicated": "Dedicated queue, instant processing"
   },
   "about": {
     "tag": "About Trigenys Group",
@@ -322,5 +326,23 @@
     "delete_blocked_title": "Handle it first",
     "delete_blocked": "Export then mark as handled before deleting.",
     "deleted": "Deleted"
+  },
+  "admin_users": {
+    "nav": "Accounts",
+    "title": "User accounts",
+    "back": "Back",
+    "refresh": "Refresh",
+    "count": "{{n}} account(s)",
+    "search": "Search an email or a name…",
+    "loading": "Loading…",
+    "empty": "No accounts.",
+    "you": "(you)",
+    "since": "joined {{d}}",
+    "unverified": "unverified",
+    "changed": "Plan changed",
+    "change_refused_title": "Change refused",
+    "change_refused": "An admin cannot change their own plan.",
+    "change_error": "Failed",
+    "cant_self": "You cannot change your own plan"
   }
 }
