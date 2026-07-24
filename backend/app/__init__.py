@@ -147,11 +147,13 @@ def create_app() -> FastAPI:
     from app.api.documents import router as documents_router
     from app.api.logs import router as logs_router
     from app.api.payments import router as payments_router
+    from app.api.support import router as support_router
     from app.api.system import router as system_router
     from app.api.translate import router as translate_router
 
     for router in (admin_users_router, auth_router, documents_router,
-                   logs_router, payments_router, system_router, translate_router):
+                   logs_router, payments_router, support_router,
+                   system_router, translate_router):
         application.include_router(router)
 
     # Toute exception NON rattrapée est journalisée (avec sa pile et le contexte
