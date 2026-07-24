@@ -307,31 +307,36 @@ export default function PdfViewer({
         <div
           className="cv trial-viewer"
           id="cv-en"
-          style={{
-            position: 'relative',
-            cursor: isTrialMode ? 'none' : 'auto',
-          }}
-          onMouseMove={(e) => {
-            if (!isTrialMode) return;
-            const rect = e.currentTarget.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-            setCursorPos({ x, y });
-            setIsHovering(true);
-          }}
-          onMouseEnter={() => setIsHovering(true)}
-          onMouseLeave={() => {
-            setCursorPos(null);
-            setIsHovering(false);
-          }}
+          style={{ position: 'relative' }}
         >
+          {/* Pile canevas + surcouches, calée EXACTEMENT sur la taille du canevas
+              (donc à la même échelle que le zoom). On mesure le curseur ICI, pas
+              sur `cv-en` : le canevas est centré (`margin:auto`), et sa marge de
+              centrage change avec le zoom. Repérer le masque et le cadre dans le
+              référentiel de `cv-en` les décalait d'autant — d'où le décalage au
+              zoom. Dans cette pile, tout partage le repère du canevas. */}
+          <div
+            style={{
+              position: 'relative',
+              width: 'fit-content',
+              margin: '0 auto',
+              cursor: isTrialMode ? 'none' : 'auto',
+            }}
+            onMouseMove={(e) => {
+              if (!isTrialMode) return;
+              const rect = e.currentTarget.getBoundingClientRect();
+              setCursorPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+              setIsHovering(true);
+            }}
+            onMouseEnter={() => setIsHovering(true)}
+            onMouseLeave={() => { setCursorPos(null); setIsHovering(false); }}
+          >
           {/* Blurred canvas */}
           <canvas
             id="pdf-canvas-translated"
             style={{
               display: 'block',
               height: 'auto',
-              margin: '0 auto',
               filter: isTrialMode && translatedShown ? 'brightness(15%) grayscale(100%)' : 'none',
               opacity: isTrialMode && translatedShown ? 0.85 : 1,
             }}
@@ -386,11 +391,11 @@ export default function PdfViewer({
               style={{
                 display: 'block',
                 height: 'auto',
-                margin: '0 auto',
+                // Calé à l'ORIGINE de la pile (top/left 0), plus de centrage
+                // indépendant : il se superpose pile au canevas flou.
                 position: 'absolute',
                 top: 0,
                 left: 0,
-                right: 0,
                 pointerEvents: 'none',
                 opacity: cursorPos ? 1 : 0,
                 visibility: cursorPos ? 'visible' : 'hidden',
@@ -430,7 +435,9 @@ export default function PdfViewer({
             />
           )}
 
-          {/* Trial banner */}
+          </div>
+
+          {/* Trial banner — hors de la pile : bandeau collant en bas de cv-en */}
           {isTrialMode && isHovering && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
