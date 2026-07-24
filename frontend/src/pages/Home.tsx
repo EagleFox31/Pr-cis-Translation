@@ -8,6 +8,7 @@ import StorySection from '../components/story/StorySection';
 import PricingSection from '../components/pricing/PricingSection';
 import AboutSection from '../components/about/AboutSection';
 import ToastContainer, { showToast } from '../components/ui/Toast';
+import SupportModal from '../components/support/SupportModal';
 import DocumentLibrary from '../components/library/DocumentLibrary';
 import { useAuth } from '../contexts/AuthContext';
 import { useDocumentLibrary } from '../hooks/useDocumentLibrary';
@@ -365,6 +366,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-white text-gray-900 font-body">
       <ToastContainer />
+      <SupportModal />
 
       <Navbar
         activeSection={activeSection}

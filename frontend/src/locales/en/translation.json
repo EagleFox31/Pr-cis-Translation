@@ -356,6 +356,9 @@
   },
   "support": {
     "open": "Help & support",
+    "report": "Report a problem",
+    "about": "About",
+    "document_label": "Document",
     "title": "Help & support",
     "subtitle": "A problem, a question about your plan? Write to us.",
     "cat_problem": "Report a problem",

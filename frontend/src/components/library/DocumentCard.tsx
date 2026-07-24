@@ -18,7 +18,7 @@
 import { motion } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import {
-  Eye, Download, Trash2, Lock, AlertTriangle, Loader2, RotateCcw,
+  Eye, Download, Trash2, Lock, AlertTriangle, Loader2, RotateCcw, Flag,
   FileType2, FileText, Presentation, Sheet, File as FileIcon,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -29,6 +29,7 @@ import { formatDate, formatSize, percent } from '../../lib/format';
 import Button from '../ui/Button';
 import IconButton from '../ui/IconButton';
 import ProgressBar from '../ui/ProgressBar';
+import { openSupport } from '../support/supportBus';
 
 const EXT_ICONS: Record<string, LucideIcon> = {
   pdf: FileType2, docx: FileText, pptx: Presentation,
@@ -143,6 +144,13 @@ export default function DocumentCard({
               : t('library.download')}
           </Button>
         )}
+
+        {/* Signaler un problème SUR CE document : le document est référencé
+            automatiquement (id + nom), l'utilisateur n'a rien à retrouver. */}
+        <IconButton label={t('support.report', 'Signaler un problème')} variant="neutral" size="md"
+          onClick={() => openSupport({ category: 'problem', document: { id: doc.id, name: doc.filename } })}>
+          <Flag size={14} strokeWidth={2.2} />
+        </IconButton>
 
         <IconButton label={t('library.delete')} variant="danger" size="md"
           onClick={() => onDelete(doc.id)}>

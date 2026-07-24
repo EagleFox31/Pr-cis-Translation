@@ -2,11 +2,12 @@ import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
   Download, Loader2, CheckCircle2, ArrowRight, Lock,
-  Maximize2, Minimize2,
+  Maximize2, Minimize2, Flag,
 } from 'lucide-react';
 
 import { baseCode } from '../../lib/languages';
 import ProgressBar from '../ui/ProgressBar';
+import { openSupport } from '../support/supportBus';
 
 // Le badge de langue passait par une table `LANG_LABELS` codée à la main —
 // dix entrées, à tenir à jour à chaque langue ajoutée, et un doublon de ce que
@@ -210,6 +211,21 @@ export default function ViewerToolbar({
           {focus ? <Minimize2 size={15} strokeWidth={2.2} /> : <Maximize2 size={15} strokeWidth={2.2} />}
         </button>
       )}
+
+      {/* Signaler un problème sur CE document — référencé automatiquement par
+          son nom (le nom traduit s'il existe, sinon le nom source). */}
+      <button
+        onClick={() => openSupport({
+          category: 'problem',
+          document: { name: translatedFilename || sourceFilename },
+        })}
+        className="tb-btn ghost"
+        aria-label={t('support.report', 'Signaler un problème')}
+        title={t('support.report', 'Signaler un problème')}
+        style={{ display: 'flex', alignItems: 'center', padding: '6px' }}
+      >
+        <Flag size={15} strokeWidth={2.2} />
+      </button>
 
       {/* Téléchargement — indisponible tant que la traduction n'est pas finie */}
       <button

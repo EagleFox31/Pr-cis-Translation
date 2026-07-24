@@ -3,23 +3,21 @@
  * sur son ABONNEMENT. Trois catégories, un sujet, un message. Rien de plus : une
  * demande d'aide qui exige un formulaire long ne se remplit jamais.
  *
- * Le contexte (page d'où l'on écrit) part avec la demande sans qu'on le tape —
- * c'est au support de savoir où on était, pas à l'utilisateur de le raconter.
+ * HÔTE UNIQUE, OUVERTURE IMPÉRATIVE
+ * --------------------------------
+ * Montée UNE fois (près de `ToastContainer`), elle s'abonne à `openSupport()`
+ * (voir `supportBus`). N'importe quel endroit peut donc l'ouvrir en RÉFÉRENÇANT
+ * le document concerné — l'utilisateur n'a rien à retrouver ni à retaper, et le
+ * ticket porte l'identité du document sans qu'on la saisisse.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, LifeBuoy, Loader2, Send } from 'lucide-react';
+import { X, LifeBuoy, Loader2, Send, FileText } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import api from '../../services/api';
 import { showToast } from '../ui/Toast';
-
-interface SupportModalProps {
-  open: boolean;
-  onClose: () => void;
-}
-
-type Category = 'problem' | 'subscription' | 'other';
+import { subscribeSupport, type SupportCategory, type SupportPrefill } from './supportBus';
 
 const field: React.CSSProperties = {
   width: '100%', padding: '11px 12px', borderRadius: '10px', fontSize: '14px',
@@ -27,20 +25,32 @@ const field: React.CSSProperties = {
   fontFamily: 'inherit', boxSizing: 'border-box',
 };
 
-export default function SupportModal({ open, onClose }: SupportModalProps) {
+export default function SupportModal() {
   const { t } = useTranslation();
-  const [category, setCategory] = useState<Category>('problem');
+  const [open, setOpen] = useState(false);
+  const [category, setCategory] = useState<SupportCategory>('problem');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
+  const [doc, setDoc] = useState<SupportPrefill['document']>(undefined);
   const [sending, setSending] = useState(false);
 
-  const cats: { key: Category; label: string }[] = [
+  // Abonnement au bus : chaque `openSupport(prefill)` ouvre la fenêtre, fraîche,
+  // avec la catégorie et le document éventuellement pré-remplis.
+  useEffect(() => subscribeSupport((prefill) => {
+    setCategory(prefill.category ?? 'problem');
+    setDoc(prefill.document);
+    setSubject('');
+    setMessage('');
+    setOpen(true);
+  }), []);
+
+  const cats: { key: SupportCategory; label: string }[] = [
     { key: 'problem', label: t('support.cat_problem', 'Signaler un problème') },
     { key: 'subscription', label: t('support.cat_subscription', 'Mon abonnement') },
     { key: 'other', label: t('support.cat_other', 'Autre') },
   ];
 
-  const reset = () => { setCategory('problem'); setSubject(''); setMessage(''); };
+  const close = () => setOpen(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -49,13 +59,16 @@ export default function SupportModal({ open, onClose }: SupportModalProps) {
     const res = await api.post('/api/support', {
       category, subject: subject.trim(), message: message.trim(),
       url: window.location.pathname + window.location.hash,
+      // Référencement automatique du document, quand la fenêtre a été ouverte
+      // depuis un document (aperçu / bibliothèque).
+      document_id: doc?.id ?? null,
+      document_name: doc?.name ?? null,
     });
     setSending(false);
     if (res.ok) {
       showToast('success', t('support.sent_title', 'Message envoyé'),
         t('support.sent_body', 'Nous revenons vers vous par e-mail.'));
-      reset();
-      onClose();
+      close();
     } else {
       showToast('error', t('support.error_title', 'Envoi impossible'),
         t('support.error_body', 'Réessayez dans un instant.'));
@@ -68,7 +81,7 @@ export default function SupportModal({ open, onClose }: SupportModalProps) {
         <>
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            onClick={sending ? undefined : onClose}
+            onClick={sending ? undefined : close}
             style={{ position: 'fixed', inset: 0, background: 'rgba(13,27,62,0.45)',
                      zIndex: 1200, backdropFilter: 'blur(3px)' }}
           />
@@ -77,10 +90,8 @@ export default function SupportModal({ open, onClose }: SupportModalProps) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 12, scale: 0.98 }}
             style={{
-              // Ancrée EN BAS À DROITE, là où était le tiroir de compte — mêmes
-              // dimensions qu'avant. `maxHeight` + défilement interne : le bouton
-              // d'envoi reste TOUJOURS visible, même sur un petit écran (il était
-              // coupé quand la modale, centrée, dépassait du bas de l'écran).
+              // Ancrée en bas à droite (là où était le tiroir de compte), avec
+              // maxHeight + défilement interne : le bouton d'envoi reste visible.
               position: 'fixed', right: '20px', bottom: '20px',
               width: 'min(440px, 92vw)', maxHeight: 'calc(100vh - 40px)',
               overflowY: 'auto', background: 'white', borderRadius: '18px',
@@ -88,7 +99,7 @@ export default function SupportModal({ open, onClose }: SupportModalProps) {
             }}
           >
             {!sending && (
-              <button onClick={onClose} aria-label={t('support.close', 'Fermer')}
+              <button onClick={close} aria-label={t('support.close', 'Fermer')}
                 style={{ position: 'absolute', top: 14, right: 14, background: 'none',
                          border: 'none', cursor: 'pointer', color: 'var(--gray-400)' }}>
                 <X size={18} />
@@ -101,12 +112,25 @@ export default function SupportModal({ open, onClose }: SupportModalProps) {
                 {t('support.title', 'Aide & support')}
               </h2>
             </div>
-            <p style={{ fontSize: '13px', color: 'var(--gray-500)', margin: '0 0 18px' }}>
+            <p style={{ fontSize: '13px', color: 'var(--gray-500)', margin: '0 0 16px' }}>
               {t('support.subtitle', 'Un souci, une question sur votre offre ? Écrivez-nous.')}
             </p>
 
+            {/* Document référencé automatiquement — l'utilisateur n'a rien saisi. */}
+            {doc?.name && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14,
+                padding: '9px 11px', borderRadius: '9px', background: 'var(--blue-light, #eff6ff)',
+                border: '1px solid #bfdbfe', color: '#1e40af', fontSize: '12.5px',
+              }}>
+                <FileText size={14} strokeWidth={2.2} style={{ flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {t('support.about', 'À propos de')} : <strong>{doc.name}</strong>
+                </span>
+              </div>
+            )}
+
             <form onSubmit={submit}>
-              {/* Catégorie */}
               <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                 {cats.map((c) => (
                   <button key={c.key} type="button" onClick={() => setCategory(c.key)}
