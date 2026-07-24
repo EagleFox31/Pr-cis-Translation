@@ -70,7 +70,7 @@ def count_pages(file_bytes: bytes, ext: str) -> int:
             import io
 
             from pptx import Presentation
-            return max(1, len(Presentation(io.BytesIO(file_bytes)).slides))
+            return max(1, len(Presentation(io.BytesIO(file_bytes)).slides))  # pyrefly: ignore[not-callable]
     except Exception:
         logger.warning("Comptage de pages impossible (%s) — facturé 1 page.", ext)
     return 1

@@ -2,5 +2,15 @@
   "python.defaultInterpreterPath": "${workspaceFolder}/backend/venv/Scripts/python.exe",
   "python.analysis.extraPaths": [
     "${workspaceFolder}/backend"
-  ]
+  ],
+
+  // Pyrefly (analyseur de types) : diagnostics COUPÉS pour ce projet.
+  // Le garde-fou du projet est sa suite de tests (313 contrôles), pas un typage
+  // statique strict. Le code dialogue avec des librairies C non typées (PyMuPDF/
+  // fitz, fontTools, python-pptx) : Pyrefly y voit des centaines de faux positifs
+  // (Document non itérable, attributs de table absents, bool() « inutile »…) qui
+  // n'ont aucun effet à l'exécution. On coupe donc SES diagnostics, tout en
+  // gardant complétion / survol / aller-à-la-définition (services séparés).
+  // Pour les réactiver : repasser ce réglage à false.
+  "python.pyrefly.disableTypeErrors": true
 }

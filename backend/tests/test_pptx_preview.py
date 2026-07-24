@@ -56,7 +56,7 @@ def _deck_synthetique(path: str, n: int = NB_SLIDES) -> None:
     12 slides et non 3 : c'est à partir de 10 que « slide1 » devient un préfixe
     de « slide12 ». Un deck court laisserait passer le défaut n°1.
     """
-    prs = Presentation()
+    prs = Presentation()  # pyrefly: ignore[not-callable]
     vide = prs.slide_layouts[6]              # disposition sans placeholder
     for i in range(1, n + 1):
         slide = prs.slides.add_slide(vide)
@@ -235,7 +235,7 @@ def _deck_meme_layout(path: str, n: int = 5):
     (« Click to edit Master title style » …) : c'est exactement la situation
     d'un masque d'entreprise, sans avoir à en fabriquer un.
     """
-    prs = Presentation()
+    prs = Presentation()  # pyrefly: ignore[not-callable]
     layout = prs.slide_layouts[1]
     for _ in range(n):
         prs.slides.add_slide(layout)
