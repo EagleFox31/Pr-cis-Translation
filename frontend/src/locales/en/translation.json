@@ -327,8 +327,12 @@
     "delete_blocked": "Export then mark as handled before deleting.",
     "deleted": "Deleted"
   },
+  "admin": {
+    "menu": "Administration"
+  },
   "admin_users": {
     "nav": "Accounts",
+    "nav_full": "User accounts",
     "title": "User accounts",
     "back": "Back",
     "refresh": "Refresh",
