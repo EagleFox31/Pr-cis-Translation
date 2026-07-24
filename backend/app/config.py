@@ -104,6 +104,17 @@ FAST_MODEL = os.getenv("DEEPSEEK_MODEL_FAST", "deepseek-v4-flash")
 PRECISE_MODEL = os.getenv("DEEPSEEK_MODEL_PRECISE", "deepseek-v4-flash")
 
 
+# ── Marque publique ──────────────────────────────────────────────────────────
+# Nom et adresse du service, tels qu'ils apparaissent DANS l'aperçu d'essai
+# (filigrane = mini-publicité). Configurables : au changement de domaine, on ne
+# recompile pas le moteur d'aperçu. Le filigrane est cuit dans les pixels, donc
+# ces valeurs se figent au moment du rendu — un aperçu ancien garde l'ancien
+# libellé, ce qui est sans conséquence.
+BRAND_NAME = os.getenv("BRAND_NAME", "PRÉCIS")
+BRAND_TAGLINE = os.getenv("BRAND_TAGLINE", "Professional Translation")
+PUBLIC_SITE = os.getenv("PUBLIC_SITE", "precis-translator.com")
+
+
 # ── Journal des erreurs ──────────────────────────────────────────────────────
 # Au-delà de ce nombre de logs NON traités, l'admin reçoit une alerte e-mail —
 # une seule à la fois (throttle), pour signaler qu'il y a du grain à moudre sans

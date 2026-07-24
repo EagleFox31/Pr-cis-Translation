@@ -52,6 +52,16 @@ Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
   job en cours.
 
 ### Modifié
+- **Aperçu d'essai — projecteur à un seul canevas** : la fenêtre nette qui suit
+  le curseur ne s'appuie plus sur un second canevas « net » qu'il fallait aligner
+  au pixel (il se décalait au zoom, laissant une zone blanche). Un seul canevas
+  désormais, assombri par un voile percé d'un trou — aucune couche à aligner,
+  plus de décalage.
+- **Filigrane d'essai = mini-publicité, cuite dans les pixels** : « PRÉCIS ·
+  Professional Translation · <site> » (contenu configurable via `BRAND_NAME`,
+  `BRAND_TAGLINE`, `PUBLIC_SITE`). Il n'est plus une couche de texte détachable
+  mais fait partie de l'image (double rastérisation) — le retirer demande de
+  retoucher l'image, pas de supprimer un objet texte.
 - **Tarifs zone A (Cameroun, FCFA) baissés** pour l'adoption bêta : Starter
   2 500 → **1 500** F/mois (annuel 1 900 → 1 200), Pro 6 900 → **4 500** F/mois
   (annuel 5 200 → 3 500), page à l'unité 100 → **75** F. Zones B/C inchangées.

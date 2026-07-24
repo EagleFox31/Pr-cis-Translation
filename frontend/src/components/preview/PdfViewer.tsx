@@ -206,10 +206,11 @@ export default function PdfViewer({
         // une autre page).
         const tradHasPage = !!pdfTrad && translatedPageReady && currentPage <= pdfTrad.numPages;
         if (tradHasPage) {
+          // UN SEUL canevas, même en mode essai : l'assombrissement se fait par
+          // un voile au-dessus (avec un trou sous le curseur), plus par un second
+          // canevas « net » qu'il fallait aligner au pixel. Deux calques à caler
+          // se décalaient au zoom — un seul ne peut pas se décaler de lui-même.
           await renderPage(pdfTrad, 'pdf-canvas-translated', currentPage);
-          if (isTrialMode) {
-            await renderPage(pdfTrad, 'pdf-canvas-translated-clear', currentPage);
-          }
           if (active) setTranslatedShown(true);
         } else {
           // Page pas encore traduite : on efface le canevas et on montre le
@@ -320,6 +321,9 @@ export default function PdfViewer({
               position: 'relative',
               width: 'fit-content',
               margin: '0 auto',
+              // Contient l'ombre portée géante du voile d'essai : elle ne doit
+              // assombrir QUE le document, pas déborder autour.
+              overflow: 'hidden',
               cursor: isTrialMode ? 'none' : 'auto',
             }}
             onMouseMove={(e) => {
@@ -331,15 +335,11 @@ export default function PdfViewer({
             onMouseEnter={() => setIsHovering(true)}
             onMouseLeave={() => { setCursorPos(null); setIsHovering(false); }}
           >
-          {/* Blurred canvas */}
+          {/* Canevas traduit — UNIQUE. En essai il n'est pas filtré : c'est le
+              voile au-dessus qui l'assombrit, en laissant un trou sous le curseur. */}
           <canvas
             id="pdf-canvas-translated"
-            style={{
-              display: 'block',
-              height: 'auto',
-              filter: isTrialMode && translatedShown ? 'brightness(15%) grayscale(100%)' : 'none',
-              opacity: isTrialMode && translatedShown ? 0.85 : 1,
-            }}
+            style={{ display: 'block', height: 'auto' }}
           />
 
           {/* Placeholder « page en cours / en attente » (streaming) */}
@@ -384,55 +384,34 @@ export default function PdfViewer({
             </div>
           )}
 
-          {/* Clear canvas (visible under cursor in trial mode) */}
-          {isTrialMode && (
-            <canvas
-              id="pdf-canvas-translated-clear"
-              style={{
-                display: 'block',
-                height: 'auto',
-                // Calé à l'ORIGINE de la pile (top/left 0), plus de centrage
-                // indépendant : il se superpose pile au canevas flou.
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                pointerEvents: 'none',
-                opacity: cursorPos ? 1 : 0,
-                visibility: cursorPos ? 'visible' : 'hidden',
-                WebkitMaskImage: cursorPos ? 'linear-gradient(black, black)' : 'none',
-                WebkitMaskSize: cursorPos ? '190px 190px' : '0 0',
-                WebkitMaskPosition: cursorPos
-                  ? `${cursorPos.x - 95}px ${cursorPos.y - 95}px`
-                  : '0 0',
-                WebkitMaskRepeat: 'no-repeat',
-                maskImage: cursorPos ? 'linear-gradient(black, black)' : 'none',
-                maskSize: cursorPos ? '190px 190px' : '0 0',
-                maskPosition: cursorPos
-                  ? `${cursorPos.x - 95}px ${cursorPos.y - 95}px`
-                  : '0 0',
-                maskRepeat: 'no-repeat',
-              }}
-            />
-          )}
-
-          {/* Spotlight frame */}
-          {isTrialMode && cursorPos && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              style={{
-                position: 'absolute',
-                width: '190px',
-                height: '190px',
-                border: '2px solid rgba(37,99,235,0.7)',
-                borderRadius: '8px',
-                pointerEvents: 'none',
-                left: cursorPos.x - 95,
-                top: cursorPos.y - 95,
-                zIndex: 20,
-                boxShadow: '0 0 0 9999px rgba(0,0,0,0.01)',
-              }}
-            />
+          {/* Voile d'essai : tout est assombri SAUF une fenêtre sous le curseur.
+              Réalisé par l'ombre portée géante d'un petit cadre — donc un SEUL
+              canevas, aucune couche « nette » à aligner (c'était la source du
+              décalage). Sans curseur : voile plein, rien n'est lisible. */}
+          {isTrialMode && translatedShown && (
+            cursorPos ? (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                style={{
+                  position: 'absolute',
+                  width: '190px',
+                  height: '190px',
+                  left: cursorPos.x - 95,
+                  top: cursorPos.y - 95,
+                  border: '2px solid rgba(37,99,235,0.7)',
+                  borderRadius: '8px',
+                  pointerEvents: 'none',
+                  zIndex: 20,
+                  boxShadow: '0 0 0 9999px rgba(13,27,62,0.86)',
+                }}
+              />
+            ) : (
+              <div style={{
+                position: 'absolute', inset: 0,
+                background: 'rgba(13,27,62,0.86)', pointerEvents: 'none',
+              }} />
+            )
           )}
 
           </div>
