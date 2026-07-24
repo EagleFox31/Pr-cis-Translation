@@ -327,8 +327,12 @@
     "delete_blocked": "Exportez puis marquez « traité » avant de supprimer.",
     "deleted": "Supprimé"
   },
+  "admin": {
+    "menu": "Administration"
+  },
   "admin_users": {
     "nav": "Comptes",
+    "nav_full": "Comptes utilisateurs",
     "title": "Comptes utilisateurs",
     "back": "Retour",
     "refresh": "Rafraîchir",
