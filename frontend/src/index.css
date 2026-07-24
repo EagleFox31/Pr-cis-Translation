@@ -392,6 +392,12 @@ button { font-family: inherit; cursor: pointer; border: none; }
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+/* Rotation continue — utilisée par l'icône d'attente en file (bandeau
+   « en file d'attente » de la traduction). */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 .hero-glow {
   position: absolute;
   width: 600px; height: 600px;

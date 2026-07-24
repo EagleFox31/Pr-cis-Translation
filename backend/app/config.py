@@ -80,6 +80,16 @@ JOB_MAX_AGE_SECONDS = 24 * 3600
 # Intervalle minimal entre deux écritures d'avancement en base.
 PROGRESS_EVERY_S = 3.0
 
+# ── Ordonnanceur de traduction ───────────────────────────────────────────────
+# Nombre de traductions menées EN PARALLÈLE. Au-delà, les demandes attendent
+# dans une file de PRIORITÉ (le plan décide de l'ordre : admin > pro > starter >
+# gratuit). C'est ce qui donne corps à la vitesse vendue sur la carte de tarifs.
+#
+# Le coût dominant d'une traduction est le CPU de rendu : trop de workers sur
+# une seule machine se marchent dessus et RALENTISSENT tout le monde. 2 est un
+# défaut prudent pour un mono-serveur ; à monter avec le nombre de cœurs.
+TRANSLATION_WORKERS = max(1, int(os.getenv("TRANSLATION_WORKERS", "2")))
+
 # ── Modèles de traduction ────────────────────────────────────────────────────
 # Deux modes, choisis par requête via le paramètre `quality` :
 #  • "fast"    → modèle non-raisonnant, ~secondes/page, version stable (défaut) ;

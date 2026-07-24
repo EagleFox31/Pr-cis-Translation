@@ -111,6 +111,8 @@
     "error_unsupported": "Format non pris en charge. Utilisez PDF, DOCX, PPTX, XLSX ou TXT.",
     "error_default": "Une erreur est survenue",
     "error_translation_failed": "La traduction a échoué. Réessayez ou contactez le support.",
+    "queued_ahead": "En file d’attente — {{count}} traduction(s) devant la vôtre. Elle démarrera dès qu’une place se libère.",
+    "queued_soon": "En file d’attente — démarrage imminent.",
     "error_limit_reached": "Vous avez atteint la limite de votre forfait. Passez à un forfait supérieur pour continuer.",
     "error_limit_cta": "Voir les offres",
     "error_connection_lost": "Connexion au serveur perdue. Vérifiez votre connexion internet.",

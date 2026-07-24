@@ -28,6 +28,9 @@ interface StorySectionProps {
   isTranslating: boolean;
   pageStatuses: Record<number, PageStatus>;
   renderedUpTo: number;
+  /** En file d'attente (aucun worker libre) : nombre de demandes devant, ou
+   *  `null` si le job a démarré / n'attend pas. */
+  queuePosition?: number | null;
   /** Aperçu ouvert depuis la bibliothèque, document encore en route. Distinct
    *  de `isTranslating` : rien n'est traduit ici, on attend un rendu. */
   previewRendering?: boolean;
@@ -61,6 +64,7 @@ export default function StorySection({
   targetLang,
   isTranslating,
   pageStatuses,
+  queuePosition = null,
   renderedUpTo,
   previewRendering = false,
   translationError = null,
@@ -252,6 +256,26 @@ export default function StorySection({
             <h2 className="sr-only">
               Interface de prévisualisation de traduction de document côte-à-côte
             </h2>
+
+            {queuePosition !== null && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '12px',
+                padding: '14px 18px', marginBottom: '16px', borderRadius: '12px',
+                background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af',
+                fontSize: '14px', lineHeight: 1.5,
+              }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ flexShrink: 0, animation: 'spin 1.2s linear infinite' }}>
+                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                </svg>
+                <span style={{ flex: 1 }}>
+                  {queuePosition > 0
+                    ? t('story.queued_ahead', { count: queuePosition })
+                    : t('story.queued_soon')}
+                </span>
+              </div>
+            )}
 
             {translationError && (
               <div style={{

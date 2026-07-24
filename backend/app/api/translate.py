@@ -12,7 +12,6 @@ import asyncio
 import json
 import os
 import queue
-import threading
 from datetime import datetime, timezone
 
 from fastapi import (APIRouter, Depends, File, Form, Header, HTTPException,
@@ -27,13 +26,14 @@ from app.core.files import (get_file_hash, pages_token, parse_page_range,
                             sanitize_filename)
 from app.core.security import require_auth, verify_access_token
 from app.models import (Document, User, get_plan_page_limit,
-                        get_plan_storage,
+                        get_plan_priority, get_plan_storage,
                         get_plan_monthly_pages, is_paid_plan)
 from app.rate_limit import verify_api_key
 from app.services.documents import (build_job_paths, cap_pages_for_plan,
                                     count_pages)
 from app.services.jobs import jobs
 from app.services.office import convert_to_pdf_bytes
+from app.services.scheduler import scheduler
 from app.services.translation_runner import (run_pdf_v2_job,
                                              run_pptx_progressive_job,
                                              run_translation_job)
@@ -362,34 +362,25 @@ async def translate_endpoint(
         # `partial` grandit page à page ; `translation_path` (pages.json) = la
         # traduction persistante, qui sert aussi de cache de reprise.
         partial_path = os.path.join(lang_dir, f"partial{qsuffix}{psuffix}_{job_id[:8]}.pdf")
-        thread = threading.Thread(
-            target=run_pdf_v2_job,
-            args=(job_id, file_bytes, original_path, output_path,
-                  output_filename, partial_path, translation_path, target_lang,
-                  pages_set, debug_mode),
-            daemon=True,
-        )
+        target = run_pdf_v2_job
+        job_args = (job_id, file_bytes, original_path, output_path,
+                    output_filename, partial_path, translation_path, target_lang,
+                    pages_set, debug_mode)
     elif ext == "pptx":
         # PPTX → moteur progressif slide par slide (comme le PDF v2).
         # Si compte admin : 5 slides traduites en parallèle.
         partial_path = os.path.join(lang_dir, f"partial{qsuffix}{psuffix}_{job_id[:8]}.pdf")
         is_admin = (current_user.plan == "admin")
-        thread = threading.Thread(
-            target=run_pptx_progressive_job,
-            args=(job_id, file_bytes, original_path, output_path,
-                  output_filename, partial_path, translation_path, target_lang,
-                  pages_set, debug_mode, is_admin),
-            daemon=True,
-        )
+        target = run_pptx_progressive_job
+        job_args = (job_id, file_bytes, original_path, output_path,
+                    output_filename, partial_path, translation_path, target_lang,
+                    pages_set, debug_mode, is_admin)
     else:
-        thread = threading.Thread(
-            target=run_translation_job,
-            args=(job_id, file_bytes, filename, ext, target_lang, format_opts,
-                  job_dir, lang_dir, original_path, extraction_path,
-                  translation_path, output_path, output_filename,
-                  model, max_tokens, pages_set, debug_mode),
-            daemon=True,
-        )
+        target = run_translation_job
+        job_args = (job_id, file_bytes, filename, ext, target_lang, format_opts,
+                    job_dir, lang_dir, original_path, extraction_path,
+                    translation_path, output_path, output_filename,
+                    model, max_tokens, pages_set, debug_mode)
     # ── Document en base AVANT de démarrer le worker ─────────────────────
     # L'ordre est un garde-fou, pas un détail : la ligne Document est la seule
     # référence qui protège les octets partagés du magasin contre la purge d'un
@@ -402,9 +393,14 @@ async def translate_endpoint(
                                   target_lang, original_path, len(file_bytes),
                                   paid=doc_is_paid, page_count=pages_facturees)
 
-    thread.start()
+    # File de PRIORITÉ, plus de thread lancé à la volée : l'ordonnanceur place le
+    # job selon le niveau du plan (admin > pro > starter > gratuit) et le fait
+    # démarrer dès qu'un worker se libère. Soumis APRÈS l'insertion du Document,
+    # pour la même raison que l'ancien `thread.start()` venait après.
+    scheduler.submit(job_id, get_plan_priority(current_user.plan), target, job_args)
 
-    logger.info(f"Job {job_id} started for '{filename}' -> {target_lang}")
+    logger.info(f"Job {job_id} queued for '{filename}' -> {target_lang} "
+                f"(priorité {get_plan_priority(current_user.plan)})")
     return JSONResponse({"job_id": job_id})
 
 
