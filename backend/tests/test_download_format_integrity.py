@@ -40,7 +40,6 @@ from app.models import User, Document                        # noqa: E402
 # garde SA propre reference. Remplacer la definition d'origine ne changerait
 # rien a ce que la route appelle -- le test passerait a cote de son sujet.
 from app.api import documents as appmod                  # noqa: E402
-from app import config as cfg                            # noqa: E402
 from app.services import render_cache                                      # noqa: E402
 from app.api.documents import (                           # noqa: E402
     STORAGE_BASE, download_document, preview_document,
@@ -55,7 +54,7 @@ def _real_pptx_bytes() -> bytes:
     """Un vrai PPTX minimal (ZIP OPC valide, en-tête `PK`)."""
     from pptx import Presentation
     buf = io.BytesIO()
-    Presentation().save(buf)
+    Presentation().save(buf)  # pyrefly: ignore[not-callable]
     return buf.getvalue()
 
 

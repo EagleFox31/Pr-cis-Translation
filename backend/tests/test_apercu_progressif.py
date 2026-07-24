@@ -30,8 +30,7 @@ import fitz                                              # noqa: E402
 from pptx import Presentation                            # noqa: E402
 from pptx.util import Emu, Pt                            # noqa: E402
 
-from app.services.progressive_preview import (           # noqa: E402
-    ProgressivePreview, ecrire_atomiquement)
+from app.services.progressive_preview import ProgressivePreview   # noqa: E402
 from engines import office                               # noqa: E402
 from engines.pptx.engine import PPTXTranslatorEngine     # noqa: E402
 
@@ -42,7 +41,7 @@ CIBLE = "TRADUIT"
 
 def _deck(chemin: str, marque: str) -> None:
     """Un deck où chaque diapositive porte « <marque> <n> » en gros."""
-    prs = Presentation()
+    prs = Presentation()  # pyrefly: ignore[not-callable]
     for i in range(1, N_SLIDES + 1):
         s = prs.slides.add_slide(prs.slide_layouts[6])
         tb = s.shapes.add_textbox(Emu(500000), Emu(1500000),
