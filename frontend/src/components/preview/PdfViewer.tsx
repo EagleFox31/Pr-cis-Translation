@@ -22,6 +22,10 @@ interface PdfViewerProps {
   targetLabel?: string;
   /** true = chargement en cours (ne PAS afficher la démo). */
   previewLoading?: boolean;
+  /** Manque de crédits (402) : pages à régler. Le panneau traduit affiche
+   *  l'invitation à payer, avec le bouton dessous, au lieu du message d'attente. */
+  creditsNeeded?: number | null;
+  onBuyPages?: (pages: number) => void;
 }
 
 export default function PdfViewer({
@@ -41,6 +45,8 @@ export default function PdfViewer({
   sourceLabel,
   targetLabel,
   previewLoading = false,
+  creditsNeeded,
+  onBuyPages,
 }: PdfViewerProps) {
   const { t } = useTranslation();
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
@@ -360,7 +366,29 @@ export default function PdfViewer({
                 padding: '20px',
               }}
             >
-              {translatedPageStatus && translatedPageStatus !== 'waiting' ? (
+              {creditsNeeded && onBuyPages ? (
+                /* Manque de crédits : ici, dans le panneau traduit, on dit
+                   simplement qu'il faut régler les pages — et le bouton juste
+                   dessous lance le paiement. Pas de bannière ailleurs. */
+                <>
+                  <Lock size={26} strokeWidth={1.8} style={{ color: 'var(--blue)' }} />
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--gray-700)', maxWidth: '260px' }}>
+                    {t('preview.credits_needed', { count: creditsNeeded })}
+                  </span>
+                  <button
+                    onClick={() => onBuyPages(creditsNeeded)}
+                    style={{
+                      marginTop: '4px', padding: '10px 20px', borderRadius: '10px', border: 'none',
+                      background: 'linear-gradient(135deg, var(--blue) 0%, #1d4ed8 100%)',
+                      color: 'white', fontSize: '13px', fontWeight: 600,
+                      fontFamily: 'inherit', cursor: 'pointer',
+                      boxShadow: '0 4px 14px rgba(37,99,235,0.28)',
+                    }}
+                  >
+                    {t('story.buy_pages_cta', 'Payer {{count}} page(s)', { count: creditsNeeded })}
+                  </button>
+                </>
+              ) : translatedPageStatus && translatedPageStatus !== 'waiting' ? (
                 <>
                   <motion.span
                     animate={{ rotate: 360 }}

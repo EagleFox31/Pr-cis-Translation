@@ -24,6 +24,11 @@ interface DocumentPreviewProps {
   targetLabel?: string;
   /** true = chargement en cours (ne PAS afficher la démo). */
   previewLoading?: boolean;
+  /** Manque de crédits (402) : pages à régler pour ce document. Affiché dans le
+   *  panneau traduit, à la place du message de progression. */
+  creditsNeeded?: number | null;
+  /** Ouvre le paiement à la page pour `n` pages. */
+  onBuyPages?: (pages: number) => void;
 }
 
 /**
@@ -45,6 +50,8 @@ export default function DocumentPreview({
   sourceLabel,
   targetLabel,
   previewLoading,
+  creditsNeeded,
+  onBuyPages,
 }: DocumentPreviewProps) {
   const { t } = useTranslation();
   const { sourcePdf, translatedPdf, loading, error } = usePdfPreview(sourceFile, translatedBlob, ext, translatedExt);
@@ -113,6 +120,8 @@ export default function DocumentPreview({
       sourceLabel={sourceLabel}
       previewLoading={previewLoading}
       targetLabel={targetLabel}
+      creditsNeeded={creditsNeeded}
+      onBuyPages={onBuyPages}
     />
   );
 }

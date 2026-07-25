@@ -283,7 +283,12 @@ export default function StorySection({
               </div>
             )}
 
-            {translationError && (
+            {/* Le manque de crédits (402) n'est PLUS une bannière en tête : il
+                s'affiche directement DANS la zone du document (voir plus bas),
+                là où l'utilisateur regarde ses pages. Ici ne restent que les
+                vraies erreurs (réseau, échec de traduction) et la limite de
+                forfait sans achat possible. */}
+            {translationError && !creditsNeeded && (
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -303,22 +308,6 @@ export default function StorySection({
                   <line x1="12" y1="16" x2="12.01" y2="16" />
                 </svg>
                 <span style={{ flex: 1 }}>{translationError}</span>
-                {/* Achat À LA PAGE : l'action naturelle quand il manque des
-                    crédits pour CE document — on paie le nombre exact de pages
-                    et la traduction repart. Le renvoi vers les offres reste en
-                    second, pour qui préfère un abonnement. */}
-                {creditsNeeded && onBuyPages && (
-                  <button
-                    onClick={() => onBuyPages(creditsNeeded)}
-                    style={{
-                      padding: '8px 16px', borderRadius: '8px', border: 'none',
-                      background: '#991b1b', color: 'white', fontSize: '13px',
-                      fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {t('story.buy_pages_cta', 'Payer {{count}} page(s)', { count: creditsNeeded })}
-                  </button>
-                )}
                 {limitReached && (
                   <button
                     onClick={() => {
@@ -478,6 +467,11 @@ export default function StorySection({
                       translatedPageStatus={previewRendering ? 'rendering' : pageStatuses[currentPage]}
                       sourceLabel={t('preview.source_label', 'Document original')}
                       targetLabel={`${baseCode(targetLang ?? 'en').toUpperCase()} — ${t('preview.target_label', 'Traduction')}`}
+                      // Manque de crédits (402) : le panneau TRADUIT affiche
+                      // l'invitation à régler les pages, avec le bouton dessous —
+                      // à la place du message « page en attente ».
+                      creditsNeeded={creditsNeeded}
+                      onBuyPages={onBuyPages}
                     />
                   </div>
                 </div>

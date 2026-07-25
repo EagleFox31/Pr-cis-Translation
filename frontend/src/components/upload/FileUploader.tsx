@@ -19,6 +19,21 @@ const MAX_BYTES = 100 * 1024 * 1024;
  *  semblait « sauter » au moment du choix du fichier. */
 const ZONE_HEIGHT = 168;
 
+/** Tronque un nom de fichier trop long en conservant l'extension
+ *  (`rapport-annuel-2025-….pdf`). Un `<p>` en `white-space: nowrap` garde une
+ *  largeur MIN-CONTENT égale au texte entier même avec `text-overflow: ellipsis` ;
+ *  dans une grille `1fr 1fr` (piste `minmax(auto, 1fr)`), cette largeur pousse la
+ *  colonne et TOUT le formulaire s'élargit. Tronquer la CHAÎNE coupe le mal à la
+ *  racine — l'ellipsis CSS reste en second filet pour les cas limites. */
+function truncateFilename(name: string, max = 32): string {
+  if (name.length <= max) return name;
+  const dot = name.lastIndexOf('.');
+  const ext = dot > 0 ? name.slice(dot) : '';
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  const keep = Math.max(1, max - ext.length - 1); // 1 pour l'ellipsis « … »
+  return `${base.slice(0, keep).trimEnd()}…${ext}`;
+}
+
 const EXT_ICONS: Record<string, LucideIcon> = {
   pdf: FileType2,
   docx: FileText,
@@ -102,12 +117,15 @@ export default function FileUploader({ selectedFile, onFileSelect, disabled }: F
           <Icon size={21} strokeWidth={1.9} />
         </span>
 
-        <p style={{
-          maxWidth: '100%', margin: 0, padding: '0 24px',
-          fontSize: '14px', fontWeight: 600, color: 'var(--navy)', textAlign: 'center',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>
-          {selectedFile.name}
+        <p
+          title={selectedFile.name}
+          style={{
+            maxWidth: '100%', margin: 0, padding: '0 24px',
+            fontSize: '14px', fontWeight: 600, color: 'var(--navy)', textAlign: 'center',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}
+        >
+          {truncateFilename(selectedFile.name)}
         </p>
         <p style={{
           margin: 0, fontSize: '12px', color: 'var(--gray-500)',
