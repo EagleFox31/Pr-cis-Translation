@@ -240,6 +240,7 @@
     "status_translating": "Translating…",
     "status_rendering": "Rebuilding the layout…",
     "page_pending": "This page is waiting to be translated.",
+    "credits_needed": "{{count}} more page(s) to pay for to translate this document.",
     "trial_hover": "Trial version — Hover to preview",
     "trial_buy": "Buy to download"
   },
