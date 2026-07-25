@@ -177,7 +177,7 @@
     "feat_free_page": "1 page traduite offerte chaque mois",
     "feat_free_then": "Puis {{price}} par page — payées avant traduction",
     "feat_free_no_sub": "Aucun abonnement, aucune carte à enregistrer",
-    "feat_free_no_storage": "Aucun stockage — vos documents ne sont pas conservés",
+    "feat_free_no_storage": "Sans espace de stockage personnel",
     "feat_ent_unlimited": "Volume illimité, engagement annuel",
     "feat_ent_api": "Accès API et facturation automatique",
     "feat_ent_support": "Support dédié et SLA garanti",
@@ -248,7 +248,7 @@
     "default_name": "Utilisateur",
     "storage": "Stockage",
     "unlimited": "Illimité",
-    "no_storage": "Traduction seule — sans stockage",
+    "no_storage": "Sans espace de stockage personnel",
     "logout": "Déconnexion"
   },
   "plans": {

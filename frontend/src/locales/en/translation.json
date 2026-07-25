@@ -177,7 +177,7 @@
     "feat_free_page": "1 translated page free every month",
     "feat_free_then": "Then {{price}} per page — paid before translation",
     "feat_free_no_sub": "No subscription, no card to register",
-    "feat_free_no_storage": "No storage — your documents are not kept",
+    "feat_free_no_storage": "No personal storage space",
     "feat_ent_unlimited": "Unlimited volume, annual commitment",
     "feat_ent_api": "API access and automatic billing",
     "feat_ent_support": "Dedicated support and guaranteed SLA",
@@ -248,7 +248,7 @@
     "default_name": "User",
     "storage": "Storage",
     "unlimited": "Unlimited",
-    "no_storage": "Translation only — no storage",
+    "no_storage": "No personal storage space",
     "logout": "Sign out"
   },
   "plans": {
