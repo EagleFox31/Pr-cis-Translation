@@ -57,12 +57,48 @@ _origins_str = os.getenv(
     "http://localhost:5173,http://localhost:8000,http://127.0.0.1:5173,"
     "http://127.0.0.1:8000,http://localhost:3000,http://localhost:3001,"
     "http://127.0.0.1:3001")
-# Les origines DÉCLARÉES par l'exploitant, avant l'ajout des origines de
-# développement : c'est cette liste-là — et elle seule — qui dit si l'on sert un
-# domaine public. Confondre les deux rendrait la détection de production
-# toujours fausse, puisque `_DEV_ORIGINS` est ajoutée inconditionnellement.
+# Les origines DÉCLARÉES par l'exploitant, avant tout ajout de confort : c'est
+# cette liste-là — et elle seule — qui dit si l'on sert un domaine public.
 DECLARED_ORIGINS = [o.strip() for o in _origins_str.split(",") if o.strip()]
-ALLOWED_ORIGINS = list(set(DECLARED_ORIGINS + _DEV_ORIGINS))
+
+
+# ── Sommes-nous en production ? ──────────────────────────────────────────────
+# Question posée ICI, avant de composer ALLOWED_ORIGINS, parce que la réponse
+# décide de sa composition.
+#
+# DEUX SIGNAUX, dont un qu'on ne peut pas oublier. Si l'on ne s'appuyait que sur
+# `PRECIS_ENV=production`, oublier cette variable — l'oubli même que tout ceci
+# rattrape — désarmerait la protection. Or servir une interface depuis un vrai
+# domaine OBLIGE à déclarer son origine ci-dessus. Une origine déclarée qui
+# n'est ni `localhost` ni `127.0.0.1`, c'est un déploiement, quoi qu'en dise
+# `PRECIS_ENV`.
+#
+# Le faux positif est sans danger (on réclame un vrai secret à un développeur,
+# ce qui est le bon conseil) ; le faux négatif met un service en ligne avec un
+# secret connu de tous. D'où un test qui penche du côté strict.
+
+def _est_locale(origine: str) -> bool:
+    hote = (urlparse(origine).hostname or "").lower()
+    return hote in ("localhost", "127.0.0.1", "::1", "0.0.0.0", "")
+
+
+IS_PRODUCTION = (
+    os.getenv("PRECIS_ENV", "").strip().lower() in ("prod", "production")
+    or any(not _est_locale(o) for o in DECLARED_ORIGINS)
+)
+
+# Les six origines de développement étaient ajoutées INCONDITIONNELLEMENT, y
+# compris en ligne : un service en production autorisait `http://localhost:5173`
+# à l'appeler. Ce n'est pas anodin — une page servie depuis la machine d'un
+# visiteur (un outil local, une extension, un serveur de développement laissé
+# ouvert) se voyait accorder l'accès complet à l'API de production, clé d'API
+# comprise puisqu'elle voyage dans le bundle.
+#
+# En production, on ne garde donc QUE ce que l'exploitant a déclaré. En
+# développement, le confort reste : les six adresses habituelles marchent sans
+# rien configurer.
+ALLOWED_ORIGINS = list(set(
+    DECLARED_ORIGINS if IS_PRODUCTION else DECLARED_ORIGINS + _DEV_ORIGINS))
 
 
 # ── Base de données ──────────────────────────────────────────────────────────
@@ -163,29 +199,8 @@ ADMIN_ALERT_EMAIL = os.getenv("ADMIN_ALERT_EMAIL") or None
 # le `JWT_SECRET` par défaut, n'importe qui forge un jeton d'accès admin ; avec
 # la `FRONTEND_API_KEY` par défaut, n'importe qui déclenche nos conversions.
 #
-# POURQUOI DEUX SIGNAUX DE PRODUCTION
-# -----------------------------------
-# Si le garde ne s'armait que sur `PRECIS_ENV=production`, oublier cette
-# variable — l'oubli même que l'on cherche à rattraper — désarmerait le garde.
-# On ajoute donc un signal qu'on ne PEUT pas oublier : servir une interface
-# depuis un vrai domaine oblige à déclarer son origine dans `ALLOWED_ORIGINS`.
-# Une origine déclarée qui n'est ni `localhost` ni `127.0.0.1`, c'est un
-# déploiement, quoi qu'en dise `PRECIS_ENV`.
-#
-# Le faux positif est sans danger : un développeur qui déclare une origine
-# publique se voit réclamer un vrai secret, ce qui est exactement le bon
-# conseil. Le faux NÉGATIF, lui, met un service en ligne avec un secret connu
-# de tous — d'où le choix d'un garde qui penche du côté strict.
-
-def _est_locale(origine: str) -> bool:
-    hote = (urlparse(origine).hostname or "").lower()
-    return hote in ("localhost", "127.0.0.1", "::1", "0.0.0.0", "")
-
-
-IS_PRODUCTION = (
-    os.getenv("PRECIS_ENV", "").strip().lower() in ("prod", "production")
-    or any(not _est_locale(o) for o in DECLARED_ORIGINS)
-)
+# Le garde s'appuie sur `IS_PRODUCTION`, défini plus haut — deux signaux, dont
+# un qu'on ne peut pas oublier. Voir l'explication à cet endroit.
 
 # Valeurs qu'un secret n'a JAMAIS le droit de porter en production. On y met les
 # défauts du code ET les gabarits de `.env.example` : les deux diffèrent, et

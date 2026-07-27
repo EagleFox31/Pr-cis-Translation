@@ -167,6 +167,43 @@ def main() -> int:
           "développement local + secrets par défaut  ->  démarre (avertit seulement)",
           sortie[-400:])
 
+    # ── 5. Les origines de développement disparaissent une fois en ligne ────
+    #
+    # Elles étaient ajoutées INCONDITIONNELLEMENT : un service en production
+    # autorisait `http://localhost:5173` à l'appeler. Une page servie depuis la
+    # machine d'un visiteur obtenait donc l'accès complet à l'API de production.
+    print("\n5. Origines autorisées selon le mode")
+
+    def origines(**env: str) -> list[str]:
+        e = dict(os.environ)
+        e["PRECIS_NO_BANNER"] = "1"
+        e.update(env)
+        p = subprocess.run(
+            [sys.executable, "-c",
+             "import sys;sys.path.insert(0, r'%s');"
+             "from app.config import ALLOWED_ORIGINS;"
+             "print('|'.join(sorted(ALLOWED_ORIGINS)))" % BACKEND],
+            env=e, capture_output=True, text=True, timeout=120)
+        return [o for o in p.stdout.strip().split("|") if o]
+
+    en_ligne = origines(ALLOWED_ORIGINS=PUBLIC, PRECIS_ENV="", **SOLIDES)
+    check(en_ligne == [PUBLIC],
+          "en ligne : SEULE l'origine déclarée est autorisée",
+          str(en_ligne))
+    check(not any("localhost" in o or "127.0.0.1" in o for o in en_ligne),
+          "en ligne : plus aucune adresse locale n'est autorisée",
+          str(en_ligne))
+
+    local = origines(ALLOWED_ORIGINS=LOCAL, PRECIS_ENV="", **SOLIDES)
+    check(len(local) > 1 and any("127.0.0.1" in o for o in local),
+          "en développement : le confort des six adresses habituelles est gardé",
+          str(local))
+
+    force = origines(ALLOWED_ORIGINS=LOCAL, PRECIS_ENV="production", **SOLIDES)
+    check(force == [LOCAL],
+          "PRECIS_ENV=production suffit à couper les adresses de confort",
+          str(force))
+
     # ── Verdict ─────────────────────────────────────────────────────────────
     passed = sum(1 for ok, _ in _checks if ok)
     total = len(_checks)
