@@ -40,8 +40,13 @@ def note(level: int, message: str) -> None:
 
 
 # ── Accès ────────────────────────────────────────────────────────────────────
+# Clé RÉVOQUÉE le 27/07/2026. Elle a vécu dans `.env.example` et dans le bundle
+# du frontend, donc dans neuf commits : elle est publique. Elle n'est plus une
+# valeur de repli — la garder comme défaut, c'était laisser le dépôt contenir
+# une clé qui marche. Elle ne subsiste ICI que pour être REFUSÉE, afin qu'un
+# vieux `.env` recopié ne la ressuscite pas en silence.
 DEFAUT_FRONTEND_API_KEY = "precis_frontend_secure_key_2026_xK9mP2vL"
-FRONTEND_API_KEY = os.getenv("FRONTEND_API_KEY", DEFAUT_FRONTEND_API_KEY)
+FRONTEND_API_KEY = os.getenv("FRONTEND_API_KEY", "")
 
 _DEV_ORIGINS = [
     "http://localhost:5173", "http://localhost:3000", "http://localhost:3001",
