@@ -1,3 +1,23 @@
+# syntax=docker/dockerfile:1
+# check=skip=SecretsUsedInArgOrEnv
+#
+# POURQUOI CE CONTRÔLE EST DÉSACTIVÉ, ET SEULEMENT CELUI-LÀ
+# ---------------------------------------------------------
+# BuildKit avertit dès qu'une variable nommée *KEY* passe par ARG ou ENV. La
+# règle est bonne — sauf ici, où elle décrit précisément ce qu'il FAUT faire.
+#
+# `VITE_API_KEY` n'est pas un secret : Vite la cuit dans le JavaScript envoyé au
+# navigateur, où n'importe quel visiteur la lit avec F12. Elle ne peut pas être
+# fournie autrement, et un `--mount=type=secret` ne changerait rien à ce fait —
+# il déplacerait le message d'avertissement, pas l'exposition.
+#
+# Elle ne subsiste PAS dans l'image livrée : la construction est en deux étapes,
+# et l'étape finale (nginx) n'hérite d'aucune variable de l'étape Node.
+#
+# Un avertissement qu'on sait faux et qu'on laisse s'afficher à chaque
+# construction apprend à ignorer les avertissements. C'est ce qui rend le
+# suivant — le vrai — invisible. D'où ce `skip` ciblé, sur cette règle seule.
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Précis Translator — image de l'interface
 #
@@ -38,12 +58,19 @@ ENV VITE_API_KEY=$VITE_API_KEY \
 # dépôt) : sans ce contrôle, on obtiendrait une image qui se construit très
 # bien et qu'aucune requête ne traverse — un 401 sur chaque envoi, et rien
 # dans les journaux qui explique pourquoi.
-RUN test -n "$VITE_API_KEY" || { \
-        echo "ERREUR : VITE_API_KEY est vide."; \
-        echo "Elle doit valoir la meme chose que FRONTEND_API_KEY cote service."; \
-        echo "docker compose la passe automatiquement depuis backend/.env."; \
-        exit 1; \
-    }
+#
+# Le contrôle passe par Node et NON par `test -n "$VITE_API_KEY"` en shell :
+# BuildKit substitue les variables dans le texte d'une instruction RUN avant de
+# l'afficher, si bien que la clé s'écrivait EN CLAIR dans le journal de
+# construction et y restait, consultable dans l'historique des builds. Node lit
+# `process.env` à l'exécution — la valeur ne traverse jamais le texte de la
+# commande, donc jamais le journal.
+RUN node -e "if (!process.env.VITE_API_KEY) { \
+        console.error('ERREUR : VITE_API_KEY est vide.'); \
+        console.error('Elle doit valoir la meme chose que FRONTEND_API_KEY cote service.'); \
+        console.error('docker compose la passe automatiquement depuis backend/.env.'); \
+        process.exit(1); \
+    }"
 
 RUN npm run build
 
