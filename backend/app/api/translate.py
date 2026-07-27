@@ -30,7 +30,7 @@ from app.models import (Document, User, get_plan_page_limit,
                         get_plan_monthly_pages, is_paid_plan)
 from app.rate_limit import verify_api_key
 from app.services.documents import (build_job_paths, cap_pages_for_plan,
-                                    count_pages)
+                                    count_pages, pages_avec_texte)
 from app.services.jobs import jobs
 from app.services.office import convert_to_pdf_bytes
 from app.services.scheduler import scheduler
@@ -200,6 +200,67 @@ async def translate_endpoint(
     # dans toutes les clés de cache pour qu'une plage donnée ne réutilise jamais
     # le résultat d'une autre plage (ni du document entier).
     pages_set = parse_page_range(pages) if ext in ("pdf", "pptx") else None
+
+    # ── Pages RÉELLEMENT traduisibles ────────────────────────────────────────
+    #
+    # Un PDF scanné est une suite d'images : aucun caractère n'y est
+    # extractible, le moteur n'en tire rien et rend le document INCHANGÉ. La
+    # facturation, elle, comptait les pages du conteneur. MESURÉ sur un scan
+    # synthétique de trois pages : 3 pages débitées, 0 élément de texte extrait.
+    # L'utilisateur payait, recevait son document tel quel, et son crédit avait
+    # disparu — sans un mot, ni pour lui, ni dans le journal.
+    #
+    # Ce contrôle vient AVANT tout débit. C'est sa seule place utile : après, le
+    # crédit est parti et le rembourser demanderait un chemin de compensation
+    # qui n'existe pas.
+    #
+    # Les pages écartées ne sont pas perdues pour autant : `pages` ne découpe
+    # pas le document, les pages hors sélection sont COPIÉES telles quelles
+    # (cf. `translate_pdf_progressive`). L'utilisateur récupère donc son
+    # document entier, ses pages scannées intactes, et ne paye que ce qui a pu
+    # être traduit.
+    lisibles = pages_avec_texte(file_bytes, ext)
+    pages_ignorees = 0
+    if lisibles is not None:
+        visees = pages_set or set(range(1, count_pages(file_bytes, ext) + 1))
+        traduisibles = visees & lisibles
+
+        if not traduisibles:
+            # Rien à lire dans tout ce qui était visé : on refuse, et on ne
+            # débite rien. `reason` distingue ce cas d'un refus de quota — le
+            # client ne doit surtout pas proposer d'acheter des pages pour un
+            # document qu'aucun achat ne rendra traduisible.
+            #
+            # `JSONResponse` et non `HTTPException(detail={...})` : FastAPI
+            # emboîterait alors l'objet sous `detail`, or le client lit
+            # `err.detail` comme un TEXTE à afficher. Il montrerait
+            # « [object Object] » à l'utilisateur, et `err.reason` — qu'il lit
+            # au premier niveau, comme pour `need_credits` — serait introuvable.
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": (
+                        "Ce document ne contient aucun texte lisible : ses pages "
+                        "sont des images (document scanné ou photographié). "
+                        "Aucune page n'a été décomptée. Pour le traduire, "
+                        "convertissez-le d'abord en PDF texte avec un outil de "
+                        "reconnaissance de caractères (OCR)."
+                    ),
+                    "reason": "scanned_document",
+                    "pages_scanned": len(visees),
+                },
+            )
+
+        if traduisibles != visees:
+            # Document MIXTE. On ne touche à `pages_set` que dans ce cas : le
+            # laisser à None quand tout est traduisible préserve les clés de
+            # cache existantes (`pages_token`), qu'une sélection explicite
+            # ferait diverger sans raison.
+            pages_ignorees = len(visees) - len(traduisibles)
+            pages_set = traduisibles
+            logger.info(
+                "Document mixte : %d page(s) sans texte extractible écartée(s) "
+                "de la traduction et de la facturation.", pages_ignorees)
 
     # ── Limite de pages selon le plan ─────────────────────────────────────
     # On est dans un endpoint ASYNC : la session `db` et l'utilisateur
@@ -411,7 +472,15 @@ async def translate_endpoint(
 
     logger.info(f"Job {job_id} queued for '{filename}' -> {target_lang} "
                 f"(priorité {get_plan_priority(current_user.plan)})")
-    return JSONResponse({"job_id": job_id})
+    # `pages_ignorees` : pages sans texte extractible, écartées de la traduction
+    # ET de la facturation. Renvoyé pour que l'interface puisse le DIRE — sans
+    # cela, l'utilisateur d'un document mixte verrait des pages revenir
+    # inchangées sans comprendre pourquoi, et croirait à une traduction ratée
+    # là où il s'agit d'un scan qu'on n'a pas facturé.
+    reponse = {"job_id": job_id}
+    if pages_ignorees:
+        reponse["pages_ignorees"] = pages_ignorees
+    return JSONResponse(reponse)
 
 
 @router.get("/api/translate/events/{job_id}")
