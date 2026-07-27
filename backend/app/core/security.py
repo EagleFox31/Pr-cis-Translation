@@ -5,7 +5,6 @@ Utilisation :
     from backend.auth import require_auth, create_access_token, hash_password
 """
 from __future__ import annotations
-import os
 import uuid
 import hashlib
 import secrets
@@ -23,10 +22,15 @@ from app.models import User, RefreshToken
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production-64-chars-minimum!!")
+# Lus depuis `app.config` — et non par un `os.getenv` local. Le garde-fou de
+# production y contrôle le secret ; s'il inspectait une lecture différente de
+# celle qui signe ici, son feu vert ne prouverait rien.
+from app.config import (JWT_EXPIRY_MINUTES,       # noqa: E402
+                        JWT_SECRET,
+                        REFRESH_TOKEN_EXPIRY_DAYS)
+
 JWT_ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRY_MINUTES = int(os.getenv("JWT_EXPIRY_MINUTES", "60"))
-REFRESH_TOKEN_EXPIRY_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRY_DAYS", "30"))
+ACCESS_TOKEN_EXPIRY_MINUTES = JWT_EXPIRY_MINUTES
 
 security = HTTPBearer(auto_error=False)
 
