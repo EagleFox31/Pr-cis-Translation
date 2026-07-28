@@ -85,10 +85,34 @@ Reste, par ordre d'importance (`_PARTIES` dans `engine.py`) :
       segmentation identique à la référence (525 éléments / 318 paragraphes),
       deux colonnes intactes, césure et justification correctes, bloc « PART 1 »
       et en-tête courant en place. Rien à signaler.
-- [ ] `p15/p16` : **colonne justifiée de ≤5 lignes** non réparée (limite connue).
-      Seul défaut PDF encore ouvert. ⚠ Piste à NE PAS reprendre (déjà payée) :
-      attester la colonne par les FRAGMENTS rouvre le cas Handbook p20.
-      La preuve doit rester la ligne INTACTE.
+- [x] `p15/p16` — **colonne justifiée courte : limite STRUCTURELLE, close** (28/07).
+      Défaut reproduit sur document synthétique : une colonne de 4 lignes à
+      100 pt déchire « plants » et « raised » hors de leur phrase (3 paragraphes
+      au lieu d'un) ; la même colonne en 13 lignes reste intacte.
+
+      **Ce n'est pas un problème de seuil.** Le témoin est une ligne INTACTE, or
+      c'est ce qu'une colonne étroite justifiée produit le moins — ses blancs
+      enflent et PyMuPDF éclate ses lignes. Mesuré sur 6 textes différents, le
+      taux est de ~0,45 témoin par ligne :
+
+          3 lignes  moy 1,2  max 2  -> quorum 3 INATTEIGNABLE
+          4 lignes  moy 1,7  max 3       8 lignes  moy 3,5  -> fiable
+          6 lignes  moy 2,3  max 3      12 lignes  moy 5,7
+
+      Une colonne de 3 lignes ne peut JAMAIS fournir 3 témoins : la preuve
+      n'existe pas. Abaisser le quorum ne la fait pas apparaître, il fait
+      accepter des preuves fausses — vérifié sur la suite complète :
+      **quorum 2 → 58/59** (la vérification centrale de P15 tombe, soit le
+      défaut que P15 corrige), **quorum 3 → 59/59**, **quorum 4 → 58/59**.
+      La valeur en place est donc l'optimum mesuré, pas un réglage prudent.
+
+      ⚠ Piste re-vérifiée et CLOSE : attester la colonne par les FRAGMENTS.
+      Rejouée sur la page P17, elle donne la colonne [45,0 ; 567,0] — la page
+      entière — et souderait les 4 colonnes. La preuve doit rester la ligne
+      INTACTE, qui ne peut pas exister à travers une gouttière.
+
+      Tout est consigné dans `engine.py` au-dessus de `_JUST_MIN_LINES` ; banc
+      de mesure : `scripts/mesurer_colonne_courte.py`.
 
 ### Téléchargement automatique des polices — SUPPRIMÉ avec le moteur v1
 Vérifié le 28/07 : `_ensure_font` / `_download_google_font` vivaient dans
