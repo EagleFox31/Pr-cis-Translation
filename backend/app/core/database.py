@@ -6,14 +6,13 @@ Utilisation :
     async with async_session() as db:
         user = await db.get(User, user_id)
 """
-import os
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from dotenv import load_dotenv
 
-_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-load_dotenv(_env_path)
-
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/precis")
+# L'URL vient de `app.config`, seul endroit qui lit l'environnement. Ce module
+# appelait `load_dotenv` sur `app/core/.env` — un chemin qui n'existe pas : le
+# `.env` n'était vu que par l'effet de bord de l'import de `config`, et à défaut
+# l'application se connectait SILENCIEUSEMENT à la base de démonstration.
+from app.config import DATABASE_URL
 
 engine = create_async_engine(DATABASE_URL, echo=False, pool_size=10, max_overflow=20)
 

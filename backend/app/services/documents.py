@@ -74,3 +74,47 @@ def count_pages(file_bytes: bytes, ext: str) -> int:
     except Exception:
         logger.warning("Comptage de pages impossible (%s) — facturé 1 page.", ext)
     return 1
+
+
+def pages_avec_texte(file_bytes: bytes, ext: str) -> set[int] | None:
+    """Numéros (1-basés) des pages qui contiennent du texte extractible.
+
+    `None` = « la question ne se pose pas » : format non concerné, ou fichier
+    illisible. L'appelant traite alors le document comme avant.
+
+    LE DÉFAUT QUE CECI CORRIGE
+    --------------------------
+    Un PDF scanné est une suite d'IMAGES. Aucun caractère n'y est extractible :
+    le moteur n'en tire rien, ne traduit rien, et rend le document INCHANGÉ.
+    Or la facturation, elle, comptait les pages du conteneur — mesuré sur un
+    scan synthétique de 3 pages : 3 pages débitées, 0 élément de texte extrait.
+    L'utilisateur payait, recevait son document tel quel, et son crédit avait
+    disparu. Rien, nulle part, ne le signalait.
+
+    POURQUOI « ZÉRO CARACTÈRE » ET NON UN SEUIL
+    -------------------------------------------
+    Il serait tentant d'écrire « moins de N caractères = page scannée ». Ce
+    serait un nombre choisi sur les documents qu'on a sous la main, qui
+    trancherait de travers sur ceux qu'on n'a pas : une page de garde ne
+    portant qu'un titre est parfaitement traduisible.
+
+    « Aucun caractère extractible » n'est pas un réglage, c'est un fait
+    vérifiable : il n'y a rien à lire, donc rien à traduire, donc rien à
+    facturer. La règle vaut pour tout PDF, quelle que soit sa provenance.
+
+    Ce n'est PAS de l'OCR et cela ne prétend pas l'être : on ne devine pas ce
+    que contient l'image, on constate seulement qu'on ne l'a pas lue.
+    """
+    if ext != "pdf":
+        return None
+    try:
+        import fitz
+        with fitz.open(stream=file_bytes, filetype="pdf") as doc:
+            return {i + 1 for i, page in enumerate(doc)
+                    if page.get_text().strip()}
+    except Exception:
+        # Illisible : on ne prétend rien. `count_pages` facturera 1 page et le
+        # refus viendra de l'extraction, avec un message qui parle.
+        logger.warning("Analyse du texte impossible (%s) — document traité "
+                       "comme s'il contenait du texte.", ext)
+        return None

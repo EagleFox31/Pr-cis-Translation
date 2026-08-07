@@ -26,7 +26,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import ALLOWED_ORIGINS, STARTUP_NOTES, logger
+from app.config import (ALLOWED_ORIGINS, STARTUP_NOTES, logger,
+                        verifier_configuration)
 
 __all__ = ["create_app"]
 
@@ -43,8 +44,16 @@ async def _lifespan(_app: FastAPI):
     from app.services.startup import (balayer_partiels_orphelins,
                                       reconcilier_jobs_orphelins)
 
+    # `print` peut LEVER : la console Windows est en cp1252, et un caractère
+    # hors de cette table (une flèche, un symbole d'avertissement) faisait
+    # remonter un UnicodeEncodeError jusqu'au lifespan — l'application entière
+    # refusait de démarrer à cause d'un message décoratif. Un message d'init ne
+    # doit jamais pouvoir tuer le serveur : on retombe sur une version ASCII.
     for _level, message in STARTUP_NOTES:
-        print(message, flush=True)
+        try:
+            print(message, flush=True)
+        except UnicodeEncodeError:
+            print(message.encode("ascii", "replace").decode("ascii"), flush=True)
     # Le filet « absolument toutes les erreurs » : tout logger.error/exception
     # applicatif atterrit désormais aussi dans le journal central.
     from app.services.error_log import install_db_log_handler
@@ -80,6 +89,11 @@ def _afficher_banniere() -> None:
 
 def create_app() -> FastAPI:
     """Construit et câble l'application."""
+    # AVANT tout le reste : un service qui démarre avec un secret public est
+    # pire qu'un service qui ne démarre pas. Le contrôle est bloquant en
+    # production seulement — en développement il se contente d'avertir.
+    verifier_configuration()
+
     application = FastAPI(
         title="Précis Translator API",
         version="1.0.0",

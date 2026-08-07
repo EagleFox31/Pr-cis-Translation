@@ -3,7 +3,9 @@ import { useTranslation } from 'react-i18next';
 import { authHeader, accessToken } from '../services/api';
 import i18n from '../i18n';
 
-const API_KEY = import.meta.env.VITE_API_KEY || 'precis_frontend_secure_key_2026_xK9mP2vL';
+// Pas de valeur de repli : cf. usePdfPreview.ts — une clé écrite ici part dans
+// le dépôt, et le repli rendait l'oubli de `VITE_API_KEY` invisible.
+const API_KEY = import.meta.env.VITE_API_KEY || '';
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 /** État d'une page dans le pipeline progressif. */

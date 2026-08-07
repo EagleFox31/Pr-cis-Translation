@@ -1,0 +1,47 @@
+# Ce qui ne doit JAMAIS entrer dans une image.
+#
+# Le contexte de construction est la racine du dépôt : sans ce fichier, Docker
+# enverrait le venv Python, les node_modules et le corpus de test — plusieurs
+# gigaoctets — au démon, à chaque build.
+
+# ── Secrets ──────────────────────────────────────────────────────────────────
+# Les images ne doivent contenir aucun secret : ils sont fournis à l'exécution
+# (docker compose --env-file) et non cuits dans les couches. Une image porte ses
+# couches partout où on la pousse ; un `.env` copié dedans est un `.env` publié.
+.env
+*/.env
+backend/.env
+frontend/.env
+
+# ── Environnements et dépendances (reconstruits dans l'image) ────────────────
+backend/venv/
+node_modules/
+*/node_modules/
+frontend/dist/
+
+# ── Caches ───────────────────────────────────────────────────────────────────
+__pycache__/
+*/__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Données d'exécution ──────────────────────────────────────────────────────
+# Les traductions vivent sur un VOLUME, pas dans l'image : cuites dedans, elles
+# seraient réinitialisées à chaque reconstruction.
+backend/translations/
+backend/tests/_generic_tmp/
+
+# ── Corpus de test (volumineux, jamais nécessaire en production) ─────────────
+backend/tests files/
+
+# ── Divers ───────────────────────────────────────────────────────────────────
+.git/
+.gitignore
+.claude/
+.reasonix/
+*.bak
+*.old
+*.log

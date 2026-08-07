@@ -14,9 +14,18 @@ frontend/dist/
 
 # Données générées à l'exécution
 backend/translations/
-backend/fonts/*.ttf
-backend/fonts/*.otf
-backend/fonts/*.ttc
+
+# NOTE — `backend/fonts/*.ttf` était ignoré ici. C'était une erreur, et elle
+# était SILENCIEUSE : sur 28 fichiers présents en local, 6 seulement étaient
+# suivis. Un clone neuf — donc toute image Docker construite depuis le dépôt —
+# n'avait pas les 22 autres, et `_load_matched_font()` retombe alors sans un mot
+# sur la base-14 (Helvetica). Le service aurait tourné, rendu des PDF, et perdu
+# la fidélité typographique qui est son objet même, sans qu'aucune erreur ne le
+# signale.
+#
+# Ces polices sont libres (SIL OFL / Apache 2.0), redistribuables, et pèsent
+# 8,5 Mo au total. Les versionner rend la construction reproductible et hors
+# ligne, et fige leur INTÉGRITÉ — un fichier corrompu se voit alors au diff.
 
 # Outils locaux
 .claude/
