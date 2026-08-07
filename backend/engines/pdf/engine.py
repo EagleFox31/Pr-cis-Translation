@@ -827,6 +827,49 @@ class PDFObjectEngine:
     # Nombre de lignes À FLEUR DES DEUX BORDS exigées pour tenir une colonne
     # justifiée pour AVÉRÉE (< 3 : deux lignes de largeur égale arrivent par
     # hasard dans une liste ou un tableau).
+    #
+    # LA VALEUR EST UN OPTIMUM MESURÉ, pas un réglage prudent. Sur la suite
+    # générique complète (`scripts/mesurer_colonne_courte.py` pour le banc) :
+    #
+    #     quorum 2 -> 58/59      quorum 3 -> 59/59      quorum 4 -> 58/59
+    #
+    # À 2, c'est la vérification centrale de P15 qui tombe — « colonne étroite
+    # justifiée reconstituée mot pour mot », c'est-à-dire le défaut même que
+    # P15 existe pour corriger. On échangerait un défaut réparé contre un
+    # défaut non réparé.
+    #
+    # POURQUOI LA COLONNE COURTE RESTE NON RÉPARÉE, ET POURQUOI CE N'EST PAS
+    # UNE QUESTION DE SEUIL
+    # ----------------------------------------------------------------------
+    # Le témoin est une ligne INTACTE — assez pleine pour qu'aucun blanc n'y
+    # dépasse le seuil de coupe. Or c'est précisément ce qu'une colonne étroite
+    # justifiée produit le moins : ses blancs enflent, PyMuPDF éclate ses
+    # lignes, et il ne reste presque rien à invoquer comme preuve.
+    #
+    # MESURÉ sur 6 textes différents, nombre de témoins disponibles :
+    #
+    #     3 lignes  moyenne 1,2  max 2   -> quorum 3 INATTEIGNABLE
+    #     4 lignes  moyenne 1,7  max 3
+    #     5 lignes  moyenne 2,0  max 3
+    #     6 lignes  moyenne 2,3  max 3
+    #     8 lignes  moyenne 3,5  max 5   -> fiable
+    #    12 lignes  moyenne 5,7  max 7
+    #
+    # Le taux est d'environ 0,45 témoin par ligne. Une colonne de 3 lignes ne
+    # peut donc JAMAIS en fournir 3, quel que soit son contenu : la preuve
+    # n'existe pas, et abaisser le quorum ne la fait pas apparaître — cela ne
+    # fait qu'accepter des preuves fausses (d'où les 58/59 à 2).
+    #
+    # Exemple relevé (colonne de 4 lignes, 100 pt) : 9 segments, 1 seul témoin.
+    # Les deux premières lignes sont déjà éclatées en 3 et 4 fragments, la
+    # dernière est courte par nature. Il ne reste qu'une ligne pleine.
+    #
+    # LA PISTE À NE PAS REPRENDRE — attester la colonne par les FRAGMENTS
+    # (leurs fers extrêmes) au lieu des lignes intactes. Rejoué sur la page P17
+    # (chapô pleine largeur + 4 colonnes) : les fers extrêmes des fragments
+    # donnent [45,0 ; 567,0], soit la PAGE ENTIÈRE — les quatre colonnes
+    # seraient soudées en charabia. La preuve DOIT rester la ligne intacte, qui
+    # ne peut pas exister à travers une gouttière.
     _JUST_MIN_LINES = 3
     # Tolérance de « fer » (× taille de police). La justification est exacte par
     # CONSTRUCTION : les bords mesurés tombent au centième de point près (démo :
