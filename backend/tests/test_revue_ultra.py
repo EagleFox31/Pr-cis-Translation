@@ -150,6 +150,37 @@ async def check_acces_document_paye(client, ok, tmp):
         await _supprimer(u.id)
 
 
+async def check_quota_admin(ok):
+    """L'admin n'a pas de limite de stockage ; un autre plan garde la sienne."""
+    from app.api.translate import _save_document_for_user
+    from app.models import get_plan_storage
+    from sqlalchemy import select
+
+    async def _essai(plan):
+        u = await _utilisateur(plan)
+        try:
+            async with async_session() as db:
+                user = await db.get(User, u.id)
+                user.storage_used = get_plan_storage(plan) + 1   # deja au-dela
+                await db.commit()
+                job_id = jobs.create()
+                try:
+                    await _save_document_for_user(user, db, job_id, "d.pdf",
+                                                  "en", "/x", 1000)
+                finally:
+                    jobs.forget(job_id)
+                d = (await db.execute(select(Document).where(
+                    Document.user_id == u.id))).scalar_one()
+                return d.storage_charged
+        finally:
+            await _supprimer(u.id)
+
+    ok("QUOTA  admin au-dela de 200 Go : toujours compte, jamais plafonne",
+       await _essai("admin") == 1000)
+    ok("QUOTA  starter au-dela de son quota : reste plafonne (charge 0)",
+       await _essai("starter") == 0)
+
+
 def check_sync_status_journalise(ok):
     """Un echec du report d'etat sur le Document doit laisser une trace."""
     import logging
@@ -192,6 +223,7 @@ async def run():
     await check_credit_deux_sessions(ok)
 
     check_sync_status_journalise(ok)
+    await check_quota_admin(ok)
 
     tmp = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                        f"_revue_{uuid.uuid4().hex[:8]}")

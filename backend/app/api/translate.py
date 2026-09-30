@@ -114,10 +114,11 @@ async def _save_document_for_user(user: "User | None", db: "AsyncSession",
     if user is None:
         return
     try:
-        plan_storage = (10_737_418_240 if user.plan == "admin"
-                        else get_plan_storage(user.plan))
+        plan_storage = get_plan_storage(user.plan)
         charge = size if plan_storage > 0 else 0
-        if charge and user.storage_used + charge > plan_storage:
+        # L'admin n'a AUCUNE limite : son usage est compté, jamais plafonné.
+        if (user.plan != "admin" and charge
+                and user.storage_used + charge > plan_storage):
             charge = 0                      # quota plein : on journalise sans facturer
         doc = Document(user_id=user.id, original_name=filename, source_lang="auto",
                        target_lang=target_lang, original_path=original_path,
