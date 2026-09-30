@@ -270,8 +270,13 @@ class JobManager:
 
         try:
             _dans_une_boucle_jetable(_maj)
-        except Exception:
-            pass
+        except Exception as e:
+            # Silence INTERDIT : sans ce report le Document reste
+            # `translating` et le téléchargement sert l'original. Pas de
+            # relance (on ne fait pas échouer un job terminé), mais la cause
+            # doit se voir dans le journal.
+            logger.warning("État non reporté sur le document (job %s → %s) : %s",
+                           job_id, status, e)
 
 
 # Point d'accès unique du processus.

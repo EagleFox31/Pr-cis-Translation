@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.documents import _may_read_clear
 from app.config import ALLOWED_EXTENSIONS, MAX_FILE_SIZE, logger, resolve_quality
 from app.core.database import get_db
 from app.core.files import (get_file_hash, pages_token, parse_page_range,
@@ -113,10 +114,11 @@ async def _save_document_for_user(user: "User | None", db: "AsyncSession",
     if user is None:
         return
     try:
-        plan_storage = (10_737_418_240 if user.plan == "admin"
-                        else get_plan_storage(user.plan))
+        plan_storage = get_plan_storage(user.plan)
         charge = size if plan_storage > 0 else 0
-        if charge and user.storage_used + charge > plan_storage:
+        # L'admin n'a AUCUNE limite : son usage est compté, jamais plafonné.
+        if (user.plan != "admin" and charge
+                and user.storage_used + charge > plan_storage):
             charge = 0                      # quota plein : on journalise sans facturer
         doc = Document(user_id=user.id, original_name=filename, source_lang="auto",
                        target_lang=target_lang, original_path=original_path,
@@ -551,9 +553,22 @@ def _job_of(job_id: str, user: "User"):
     return job
 
 
+async def _droit_au_clair(job: dict, user: "User", db: AsyncSession) -> bool:
+    """Ce compte peut-il lire CE job en clair ? Même règle que les routes de
+    `documents` (`_may_read_clear`) : l'abonnement OU l'achat de ce document.
+    Lire le seul plan refusait le clair à un compte gratuit qui venait de
+    payer précisément cette traduction."""
+    if is_paid_plan(user.plan):
+        return True
+    doc_id = job.get("document_id")
+    doc = await db.get(Document, doc_id) if doc_id else None
+    return doc is not None and doc.user_id == user.id and _may_read_clear(user, doc)
+
+
 @router.get("/api/translate/partial/{job_id}")
 async def translation_partial(job_id: str, x_api_key: str = Header(None),
-                              current_user: "User" = Depends(require_auth)):
+                              current_user: "User" = Depends(require_auth),
+                              db: AsyncSession = Depends(get_db)):
     """PDF PARTIEL d'un job v2 en cours : contient les pages 1..k déjà
     traduites (réécrit atomiquement après chaque page). Le client le recharge
     à chaque événement `page done` pour afficher la traduction au fil de l'eau."""
@@ -574,7 +589,7 @@ async def translation_partial(job_id: str, x_api_key: str = Header(None),
     # Liste d'AUTORISATION, pas de refus : un plan inconnu (valeur corrompue,
     # plan retiré du barème) est traité comme non payant. `== FREE_PLAN`
     # donnait l'inverse : tout ce qui n'était pas littéralement "free" passait.
-    if not is_paid_plan(current_user.plan):
+    if not await _droit_au_clair(job, current_user, db):
         data = rasterize_for_trial(data, job.get("pages"))
 
     return Response(content=data, media_type="application/pdf",
@@ -583,7 +598,8 @@ async def translation_partial(job_id: str, x_api_key: str = Header(None),
 
 @router.get("/api/translate/result/{job_id}")
 async def translation_result(job_id: str, x_api_key: str = Header(None),
-                             current_user: "User" = Depends(require_auth)):
+                             current_user: "User" = Depends(require_auth),
+                             db: AsyncSession = Depends(get_db)):
     """Retourne le fichier traduit une fois le job terminé.
 
     TÉLÉCHARGEMENT RÉSERVÉ AUX PLANS PAYANTS (décision produit). Le verrou
@@ -593,7 +609,7 @@ async def translation_result(job_id: str, x_api_key: str = Header(None),
     """
     verify_api_key(x_api_key)
     job = _job_of(job_id, current_user)
-    if not is_paid_plan(current_user.plan):
+    if not await _droit_au_clair(job, current_user, db):
         raise HTTPException(
             status_code=402,
             detail="Forfait Gratuit : téléchargement indisponible. "

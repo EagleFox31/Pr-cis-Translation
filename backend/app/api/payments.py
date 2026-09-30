@@ -12,7 +12,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -156,18 +156,35 @@ async def _apply_credit(db: AsyncSession, payment: Payment) -> None:
     if payment.credited or payment.status != "SUCCESSFUL":
         return
 
+    # Le drapeau se PREND par une écriture atomique, il ne se lit pas : le
+    # webhook et l'interrogation d'état ont chacun leur session, et chacune
+    # aurait lu `credited=False` avant que l'autre ne commite. Une seule des
+    # deux voit `rowcount == 1` ; l'autre s'arrête sans rien créditer. Le
+    # crédit et le drapeau partent dans la MÊME transaction.
+    pris = await db.execute(
+        update(Payment)
+        .where(Payment.id == payment.id, Payment.credited.is_(False),
+               Payment.status == "SUCCESSFUL")
+        .values(credited=True)
+        .execution_options(synchronize_session=False)
+    )
+    if pris.rowcount != 1:
+        await db.rollback()
+        return
+
     if payment.document_id:
         # Paiement ciblé : il débloque CE document, et rien d'autre.
-        doc = await db.get(Document, payment.document_id)
-        if doc is not None:
-            doc.paid = True
+        await db.execute(update(Document)
+                         .where(Document.id == payment.document_id)
+                         .values(paid=True))
     else:
-        user = await db.get(User, payment.user_id)
-        if user is not None:
-            user.page_credits += payment.pages
+        # Incrément en SQL : deux paiements du même compte qui se croisent ne
+        # doivent pas s'écraser l'un l'autre.
+        await db.execute(update(User).where(User.id == payment.user_id)
+                         .values(page_credits=User.page_credits + payment.pages))
 
-    payment.credited = True
     await db.commit()
+    payment.credited = True
 
 
 @router.get("/{payment_id}")
