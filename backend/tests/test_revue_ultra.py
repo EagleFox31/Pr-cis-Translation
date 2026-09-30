@@ -150,6 +150,39 @@ async def check_acces_document_paye(client, ok, tmp):
         await _supprimer(u.id)
 
 
+def check_sync_status_journalise(ok):
+    """Un echec du report d'etat sur le Document doit laisser une trace."""
+    import logging
+    from app.services import jobs as mod_jobs
+
+    class _Recueil(logging.Handler):
+        def __init__(self):
+            super().__init__(logging.WARNING)
+            self.lignes = []
+
+        def emit(self, rec):
+            self.lignes.append(rec.getMessage())
+
+    def _explose(_faire):
+        raise RuntimeError("base injoignable-QUUX")
+
+    recueil = _Recueil()
+    mod_jobs.logger.addHandler(recueil)
+    vrai = mod_jobs._dans_une_boucle_jetable
+    mod_jobs._dans_une_boucle_jetable = _explose
+    job_id = jobs.create()
+    try:
+        jobs.set(job_id, document_id="doc-quux")
+        jobs.sync_status(job_id, "done", "/x")           # ne doit pas lever
+        ok("JOURNAL  echec de sync_status : trace dans le journal",
+           any("base injoignable-QUUX" in m for m in recueil.lignes),
+           f"lignes={recueil.lignes}")
+    finally:
+        mod_jobs._dans_une_boucle_jetable = vrai
+        mod_jobs.logger.removeHandler(recueil)
+        jobs.forget(job_id)
+
+
 async def run():
     checks = []
 
@@ -157,6 +190,8 @@ async def run():
         checks.append((nom, bool(cond), detail))
 
     await check_credit_deux_sessions(ok)
+
+    check_sync_status_journalise(ok)
 
     tmp = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                        f"_revue_{uuid.uuid4().hex[:8]}")
