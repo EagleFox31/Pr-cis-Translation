@@ -18,6 +18,10 @@ The workflow is **read-only**: no EC2, no SSM SendCommand, no IAM mutations.
 3. The versioned template `deploy/infra/aws-free-plan-readonly-role.yml`
    declares a **separate read-only IAM role**, scoped to this fork's GitHub
    `staging` environment. It requires the existing OIDC provider ARN.
+   Because this fork was created after 15 July 2026, its trust condition pins
+   GitHub's **immutable owner/repository IDs** as well as the environment;
+   the previous name-only `sub` form must not be used. Verify the exact
+   OIDC subject against GitHub's repository OIDC settings if customized.
    This template is **not applied** automatically.
 4. Review and explicitly deploy only this IAM template in the intended AWS
    account, using named-IAM-role acknowledgement. It grants only
