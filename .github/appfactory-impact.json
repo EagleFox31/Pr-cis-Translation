@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "fallback": "all",
+  "ignorePaths": [
+    "README.md",
+    "ARCHITECTURE.md",
+    "CONTRIBUTING.md",
+    "TODO.md",
+    "docs/**",
+    "backend/engines/**/CONTEXTE.md",
+    "backend/README.md",
+    "frontend/README.md"
+  ],
+  "surfaces": {
+    "backend": {
+      "paths": [
+        "backend/**",
+        "docker-compose.yml",
+        ".dockerignore"
+      ],
+      "gates": [
+        "python"
+      ]
+    },
+    "frontend": {
+      "paths": [
+        "frontend/**",
+        "docker-compose.yml",
+        ".dockerignore"
+      ],
+      "gates": [
+        "frontend"
+      ]
+    },
+    "automation": {
+      "paths": [
+        ".github/workflows/**",
+        ".github/appfactory-*.json",
+        "package.json",
+        "scripts/**"
+      ],
+      "gates": [
+        "python",
+        "frontend"
+      ]
+    }
+  }
+}
