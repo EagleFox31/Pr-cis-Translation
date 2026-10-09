@@ -12,9 +12,9 @@ jobs:
     uses: EagleFox31/appfactory-project-automation/.github/workflows/reusable-aws-free-plan-preflight.yml@c71ac965a2c2b21590077486f11bf30a4c98b07f
     with:
       appfactory_ref: c71ac965a2c2b21590077486f11bf30a4c98b07f
-      role_arn: ${{ vars.PRECIS_AWS_STAGING_READ_ROLE_ARN }}
+      role_arn: arn:aws:iam::458018461157:role/precis-translation-staging-free-plan-read
 
 # No credentials are checked into GitHub. Requires a narrowly scoped OIDC
-# role ARN variable and a protected GitHub staging environment.
+# role name and AWS account ID are explicit, non-secret reviewed constants.\n# The protected staging environment is required on GitHub.
 # Fail closed if role is missing, plan is PAID, expired, or low on credits.
 # Does NOT create an EC2 instance, budgets, IAM roles, or dispatch SSM.
