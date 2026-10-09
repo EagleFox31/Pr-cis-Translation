@@ -1,0 +1,21 @@
+name: AppFactory container plan (no deployment)
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    permissions:
+      contents: read
+    uses: EagleFox31/appfactory-project-automation/.github/workflows/reusable-container-plan.yml@fb04757613e9514d2fd39147f5d4f7bae0dfd3d4
+    with:
+      config_path: .github/appfactory-deploy.json
+      source_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+      appfactory_ref: fb04757613e9514d2fd39147f5d4f7bae0dfd3d4
