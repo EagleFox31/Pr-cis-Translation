@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  impact:
+    uses: EagleFox31/appfactory-project-automation/.github/workflows/reusable-impact-analysis.yml@8c3517020badf20d4c915c9c2d365cae1b4f45f7
+    with:
+      appfactory_ref: 8c3517020badf20d4c915c9c2d365cae1b4f45f7
+      config_path: .github/appfactory-impact.json
+      mode: ${{ github.event_name == 'workflow_dispatch' && 'all' || 'auto' }}
+
+  python:
+    needs: impact
+    if: ${{ contains(fromJSON(needs.impact.outputs.gates), 'python') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install FastAPI and document-engine requirements
+        run: python -m pip install -r backend/requirements.txt
+      - name: Syntax check
+        run: python -m compileall -q backend
+      - name: Security regression test
+        run: python backend/tests/test_garde_secrets.py
+      - name: Pricing regression test
+        run: python backend/tests/test_pricing.py
+      - name: Translation scheduler regression test
+        run: python backend/tests/test_scheduler.py
+
+  frontend:
+    needs: impact
+    if: ${{ contains(fromJSON(needs.impact.outputs.gates), 'frontend') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci --prefix frontend
+      - name: TypeScript and bilingual i18n check
+        run: npm run lint --prefix frontend
+      - name: Vite production bundle compilation
+        run: npm run build --prefix frontend
+
+  result:
+    if: always()
+    needs: [impact, python, frontend]
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Enforce real CI results
+        env:
+          IMPACT: ${{ needs.impact.result }}
+          PYTHON: ${{ needs.python.result }}
+          FRONTEND: ${{ needs.frontend.result }}
+        run: |
+          if [[ "$IMPACT" != success ]]; then
+            echo "::error::Impact analysis failed: $IMPACT"
+            exit 1
+          fi
+          for result in "$PYTHON" "$FRONTEND"; do
+            if [[ "$result" != success && "$result" != skipped ]]; then
+              echo "::error::An impacted gate failed: $result"
+              exit 1
+            fi
+          done
+          echo "Impact analysis passed; impacted gates have completed successfully." >> "$GITHUB_STEP_SUMMARY"
