@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Read-only GitHub OIDC role for Précis AWS Free Plan eligibility check.
+  Does NOT provision EC2 or grant permission to deploy.
+Parameters:
+  GitHubOidcProviderArn:
+    Type: String
+    Description: Exact existing GitHub Actions OIDC provider ARN in this account
+    AllowedPattern: '^arn:aws:iam::[0-9]{12}:oidc-provider/token[.]actions[.]githubusercontent[.]com$'
+Resources:
+  PrecisStagingFreePlanReadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: precis-translation-staging-free-plan-read
+      Description: Read only current AWS Free Tier account plan state
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                'token.actions.githubusercontent.com:aud': sts.amazonaws.com
+                'token.actions.githubusercontent.com:sub': 'repo:EagleFox31/Pr-cis-Translation:environment:staging'
+      Policies:
+        - PolicyName: readonly-free-tier-account-plan
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: freetier:GetAccountPlanState
+                Resource: '*'
+Outputs:
+  ReadOnlyRoleArn:
+    Description: Set this ARN as GitHub repo variable PRECIS_AWS_STAGING_READ_ROLE_ARN
+    Value: !GetAtt PrecisStagingFreePlanReadRole.Arn
