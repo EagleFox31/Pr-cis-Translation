@@ -14,9 +14,8 @@ jobs:
   plan:
     permissions:
       contents: read
-    uses: EagleFox31/appfactory-project-automation/.github/workflows/reusable-container-build.yml@8c3517020badf20d4c915c9c2d365cae1b4f45f7
+    uses: EagleFox31/appfactory-project-automation/.github/workflows/reusable-container-plan.yml@fb04757613e9514d2fd39147f5d4f7bae0dfd3d4
     with:
       config_path: .github/appfactory-deploy.json
-      mode: plan
       source_sha: ${{ github.event.pull_request.head.sha || github.sha }}
-      appfactory_ref: 8c3517020badf20d4c915c9c2d365cae1b4f45f7
+      appfactory_ref: fb04757613e9514d2fd39147f5d4f7bae0dfd3d4
