@@ -1,0 +1,20 @@
+name: AWS staging credit eligibility (read only; manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  free-plan:
+    uses: EagleFox31/appfactory-project-automation/.github/workflows/reusable-aws-free-plan-preflight.yml@c71ac965a2c2b21590077486f11bf30a4c98b07f
+    with:
+      appfactory_ref: c71ac965a2c2b21590077486f11bf30a4c98b07f
+      role_arn: ${{ vars.PRECIS_AWS_STAGING_READ_ROLE_ARN }}
+
+# No credentials are checked into GitHub. Requires a narrowly scoped OIDC
+# role ARN variable and a protected GitHub staging environment.
+# Fail closed if role is missing, plan is PAID, expired, or low on credits.
+# Does NOT create an EC2 instance, budgets, IAM roles, or dispatch SSM.
