@@ -8,6 +8,7 @@ on:
       - 'frontend/**'
       - 'docker-compose.yml'
       - '.github/workflows/ephemeral-staging.yml'
+      - 'scripts/ci/**'
   workflow_dispatch:
 
 permissions:
@@ -92,6 +93,9 @@ jobs:
           done
           docker compose --env-file backend/.env exec -T backend sh -c 'test "$(cat /app/backend/translations/appfactory-ci-probe)" = persisted'
           echo "Translation volume persistence survived backend restart" >> "$GITHUB_STEP_SUMMARY"
+      - name: Rehearse PostgreSQL and document restores plus failed-image rollback
+        shell: bash
+        run: bash scripts/ci/verify-ephemeral-recovery.sh
       - name: Collect non-secret container status on failure
         if: failure()
         run: docker compose --env-file backend/.env ps --all || true
@@ -101,3 +105,4 @@ jobs:
         run: |
           docker compose --env-file backend/.env down --volumes --remove-orphans || true
           rm -f backend/.env
+          rm -f "$RUNNER_TEMP/precis-ci-postgres.dump" "$RUNNER_TEMP/precis-ci-postgres.dump.sha256" "$RUNNER_TEMP/precis-ci-translation.backup" "$RUNNER_TEMP/precis-ci-translation.backup.sha256" "$RUNNER_TEMP/precis-ci-rollback.yml"
