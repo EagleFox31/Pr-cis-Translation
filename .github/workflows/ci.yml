@@ -36,6 +36,26 @@ jobs:
       - name: Reject invalid or broad AWS IAM template
         run: python scripts/ci/verify_cloudformation_iam.py
 
+  staging-deploy:
+    name: Validate AppFactory AWS/SSM staging adapter (without AWS writes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check staged host deploy script
+        run: bash -n scripts/staging/aws-ssm-compose.sh
+      - name: Refuse Atelier production parameters and unpinned workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -E 'atelier-maitre|atelier2026|AWS_SECRET_ACCESS_KEY' scripts/staging/aws-ssm-compose.sh .github/workflows/aws-staging-deploy.yml
+          grep -q 'arn:aws:iam::458018461157:role/precis-translation-staging-github-deployer' .github/workflows/aws-staging-deploy.yml
+          grep -q '/precis-translation/staging/env' .github/workflows/aws-staging-deploy.yml
+
   python:
     needs: impact
     if: ${{ contains(fromJSON(needs.impact.outputs.gates), 'python') }}
@@ -88,7 +108,7 @@ jobs:
 
   result:
     if: always()
-    needs: [impact, python, frontend, iac]
+    needs: [impact, python, frontend, iac, staging-deploy]
     runs-on: ubuntu-latest
     permissions: {}
     steps:
@@ -98,7 +118,12 @@ jobs:
           PYTHON: ${{ needs.python.result }}
           FRONTEND: ${{ needs.frontend.result }}
           IAC: ${{ needs.iac.result }}
+          STAGING: ${{ needs.staging-deploy.result }}
         run: |
+          if [[ "$STAGING" != success ]]; then
+            echo "::error::Staging deployment contract gate failed: $STAGING"
+            exit 1
+          fi
           if [[ "$IAC" != success ]]; then
             echo "::error::IAM IaC gate failed: $IAC"
             exit 1
