@@ -48,6 +48,8 @@ jobs:
           persist-credentials: false
       - name: Check staged host deploy script
         run: bash -n scripts/staging/aws-ssm-compose.sh
+      - name: Validate ZIP-to-SSM staging importer syntax
+        run: python3 -m py_compile scripts/staging/import-env-to-ssm.py
       - name: Refuse Atelier production parameters and unpinned workflow
         shell: bash
         run: |
