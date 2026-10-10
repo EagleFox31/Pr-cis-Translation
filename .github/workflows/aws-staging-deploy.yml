@@ -1,0 +1,34 @@
+name: Deploy Précis staging through reusable AppFactory AWS/SSM
+
+# First trusted main merge starts the first deployment automatically. Later
+# releases use workflow_dispatch. No pull_request can reach AWS cloud writes.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/aws-staging-deploy.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  staging:
+    if: github.repository == 'EagleFox31/Pr-cis-Translation' && github.ref == 'refs/heads/main'
+    uses: EagleFox31/appfactory-project-automation/.github/workflows/reusable-aws-ssm-compose-deploy.yml@147e234d2efb5f7e620ac568562fc4f142014bd7
+    with:
+      appfactory_ref: 147e234d2efb5f7e620ac568562fc4f142014bd7
+      source_sha: ${{ github.sha }}
+      project_slug: precis-translation
+      account_id: '458018461157'
+      region: eu-west-3
+      stack_name: precis-translation-staging-app
+      deploy_role_arn: arn:aws:iam::458018461157:role/precis-translation-staging-github-deployer
+      cloudformation_role_arn: arn:aws:iam::458018461157:role/precis-translation-staging-cfn-execution
+      runtime_parameter: /precis-translation/staging/env
+
+# The existing appfactory-staging-iam-deployer IAM reader is NOT a substitute
+# for the dedicated EC2 staging role above. The production Atelier role must
+# never be used to deploy this project. GitHub will fail closed if that role
+# has not yet been provisioned by authorized AWS administration.
