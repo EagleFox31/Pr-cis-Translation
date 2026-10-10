@@ -1,20 +1,22 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  Read-only GitHub OIDC role for Précis AWS Free Plan eligibility check.
-  Does NOT provision EC2 or grant permission to deploy.
+  AppFactory-managed Précis staging AWS Free Plan reader role.
+  No EC2, SSM execution, paid resources or production permissions.
 Parameters:
   GitHubOidcProviderArn:
     Type: String
-    Description: Exact existing GitHub Actions OIDC provider ARN in this account
+    Description: Existing GitHub Actions OIDC provider in this AWS account
     AllowedPattern: '^arn:aws:iam::[0-9]{12}:oidc-provider/token[.]actions[.]githubusercontent[.]com$'
   PermissionsBoundaryArn:
     Type: String
-    Description: Exact AppFactory-managed permissions boundary ARN
-    AllowedPattern: '^arn:aws:iam::[0-9]{12}:policy/appfactory-staging-free-plan-boundary  PrecisStagingFreePlanReadRole:
+    Description: Mandatory AppFactory-managed read-only permissions boundary
+    AllowedPattern: '^arn:aws:iam::[0-9]{12}:policy/appfactory-staging-free-plan-boundary$'
+Resources:
+  PrecisStagingFreePlanReadRole:
     Type: AWS::IAM::Role
     Properties:
       RoleName: precis-translation-staging-free-plan-read
-      Description: Read only current AWS Free Tier account plan state
+      Description: Read-only AWS Free Plan query for the Précis staging pipeline
       PermissionsBoundary: !Ref PermissionsBoundaryArn
       Tags:
         - Key: AppFactoryProject
@@ -42,35 +44,5 @@ Parameters:
                 Resource: '*'
 Outputs:
   ReadOnlyRoleArn:
-    Description: Read-only role ARN automatically referenced by the Précis workflow
-    Value: !GetAtt PrecisStagingFreePlanReadRole.Arn
-
-Resources:
-  PrecisStagingFreePlanReadRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: precis-translation-staging-free-plan-read
-      Description: Read only current AWS Free Tier account plan state
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Federated: !Ref GitHubOidcProviderArn
-            Action: sts:AssumeRoleWithWebIdentity
-            Condition:
-              StringEquals:
-                'token.actions.githubusercontent.com:aud': sts.amazonaws.com
-                'token.actions.githubusercontent.com:sub': 'repo:EagleFox31@86088743/Pr-cis-Translation@1411758415:environment:staging'
-      Policies:
-        - PolicyName: readonly-free-tier-account-plan
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action: freetier:GetAccountPlanState
-                Resource: '*'
-Outputs:
-  ReadOnlyRoleArn:
-    Description: Set this ARN as GitHub repo variable PRECIS_AWS_STAGING_READ_ROLE_ARN
+    Description: Fixed, dedicated AWS Free Plan staging reader ARN
     Value: !GetAtt PrecisStagingFreePlanReadRole.Arn
