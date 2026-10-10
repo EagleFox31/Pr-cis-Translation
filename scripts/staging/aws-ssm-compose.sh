@@ -14,8 +14,14 @@ readonly COMPOSE_PROJECT_NAME=precis-translation-staging
 cd "$REPO_ROOT"
 if ! docker compose version >/dev/null 2>&1; then
   # AL2023 Docker may install without the Compose v2 CLI plugin.
-  dnf install -y docker-compose-plugin >/dev/null ||
-    { echo 'Docker Compose v2 plugin absent on the reviewed staging AMI' >&2; exit 1; }
+  install -d -m 0755 /usr/local/lib/docker/cli-plugins
+  # On AL2023 Docker v2 Compose is not reliably provided as a dnf package.
+  # Fetch the explicitly pinned Linux AMD64 Compose binary over HTTPS.
+  curl -fLsS --retry 3 --max-time 120 \
+    https://github.com/docker/compose/releases/download/v2.39.4/docker-compose-linux-x86_64 \
+    -o /usr/local/lib/docker/cli-plugins/docker-compose.tmp
+  chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose.tmp
+  mv -f /usr/local/lib/docker/cli-plugins/docker-compose.tmp /usr/local/lib/docker/cli-plugins/docker-compose
 fi
 docker compose version >/dev/null || exit 1
 
