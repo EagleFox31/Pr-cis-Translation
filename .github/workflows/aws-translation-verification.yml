@@ -1,0 +1,66 @@
+name: Verify Précis translation provider
+on:
+  workflow_run:
+    workflows: ["Deploy Précis permanent host through AppFactory AWS/SSM"]
+    types: [completed]
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  verify:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 5
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::458018461157:role/precis-translation-staging-github-deployer
+          aws-region: eu-west-3
+      - name: Translate one synthetic sentence without exposing credentials
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import subprocess,json,re,time
+          target=subprocess.check_output(['aws','cloudformation','describe-stacks','--stack-name','precis-translation-staging-app','--query',"Stacks[0].Outputs[?OutputKey=='StagingInstanceId'].OutputValue | [0]",'--output','text'],text=True).strip()
+          assert re.fullmatch(r'i-[a-f0-9]+',target)
+          host_command = """
+          docker exec -i precis-translation-staging-backend-1 python - <<'SAMPLE'
+          import os,json,urllib.request,urllib.error
+          base=os.environ.get('DEEPSEEK_BASE_URL','https://api.deepseek.com').rstrip('/')
+          assert base=='https://api.deepseek.com'
+          headers={'Authorization':'Bearer '+os.environ['DEEPSEEK_API_KEY'],'Content-Type':'application/json'}
+          model=os.environ.get('DEEPSEEK_MODEL','deepseek-v4-flash')
+          body={'model':model,'messages':[{'role':'system','content':'Translate into English. Return the translation only.'},{'role':'user','content':'Bonjour, le service de traduction fonctionne.'}],'max_tokens':80,'stream':False}
+          try:
+              req=urllib.request.Request(base+'/chat/completions',data=json.dumps(body).encode(),headers=headers)
+              with urllib.request.urlopen(req,timeout=60) as response: result=json.load(response)
+              text=result['choices'][0]['message']['content'].strip()
+              assert text and 'translation' in text.lower(), 'Unexpected translation response'
+              print('PASS: configured translation provider accepted the API key and model.')
+              print('Synthetic translation: '+text)
+          except urllib.error.HTTPError as error:
+              print('Translation provider returned HTTP '+str(error.code))
+              if error.code==400:
+                  try:
+                      req=urllib.request.Request(base+'/models',headers=headers)
+                      with urllib.request.urlopen(req,timeout=15) as response: data=json.load(response)
+                      print('Available model identifiers: '+', '.join(m['id'] for m in data.get('data',[])))
+                  except Exception: print('Model discovery failed')
+              raise SystemExit(1)
+          SAMPLE
+          """
+          command=subprocess.check_output(['aws','ssm','send-command','--instance-ids',target,'--document-name','AWS-RunShellScript','--parameters',json.dumps({'commands':[host_command]}),'--query','Command.CommandId','--output','text'],text=True).strip()
+          for _ in range(36):
+              p=subprocess.run(['aws','ssm','get-command-invocation','--command-id',command,'--instance-id',target,'--output','json'],capture_output=True,text=True)
+              if p.returncode==0:
+                  result=json.loads(p.stdout)
+                  if result['Status'] in ('Success','Failed','TimedOut','Cancelled'):
+                      print(result.get('StandardOutputContent',''))
+                      print(result.get('StandardErrorContent',''))
+                      if result['Status']!='Success': raise SystemExit('Translation provider verification failed')
+                      break
+              time.sleep(5)
+          else: raise SystemExit('Translation provider verification timed out')
+          PY
