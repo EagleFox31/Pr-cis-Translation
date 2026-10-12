@@ -39,3 +39,5 @@ jobs:
 # Release: install official Debian dependencies over the allowed HTTPS egress.
 
 # Release: provision HTTPS proxy for precis.trigenys.com.
+
+# Release: activate precis-translator.trigenys.com and reload its TLS configuration.

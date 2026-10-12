@@ -53,4 +53,4 @@ Outputs:
   InstanceId:
     Value: !Ref InstanceId
   PublicUrl:
-    Value: https://precis.trigenys.com
+    Value: https://precis-translator.trigenys.com

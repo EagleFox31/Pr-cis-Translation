@@ -40,7 +40,26 @@ mv -f "$ENV_FILE.tmp" "$ENV_FILE"
 # external db references. The host stays deliberately private (SG: no ingress).
 python3 - <<'PY'
 from pathlib import Path
-import os
+import os,json
+if os.environ['APPFACTORY_HOST_LIFECYCLE'] == 'persistent':
+    from urllib.parse import urlparse
+    origin=json.loads(Path('deploy/public-site.json').read_text())['url'].rstrip('/')
+    parsed=urlparse(origin)
+    if parsed.scheme!='https' or not parsed.hostname or parsed.hostname in ('localhost','127.0.0.1') or parsed.path or parsed.query or parsed.fragment or parsed.username:
+        raise SystemExit('Invalid tracked public origin')
+    changes={'FRONTEND_URL':origin,'ALLOWED_ORIGINS':origin,'PUBLIC_SITE':parsed.hostname}
+    env=Path('backend/.env')
+    rows=[]
+    seen=set()
+    for row in env.read_text().splitlines():
+        name=row.partition('=')[0]
+        if name in changes:
+            rows.append(name+'='+changes[name])
+            seen.add(name)
+        else:
+            rows.append(row)
+    rows.extend(name+'='+value for name,value in changes.items() if name not in seen)
+    env.write_text('\n'.join(rows)+'\n')
 keys = {}
 for line in Path('backend/.env').read_text().splitlines():
     line = line.strip()
@@ -103,6 +122,11 @@ docker compose "${COMPOSE_FILES[@]}" --project-name "$COMPOSE_PROJECT_NAME" \
 
 docker compose "${COMPOSE_FILES[@]}" --project-name "$COMPOSE_PROJECT_NAME" \
   --env-file "$ENV_FILE" up -d --build --wait --wait-timeout 300
+
+if [[ "$LIFECYCLE" == persistent ]]; then
+  docker compose "${COMPOSE_FILES[@]}" --project-name "$COMPOSE_PROJECT_NAME" --env-file "$ENV_FILE" \
+    exec -T edge caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+fi
 
 # Check the same internal /health route Atelier checks. No public success claim
 # is allowed based on container state alone.

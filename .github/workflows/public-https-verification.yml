@@ -1,0 +1,50 @@
+name: Verify public Précis HTTPS
+on:
+  workflow_run:
+    workflows: ["Deploy Précis permanent host through AppFactory AWS/SSM"]
+    types: [completed]
+  workflow_dispatch:
+permissions: {}
+jobs:
+  verify:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify DNS, trusted TLS, frontend assets, backend and CORS
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import urllib.request,urllib.parse,socket,json,re,time
+          origin='https://precis-translator.trigenys.com'
+          hostname=urllib.parse.urlparse(origin).hostname
+          def request(path,method='GET',headers=None):
+              req=urllib.request.Request(origin+path,method=method,headers=headers or {})
+              return urllib.request.urlopen(req,timeout=15)
+          for attempt in range(18):
+              try:
+                  addresses={r[4][0] for r in socket.getaddrinfo(hostname,443,type=socket.SOCK_STREAM)}
+                  assert '13.36.127.47' in addresses, 'DNS does not yet point to the confirmed Elastic IP'
+                  with request('/') as r:
+                      assert r.status==200
+                      html=r.read(1024*1024).decode('utf-8')
+                      assert '<html' in html.lower()
+                  assets=[p for p in re.findall(r'<script[^>]+src="([^"]+)"',html) if p.startswith('/assets/')]
+                  assert assets, 'Frontend JS bundle reference absent'
+                  with request(assets[0]) as r:
+                      assert r.status==200 and r.read(256), 'Frontend bundle missing'
+                  with request('/health') as r:
+                      assert r.status==200
+                      health=json.load(r)
+                      assert isinstance(health,dict) and health
+                  with request('/health','OPTIONS',{'Origin':origin,'Access-Control-Request-Method':'GET'}) as r:
+                      assert r.headers.get('Access-Control-Allow-Origin')==origin, 'CORS origin not aligned'
+                  with urllib.request.urlopen('http://'+hostname+'/',timeout=15) as r:
+                      assert r.geturl().startswith(origin), 'HTTP does not redirect to HTTPS'
+                  print('PASS: DNS, trusted HTTPS, frontend asset, backend health, matching CORS and HTTP redirect.')
+                  break
+              except Exception as error:
+                  print('Public verification pending: '+type(error).__name__+': '+str(error))
+                  if attempt==17: raise SystemExit('Public verification failed')
+                  time.sleep(8)
+          PY
