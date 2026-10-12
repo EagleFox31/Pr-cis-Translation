@@ -1,5 +1,8 @@
 name: Verify Précis translation provider
 on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/aws-translation-verification.yml]
   workflow_run:
     workflows: ["Deploy Précis permanent host through AppFactory AWS/SSM"]
     types: [completed]
@@ -9,7 +12,7 @@ permissions:
   id-token: write
 jobs:
   verify:
-    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     environment: staging
     timeout-minutes: 5
@@ -42,6 +45,12 @@ jobs:
               print('Synthetic translation: '+text)
           except urllib.error.HTTPError as error:
               print('Translation provider returned HTTP '+str(error.code))
+              try:
+                  details=json.loads(error.read().decode('utf-8'))
+                  message=str(details.get('error',{}).get('message',''))
+                  message=message.replace(os.environ['DEEPSEEK_API_KEY'],'[MASKED]')
+                  print('Provider reason: '+message[:300])
+              except Exception: print('Provider error body unavailable')
               if error.code==400:
                   try:
                       req=urllib.request.Request(base+'/models',headers=headers)
