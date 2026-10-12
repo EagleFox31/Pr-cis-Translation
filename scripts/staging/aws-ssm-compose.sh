@@ -74,16 +74,7 @@ else:
         raise SystemExit('Campay PROD requires credentials and webhook key')
 PY
 
-# The already tested Compose stack contains Postgres, backend with system
-# LibreOffice, and frontend Nginx. Named volumes must not be destroyed.
-docker compose --project-name "$COMPOSE_PROJECT_NAME" \
-  --env-file "$ENV_FILE" config --quiet
-
-docker compose --project-name "$COMPOSE_PROJECT_NAME" \
-  --env-file "$ENV_FILE" up -d --build --wait --wait-timeout 300
-
-# Check the same internal /health route Atelier checks. No public success claim
-# is allowed based on container state alone.
+COMPOSE_FILES=(-f docker-compose.yml)
 if [[ "$LIFECYCLE" == persistent ]]; then
   python3 - <<'PY'
 from pathlib import Path
@@ -99,16 +90,26 @@ if not host or not re.fullmatch(r'[A-Za-z0-9.-]+',host):
     raise SystemExit('Invalid public HTTPS hostname')
 Path('deploy/Caddyfile.runtime').write_text(host+' {\n    reverse_proxy web:80 {\n        flush_interval -1\n    }\n}\n')
 PY
-  docker compose --project-name "$COMPOSE_PROJECT_NAME" --env-file "$ENV_FILE" \
-    -f docker-compose.yml -f docker-compose.https.yml up -d --wait --wait-timeout 300
+  COMPOSE_FILES+=(-f docker-compose.https.yml)
   readonly HEALTH_ORIGIN=http://127.0.0.1:8080
 else
   readonly HEALTH_ORIGIN=http://127.0.0.1
 fi
+
+# The already tested Compose stack contains Postgres, backend with system
+# LibreOffice, and frontend Nginx. Named volumes must not be destroyed.
+docker compose "${COMPOSE_FILES[@]}" --project-name "$COMPOSE_PROJECT_NAME" \
+  --env-file "$ENV_FILE" config --quiet
+
+docker compose "${COMPOSE_FILES[@]}" --project-name "$COMPOSE_PROJECT_NAME" \
+  --env-file "$ENV_FILE" up -d --build --wait --wait-timeout 300
+
+# Check the same internal /health route Atelier checks. No public success claim
+# is allowed based on container state alone.
 for attempt in $(seq 1 36); do
   if curl -fsS --max-time 5 "$HEALTH_ORIGIN/health" >/dev/null &&
      curl -fsS --max-time 5 "$HEALTH_ORIGIN/" >/dev/null; then
-    docker compose --project-name "$COMPOSE_PROJECT_NAME" --env-file "$ENV_FILE" ps
+    docker compose "${COMPOSE_FILES[@]}" --project-name "$COMPOSE_PROJECT_NAME" --env-file "$ENV_FILE" ps
     echo "AppFactory Précis $LIFECYCLE host healthy (internal HTTP + API only)."
     exit 0
   fi
