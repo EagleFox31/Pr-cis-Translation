@@ -1,0 +1,54 @@
+name: Précis AWS runtime readiness (read only)
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/aws-runtime-readiness.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 5
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::458018461157:role/precis-translation-staging-github-deployer
+          aws-region: eu-west-3
+      - name: Inspect configuration and existing host without modifying AWS
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import subprocess,json,os
+          def call(args):
+              return subprocess.run(['aws',*args,'--output','json'],capture_output=True,text=True)
+          report=[]
+          account=call(['sts','get-caller-identity'])
+          assert account.returncode==0 and json.loads(account.stdout)['Account']=='458018461157'
+          report.append('AWS OIDC authentication: OK')
+          result=call(['ssm','get-parameter','--name','/precis-translation/staging/env','--with-decryption'])
+          if result.returncode:
+              code='ParameterNotFound' if 'ParameterNotFound' in result.stderr else 'AWS read denied or failed'
+              report.append('Runtime SSM configuration: '+code)
+          else:
+              raw=json.loads(result.stdout)['Parameter']['Value']
+              vals=dict(line.split('=',1) for line in raw.splitlines() if '=' in line and not line.lstrip().startswith('#'))
+              required=['DEEPSEEK_API_KEY','FRONTEND_API_KEY','POSTGRES_USER','POSTGRES_PASSWORD','JWT_SECRET']
+              missing=[key for key in required if not vals.get(key,'').strip()]
+              report.append('Runtime SSM configuration: PRESENT')
+              report.append('Missing required variable names: '+(', '.join(missing) if missing else 'none'))
+              report.append('SMTP credentials present: '+str(bool(vals.get('SMTP_PASSWORD'))))
+              report.append('Google OAuth ID present: '+str(bool(vals.get('GOOGLE_CLIENT_ID'))))
+              report.append('Campay credentials present: '+str(bool(vals.get('CAMPAY_USERNAME') and vals.get('CAMPAY_PASSWORD'))))
+          host=call(['cloudformation','describe-stacks','--stack-name','precis-translation-staging-app'])
+          if host.returncode:
+              report.append('Application stack: absent' if 'does not exist' in host.stderr else 'Application stack: read failed')
+          else:
+              report.append('Application stack: '+json.loads(host.stdout)['Stacks'][0]['StackStatus'])
+          report.append('This workflow made no AWS resource changes and printed no configuration values.')
+          summary='\n'.join('- '+line for line in report)
+          print(summary)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f: f.write(summary+'\n')
+          PY
