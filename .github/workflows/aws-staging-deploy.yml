@@ -1,5 +1,7 @@
-name: Deploy Précis staging through reusable AppFactory AWS/SSM
+name: Deploy Précis permanent host through AppFactory AWS/SSM
 
+# Deploy the permanent host using the already installed historical staging IAM scope.
+# Public HTTPS and off-host backup verification remain separate completion gates.
 # First trusted main merge starts the first deployment automatically. Later
 # releases use workflow_dispatch. No pull_request can reach AWS cloud writes.
 on:
@@ -16,9 +18,10 @@ permissions:
 jobs:
   staging:
     if: github.repository == 'EagleFox31/Pr-cis-Translation' && github.ref == 'refs/heads/main'
-    uses: EagleFox31/appfactory-project-automation/.github/workflows/reusable-aws-ssm-compose-deploy.yml@147e234d2efb5f7e620ac568562fc4f142014bd7
+    uses: EagleFox31/appfactory-project-automation/.github/workflows/reusable-aws-ssm-compose-deploy.yml@fbe67d20777280fc759c185d04194c8d4b96a0e1
     with:
-      appfactory_ref: 147e234d2efb5f7e620ac568562fc4f142014bd7
+      deployment_mode: persistent
+      appfactory_ref: fbe67d20777280fc759c185d04194c8d4b96a0e1
       source_sha: ${{ github.sha }}
       project_slug: precis-translation
       account_id: '458018461157'
