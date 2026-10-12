@@ -35,3 +35,5 @@ jobs:
 # for the dedicated EC2 staging role above. The production Atelier role must
 # never be used to deploy this project. GitHub will fail closed if that role
 # has not yet been provisioned by authorized AWS administration.
+
+# Release: install official Debian dependencies over the allowed HTTPS egress.

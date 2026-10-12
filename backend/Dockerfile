@@ -34,7 +34,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # identiques d'Arial, Times New Roman et Courier New. Sans elles, LibreOffice
 # remplace ces polices par ce qu'il trouve, les largeurs changent, et la mise en
 # page de l'aperçu ne correspond plus au document d'origine.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# AWS permits outbound HTTPS. Use the official Debian mirrors over TLS.
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update -o APT::Update::Error-Mode=any \
+    && apt-get install -y --no-install-recommends \
         libreoffice-writer \
         libreoffice-impress \
         libreoffice-calc \
