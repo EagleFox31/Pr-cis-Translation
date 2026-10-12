@@ -84,9 +84,30 @@ docker compose --project-name "$COMPOSE_PROJECT_NAME" \
 
 # Check the same internal /health route Atelier checks. No public success claim
 # is allowed based on container state alone.
+if [[ "$LIFECYCLE" == persistent ]]; then
+  python3 - <<'PY'
+from pathlib import Path
+from urllib.parse import urlparse
+import re
+vals={}
+for row in Path('backend/.env').read_text().splitlines():
+    if '=' in row and not row.lstrip().startswith('#'):
+        key,value=row.split('=',1)
+        vals[key]=value.strip().strip("'").strip('"')
+host=urlparse(vals['FRONTEND_URL']).hostname
+if not host or not re.fullmatch(r'[A-Za-z0-9.-]+',host):
+    raise SystemExit('Invalid public HTTPS hostname')
+Path('deploy/Caddyfile.runtime').write_text(host+' {\n    reverse_proxy web:80 {\n        flush_interval -1\n    }\n}\n')
+PY
+  docker compose --project-name "$COMPOSE_PROJECT_NAME" --env-file "$ENV_FILE" \
+    -f docker-compose.yml -f docker-compose.https.yml up -d --wait --wait-timeout 300
+  readonly HEALTH_ORIGIN=http://127.0.0.1:8080
+else
+  readonly HEALTH_ORIGIN=http://127.0.0.1
+fi
 for attempt in $(seq 1 36); do
-  if curl -fsS --max-time 5 http://127.0.0.1/health >/dev/null &&
-     curl -fsS --max-time 5 http://127.0.0.1/ >/dev/null; then
+  if curl -fsS --max-time 5 "$HEALTH_ORIGIN/health" >/dev/null &&
+     curl -fsS --max-time 5 "$HEALTH_ORIGIN/" >/dev/null; then
     docker compose --project-name "$COMPOSE_PROJECT_NAME" --env-file "$ENV_FILE" ps
     echo "AppFactory Précis $LIFECYCLE host healthy (internal HTTP + API only)."
     exit 0
