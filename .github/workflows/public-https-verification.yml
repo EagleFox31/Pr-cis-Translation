@@ -15,11 +15,12 @@ jobs:
         shell: bash
         run: |
           python3 - <<'PY'
-          import urllib.request,urllib.parse,socket,json,re,time
+          import urllib.request,urllib.parse,socket,json,re,time,struct
+          from html.parser import HTMLParser
           origin='https://precis-translator.trigenys.com'
           hostname=urllib.parse.urlparse(origin).hostname
           def request(path,method='GET',headers=None):
-              req=urllib.request.Request(origin+path,method=method,headers=headers or {})
+              req=urllib.request.Request(origin+path,method=method,headers={'User-Agent':'WhatsApp/2.24.1',**(headers or {})})
               return urllib.request.urlopen(req,timeout=15)
           for attempt in range(18):
               try:
@@ -29,6 +30,22 @@ jobs:
                       assert r.status==200
                       html=r.read(1024*1024).decode('utf-8')
                       assert '<html' in html.lower()
+                  class Metadata(HTMLParser):
+                      def __init__(self):
+                          super().__init__();self.tags={}
+                      def handle_starttag(self,tag,attrs):
+                          if tag=='meta':
+                              values=dict(attrs)
+                              self.tags[values.get('property') or values.get('name')]=values.get('content')
+                  metadata=Metadata();metadata.feed(html)
+                  image=metadata.tags.get('og:image','')
+                  assert image.startswith(origin+'/social/'), 'Public Open Graph image missing from initial HTML'
+                  assert metadata.tags.get('twitter:card')=='summary_large_image'
+                  with request(image[len(origin):]) as r:
+                      assert r.status==200 and r.headers.get_content_type()=='image/png'
+                      png=r.read(2*1024*1024)
+                      assert png.startswith(b'\x89PNG\r\n\x1a\n')
+                      assert struct.unpack('>II',png[16:24])==(1200,630), 'Unexpected social card dimensions'
                   assets=[p for p in re.findall(r'<script[^>]+src="([^"]+)"',html) if p.startswith('/assets/')]
                   assert assets, 'Frontend JS bundle reference absent'
                   with request(assets[0]) as r:
@@ -41,7 +58,7 @@ jobs:
                       assert r.headers.get('Access-Control-Allow-Origin')==origin, 'CORS origin not aligned'
                   with urllib.request.urlopen('http://'+hostname+'/',timeout=15) as r:
                       assert r.geturl().startswith(origin), 'HTTP does not redirect to HTTPS'
-                  print('PASS: DNS, trusted HTTPS, frontend asset, backend health, matching CORS and HTTP redirect.')
+                  print('PASS: DNS, trusted HTTPS, frontend asset, backend health, matching CORS, HTTP redirect and crawler-readable social image.')
                   break
               except Exception as error:
                   print('Public verification pending: '+type(error).__name__+': '+str(error))
