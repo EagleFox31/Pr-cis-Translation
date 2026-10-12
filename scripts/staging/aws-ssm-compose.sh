@@ -60,7 +60,7 @@ if os.environ['APPFACTORY_HOST_LIFECYCLE'] == 'persistent':
             rows.append(row)
     rows.extend(name+'='+value for name,value in changes.items() if name not in seen)
     env.write_text('\n'.join(rows)+'\n')
-keys = {
+keys = {}
 for line in Path('backend/.env').read_text().splitlines():
     line = line.strip()
     if not line or line.startswith('#') or '=' not in line:
