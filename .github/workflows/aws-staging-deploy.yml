@@ -37,3 +37,5 @@ jobs:
 # has not yet been provisioned by authorized AWS administration.
 
 # Release: install official Debian dependencies over the allowed HTTPS egress.
+
+# Release: provision HTTPS proxy for precis.trigenys.com.
