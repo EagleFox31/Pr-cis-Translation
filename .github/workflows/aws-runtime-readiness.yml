@@ -47,6 +47,21 @@ jobs:
               report.append('Application stack: absent' if 'does not exist' in host.stderr else 'Application stack: read failed')
           else:
               report.append('Application stack: '+json.loads(host.stdout)['Stacks'][0]['StackStatus'])
+          events=call(['cloudformation','describe-stack-events','--stack-name','precis-translation-staging-app'])
+          if events.returncode==0:
+              for e in json.loads(events.stdout).get('StackEvents',[])[:20]:
+                  if e.get('ResourceStatus','').endswith('FAILED'):
+                      report.append('CloudFormation failure: '+e.get('LogicalResourceId','')+' '+e.get('ResourceStatusReason',''))
+          instances=call(['ec2','describe-instances','--filters',
+                          'Name=tag:AppFactoryProject,Values=precis-translation',
+                          'Name=tag:AppFactoryEnvironment,Values=staging'])
+          if instances.returncode==0:
+              for reservation in json.loads(instances.stdout).get('Reservations',[]):
+                  for instance in reservation.get('Instances',[]):
+                      if instance.get('State',{}).get('Name') not in ('terminated','shutting-down'):
+                          report.append('Dedicated host: '+instance['InstanceId']+' '+instance['State']['Name'])
+                          report.append('Public IP: '+instance.get('PublicIpAddress','not assigned'))
+                          report.append('Security group: '+','.join(g['GroupId'] for g in instance.get('SecurityGroups',[])))
           report.append('This workflow made no AWS resource changes and printed no configuration values.')
           summary='\n'.join('- '+line for line in report)
           print(summary)
