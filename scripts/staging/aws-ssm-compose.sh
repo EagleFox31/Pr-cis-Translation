@@ -5,6 +5,9 @@
 set -Eeuo pipefail
 umask 077
 
+readonly LIFECYCLE="${APPFACTORY_HOST_LIFECYCLE:-ephemeral}"
+[[ "$LIFECYCLE" == ephemeral || "$LIFECYCLE" == persistent ]] || exit 1
+export APPFACTORY_HOST_LIFECYCLE="$LIFECYCLE"
 readonly PROJECT=precis-translation
 readonly REPO_ROOT=/opt/appfactory/precis-translation/repo
 readonly ENV_PARAMETER=/precis-translation/staging/env
@@ -53,10 +56,22 @@ if len(keys['JWT_SECRET']) < 32:
     raise SystemExit('JWT_SECRET below required minimum')
 if keys.get('PRECIS_ENV') not in ('staging','production'):
     raise SystemExit('Expected an explicitly configured nondevelopment staging runtime')
-if keys.get('CAMPAY_ENV') != 'DEMO':
-    raise SystemExit('Only Campay DEMO may be enabled on disposable staging')
-if keys.get('EMAIL_ENABLED','false').lower() != 'false':
-    raise SystemExit('Real SMTP delivery disabled in disposable staging')
+if os.environ['APPFACTORY_HOST_LIFECYCLE'] == 'ephemeral':
+    if keys.get('CAMPAY_ENV') != 'DEMO':
+        raise SystemExit('Only Campay DEMO may be enabled on disposable staging')
+    if keys.get('EMAIL_ENABLED','false').lower() != 'false':
+        raise SystemExit('Real SMTP delivery disabled in disposable staging')
+else:
+    from urllib.parse import urlparse
+    origin=keys.get('FRONTEND_URL','')
+    if urlparse(origin).scheme != 'https' or urlparse(origin).hostname in (None,'localhost','127.0.0.1'):
+        raise SystemExit('Persistent deployment requires public HTTPS FRONTEND_URL')
+    if keys.get('ALLOWED_ORIGINS') != origin:
+        raise SystemExit('Persistent deployment requires matching public CORS origin')
+    if keys.get('EMAIL_ENABLED','false').lower()=='true' and not (keys.get('SMTP_USER') and keys.get('SMTP_PASSWORD')):
+        raise SystemExit('Enabled SMTP requires credentials')
+    if keys.get('CAMPAY_ENV')=='PROD' and not all(keys.get(k) for k in ('CAMPAY_USERNAME','CAMPAY_PASSWORD','CAMPAY_WEBHOOK_KEY')):
+        raise SystemExit('Campay PROD requires credentials and webhook key')
 PY
 
 # The already tested Compose stack contains Postgres, backend with system
@@ -73,7 +88,7 @@ for attempt in $(seq 1 36); do
   if curl -fsS --max-time 5 http://127.0.0.1/health >/dev/null &&
      curl -fsS --max-time 5 http://127.0.0.1/ >/dev/null; then
     docker compose --project-name "$COMPOSE_PROJECT_NAME" --env-file "$ENV_FILE" ps
-    echo "AppFactory Précis staging healthy (internal HTTP + API)."
+    echo "AppFactory Précis $LIFECYCLE host healthy (internal HTTP + API only)."
     exit 0
   fi
   sleep 5
