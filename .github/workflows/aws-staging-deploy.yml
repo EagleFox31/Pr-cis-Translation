@@ -18,10 +18,10 @@ permissions:
 jobs:
   staging:
     if: github.repository == 'EagleFox31/Pr-cis-Translation' && github.ref == 'refs/heads/main'
-    uses: EagleFox31/appfactory-project-automation/.github/workflows/reusable-aws-ssm-compose-deploy.yml@fbe67d20777280fc759c185d04194c8d4b96a0e1
+    uses: EagleFox31/appfactory-project-automation/.github/workflows/reusable-aws-ssm-compose-deploy.yml@e3e32673d47f10470628530f23a436541c4f2e52
     with:
       deployment_mode: persistent
-      appfactory_ref: fbe67d20777280fc759c185d04194c8d4b96a0e1
+      appfactory_ref: e3e32673d47f10470628530f23a436541c4f2e52
       source_sha: ${{ github.sha }}
       project_slug: precis-translation
       account_id: '458018461157'
@@ -37,3 +37,5 @@ jobs:
 # has not yet been provisioned by authorized AWS administration.
 
 # Release: install official Debian dependencies over the allowed HTTPS egress.
+
+# Release: provision HTTPS proxy for precis.trigenys.com.
