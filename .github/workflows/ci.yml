@@ -108,20 +108,48 @@ jobs:
       - name: Vite production bundle compilation
         run: npm run build --prefix frontend
 
+  seo:
+    name: Verify search discovery through nginx
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Serve static frontend through production nginx configuration
+        run: |
+          mkdir -p /tmp/precis-seo
+          cp -R frontend/public/. /tmp/precis-seo/
+          cp frontend/index.html /tmp/precis-seo/index.html
+          docker run -d --name precis-seo --add-host backend:127.0.0.1 -p 8081:80 -v "$PWD/frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro" -v /tmp/precis-seo:/usr/share/nginx/html:ro nginx:1.27-alpine
+          docker exec precis-seo nginx -t
+      - name: Verify crawlable landing, exclusions, redirects and discovery files
+        run: python3 scripts/ci/verify_public_seo.py http://127.0.0.1:8081
+      - name: Print nginx logs if verification fails
+        if: failure()
+        run: docker logs precis-seo
+
   result:
     if: always()
-    needs: [impact, python, frontend, iac, staging-deploy]
+    needs: [impact, python, frontend, iac, staging-deploy, seo]
     runs-on: ubuntu-latest
     permissions: {}
     steps:
       - name: Enforce real CI results
         env:
+          SEO: ${{ needs.seo.result }}
           IMPACT: ${{ needs.impact.result }}
           PYTHON: ${{ needs.python.result }}
           FRONTEND: ${{ needs.frontend.result }}
           IAC: ${{ needs.iac.result }}
           STAGING: ${{ needs.staging-deploy.result }}
         run: |
+          if [[ "$SEO" != success ]]; then
+            echo "::error::Search discovery contract failed: $SEO"
+            exit 1
+          fi
           if [[ "$STAGING" != success ]]; then
             echo "::error::Staging deployment contract gate failed: $STAGING"
             exit 1
