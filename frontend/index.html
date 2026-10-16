@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Précis — Professional Translation Platform by Trigenys Group</title>
+    <title>Précis Translator — Traduction PDF, Word et documents | Trigenys</title>
 
     <meta name="description" content="Traduction de documents PDF, Word, PowerPoint et Excel, avec aperçu et conservation de la mise en page." />
     <link rel="canonical" href="https://precis-translator.trigenys.com/home" />
@@ -22,6 +22,45 @@
     <meta name="twitter:title" content="Précis — Traduction de documents" />
     <meta name="twitter:description" content="Traduisez vos documents. La mise en page compte aussi." />
     <meta name="twitter:image" content="https://precis-translator.trigenys.com/social/precis-share-v1.png" />
+    <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://precis-translator.trigenys.com/#organization",
+      "name": "Trigenys Group",
+      "url": "https://trigenys.com"
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://precis-translator.trigenys.com/#website",
+      "url": "https://precis-translator.trigenys.com/home",
+      "name": "Précis Translator",
+      "alternateName": [
+        "Précis",
+        "Précis Translation"
+      ],
+      "inLanguage": "fr",
+      "publisher": {
+        "@id": "https://precis-translator.trigenys.com/#organization"
+      }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "name": "Précis Translator",
+      "alternateName": "Précis Translation",
+      "url": "https://precis-translator.trigenys.com/home",
+      "applicationCategory": "ProductivityApplication",
+      "operatingSystem": "Web",
+      "description": "Traduction de documents PDF, Word, PowerPoint, Excel et texte avec aperçu et préservation de la mise en page.",
+      "publisher": {
+        "@id": "https://precis-translator.trigenys.com/#organization"
+      }
+    }
+  ]
+}
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -31,7 +70,31 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Public presentation remains readable before React starts and without JavaScript.
+           React replaces this content with the interactive application for every visitor. -->
+      <main style="max-width:960px;margin:4rem auto;padding:2rem;font-family:system-ui,sans-serif;line-height:1.7;color:#12213a">
+        <img src="/Logo.png" alt="Précis Translator" width="96" height="96" />
+        <p>Précis Translator · Trigenys Group</p>
+        <h1>Précis : traduction de documents avec préservation de la mise en page</h1>
+        <p>Traduisez vos documents PDF, Word (DOCX), PowerPoint (PPTX), Excel (XLSX) et texte (TXT). Précis associe traduction par intelligence artificielle et reconstruction du document pour préserver sa structure, ses tableaux et ses images.</p>
+        <h2>Comment traduire un document avec Précis ?</h2>
+        <ol>
+          <li>Importez votre document dans l’application.</li>
+          <li>Choisissez la langue de traduction.</li>
+          <li>Consultez l’aperçu pour vérifier le texte et la mise en page.</li>
+          <li>Téléchargez le résultat selon votre forfait.</li>
+        </ol>
+        <p>Traduction français-anglais et autres langues disponibles dans le sélecteur de l’application.</p>
+        <nav aria-label="Découvrir Précis">
+          <a href="/home#story">Traduire un document</a> ·
+          <a href="/home#pricing">Voir les tarifs</a> ·
+          <a href="/register">Créer un compte</a> ·
+          <a href="/login">Se connecter</a>
+        </nav>
+        <noscript><p>Activez JavaScript pour importer un fichier, prévisualiser et télécharger sa traduction.</p></noscript>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -65,3 +65,27 @@ jobs:
                   if attempt==17: raise SystemExit('Public verification failed')
                   time.sleep(8)
           PY
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify live search discovery contract
+        run: python3 scripts/ci/verify_public_seo.py https://precis-translator.trigenys.com
+      - name: Notify IndexNow of the public landing page
+        run: |
+          python3 - <<'PY'
+          import json, urllib.request
+          origin = 'https://precis-translator.trigenys.com'
+          key = 'baa72b69afa54b709024e6d1d62ae456'
+          with urllib.request.urlopen(origin + '/' + key + '.txt', timeout=20) as response:
+              assert response.read().decode().strip() == key
+          data = json.dumps({'host': 'precis-translator.trigenys.com', 'key': key,
+              'keyLocation': origin + '/' + key + '.txt', 'urlList': [origin + '/home']}).encode()
+          request = urllib.request.Request('https://api.indexnow.org/indexnow', data=data,
+              headers={'Content-Type': 'application/json; charset=utf-8'}, method='POST')
+          with urllib.request.urlopen(request, timeout=30) as response:
+              assert response.status in (200, 202)
+              message = 'IndexNow submission accepted: HTTP ' + str(response.status)
+              if response.status == 202:
+                  message += ' (key validation pending)'
+              print(message + '; this does not confirm indexing.')
+          PY
