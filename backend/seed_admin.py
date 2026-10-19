@@ -4,7 +4,8 @@ Idempotent : lance a chaque demarrage du conteneur (docker-entrypoint.sh),
 apres les migrations. Une base neuve en production a donc son admin des le
 premier demarrage, sans console ni requete SQL a la main.
 
-L'adresse vient de ADMIN_EMAIL (defaut : mbowouibrah@gmail.com). Le compte n'a
+Les adresses viennent de ADMIN_EMAIL, separees par des virgules
+(defaut : mbowouibrah@gmail.com). Chaque compte n'a
 pas de mot de passe : il se connecte par code envoye par e-mail, ou par Google.
 
 A la main :
@@ -29,8 +30,19 @@ DEFAULT_ADMIN_EMAIL = "mbowouibrah@gmail.com"
 ADMIN_NAME = "Ibrahim Mbowou"
 
 
+def admin_emails() -> list[str]:
+    """Normalise la liste et ignore les entrees vides et les doublons."""
+    value = os.getenv("ADMIN_EMAIL") or DEFAULT_ADMIN_EMAIL
+    emails = list(dict.fromkeys(part.strip().lower() for part in value.split(",")
+                                if part.strip()))
+    if not emails:
+        raise ValueError("ADMIN_EMAIL doit contenir au moins une adresse.")
+    return emails
+
+
 def admin_email() -> str:
-    return (os.getenv("ADMIN_EMAIL") or DEFAULT_ADMIN_EMAIL).strip().lower()
+    """Compatibilite avec les appelants qui demandent un seul compte."""
+    return admin_emails()[0]
 
 
 async def ensure_admin(email: str | None = None) -> User:
@@ -57,7 +69,8 @@ async def ensure_admin(email: str | None = None) -> User:
 
 async def main() -> None:
     try:
-        await ensure_admin()
+        for email in admin_emails():
+            await ensure_admin(email)
     finally:
         await engine.dispose()
 
