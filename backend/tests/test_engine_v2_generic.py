@@ -599,6 +599,298 @@ def _build_p25(pg):
         x += _w(txt, size)
 
 
+def _p27_page():
+    """Page synthétique écrite en opérateurs PDF bruts (q / W n / cm / Do)."""
+    doc = fitz.open()
+    pg = doc.new_page(width=300, height=320)
+
+    def _png(rgb):
+        pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 8, 8), 0)
+        pix.set_rect(pix.irect, rgb)
+        return pix.tobytes("png")
+
+    pg.insert_image(fitz.Rect(0, 0, 1, 1), stream=_png((230, 20, 20)))
+    pg.insert_image(fitz.Rect(0, 0, 1, 1), stream=_png((20, 160, 20)))
+    noms = [im[7] for im in pg.get_images(full=True)]
+    rouge, vert = noms[0], noms[1]
+
+    def _chemin(trace):
+        sh = pg.new_shape()
+        trace(sh)
+        return sh.draw_cont
+
+    cercle = _chemin(lambda sh: sh.draw_circle((70, 70), 50))
+    triangle = _chemin(lambda sh: sh.draw_polyline(
+        [(150, 20), (280, 20), (150, 120)]))
+    disque = _chemin(lambda sh: sh.draw_circle((150, 280), 30))
+    H = 320
+    ops = (
+        # A. image rouge [20,20,120,120] découpée en DISQUE.
+        f"q {cercle} h W n 100 0 0 100 20 {H - 120} cm /{rouge} Do Q\n"
+        # B. rectangle navy [150,20,280,120] découpé en TRIANGLE.
+        f"q {triangle} h W n 0.1 0.2 0.4 rg 150 {H - 120} 130 100 re f Q\n"
+        # C. image verte [20,140,120,190], PUIS un fond bleu qui la recouvre.
+        f"q 100 0 0 50 20 {H - 190} cm /{vert} Do Q\n"
+        f"q 0 0 1 rg 70 {H - 190} 100 50 re f Q\n"
+        # D. deux images À LA SUITE, chacune sous SA découpe rectangulaire
+        # (aucun tracé peint entre elles) : la seconde ne doit pas hériter de
+        # la découpe de la première.
+        f"q 180 {H - 195} 50 60 re W n 50 0 0 60 180 {H - 195} cm /{vert} Do Q\n"
+        f"q 235 {H - 195} 50 60 re W n 50 0 0 60 235 {H - 195} cm /{rouge} Do Q\n"
+        # E. image rouge [20,210,80,260] SANS découpe, puis un rectangle vert
+        # sous une découpe qui couvre presque toute l'image : cette découpe
+        # n'est pas la sienne.
+        f"q 60 0 0 50 20 {H - 260} cm /{rouge} Do Q\n"
+        f"q 25 {H - 260} 75 50 re W n 0 1 0 rg 90 {H - 260} 10 50 re f Q\n"
+        # F. photo ronde : DISQUE, fond peint, puis l'image sous la MÊME
+        # découpe (le fond ne referme pas la découpe).
+        f"q {disque} h W n 0 0 1 rg 120 {H - 310} 60 60 re f "
+        f"60 0 0 60 120 {H - 310} cm /{rouge} Do Q\n"
+        # G. image verte sans découpe PUIS image rouge découpée, sans tracé
+        # peint entre elles : la découpe ne glisse pas d'un rang.
+        f"q 48 0 0 40 190 {H - 260} cm /{vert} Do Q\n"
+        f"q 250 {H - 260} 40 40 re W n 50 0 0 40 240 {H - 260} cm /{rouge} Do Q\n"
+    )
+    doc.update_stream(pg.get_contents()[0], ops.encode("latin-1"))
+    for x in pg.get_contents()[1:]:
+        doc.update_stream(x, b"")
+    return doc
+
+
+def _p27_clips_et_ordre(eng):
+    src = _p27_page()
+    pd = eng.extract_page_data(src, 0, src[0], embed_images=True)
+    out = fitz.open()
+    eng.render_page_into(out, pd, draw_borders=False)
+
+    def _px(doc, x, y):
+        pix = doc[0].get_pixmap(dpi=72, clip=fitz.Rect(x, y, x + 1, y + 1))
+        return tuple(pix.pixel(0, 0))
+
+    def _proche(c, ref, tol=40):
+        return all(abs(a - b) <= tol for a, b in zip(c, ref))
+
+    BLANC, ROUGE, NAVY, BLEU, VERT = ((255, 255, 255), (230, 20, 20),
+                                      (26, 51, 102), (0, 0, 255), (20, 160, 20))
+    res = []
+    arme = (_proche(_px(src, 24, 24), BLANC) and _proche(_px(src, 270, 110), BLANC)
+            and _proche(_px(src, 95, 165), BLEU)
+            and _proche(_px(src, 22, 235), ROUGE)
+            and _proche(_px(src, 122, 252), BLANC)
+            and _proche(_px(src, 192, 240), VERT)
+            and _proche(_px(src, 242, 240), BLANC))
+    res.append(("P27  piège armé (l'original découpe et recouvre)", arme, ""))
+    coin, centre = _px(out, 24, 24), _px(out, 70, 70)
+    res.append(("P27  photo découpée en DISQUE : le coin du carré reste vide",
+                _proche(coin, BLANC) and _proche(centre, ROUGE),
+                f"coin={coin} centre={centre}"))
+    hors, dans = _px(out, 270, 110), _px(out, 160, 30)
+    res.append(("P27  bandeau découpé en TRIANGLE : rien hors du biais",
+                _proche(hors, BLANC) and _proche(dans, NAVY),
+                f"hors={hors} dans={dans}"))
+    dessus = _px(out, 95, 165)
+    res.append(("P27  ordre de peinture : le fond peint APRÈS l'image la recouvre",
+                _proche(dessus, BLEU), f"pixel={dessus}"))
+    seconde = _px(out, 260, 170)
+    res.append(("P27  deux images découpées à la suite : la seconde reste visible",
+                _proche(seconde, ROUGE), f"pixel={seconde}"))
+    bord = _px(out, 22, 235)
+    res.append(("P27  image sans découpe : celle de l'objet suivant ne la rogne pas",
+                _proche(bord, ROUGE), f"pixel={bord}"))
+    coin, centre = _px(out, 122, 252), _px(out, 150, 280)
+    res.append(("P27  photo ronde sous fond peint : le disque tient malgré le fond",
+                _proche(coin, BLANC) and _proche(centre, ROUGE),
+                f"coin={coin} centre={centre}"))
+    libre, rognee = _px(out, 192, 240), _px(out, 242, 240)
+    res.append(("P27  image libre puis image découpée : chacune sa découpe",
+                _proche(libre, VERT) and _proche(rognee, BLANC),
+                f"libre={libre} rognee={rognee}"))
+
+    # Page PIVOTÉE : les découpes se relèvent dans l'espace non pivoté, comme
+    # les bbox d'images. Sans dé-rotation, elles tombaient à côté de l'image.
+    def _clips(doc):
+        d = eng.extract_page_data(doc, 0, doc[0], embed_images=True)
+        return [repr(e.get("clips")) for e in d["elements"]
+                if e.get("type") == "image"]
+    droit = _clips(src)
+    pivots = {}
+    for rot in (90, 180, 270):
+        tourne = _p27_page()
+        tourne[0].set_rotation(rot)
+        pivots[rot] = _clips(tourne) == droit
+    res.append(("P27  page pivotée (90/180/270) : mêmes découpes qu'à plat",
+                all(pivots.values()) and any(c != "None" for c in droit),
+                str(pivots)))
+    return res
+
+
+def _p28_texte_masque(eng):
+    """PDF retouché : l'ancien texte reste dans le fichier, caché sous un aplat
+    opaque peint APRÈS lui. Il ne doit ni être extrait ni ressortir au rendu ;
+    tout ce qui peut se voir (fond peint avant, voile translucide, recouvrement
+    partiel) reste."""
+    doc = fitz.open()
+    pg = doc.new_page(width=300, height=240)
+    pg.insert_text((20, 40), "ANCIENNE VERSION", fontname=FONT, fontsize=11)
+    pg.draw_rect(fitz.Rect(10, 25, 220, 50), color=None, fill=(1, 1, 1))
+    pg.insert_text((20, 70), "NOUVELLE VERSION", fontname=FONT, fontsize=11)
+    pg.draw_rect(fitz.Rect(10, 85, 220, 110), color=None, fill=(0.9, 0.9, 0.9))
+    pg.insert_text((20, 100), "SUR FOND", fontname=FONT, fontsize=11)
+    pg.insert_text((20, 140), "SOUS VOILE", fontname=FONT, fontsize=11)
+    pg.draw_rect(fitz.Rect(10, 125, 220, 150), color=None, fill=(1, 1, 1),
+                 fill_opacity=0.5)
+    pg.insert_text((20, 180), "GAUCHE DROITE", fontname=FONT, fontsize=11)
+    pg.draw_rect(fitz.Rect(70, 165, 220, 190), color=None, fill=(1, 1, 1))
+    # Nouvelle version posée AU MÊME ENDROIT que l'ancienne.
+    pg.insert_text((20, 220), "ANNEE 2024", fontname=FONT, fontsize=11)
+    pg.draw_rect(fitz.Rect(10, 205, 220, 230), color=None, fill=(1, 1, 1))
+    pg.insert_text((20, 220), "ANNEE 2026", fontname=FONT, fontsize=11)
+    pd = eng.extract_page_data(doc, 0, pg, embed_images=False)
+    txt = " ".join(e.get("text", "") for e in pd["elements"]
+                   if e.get("type") == "paragraph")
+    out = fitz.open()
+    eng.render_page_into(out, pd, draw_borders=False)
+    rendu = out[0].get_text()
+    res = []
+    res.append(("P28  piège armé (le texte masqué est lisible par fitz)",
+                "ANCIENNE" in pg.get_text(), ""))
+    res.append(("P28  texte sous aplat opaque postérieur : ni extrait ni rendu",
+                "ANCIENNE" not in txt and "ANCIENNE" not in rendu,
+                f"extrait={txt[:60]!r}"))
+    res.append(("P28  le visible reste (dessus, fond antérieur, voile translucide)",
+                all(m in txt for m in ("NOUVELLE", "SUR FOND", "SOUS VOILE")),
+                f"extrait={txt[:80]!r}"))
+    res.append(("P28  recouvrement partiel : la partie visible reste, l'autre part",
+                "GAUCHE" in txt and "DROITE" not in txt, f"extrait={txt[:80]!r}"))
+    res.append(("P28  nouvelle version posée sur l'ancienne : entière, une seule fois",
+                txt.count("ANNEE 2026") == 1 and "2024" not in txt,
+                f"extrait={txt[-40:]!r}"))
+    return res
+
+
+def _p29_sous_ensembles_homonymes(eng):
+    """Deux sous-ensembles d'une MÊME police (même nom de base), glyph-id
+    différents, l'un SANS cmap Unicode (cas d'un éditeur de PDF). La cmap
+    reconstruite du second ne doit pointer que vers SES glyphes : mélangée à
+    ceux du premier, « PROFIL » se rendait « P+OFI' »."""
+    import io
+    from fontTools import subset
+    from fontTools.ttLib import TTFont, newTable
+    from fontTools.ttLib.tables._c_m_a_p import cmap_format_6
+    src_ttf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
+                           "fonts", "opensans-Regular.ttf")
+
+    def _sous_ensemble(texte):
+        ft = TTFont(src_ttf)
+        s = subset.Subsetter(subset.Options())
+        s.populate(text=texte)
+        s.subset(ft)
+        for rec in ft["name"].names:
+            if rec.nameID in (1, 4, 6):
+                rec.string = "P29Sans"
+        b = io.BytesIO()
+        ft.save(b)
+        return b.getvalue()
+
+    def _sans_cmap_unicode(buf):
+        ft = TTFont(io.BytesIO(buf))
+        sub = cmap_format_6(6)
+        sub.platformID, sub.platEncID, sub.language = 1, 0, 0
+        sub.cmap = {i: n for i, n in enumerate(ft.getGlyphOrder()[:256])}
+        ft["cmap"] = newTable("cmap")
+        ft["cmap"].tableVersion = 0
+        ft["cmap"].tables = [sub]
+        b = io.BytesIO()
+        ft.save(b)
+        return b.getvalue()
+
+    A, B = "PROFIL", "PRABCDEGHJK"      # glyph-id de P et R différents
+    fa, fb = _sous_ensemble(A), _sous_ensemble(B)
+    doc = fitz.open()
+    pg = doc.new_page(width=300, height=120)
+    pg.insert_font(fontname="FA", fontbuffer=fa)
+    pg.insert_font(fontname="FB", fontbuffer=fb)
+    pg.insert_text((20, 40), A, fontname="FA", fontsize=14)
+    pg.insert_text((20, 80), B, fontname="FB", fontsize=14)
+    # Le sous-ensemble de A perd sa cmap Unicode dans le PDF.
+    for x in range(1, doc.xref_length()):
+        # BaseFont = nom PostScript, comme dans un vrai PDF (fitz écrit
+        # « P29Sans Regular », que la trace ne connaît pas).
+        if doc.xref_get_key(x, "BaseFont")[0] == "name":
+            doc.xref_set_key(x, "BaseFont", "/P29Sans")
+        k = doc.xref_get_key(x, "FontFile2")
+        if k[0] == "xref":
+            ff = int(k[1].split()[0])
+            if len(TTFont(io.BytesIO(doc.xref_stream(ff))).getGlyphOrder()) \
+                    == len(TTFont(io.BytesIO(fa)).getGlyphOrder()):
+                doc.update_stream(ff, _sans_cmap_unicode(doc.xref_stream(ff)))
+    doc = fitz.open("pdf", doc.tobytes())
+
+    def _contour(ft, nom):
+        g = ft["glyf"][nom]
+        return tuple(g.getCoordinates(ft["glyf"])[0]) if g.numberOfContours \
+            else ()
+
+    ref = TTFont(io.BytesIO(fa))
+    ref_cmap = ref.getBestCmap()
+    fonts = eng._extract_fonts(doc)
+    noms = [n for n in fonts if "P29Sans" in n]
+    bons, detail = False, f"polices={list(fonts)}"
+    homonymes = len(noms) == 1 and len(fonts[noms[0]]) == 2
+    for f in fonts.get(noms[0], []) if noms else []:
+        ft = TTFont(io.BytesIO(__import__("base64").b64decode(f["b64"])))
+        if len(ft.getGlyphOrder()) != len(ref.getGlyphOrder()):
+            continue
+        cm = ft.getBestCmap() or {}
+        faux = [c for c in A if ord(c) not in cm
+                or _contour(ft, cm[ord(c)]) != _contour(ref, ref_cmap[ord(c)])]
+        bons, detail = not faux, f"glyphes faux : {faux}"
+    return [("P29  piège armé (deux sous-ensembles homonymes)", homonymes,
+             f"polices={list(fonts)}"),
+            ("P29  cmap reconstruite : chaque lettre pointe vers SON glyphe",
+             bons, detail)]
+
+
+def _p30_rectangles_troues(eng):
+    """Icônes en remplissage NON-ZÉRO : un cadre et un intérieur tracés à
+    contresens (trou). MuPDF ramène chaque « m l l l h » à un `re` dont le
+    drapeau d'orientation ne dit pas le sens : le cadre de l'enveloppe et les
+    barres du calendrier ressortaient pleins. Les deux sens sont testés."""
+    H = 100
+
+    def _rect(x0, y0, x1, y1, horaire):
+        # Coordonnées PDF (y vers le haut) ; « horaire » vu à l'écran.
+        a, b = H - y0, H - y1
+        pts = ([(x0, a), (x1, a), (x1, b), (x0, b)] if horaire
+               else [(x0, a), (x0, b), (x1, b), (x1, a)])
+        return (f"{pts[0][0]} {pts[0][1]} m "
+                + " ".join(f"{x} {y} l" for x, y in pts[1:]) + " h ")
+    ops = ("0 0 0 rg "
+           + _rect(10, 10, 60, 60, True) + _rect(20, 20, 50, 50, False) + "f "
+           + _rect(110, 10, 160, 60, False) + _rect(120, 20, 150, 50, True)
+           + "f\n")
+    doc = fitz.open()
+    pg = doc.new_page(width=200, height=H)
+    xref = doc.get_new_xref()
+    doc.update_object(xref, "<<>>")
+    doc.update_stream(xref, ops.encode("latin-1"))
+    doc.xref_set_key(pg.xref, "Contents", f"{xref} 0 R")
+    pd = eng.extract_page_data(doc, 0, doc[0], embed_images=False)
+    out = fitz.open()
+    eng.render_page_into(out, pd, draw_borders=False)
+
+    def _gris(d, x, y):
+        pix = d[0].get_pixmap(dpi=72, clip=fitz.Rect(x, y, x + 1, y + 1))
+        return pix.pixel(0, 0)[0]
+    arme = all(_gris(doc, x, 35) > 200 and _gris(doc, x - 20, 35) < 60
+               for x in (35, 135))
+    rendu = {x: (_gris(out, x, 35), _gris(out, x - 20, 35)) for x in (35, 135)}
+    return [("P30  piège armé (deux icônes trouées, sens opposés)", arme, ""),
+            ("P30  rectangles en non-zéro : le trou reste, le cadre reste plein",
+             all(t > 200 and c < 60 for t, c in rendu.values()),
+             f"(trou, cadre) = {rendu}")]
+
+
 def run():
     scratch = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "_generic_tmp")
@@ -1173,6 +1465,18 @@ def run():
     c3 = _coupe("utilisé")
     ok("P23  « utilisé » ne laisse jamais « sé » orphelin",
        c3 is None or len(c3[1]) >= 3, f"obtenu {c3!r}")
+
+    # ── P27 : découpes (clip) et ordre de peinture images / dessins ────────
+    # Une photo RONDE est une image carrée découpée par un cercle ; un bandeau
+    # en BIAIS, un rectangle découpé par un triangle. Ignorer la découpe
+    # repeint le carré, le rectangle entier. Et une image peinte AVANT un fond
+    # qui la recouvre doit rester dessous.
+    for nom, bon, detail in _p27_clips_et_ordre(eng):
+        ok(nom, bon, detail)
+    for nom, bon, detail in (_p28_texte_masque(eng)
+                             + _p29_sous_ensembles_homonymes(eng)
+                             + _p30_rectangles_troues(eng)):
+        ok(nom, bon, detail)
 
     # ── Rapport ─────────────────────────────────────────────────────────────
     print("=" * 78)

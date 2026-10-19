@@ -21,6 +21,7 @@ appelables depuis un script ou un test sans monter de serveur.
 """
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -78,9 +79,7 @@ def run_translation_job(
         jobs.emit(job_id, "progress", {"step": "start", "message": "Démarrage du job...", "page": 0, "total": None})
 
         # 2. Sauvegarde de l'original
-        if not os.path.exists(original_path):
-            with open(original_path, "wb") as f:
-                f.write(file_bytes)
+        _sauver_original(original_path, file_bytes)
 
         # 3. Extraction
         if not os.path.exists(extraction_path):
@@ -93,6 +92,19 @@ def run_translation_job(
             elif ext == "pptx" and pptx_eng:
                 filters = {"shapes": True, "smartarts": True, "tables": True, "connectors": True}
                 extraction, _ = pptx_eng.extract_text(original_path, extraction_path, filters=filters, progress_callback=cb_extract, pages=pages_set)
+            elif ext == "xlsx":
+                # Le moteur XLSX était ENREGISTRÉ et l'extension ACCEPTÉE à
+                # l'envoi, mais aucune branche ne l'appelait : tout classeur
+                # échouait ici sur « Type de fichier .xlsx non supporté ». Le
+                # moteur passait ses 29 contrôles sans jamais servir.
+                #
+                # Pas de `filters` : un classeur n'a pas de sections à cocher
+                # (en-têtes, zones de texte, SmartArts). Ce que le moteur sait
+                # lire, il le lit ; ce qu'il ne sait pas encore lire est déclaré
+                # dans `workbook.non_traite` (cf. `_PARTIES`).
+                extraction, _ = engines.new_engine("xlsx").extract_text(
+                    original_path, extraction_path,
+                    progress_callback=cb_extract)
             else:
                 raise ValueError(f"Type de fichier .{ext} non supporté.")
             if not extraction:
@@ -139,6 +151,15 @@ def run_translation_job(
             if inj_ok:
                 pptm_auto_path = output_path[:-5] + "_autorefresh.pptm" if output_path.endswith(".pptx") else output_path + "_autorefresh.pptm"
                 pptx_eng.generate_autorefresh_pptm(output_path, pptm_auto_path)
+        elif ext == "xlsx":
+            # Instance NEUVE, comme partout ailleurs : tout l'état du moteur
+            # tient dans son dossier temporaire, et deux opérations qui le
+            # partagent écrivent dans les mêmes fichiers (cf. engines/CONTEXTE).
+            # Ce n'est PAS le moteur qui a servi à l'extraction : celui-là a
+            # déjà nettoyé son dossier.
+            inj_ok, inj_msg = engines.new_engine("xlsx").inject_translation(
+                original_path, translated_path, output_path,
+                format_options=format_opts)
         else:
             raise ValueError("Type de fichier non supporté pour la génération.")
 
@@ -158,6 +179,184 @@ def run_translation_job(
         jobs.error(job_id, "La traduction a rencontré une erreur. Réessayez ou contactez le support.")
 
 
+def run_xlsx_progressive_job(
+    job_id: str, file_bytes: bytes, original_path: str,
+    output_path: str, output_filename: str, partial_path: str,
+    translation_path: str, target_lang: str,
+    model: str = None, max_tokens: int = None, debug: bool = False,
+):
+    """Pipeline XLSX PROGRESSIF : l'aperçu se remplit FEUILLE PAR FEUILLE.
+
+    LE FLUX, COMME LE PDF ET LE PPTX
+    --------------------------------
+    1. SOCLE — le classeur d'ORIGINE, converti une fois. L'utilisateur voit
+       tout le document en langue source dès la première seconde.
+    2. GREFFE — chaque feuille dont le texte est traduit est convertie SEULE,
+       et sa page remplace celle du socle.
+
+    CE QUI DIFFÈRE D'UN DIAPORAMA, ET POURQUOI ÇA CHANGE LE DÉCOUPAGE
+    -----------------------------------------------------------------
+    Une diapositive est autonome : on peut l'extraire, la traduire, l'injecter.
+    Une feuille ne l'est pas. Excel déduplique le texte de TOUT le classeur
+    dans `sharedStrings.xml`, et une même chaîne peut servir dix feuilles :
+    aucune ne peut la revendiquer, et la traduire « pour la feuille 3 » n'a
+    aucun sens.
+
+    On ne découpe donc PAS la traduction par feuille. Le classeur est traduit
+    d'un bloc — c'est de toute façon le seul découpage honnête — et c'est
+    l'AFFICHAGE qui est progressif : dès que la traduction est réinjectée, on
+    convertit les feuilles une à une. L'utilisateur voit son classeur se
+    remplir, ce qui est exactement ce qu'on lui promet.
+
+    Le rattachement d'une chaîne à ses feuilles se reconstruit dans l'autre
+    sens (`chaines_par_feuille`) : on lit chaque feuille et on note les index
+    qu'elle cite.
+    """
+    eng = engines.new_engine("xlsx")
+    try:
+        _sauver_original(original_path, file_bytes)
+
+        jobs.emit(job_id, "progress", {"step": "start",
+                                       "message": "Démarrage du job...",
+                                       "page": 0, "total": None})
+
+        # ── Le SOCLE, tout de suite ───────────────────────────────────────
+        # Mis en cache par CONTENU : retraduire le même classeur dans une autre
+        # langue ne le reconvertit pas.
+        # DEUX CONVENTIONS D'INDEX SE RENCONTRENT ICI, et les confondre décale
+        # tout l'aperçu d'un cran : `ProgressivePreview` raisonne en NUMÉROS DE
+        # PAGE 1-basés (c'est ce que voit le lecteur de PDF), `feuilles()` en
+        # INDEX 0-basés (c'est ce que voit le format). La conversion se fait à
+        # cet unique endroit — la frontière entre les deux mondes.
+        apercu = ProgressivePreview(
+            extraire=lambda chemin, pages: eng.build_partial_xlsx(
+                chemin, only_sheets={n - 1 for n in pages}),
+            convertir=lambda octets: convert_to_pdf_bytes(octets, "xlsx",
+                                                          use_cache=False),
+            extension="xlsx",
+        )
+
+        def _poser_socle():
+            with open(original_path, "rb") as f:
+                brut = f.read()
+            pdf = convert_to_pdf_bytes(brut, "xlsx", use_cache=True)
+            ecrire_atomiquement(partial_path, apercu.poser_socle(pdf))
+
+        try:
+            _poser_socle()
+        except Exception as e:
+            # Best-effort : sans socle, l'aperçu est manqué mais la traduction
+            # continue. C'est la règle de tous les moteurs progressifs.
+            note(logging.WARNING, f"XLSX {job_id} : socle manqué ({e})")
+
+        # ── Extraction (classeur ENTIER : cf. l'en-tête) ──────────────────
+        extraction_path = os.path.join(os.path.dirname(translation_path),
+                                       "extraction_xlsx.json")
+        jobs.emit(job_id, "progress", {"step": "extract",
+                                       "message": "Extraction du texte...",
+                                       "page": 0, "total": None})
+        if not os.path.exists(extraction_path):
+            eng.extract_text(original_path, extraction_path,
+                             progress_callback=jobs.progress_callback(
+                                 job_id, "extract"))
+
+        # La carte feuille -> chaînes, et l'ordre d'affichage des onglets. Les
+        # deux se lisent sur le dossier de travail ouvert par l'extraction.
+        eng._ouvrir(original_path)
+        feuilles = eng.feuilles()
+        carte = eng.chaines_par_feuille()
+        total = len(feuilles)
+        jobs.emit(job_id, "progress", {"step": "extract",
+                                       "message": f"{total} feuille(s).",
+                                       "page": 0, "total": total})
+
+        # ── Traduction ────────────────────────────────────────────────────
+        if debug:
+            with open(extraction_path, encoding="utf-8") as f:
+                donnees = json.load(f)
+            for el in donnees.get("workbook", {}).get("elements", []):
+                el["translated_text"] = el.get("text", "")
+            with open(translation_path, "w", encoding="utf-8") as f:
+                json.dump(donnees, f, ensure_ascii=False)
+        elif not os.path.exists(translation_path):
+            if not ai_active:
+                raise ValueError("Le traducteur IA n'est pas disponible.")
+            jobs.emit(job_id, "progress",
+                      {"step": "translate", "message": "Traduction IA en cours...",
+                       "page": 0, "total": total})
+            ok, res = ai_translator.translate_json(
+                extraction_path, target_lang=target_lang,
+                progress_callback=jobs.progress_callback(job_id, "translate"),
+                model=model, max_tokens=max_tokens)
+            if not ok:
+                raise ValueError(f"Traduction échouée : {res}")
+            if os.path.exists(res) and os.path.abspath(res) != os.path.abspath(
+                    translation_path):
+                shutil.move(res, translation_path)
+
+        with open(translation_path, encoding="utf-8") as f:
+            traduit = json.load(f)
+        traductions = {
+            el["id"]: (el.get("translated_text") or el.get("text", ""))
+            for el in traduit.get("workbook", {}).get("elements", [])
+        }
+        if not traductions:
+            raise ValueError("Aucun texte traduit à réinjecter.")
+
+        # ── Réinjection, puis GREFFE feuille par feuille ──────────────────
+        eng.injecter_partiel(traductions)
+
+        # UNE FEUILLE NE FAIT PAS TOUJOURS UNE PAGE, et c'est la limite connue
+        # de cette greffe. Une feuille longue s'imprime sur dix pages ; le
+        # socle en compte alors dix, quand `feuilles()` n'en annonce qu'une.
+        # `greffer` refuse justement de deviner : il lève dès que le nombre de
+        # pages rendues ne correspond pas au nombre demandé, plutôt que
+        # d'afficher la traduction d'une feuille en face d'une autre.
+        #
+        # On ne greffe donc feuille par feuille que si les deux comptes
+        # coïncident. Sinon on saute la greffe progressive : l'utilisateur
+        # garde le socle en langue source jusqu'au document final, ce qui est
+        # honnête, là où une greffe décalée serait un mensonge visible.
+        greffable = (apercu.pret and apercu.pages_socle == total)
+        if not greffable and apercu.pret:
+            note(logging.INFO,
+                 f"XLSX {job_id} : {apercu.pages_socle} page(s) pour {total} "
+                 f"feuille(s) — aperçu progressif désactivé pour ce classeur")
+
+        for f in feuilles:
+            idx = f["index"]
+            if greffable:
+                try:
+                    ecrire_atomiquement(partial_path, apercu.greffer([idx + 1]))
+                except Exception as e:
+                    # Un échec de rendu n'interrompt JAMAIS la traduction : la
+                    # feuille reste correcte dans le fichier final, seul son
+                    # aperçu progressif est manqué et le socle continue de la
+                    # montrer en langue source.
+                    note(logging.WARNING,
+                         f"XLSX {job_id} : aperçu feuille {idx} manqué ({e})")
+            jobs.emit(job_id, "progress",
+                      {"step": "render",
+                       "message": f"Feuille « {f['nom']} » traduite.",
+                       "page": idx + 1, "total": total})
+            _ = carte.get(idx)      # rattachement disponible pour l'aval
+
+        # ── Le classeur final ─────────────────────────────────────────────
+        eng.build_partial_xlsx(output_path, only_sheets=None)
+        if not os.path.exists(output_path):
+            raise ValueError("Le fichier traduit est introuvable après génération.")
+
+        jobs.done(job_id, output_path, output_filename,
+                  translation_path=translation_path)
+
+    except Exception as e:
+        logger.error(f"Job XLSX {job_id} failed: {e}")
+        jobs.error(job_id, "La traduction a rencontré une erreur. "
+                           "Réessayez ou contactez le support.")
+    finally:
+        eng._nettoyer()
+
+
 def _elements_de(slide_data: dict):
     """Tous les fragments traduisibles d'une slide, à plat.
 
@@ -170,6 +369,164 @@ def _elements_de(slide_data: dict):
         for bloc in slide_data.get(groupe, []):
             yield from bloc.get("text_elements", [])
     yield from slide_data.get("excel_elements", [])
+
+
+def _textes_diapositives(pptx_eng) -> list[str]:
+    """Texte brut de chaque diapositive, dans l'ordre, lu dans le XML déjà
+    décompressé : de quoi écrire la fiche du document sans extraire chaque
+    diapositive à l'avance.
+
+    L'ordre est celui de `presentation.xml` (`sldIdLst`), pas celui des noms
+    `slideN.xml` : une diapositive déplacée garde son nom, et la fiche lirait
+    le document dans le désordre. Le nom ne sert que de repli."""
+    import html
+    import re
+    ppt = pptx_eng._get_temp_dir() / "ppt"
+    dossier = ppt / "slides"
+    fichiers = []
+    try:
+        rels = (ppt / "_rels" / "presentation.xml.rels").read_text(encoding="utf-8")
+        cibles = {}
+        for rel in re.findall(r"<Relationship\b[^>]*>", rels):
+            rid = re.search(r'\bId="([^"]+)"', rel)
+            cible = re.search(r'\bTarget="([^"]+)"', rel)
+            if rid and cible:
+                cibles[rid.group(1)] = cible.group(1)
+        pres = (ppt / "presentation.xml").read_text(encoding="utf-8")
+        liste = re.search(r"<p:sldIdLst\b.*?</p:sldIdLst>", pres, re.S)
+        for rid in re.findall(r'<p:sldId\b[^>]*\br:id="([^"]+)"',
+                              liste.group(0) if liste else ""):
+            f = dossier / cibles.get(rid, "").rsplit("/", 1)[-1]
+            if f.suffix == ".xml" and f.is_file():
+                fichiers.append(f)
+    except OSError:
+        fichiers = []
+    if not fichiers:
+        fichiers = sorted(dossier.glob("slide*.xml"),
+                          key=lambda f: int(re.sub(r"\D", "", f.stem) or 0))
+    return [html.unescape(" ".join(re.findall(r"<a:t>([^<]*)</a:t>",
+                                              f.read_text(encoding="utf-8"))))
+            for f in fichiers]
+
+
+def _sauver_original(original_path: str, file_bytes: bytes) -> None:
+    """Pose l'original du job, sans jamais en laisser un incomplet.
+
+    Il n'était écrit que s'il n'existait pas : écrit disque plein, il restait à
+    0 octet, et chaque relance retombait sur ce fichier vide au lieu de le
+    réécrire — le document devenait irrécupérable. Le dossier du job est nommé
+    par l'empreinte des octets : à taille égale, le contenu est le même.
+    """
+    try:
+        taille = os.path.getsize(original_path)
+    except OSError:
+        taille = 0
+    if taille and (not file_bytes or taille == len(file_bytes)):
+        return                  # déjà complet (ou rien de neuf pour le remplacer)
+    if not file_bytes:
+        raise ValueError("Fichier source vide : il doit être renvoyé.")
+    ecrire_atomiquement(original_path, file_bytes)
+
+
+# ── Reprise PPTX : chaque diapositive traduite est gardée dès qu'elle est finie ─
+#
+# Les traductions ne vivaient qu'en mémoire jusqu'à la fin du job : un échec à
+# la 25e diapositive sur 26 (disque plein, fournisseur coupé) jetait les 24
+# déjà payées, et la relance repartait de zéro. Le fichier de reprise vit à
+# côté de la traduction finale, sous un autre nom pour ne jamais passer pour
+# elle, et disparaît quand celle-ci est écrite.
+
+def _chemin_reprise(translation_path: str) -> str:
+    dossier, nom = os.path.split(translation_path)
+    return os.path.join(dossier, "reprise_" + nom)
+
+
+def _lire_reprise(chemin: str) -> dict[int, dict]:
+    """Diapositives déjà traduites par un essai précédent ({} si rien d'utilisable)."""
+    try:
+        with open(chemin, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return {int(k): v for k, v in data["slides"].items() if isinstance(v, dict)}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return {}
+
+
+def _ecrire_reprise(chemin: str, slides: dict[int, dict]) -> None:
+    """Best-effort : ne pas pouvoir garder la reprise n'arrête pas la traduction."""
+    try:
+        donnees = json.dumps({"slides": {str(k): v for k, v in slides.items()}},
+                             ensure_ascii=False).encode("utf-8")
+        ecrire_atomiquement(chemin, donnees)
+    except OSError as e:
+        logger.warning("Reprise PPTX non enregistrée : %s", e)
+
+
+def _fragments_repris(slides: dict[int, dict]) -> dict[str, dict]:
+    """Fragments d'un essai précédent, par id, TOUTES diapositives confondues.
+
+    Pas diapositive par diapositive : un gabarit (slideLayout) est extrait une
+    seule fois par document, par la première diapositive qui y arrive — et les
+    diapositives se traitent en parallèle. D'un essai à l'autre, ce n'est donc
+    pas forcément la même qui le porte ; ses id, eux, sont stables.
+    """
+    return {el.get("id"): el for sd in slides.values() for el in _elements_de(sd)}
+
+
+def _memoriser(memo: dict[str, str], slide_data: dict) -> None:
+    """Retient, par TEXTE SOURCE balisé, la traduction de chaque fragment.
+
+    Le premier rendu gagne : un pied de page, un titre de section ou une
+    étiquette répétés d'une diapositive à l'autre reçoivent alors la MÊME
+    traduction au lieu d'une variante par diapositive, et ne coûtent qu'un
+    appel. Le balisage fait partie de la clé : deux fragments au même texte
+    mais aux runs découpés autrement ne sont pas interchangeables.
+    """
+    for el in _elements_de(slide_data):
+        src, out = el.get("text"), el.get("translated_text")
+        if src and out and any(c.isalpha() for c in src):
+            memo.setdefault(src, out)
+
+
+def _reprendre_slide(slide_data: dict, connus: dict[str, dict],
+                     par_texte: dict[str, str] | None = None) -> dict | None:
+    """Reporte sur `slide_data` les traductions d'un essai précédent.
+
+    Un fragment n'est repris que si son id ET son texte source sont les mêmes.
+    Renvoie ce qu'il reste à traduire : `slide_data` lui-même si rien n'est
+    repris, une copie réduite aux seuls fragments inconnus sinon, et None si
+    tout est repris. PAR FRAGMENT et non par diapositive : le gabarit qu'une
+    diapositive en échec avait pris n'est pas dans la reprise, et exiger une
+    diapositive complète faisait retraduire celle qui le prend à la relance.
+
+    `par_texte` : traductions déjà obtenues DANS CE DOCUMENT, par texte source
+    (cf. `_memoriser`). Un fragment identique à un autre déjà traduit en
+    reprend la traduction.
+    """
+    reste = set()
+    for el in _elements_de(slide_data):
+        old = connus.get(el.get("id"))
+        if old is not None and old.get("text") == el.get("text"):
+            el["translated_text"] = old.get("translated_text")
+        elif par_texte and el.get("text") in par_texte:
+            el["translated_text"] = par_texte[el.get("text")]
+        else:
+            reste.add(el.get("id"))
+    if not reste:
+        return None
+    if len(reste) == sum(1 for _ in _elements_de(slide_data)):
+        return slide_data
+    copie = copy.deepcopy(slide_data)
+    for cle in ("text_elements", "excel_elements"):
+        copie[cle] = [el for el in copie.get(cle, []) if el.get("id") in reste]
+    for groupe in ("diagram_elements", "chart_elements", "layout_elements"):
+        blocs = []
+        for bloc in copie.get(groupe, []):
+            bloc["text_elements"] = [el for el in bloc.get("text_elements", [])
+                                     if el.get("id") in reste]
+            if bloc["text_elements"]:
+                blocs.append(bloc)
+        copie[groupe] = blocs
+    return copie
 
 
 # ── Cohérence terminologique du DOCUMENT ─────────────────────────────────────
@@ -186,22 +543,16 @@ def _elements_de(slide_data: dict):
 # qu'un cognat reste INCHANGÉ sans dommage, et pour que la reprise ne touche
 # QUE le terme — pas le reste d'une phrase déjà correcte.
 
-_CONSIGNE_COHERENCE = (
-    "COHÉRENCE DU DOCUMENT. Dans ta traduction ci-dessous, ces termes sont "
-    "restés identiques à la source : {termes}. Ailleurs dans le MÊME document, "
-    "tu les as traduits. Reprends ta traduction en ne changeant QUE ce qui "
-    "concerne ces termes — garde le reste MOT POUR MOT.\n"
-    "Si l'un d'eux s'écrit de la même façon dans la langue cible, ou s'il "
-    "s'agit d'un nom propre, d'une marque ou d'un sigle, LAISSE-LE TEL QUEL : "
-    "c'est légitime, et le changer serait une faute.\n"
-    "Ta traduction précédente : {precedente}"
-)
+_CONSIGNE_COHERENCE = runtags.CONSIGNE_COHERENCE
 
 
 def _coherence_document(slides_traduites: dict, pptx_eng, target_lang: str,
-                        progress_cb=None) -> int:
+                        progress_cb=None, fiche: str = "") -> int:
     """Reprend les fragments qui laissent en langue source un terme que le
     document traduit ailleurs. Renvoie le nombre de fragments repris.
+
+    `fiche` : celle qui a servi aux diapositives. Sans elle, les fragments
+    repris, isolés de leur page, perdraient le vocabulaire du document.
 
     Best-effort : toute erreur laisse la traduction en l'état. Une passe de
     confort ne doit jamais faire échouer un travail déjà abouti.
@@ -236,7 +587,8 @@ def _coherence_document(slides_traduites: dict, pptx_eng, target_lang: str,
     # sont ceux de `slides_traduites` : la correction se propage donc au JSON
     # persistant sans qu'on ait à le reconstruire.
     ai_translator._translate_batch(a_reprendre, target_lang, progress_cb,
-                                   passes=0)
+                                   passes=0,
+                                   cadre={"fiche": fiche} if fiche else None)
     for el in a_reprendre:
         el.pop("consigne", None)
 
@@ -273,9 +625,7 @@ def run_pptx_progressive_job(
             raise ValueError("Moteur PPTX indisponible.")
 
         # ── Sauvegarde de l'original ──────────────────────────────────────
-        if not os.path.exists(original_path):
-            with open(original_path, "wb") as f:
-                f.write(file_bytes)
+        _sauver_original(original_path, file_bytes)
 
         # ── Décompression ─────────────────────────────────────────────────
         jobs.emit(job_id, "progress", {"step": "extract", "message": "Décompression du PPTX...", "page": 0, "total": None})
@@ -305,6 +655,7 @@ def run_pptx_progressive_job(
         # ── Traduction PROGRESSIVE slide par slide ─────────────────────────
         done = 0
         done_lock = threading.Lock()
+        fiche_doc = ""                    # écrite avant la 1re diapositive
 
         # PARALLÉLISME PAR CYCLE COMPLET (et non plus par étape).
         # Chaque worker mène UNE diapositive de bout en bout — extraction →
@@ -324,6 +675,17 @@ def run_pptx_progressive_job(
         # Slide -> son extraction AVEC sa traduction, retenue avant injection.
         # C'est ce qui devient `translated.json` (cf. plus bas).
         slides_traduites: dict[int, dict] = {}
+        # Traductions d'un essai précédent du MÊME document (même empreinte,
+        # même langue, mêmes pages). Jamais en debug : rien à y économiser.
+        reprise_path = _chemin_reprise(translation_path)
+        deja_traduites = {} if debug else _lire_reprise(reprise_path)
+        fragments_repris = _fragments_repris(deja_traduites)
+        deja_vus: dict[str, str] = {}
+        for _sd in deja_traduites.values():
+            _memoriser(deja_vus, _sd)
+        if deja_traduites:
+            logger.info("Job %s : reprise de %d diapositive(s) déjà traduite(s)",
+                        job_id, len(deja_traduites))
 
         # ── Aperçu PROGRESSIF : le PDF se remplit page par page ───────────
         # Le flux est celui du moteur PDF, et il tient en deux temps :
@@ -401,6 +763,9 @@ def run_pptx_progressive_job(
             Best-effort : un échec de rendu n'interrompt JAMAIS la traduction. La
             diapositive reste correcte dans le document final ; seul son aperçu
             progressif est manqué, et le socle continue de la montrer.
+
+            Renvoie False dans ce cas : le client ne doit PAS présenter la page
+            du socle (en langue source) comme traduite.
             """
             try:
                 # Le socle a pu manquer au premier essai (LibreOffice occupé,
@@ -423,9 +788,11 @@ def run_pptx_progressive_job(
                 ecrire_atomiquement(partial_path, _apercu.greffer([slide_num]))
                 jobs.emit(job_id, "partial",
                           {"ready": True, "pages": _apercu.pages_traduites})
+                return True
             except Exception as e:
                 logger.warning("Aperçu progressif diapo %s ignoré : %s",
                                slide_num, e)
+                return False
 
         def _process_one_slide(slide_num: int):
             nonlocal done
@@ -448,7 +815,12 @@ def run_pptx_progressive_job(
                          "done": done, "total": total})
             jobs.sync_progress(job_id, done, total)
 
-            if debug:
+            a_traduire = (slide_data if debug
+                          else _reprendre_slide(slide_data, fragments_repris,
+                                                deja_vus))
+            if a_traduire is None:
+                pass                     # déjà traduite : aucun appel au modèle
+            elif debug:
                 for el in slide_data.get("text_elements", []):
                     el["translated_text"] = el["text"]
                 for diag in slide_data.get("diagram_elements", []):
@@ -468,11 +840,12 @@ def run_pptx_progressive_job(
                 mini_json = os.path.join(
                     pptx_eng._get_temp_dir(), f"_slide{slide_num}.json")
                 with open(mini_json, "w", encoding="utf-8") as f:
-                    json.dump({"slides": [slide_data]}, f, ensure_ascii=False)
+                    json.dump({"slides": [a_traduire]}, f, ensure_ascii=False)
 
                 success, result = ai_translator.translate_json(
                     mini_json, target_lang=target_lang,
                     progress_callback=jobs.progress_callback(job_id, "translate"),
+                    fiche=fiche_doc,
                 )
                 if not success:
                     raise ValueError(f"Traduction slide {slide_num} échouée : {result}")
@@ -480,7 +853,14 @@ def run_pptx_progressive_job(
                 with open(result, "r", encoding="utf-8") as f:
                     translated = json.load(f)
                 if translated.get("slides"):
-                    slide_data = translated["slides"][0]
+                    if a_traduire is slide_data:
+                        slide_data = translated["slides"][0]
+                    else:        # reprise partielle : on reporte par id
+                        cibles = {el.get("id"): el.get("translated_text")
+                                  for el in _elements_de(translated["slides"][0])}
+                        for el in _elements_de(slide_data):
+                            if el.get("id") in cibles:
+                                el["translated_text"] = cibles[el.get("id")]
                 for p in (mini_json, result):
                     try:
                         os.remove(p)
@@ -491,6 +871,8 @@ def run_pptx_progressive_job(
                          "done": done, "total": total})
             jobs.sync_progress(job_id, done, total)
 
+            if not debug:
+                _memoriser(deja_vus, slide_data)
             tmap = {el["id"]: (el.get("translated_text") or el["text"])
                     for el in _elements_de(slide_data)}
 
@@ -509,15 +891,18 @@ def run_pptx_progressive_job(
             # exclusive. Chaque thread la traverse à son tour pour SA page.
             with _display_lock:
                 slides_traduites[slide_num] = slide_data
+                if not debug:
+                    _ecrire_reprise(reprise_path, slides_traduites)
                 pptx_eng.inject_slide(slide_num, tmap)
-                _afficher_slide(slide_num)   # OLE + conversion + greffe + emit
+                apercu_ok = _afficher_slide(slide_num)   # OLE + greffe + emit
 
             with done_lock:
                 done += 1
                 cur_done = done
 
             jobs.emit(job_id, "page", {"page": slide_num, "status": "done",
-                         "done": cur_done, "total": total})
+                         "done": cur_done, "total": total,
+                         "apercu": apercu_ok})
             jobs.sync_progress(job_id, cur_done, total)
 
         # ── SOCLE d'abord : l'original, visible AVANT toute traduction ────
@@ -534,6 +919,25 @@ def run_pptx_progressive_job(
         # sont sérialisés par `_display_lock` (cf. `_process_one_slide`). Le
         # socle est déjà prêt, donc chaque greffe a sa base.
         from concurrent.futures import ThreadPoolExecutor
+        # FICHE DE DOCUMENT avant la première diapositive : traduites une à
+        # une, elles ne verraient sinon jamais le fichier entier.
+        # Gardée avec la reprise : une relance ne la paie pas deux fois et
+        # garde le vocabulaire des diapositives déjà traduites.
+        chemin_fiche = reprise_path + ".fiche"
+        if not debug and ai_active:
+            try:
+                with open(chemin_fiche, encoding="utf-8") as f:
+                    fiche_doc = f.read()
+            except OSError:
+                fiche_doc = ai_translator.fiche_document(
+                    [], _textes_diapositives(pptx_eng), target_lang,
+                    progress_callback=jobs.progress_callback(job_id, "translate"))
+                if fiche_doc:
+                    try:
+                        with open(chemin_fiche, "w", encoding="utf-8") as f:
+                            f.write(fiche_doc)
+                    except OSError:
+                        pass
         with ThreadPoolExecutor(max_workers=_WORKERS) as executor:
             futures = [executor.submit(_process_one_slide, sn)
                        for sn in slides_to_process]
@@ -551,7 +955,8 @@ def run_pptx_progressive_job(
                 jobs.emit(job_id, "progress", {"step": "coherence", "message": "Contrôle de cohérence des termes...", "page": 0, "total": None})
                 n_coh = _coherence_document(
                     slides_traduites, pptx_eng, target_lang,
-                    jobs.progress_callback(job_id, "coherence"))
+                    jobs.progress_callback(job_id, "coherence"),
+                    fiche=fiche_doc)
                 if n_coh:
                     logger.info(f"Job {job_id}: {n_coh} fragment(s) repris "
                                 f"pour cohérence terminologique")
@@ -590,6 +995,11 @@ def run_pptx_progressive_job(
                                 if sn in slides_traduites]}
         with open(translation_path, "w", encoding="utf-8") as f:
             json.dump(full_json, f, ensure_ascii=False)
+        for fini in (reprise_path, reprise_path + ".fiche"):
+            try:
+                os.remove(fini)
+            except OSError:
+                pass
 
         pptx_eng._cleanup_temp()
         jobs.done(job_id, output_path, output_filename,
@@ -621,9 +1031,7 @@ def run_pdf_v2_job(
     try:
         jobs.emit(job_id, "progress", {"step": "start", "message": "Démarrage du job...", "page": 0, "total": None})
 
-        if not os.path.exists(original_path):
-            with open(original_path, "wb") as f:
-                f.write(file_bytes)
+        _sauver_original(original_path, file_bytes)
 
         jobs.set(job_id, partial_path=partial_path)
 
@@ -664,17 +1072,20 @@ def run_pdf_v2_job(
         # Le rendu complet vient d'être produit — on le CONSERVE au lieu de le
         # laisser au GC des transitoires. C'est lui qui rend l'aperçu et le
         # téléchargement instantanés ensuite (mesuré : 280 s à reconstruire
-        # sur 285 pages). Seule la sortie CANONIQUE est conservée : un rendu
-        # de débogage ou remis en page ne doit jamais être resservi comme la
-        # traduction fidèle.
-        if not debug and "_STRUCTURE" not in output_filename \
-                and output_filename.endswith(".pdf") \
-                and "_TRADUIT." in output_filename:
-            try:
-                with open(output_path, "rb") as f:
-                    render_cache.store_render(f.read(), translation_path)
-            except OSError as e:
-                logger.warning("Rendu du job non conservé : %s", e)
+        # sur 285 pages).
+        #
+        # On le conserve pour TOUT job PDF. Le filtre « sortie canonique »
+        # (`_TRADUIT.` dans le nom) écartait aussi la qualité précise, les
+        # plages de pages et le mode structure : leur première réouverture
+        # refaisait un rendu identique à celui-ci. Aucun mélange possible : la
+        # clé est `translation_path`, qui porte déjà la qualité, la plage et
+        # `_debug` ; et ce moteur ne reçoit pas les options de mise en forme,
+        # donc son rendu est exactement celui que recalculerait l'aperçu.
+        try:
+            with open(output_path, "rb") as f:
+                render_cache.store_render(f.read(), translation_path)
+        except OSError as e:
+            logger.warning("Rendu du job non conservé : %s", e)
 
         jobs.done(job_id, output_path, output_filename,
                   translation_path=translation_path)
@@ -700,14 +1111,23 @@ def render_translation_bytes(original_path: str, translation_path: str,
     if not os.path.isfile(original_path) or not os.path.isfile(translation_path):
         raise FileNotFoundError("Original ou traduction manquant pour le rendu.")
 
+    # Mode STRUCTURE : sa traduction est l'identité, ses contours SONT le
+    # rendu. Rendu ici sans `debug`, il redevenait l'original : rouvert depuis
+    # la bibliothèque, l'aperçu montrait original/original. Le suffixe de cache
+    # (`_debug`, posé par /translate) est la seule trace du mode qui survive.
+    debug = os.path.basename(translation_path).split(".")[0].split("_")[1:2] == ["debug"]
+
     with tempfile.TemporaryDirectory() as tmp:
         out = os.path.join(tmp, f"render.{ext}")
         if ext == "pdf":
             with open(translation_path, encoding="utf-8") as f:
                 prev = json.load(f)
+            # Une page en mode structure n'a aucun paragraphe traduit
+            # (`tr_tagged`) : c'est son EXTRACTION qui compte, pas sa traduction.
             pages_traduites = {
                 pg.get("page_num") for pg in prev.get("pages", [])
-                if any(e.get("tr_tagged") for e in pg.get("elements", [])
+                if any((debug or e.get("tr_tagged"))
+                       for e in pg.get("elements", [])
                        if e.get("type") == "paragraph")
             }
             pages_traduites.discard(None)
@@ -723,7 +1143,7 @@ def render_translation_bytes(original_path: str, translation_path: str,
             pdf_v2_stream.translate_pdf_progressive(
                 original_path, out, target_lang=target_lang,
                 pages=pages_traduites, partial_path=None, on_event=None,
-                debug=False, cache_path=translation_path,
+                debug=debug, cache_path=translation_path,
             )
         elif ext == "docx":
             ok, msg = engines.new_engine("docx").inject_translation(original_path,

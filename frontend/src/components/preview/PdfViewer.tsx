@@ -3,6 +3,14 @@ import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
 import { Loader2, Hourglass, Lock } from 'lucide-react';
 
+// Largeur du cadre d'aperçu (#scroll) sous laquelle deux volets côte à côte
+// tombent sous ~300 px chacun : texte illisible. C'est le CADRE qui compte, pas
+// l'écran — une barre latérale peut le rétrécir sur un écran large.
+const COMPACT_MAX_PX = 680;
+const COMPACT_MARGE_PX = 24;
+
+const largeurCadre = () => document.getElementById('scroll')?.clientWidth ?? window.innerWidth;
+
 interface PdfViewerProps {
   sourceFile?: Blob | null;
   translatedBlob?: Blob | null;
@@ -26,6 +34,8 @@ interface PdfViewerProps {
    *  l'invitation à payer, avec le bouton dessous, au lieu du message d'attente. */
   creditsNeeded?: number | null;
   onBuyPages?: (pages: number) => void;
+  /** Essai : quitter l'aperçu pour les tarifs. */
+  onUnlock?: () => void;
 }
 
 export default function PdfViewer({
@@ -47,6 +57,7 @@ export default function PdfViewer({
   previewLoading = false,
   creditsNeeded,
   onBuyPages,
+  onUnlock,
 }: PdfViewerProps) {
   const { t } = useTranslation();
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
@@ -56,7 +67,40 @@ export default function PdfViewer({
   // portrait → panneaux côte à côte (horizontal). Détectée par page — un même
   // document peut mêler des pages paysage et portrait, et la disposition suit.
   const [isLandscape, setIsLandscape] = useState(false);
+  // Écran ÉTROIT (téléphone) : deux volets côte à côte n'y font que ~150 px
+  // chacun, texte illisible. On n'en montre alors qu'UN, en pleine largeur, et
+  // une bascule passe de l'un à l'autre — la traduction d'abord.
+  const [compact, setCompact] = useState(
+    () => typeof window !== 'undefined' && largeurCadre() < COMPACT_MAX_PX,
+  );
+  const [volet, setVolet] = useState<'source' | 'target'>('target');
   const containerRef = useRef<HTMLDivElement>(null);
+  const basculeRef = useRef<HTMLDivElement>(null);
+  // Sans original, il n'y a rien à basculer : le volet traduit seul.
+  const voletVu = !compact ? null : sourceFile ? volet : 'target';
+  const libelleSource = sourceLabel ?? t('preview.source_label');
+  const libelleCible = targetLabel ?? t('preview.target_label');
+  // Écran sans survol (tactile) : l'invite d'essai dit « touchez », pas « survolez ».
+  const sansSurvol = typeof window !== 'undefined' && !!window.matchMedia?.('(hover: none)').matches;
+
+  useEffect(() => {
+    // Hystérésis : la barre de défilement qui apparaît ou disparaît change la
+    // largeur de quelques pixels, de quoi faire osciller la bascule (et
+    // recharger le PDF à chaque fois) si l'entrée et la sortie coïncidaient.
+    const suivre = () => setCompact((c) => {
+      const l = largeurCadre();
+      return c ? l < COMPACT_MAX_PX + COMPACT_MARGE_PX : l < COMPACT_MAX_PX;
+    });
+    suivre();   // le cadre a pu changer entre le premier rendu et cet effet
+    const cadre = document.getElementById('scroll');
+    if (cadre && typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(suivre);
+      ro.observe(cadre);
+      return () => ro.disconnect();
+    }
+    window.addEventListener('resize', suivre);
+    return () => window.removeEventListener('resize', suivre);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -163,14 +207,25 @@ export default function PdfViewer({
           let containerHeight = 700;
           const scrollEl = document.getElementById('scroll');
           if (scrollEl) {
-            containerWidth = landscape
-              ? scrollEl.clientWidth - 24
-              : (scrollEl.clientWidth - 70) / 2;
+            // Écran étroit : le cadre n'a plus de marge (index.css), le volet
+            // prend toute la largeur utile — on la lit, on ne la suppose pas.
+            const cs = getComputedStyle(scrollEl);
+            const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+            containerWidth = compact
+              ? scrollEl.clientWidth - padX
+              : landscape
+                ? scrollEl.clientWidth - 24
+                : (scrollEl.clientWidth - 70) / 2;
             // Hauteur disponible : le conteneur moins son padding (24px × 2) et
             // la hauteur du badge de langue au-dessus de chaque panneau (~34px).
             // Paysage : deux panneaux EMPILÉS → chacun a la MOITIÉ de la hauteur.
+            // Écran étroit : un seul volet visible, sous la bascule (sa hauteur
+            // mesurée + l'écart de 12px qui la sépare du volet).
             const hDispo = scrollEl.clientHeight - 48 - 34;
-            containerHeight = landscape ? (hDispo - 24) / 2 : hDispo;
+            const hBascule = basculeRef.current ? basculeRef.current.offsetHeight + 12 : 0;
+            containerHeight = compact
+              ? hDispo - hBascule
+              : landscape ? (hDispo - 24) / 2 : hDispo;
           } else {
             containerWidth = canvas.parentElement?.clientWidth || 600;
           }
@@ -179,19 +234,32 @@ export default function PdfViewer({
           // Caler sur la dimension la PLUS CONTRAIGNANTE : la page tient alors
           // ENTIÈREMENT dans le cadre (largeur ET hauteur) — plus de débordement,
           // « tient sur une page ». `zoom` agrandit ensuite au-delà si besoin.
-          const baseScale = Math.max(0.05, Math.min(
-            containerWidth / unscaledViewport.width,
-            containerHeight / unscaledViewport.height,
-          ));
+          // Écran étroit : calé sur la LARGEUR, comme une visionneuse — une page
+          // entière en hauteur y serait illisible ; on défile verticalement.
+          const baseScale = Math.max(0.05, compact
+            ? containerWidth / unscaledViewport.width
+            : Math.min(
+              containerWidth / unscaledViewport.width,
+              containerHeight / unscaledViewport.height,
+            ));
           const scale = baseScale * zoom;
           const viewport = page.getViewport({ scale });
           const context = canvas.getContext('2d');
           if (!context) return;
 
-          canvas.height = viewport.height;
-          canvas.width = viewport.width;
+          // Rendu à la densité de l'écran (×2, ×3 sur téléphone), affiché à la
+          // taille CSS du viewport : sans cela le texte est flou. Le voile et le
+          // curseur d'essai se calent sur la taille AFFICHÉE, inchangée.
+          const dpr = Math.min(window.devicePixelRatio || 1, 3);
+          canvas.width = Math.floor(viewport.width * dpr);
+          canvas.height = Math.floor(viewport.height * dpr);
+          canvas.style.width = `${Math.floor(viewport.width)}px`;
+          canvas.style.height = `${Math.floor(viewport.height)}px`;
 
-          const renderContext = { canvasContext: context, viewport };
+          const renderContext = {
+            canvasContext: context, viewport,
+            transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined,
+          };
           const renderTask = page.render(renderContext);
           renderTasks.push(renderTask);
           await renderTask.promise;
@@ -227,6 +295,8 @@ export default function PdfViewer({
           if (canvas && origCanvas) {
             canvas.width = origCanvas.width;
             canvas.height = origCanvas.height;
+            canvas.style.width = origCanvas.style.width;
+            canvas.style.height = origCanvas.style.height;
             const ctx = canvas.getContext('2d');
             if (ctx) { ctx.fillStyle = '#f8fafc'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
           }
@@ -263,7 +333,7 @@ export default function PdfViewer({
         }
       });
     };
-  }, [currentPage, zoom, translatedBlob, sourceFile, isTrialMode, demoSource, demoTarget, onPagesLoaded, translatedPageReady, previewLoading]);
+  }, [currentPage, zoom, translatedBlob, sourceFile, isTrialMode, demoSource, demoTarget, onPagesLoaded, translatedPageReady, previewLoading, compact]);
 
   const [isHovering, setIsHovering] = useState(false);
 
@@ -273,16 +343,34 @@ export default function PdfViewer({
       className={className}
       style={{
         display: 'inline-flex',
-        flexDirection: isLandscape ? 'column' : 'row',
-        gap: isLandscape ? '24px' : '20px',
+        flexDirection: isLandscape || compact ? 'column' : 'row',
+        gap: compact ? '12px' : isLandscape ? '24px' : '20px',
         alignItems: 'center',
         justifyContent: 'center',   // panneaux avant/après centrés dans le cadre
         minWidth: '100%',
       }}
     >
+      {compact && sourceFile && (
+        <div ref={basculeRef} className="cv-bascule" role="group" aria-label={t('preview.toggle_label')}>
+          {(['source', 'target'] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              aria-pressed={volet === v}
+              onClick={() => setVolet(v)}
+            >
+              {v === 'source' ? libelleSource : libelleCible}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Original Panel */}
-      <div className="cv-wrap" style={{ flexShrink: 0 }}>
-        <span className="cv-lang-badge fr">{sourceLabel ?? t('preview.source_label')}</span>
+      <div
+        className="cv-wrap"
+        style={{ flexShrink: 0, display: voletVu && voletVu !== 'source' ? 'none' : undefined }}
+      >
+        <span className="cv-lang-badge fr">{libelleSource}</span>
         <div className="cv" id="cv-fr">
           <canvas
             id="pdf-canvas-original"
@@ -295,6 +383,7 @@ export default function PdfViewer({
           vertical quand ils sont côte à côte (portrait) */}
       <div
         style={{
+          display: compact ? 'none' : undefined,
           width: isLandscape ? '100%' : '1px',
           height: isLandscape ? '1px' : undefined,
           alignSelf: 'stretch',
@@ -304,12 +393,15 @@ export default function PdfViewer({
       />
 
       {/* Translation Panel */}
-      <div className="cv-wrap" style={{ flexShrink: 0 }}>
+      <div
+        className="cv-wrap"
+        style={{ flexShrink: 0, display: voletVu && voletVu !== 'target' ? 'none' : undefined }}
+      >
         <span
           className="cv-lang-badge en"
           style={{ background: '#f0fdf4', color: '#15803d' }}
         >
-          {targetLabel ?? t('preview.target_label')}
+          {libelleCible}
         </span>
         <div
           className="cv trial-viewer"
@@ -330,7 +422,9 @@ export default function PdfViewer({
               // Contient l'ombre portée géante du voile d'essai : elle ne doit
               // assombrir QUE le document, pas déborder autour.
               overflow: 'hidden',
-              cursor: isTrialMode ? 'none' : 'auto',
+              // Curseur masqué seulement là où le voile le remplace : sur l'écran
+              // « pages à régler » ou d'attente, l'utilisateur doit le voir.
+              cursor: isTrialMode && translatedShown ? 'none' : 'auto',
             }}
             onMouseMove={(e) => {
               if (!isTrialMode) return;
@@ -340,6 +434,21 @@ export default function PdfViewer({
             }}
             onMouseEnter={() => setIsHovering(true)}
             onMouseLeave={() => { setCursorPos(null); setIsHovering(false); }}
+            // Écran tactile : pas de survol. Toucher (ou glisser) place le trou,
+            // qui reste là au lâcher — sinon la traduction resterait toute voilée.
+            onTouchStart={(e) => {
+              if (!isTrialMode) return;
+              const rect = e.currentTarget.getBoundingClientRect();
+              const tp = e.touches[0];
+              setCursorPos({ x: tp.clientX - rect.left, y: tp.clientY - rect.top });
+              setIsHovering(true);
+            }}
+            onTouchMove={(e) => {
+              if (!isTrialMode) return;
+              const rect = e.currentTarget.getBoundingClientRect();
+              const tp = e.touches[0];
+              setCursorPos({ x: tp.clientX - rect.left, y: tp.clientY - rect.top });
+            }}
           >
           {/* Canevas traduit — UNIQUE. En essai il n'est pas filtré : c'est le
               voile au-dessus qui l'assombrit, en laissant un trou sous le curseur. */}
@@ -444,33 +553,39 @@ export default function PdfViewer({
 
           </div>
 
-          {/* Trial banner — hors de la pile : bandeau collant en bas de cv-en */}
-          {isTrialMode && isHovering && (
+          {/* Bandeau d'essai — hors de la pile, collant en bas de cv-en. Affiché
+              dès que la page traduite l'est (pas seulement au survol : c'est lui
+              qui dit QU'il faut survoler). Une seule ligne, jamais plus large
+              que la page : la consigne se tronque, le lien reste entier. */}
+          {isTrialMode && translatedShown && (
             <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
               style={{
                 position: 'sticky',
                 bottom: '0',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                width: '100%', boxSizing: 'border-box', minWidth: 0,
                 background: 'rgba(13,27,62,0.92)',
                 color: 'white',
-                padding: '8px 16px',
+                padding: '7px 10px',
                 fontSize: '12px',
-                textAlign: 'center',
+                whiteSpace: 'nowrap',
                 zIndex: 30,
                 backdropFilter: 'blur(4px)',
               }}
             >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
-                <Lock size={13} strokeWidth={2.2} />
-                {t('preview.trial_hover')} ·{' '}
-                <a
-                  href="#pricing"
-                  style={{ color: '#93c5fd', textDecoration: 'underline' }}
-                >
-                  {t('preview.trial_buy')}
-                </a>
+              <Lock size={12} strokeWidth={2.2} style={{ flexShrink: 0 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+                {t(sansSurvol ? 'preview.trial_touch' : 'preview.trial_hover')}
               </span>
+              <a
+                href="#pricing"
+                onClick={(e) => { if (onUnlock) { e.preventDefault(); onUnlock(); } }}
+                style={{ color: '#93c5fd', textDecoration: 'underline', flexShrink: 0 }}
+              >
+                {t('preview.trial_buy')}
+              </a>
             </motion.div>
           )}
         </div>

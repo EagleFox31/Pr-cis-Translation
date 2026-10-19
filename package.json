@@ -1,6 +1,6 @@
 {
   "name": "precis-translator",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Precis Translator root project configuration",
   "scripts": {
     "dev": "backend\\venv\\Scripts\\python scripts/dev.py",
@@ -8,8 +8,5 @@
     "dev:frontend": "npm --prefix frontend run --silent dev",
     "stop": "scripts\\stop.cmd",
     "docs:api": "backend\\venv\\Scripts\\python scripts/docs_api.py"
-  },
-  "devDependencies": {
-    "concurrently": "^9.1.2"
   }
 }

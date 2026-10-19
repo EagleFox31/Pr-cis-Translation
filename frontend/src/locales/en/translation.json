@@ -134,6 +134,8 @@
     "pages_hint": "Leave empty to translate everything. Unselected pages stay in their original language.",
     "free_plan_title": "Free plan — 1 page / month",
     "free_plan_hint": "Upgrade to Starter to translate whole documents.",
+    "retry_unavailable_title": "Cannot retry this document",
+    "retry_unavailable_hint": "Its original file is missing or empty. Please upload it again.",
     "precise_label": "Precise mode (admin)",
     "precise_desc": "Uses the reasoning model — slower (~2 min/page) but more reliable on complex layouts."
   },
@@ -174,6 +176,9 @@
     "start_free": "Start for free",
     "contact_us": "Contact us",
     "choose": "Choose {{plan}}",
+    "renew": "Renew",
+    "active_until": "Active until {{date}}",
+    "included": "Included in your plan",
     "feat_free_page": "1 translated page free every month",
     "feat_free_then": "Then {{price}} per page — paid before translation",
     "feat_free_no_sub": "No subscription, no card to register",
@@ -233,6 +238,7 @@
   "preview": {
     "source_label": "Original document",
     "target_label": "Translation",
+    "toggle_label": "Choose the page to display",
     "loading": "Preparing the preview…",
     "error": "Preview unavailable: {{error}}",
     "error_hint": "The translated document is still available for download.",
@@ -241,15 +247,24 @@
     "status_rendering": "Rebuilding the layout…",
     "page_pending": "This page is waiting to be translated.",
     "credits_needed": "{{count}} more page(s) to pay for to translate this document.",
-    "trial_hover": "Trial version — Hover to preview",
-    "trial_buy": "Buy to download"
+    "trial_hover": "Trial: hover over the page to read it",
+    "trial_touch": "Trial: tap the page to read it",
+    "trial_buy": "Unlock"
   },
   "account": {
     "default_name": "User",
     "storage": "Storage",
     "unlimited": "Unlimited",
     "no_storage": "No personal storage space",
-    "logout": "Sign out"
+    "logout": "Sign out",
+    "translations_left": "Translations left",
+    "free_left_one": "{{count}} free this month",
+    "free_left_other": "{{count}} free this month",
+    "pages_left": "Pages left this month",
+    "credits_one": "+ {{count}} purchased page available",
+    "credits_other": "+ {{count}} purchased pages available",
+    "renews": "Renews on {{date}}",
+    "storage_left": "Storage left"
   },
   "plans": {
     "free": "Free",
@@ -303,7 +318,21 @@
     "pay_launch_failed": "The payment could not be started.",
     "pay_expired": "The prompt expired without validation. No amount was charged.",
     "pay_refused": "Payment refused or cancelled. No amount was charged.",
-    "buy_pages_label": "Unlock the translation of this document"
+    "refund_due": "Payment received, but your current plan already covers this offer, so it was left unchanged. The amount will be refunded; contact support if needed.",
+    "buy_pages_label": "Unlock the translation of this document",
+    "title": "Payment",
+    "method_title": "Payment method",
+    "method_card": "Bank card",
+    "method_soon": "Not available yet",
+    "no_method": "No payment method is available at the moment.",
+    "phone_label": "Phone number",
+    "method_mobile": "Mobile Money",
+    "phone_hint": "MTN or Orange, detected from the number. 237 prefix optional.",
+    "pay": "Pay",
+    "plan_label": "{{plan}} plan",
+    "plan_months_one": "{{count}} month",
+    "plan_months_other": "{{count}} months",
+    "plan_done": "Your {{plan}} plan is active."
   },
   "common": {
     "preview_conv_failed": "Preview conversion failed.",

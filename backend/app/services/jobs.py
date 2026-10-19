@@ -124,6 +124,19 @@ class JobManager:
         with self._lock:
             return self._jobs.get(job_id)
 
+    def for_document(self, doc_id: str) -> dict | None:
+        """Le job VIVANT qui produit ce Document, ou None.
+
+        Le Document ne connaît pas son job (rien en base) : c'est le job qui
+        porte `document_id`. Sert à l'aperçu d'un document rouvert depuis la
+        bibliothèque pendant sa traduction — sans lui, on n'avait que l'original.
+        """
+        with self._lock:
+            for job in self._jobs.values():
+                if job.get("document_id") == doc_id:
+                    return job
+        return None
+
     def set(self, job_id: str, **champs) -> None:
         """Pose des champs sur un job existant. Écriture sous verrou."""
         with self._lock:
@@ -267,6 +280,16 @@ class JobManager:
             doc.status = status
             if translated_path:
                 doc.translated_path = translated_path
+            if status == "error":
+                # On ne facture pas ce qu'on n'a pas livré : l'offre du mois
+                # redevient libre, les pages achetées reviennent au solde.
+                from app.services.usage import refund_for_document
+                await refund_for_document(db, doc_id)
+            elif status == "done":
+                # Livré : si un redémarrage concurrent l'avait remboursé
+                # (`reconcilier_jobs_orphelins`), la consommation revient.
+                from app.services.usage import rebill_for_document
+                await rebill_for_document(db, doc_id)
 
         try:
             _dans_une_boucle_jetable(_maj)

@@ -14,11 +14,11 @@ import bcrypt
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models import User, RefreshToken
+from app.models import User, RefreshToken, get_plan_storage
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
@@ -132,7 +132,50 @@ async def require_auth(
     if user is None:
         raise HTTPException(status_code=401, detail="Utilisateur introuvable.")
 
+    await _expire_plan_if_due(db, user)
     return user
+
+
+async def _expire_plan_if_due(db: AsyncSession, user: User) -> None:
+    """Abonnement échu : retour au forfait Gratuit, au premier passage.
+
+    Campay ne prélève jamais de lui-même : sans renouvellement payé, la fin
+    arrive. Elle s'applique ici, là où TOUTE route authentifiée passe, plutôt
+    que dans une tâche planifiée qui laisserait des heures de droits gratuits.
+
+    Écriture conditionnelle : un renouvellement crédité au même instant a déjà
+    repoussé l'échéance, la condition ne la voit plus échue et ne touche à rien.
+    """
+    now = datetime.now(timezone.utc)
+    if user.plan_expires_at is None or user.plan_expires_at > now:
+        return
+    await db.execute(
+        update(User)
+        .where(User.id == user.id, User.plan_expires_at <= now)
+        .values(**_back_to_free())
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+    await db.refresh(user)
+
+
+def _back_to_free() -> dict:
+    return {"plan": "free", "plan_expires_at": None, "plan_started_at": None,
+            "storage_limit": get_plan_storage("free")}
+
+
+async def expire_due_plans(db: AsyncSession) -> None:
+    """Applique TOUTES les échéances passées, pour les vues qui lisent d'autres
+    comptes que le sien (liste d'administration) : l'échéance paresseuse ne
+    touche que le compte qui se connecte."""
+    res = await db.execute(
+        update(User)
+        .where(User.plan_expires_at <= datetime.now(timezone.utc))
+        .values(**_back_to_free())
+        .execution_options(synchronize_session=False)
+    )
+    if res.rowcount:
+        await db.commit()
 
 
 async def optional_auth(
@@ -144,9 +187,12 @@ async def optional_auth(
         return None
     try:
         payload = verify_access_token(credentials.credentials)
-        return await db.get(User, payload["sub"])
+        user = await db.get(User, payload["sub"])
     except Exception:
         return None
+    if user is not None:
+        await _expire_plan_if_due(db, user)
+    return user
 
 
 async def require_admin(user: User = Depends(require_auth)) -> User:

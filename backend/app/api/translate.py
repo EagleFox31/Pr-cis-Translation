@@ -12,12 +12,12 @@ import asyncio
 import json
 import os
 import queue
-from datetime import datetime, timezone
 
 from fastapi import (APIRouter, Depends, File, Form, Header, HTTPException,
                      Request, UploadFile)
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
-from sqlalchemy import func, select
+from fastapi.concurrency import run_in_threadpool
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.documents import _may_read_clear
@@ -28,16 +28,19 @@ from app.core.files import (get_file_hash, pages_token, parse_page_range,
 from app.core.security import require_auth, verify_access_token
 from app.models import (Document, User, get_plan_page_limit,
                         get_plan_priority, get_plan_storage,
-                        get_plan_monthly_pages, is_paid_plan)
+                        get_plan_monthly_pages, is_paid_plan,
+                        KIND_CREDITS, KIND_FREE_OFFER, KIND_PLAN)
 from app.rate_limit import verify_api_key
 from app.services.documents import (build_job_paths, cap_pages_for_plan,
                                     count_pages, pages_avec_texte)
+from app.services import usage
 from app.services.jobs import jobs
 from app.services.office import convert_to_pdf_bytes
 from app.services.scheduler import scheduler
 from app.services.translation_runner import (run_pdf_v2_job,
                                              run_pptx_progressive_job,
-                                             run_translation_job)
+                                             run_translation_job,
+                                             run_xlsx_progressive_job)
 from app.services.trial_preview import rasterize_for_trial
 
 router = APIRouter(tags=["Traduction"])
@@ -101,16 +104,17 @@ async def preview_pdf_endpoint(
 async def _save_document_for_user(user: "User | None", db: "AsyncSession",
                                   job_id: str, filename: str, target_lang: str,
                                   original_path: str, size: int,
-                                  paid: bool = False, page_count: int = 1):
+                                  paid: bool = False, page_count: int = 1,
+                                  usage_kind: str | None = None):
     """Enregistre un Document pour l'utilisateur connecté.
 
-    Le Document est AUSSI le registre d'usage mensuel (compteur freemium) : on
-    l'insère donc pour TOUT utilisateur authentifié, plan `free` compris — sinon
-    la limite « 1 page/mois » ne pourrait jamais s'appuyer sur rien (bug : un
-    plan `free` a 0 Mo de stockage, l'ancien code refusait alors la création et
-    le compteur restait éternellement à 0). Le stockage n'est facturé que si le
-    plan en offre ET que le quota le permet ; sinon `charge = 0` (l'usage est
-    tout de même journalisé)."""
+    La consommation (`usage_kind`) est consignée dans `usage_records`, dans la
+    MÊME transaction : c'est elle que comptent les quotas, et elle survit à la
+    suppression du document. Le stockage n'est facturé que si le plan en offre
+    ET que le quota le permet ; sinon `charge = 0`.
+
+    Un échec ici LÈVE : le débit du solde de pages est dans cette transaction,
+    l'avaler laissait partir une traduction ni enregistrée ni payée."""
     if user is None:
         return
     try:
@@ -130,12 +134,18 @@ async def _save_document_for_user(user: "User | None", db: "AsyncSession",
                        page_count=page_count)
         db.add(doc)
         user.storage_used += charge
+        if usage_kind:
+            await db.flush()                # `doc.id` pour le lien
+            usage.record(db, user.id, doc.id, usage_kind, page_count)
         await db.commit()
         # Lien job → Document : permet à `jobs.done`/`jobs.error` de reporter
         # `status`/`translated_path` à la fin du traitement (thread worker).
         jobs.set(job_id, document_id=doc.id)
-    except Exception:
+    except Exception as e:
         await db.rollback()
+        logger.error("Document non enregistré pour le job %s : %s", job_id, e)
+        raise HTTPException(status_code=500,
+                            detail="Impossible d'enregistrer la traduction. Réessayez.")
 
 
 @router.post("/api/translate")
@@ -309,15 +319,10 @@ async def translate_endpoint(
         locked = (await db.execute(
             select(User).where(User.id == current_user.id).with_for_update()
         )).scalar_one()
-        month_start = datetime.now(timezone.utc).replace(
-            day=1, hour=0, minute=0, second=0, microsecond=0)
-        r = await db.execute(
-            select(func.count()).select_from(Document).where(
-                Document.user_id == current_user.id,
-                Document.created_at >= month_start,
-            )
-        )
-        free_used = (r.scalar() or 0) >= 1
+        # Compté dans le REGISTRE, pas dans `documents` : supprimer la
+        # traduction du mois rendait l'offre à nouveau disponible.
+        free_used = await usage.free_offer_used(db, current_user.id)
+        usage_kind = KIND_FREE_OFFER
 
         if not free_used:
             # La traduction offerte : une page, celle que le plan autorise.
@@ -344,6 +349,7 @@ async def translate_endpoint(
                     },
                 )
             locked.page_credits -= needed
+            usage_kind = KIND_CREDITS
             # Pas de `cap_pages_for_plan` ici : ces pages sont payées, les
             # plafonner à une seule reviendrait à encaisser sans livrer.
             #
@@ -352,6 +358,7 @@ async def translate_endpoint(
             # acheteur ne pourrait ni voir en clair ni télécharger.
             doc_is_paid = True
     else:
+        usage_kind = KIND_PLAN
         pages_set = cap_pages_for_plan(pages_set, ext, page_limit)
 
         # ── Plans payants : quota de pages du MOIS ────────────────────────────
@@ -367,22 +374,15 @@ async def translate_endpoint(
             await db.execute(
                 select(User).where(User.id == current_user.id).with_for_update()
             )
-            month_start = datetime.now(timezone.utc).replace(
-                day=1, hour=0, minute=0, second=0, microsecond=0)
-            r = await db.execute(
-                select(func.coalesce(func.sum(Document.page_count), 0)).where(
-                    Document.user_id == current_user.id,
-                    Document.created_at >= month_start,
-                )
-            )
-            deja = int(r.scalar() or 0)
+            deja = await usage.pages_used_this_month(db, current_user)
             demande = len(pages_set) if pages_set else count_pages(file_bytes, ext)
             if deja + demande > monthly:
+                _debut, repart = usage.quota_period(current_user)
                 raise HTTPException(
                     status_code=402,
-                    detail=(f"Vous avez déjà traduit {deja} page(s) ce mois-ci "
+                    detail=(f"Vous avez déjà traduit {deja} page(s) sur cette période "
                             f"(limite : {monthly}). Ce document en demande {demande}. "
-                            "Le compteur repart le 1er du mois prochain."),
+                            f"Le compteur repart le {repart:%d/%m/%Y}."),
                 )
 
     # Ce qui sera RÉELLEMENT traduit — enregistré sur le Document, sinon le
@@ -448,6 +448,16 @@ async def translate_endpoint(
         job_args = (job_id, file_bytes, original_path, output_path,
                     output_filename, partial_path, translation_path, target_lang,
                     pages_set, debug_mode, is_admin)
+    elif ext == "xlsx":
+        # XLSX → aperçu progressif FEUILLE PAR FEUILLE. La traduction, elle,
+        # reste d'un bloc : `sharedStrings.xml` est commun à tout le classeur
+        # et une même chaîne peut servir dix feuilles, donc aucune ne peut la
+        # revendiquer. C'est l'AFFICHAGE qui est progressif, pas la traduction.
+        partial_path = os.path.join(lang_dir, f"partial{qsuffix}{psuffix}_{job_id[:8]}.pdf")
+        target = run_xlsx_progressive_job
+        job_args = (job_id, file_bytes, original_path, output_path,
+                    output_filename, partial_path, translation_path, target_lang,
+                    model, max_tokens, debug_mode)
     else:
         target = run_translation_job
         job_args = (job_id, file_bytes, filename, ext, target_lang, format_opts,
@@ -462,9 +472,16 @@ async def translate_endpoint(
     # pendant que le job de B démarre → les fichiers communs sont purgés sous
     # ses pieds ; (2) un cache-hit terminait le job avant que `document_id` ne
     # soit lié → le Document restait « translating » pour toujours.
-    await _save_document_for_user(current_user, db, job_id, filename,
-                                  target_lang, original_path, len(file_bytes),
-                                  paid=doc_is_paid, page_count=pages_facturees)
+    try:
+        await _save_document_for_user(current_user, db, job_id, filename,
+                                      target_lang, original_path, len(file_bytes),
+                                      paid=doc_is_paid, page_count=pages_facturees,
+                                      usage_kind=usage_kind)
+    except Exception:
+        # Rien ne sera soumis : le job ouvert plus haut resterait « pending »
+        # en mémoire, sans document ni worker, jusqu'au ménage.
+        jobs.forget(job_id)
+        raise
 
     # File de PRIORITÉ, plus de thread lancé à la volée : l'ordonnanceur place le
     # job selon le niveau du plan (admin > pro > starter > gratuit) et le fait
@@ -577,8 +594,12 @@ async def translation_partial(job_id: str, x_api_key: str = Header(None),
     path = job.get("partial_path")
     if not path or not os.path.exists(path):
         raise HTTPException(status_code=202, detail="Aucune page prête pour l'instant.")
-    with open(path, "rb") as f:
-        data = f.read()
+    # Lecture et rastérisation HORS de la boucle : appelé à chaque page du
+    # flux, un appel bloquant ici figeait toute l'application, SSE compris.
+    def _lire() -> bytes:
+        with open(path, "rb") as f:
+            return f.read()
+    data = await run_in_threadpool(_lire)
 
     # PLAN D'ESSAI : jamais le clair. On envoyait le PDF traduit tel quel et on
     # comptait sur le navigateur pour l'assombrir — mesuré : un compte `free`
@@ -590,7 +611,7 @@ async def translation_partial(job_id: str, x_api_key: str = Header(None),
     # plan retiré du barème) est traité comme non payant. `== FREE_PLAN`
     # donnait l'inverse : tout ce qui n'était pas littéralement "free" passait.
     if not await _droit_au_clair(job, current_user, db):
-        data = rasterize_for_trial(data, job.get("pages"))
+        data = await run_in_threadpool(rasterize_for_trial, data, job.get("pages"))
 
     return Response(content=data, media_type="application/pdf",
                     headers={"Cache-Control": "no-store"})

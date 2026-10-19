@@ -12,6 +12,8 @@ export interface AuthUser {
   email_verified: boolean;
   avatar_url: string | null;
   plan: string;
+  /** Fin de l'abonnement acheté (ISO) ; null = sans échéance. */
+  plan_expires_at?: string | null;
   storage_used: number;
   storage_limit: number;
 }
@@ -155,7 +157,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     const res = await api.get('/api/auth/me');
-    if (res.ok) setUser(res.data as AuthUser);
+    if (!res.ok) return;
+    // Profil inchangé → même objet : sans cela chaque relecture (ouverture du
+    // tiroir de compte, notamment) re-rendait toute l'application en plein
+    // milieu de l'animation.
+    const frais = res.data as AuthUser;
+    setUser(prev => (prev && JSON.stringify(prev) === JSON.stringify(frais) ? prev : frais));
   }, []);
 
   return (

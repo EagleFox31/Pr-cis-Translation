@@ -21,6 +21,7 @@ d'appeler un service depuis un script, sans rien entraîner derrière.
 """
 from __future__ import annotations
 
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -41,8 +42,8 @@ async def _lifespan(_app: FastAPI):
     et chaque ligne apparaissait en double. Seul le worker traverse le lifespan.
     """
     from app.services import office
-    from app.services.startup import (balayer_partiels_orphelins,
-                                      reconcilier_jobs_orphelins)
+    from app.services.startup import reconcilier_jobs_orphelins
+    from app.services.stockage import balayer_au_demarrage
 
     # `print` peut LEVER : la console Windows est en cp1252, et un caractère
     # hors de cette table (une flèche, un symbole d'avertissement) faisait
@@ -59,10 +60,21 @@ async def _lifespan(_app: FastAPI):
     from app.services.error_log import install_db_log_handler
     install_db_log_handler()
     await reconcilier_jobs_orphelins()
-    balayer_partiels_orphelins()
+    # APRÈS la réconciliation : les jobs perdus sont clos, la table des jobs
+    # est vide, tout ce qui appartient à un job est orphelin par construction.
+    await balayer_au_demarrage()
     office.prewarm()
+    # Décor de l'aperçu d'essai : ~5 s au premier calque, payées ici en tâche
+    # de fond plutôt que par le premier visiteur gratuit après un déploiement.
+    from app.services import trial_preview
+    threading.Thread(target=trial_preview.prechauffer, daemon=True).start()
+    # Alertes de coût DeepSeek : solde bas, dépense du jour, solde épuisé.
+    import asyncio
+    from app.services import solde_ia
+    surveillance_solde = asyncio.create_task(solde_ia.surveiller())
     _afficher_banniere()
     yield
+    surveillance_solde.cancel()
 
 
 def _afficher_banniere() -> None:

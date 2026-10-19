@@ -2236,31 +2236,48 @@ footer {
     box-sizing: border-box;
   }
 
-  /* ── APERÇU (normal) : tenir EXACTEMENT sur une hauteur d'écran ──────────
-     `.app` fait déjà `calc(100vh - var(--nav-h))`. Il suffit donc que la
-     section d'aperçu ne garde en haut que le dégagement de la navbar (et rien
-     en bas) : navbar (72) + app (100vh-72) = 100vh pile → la section snappe
-     proprement, sans débordement. */
-  html.preview-active .story-band {
-    padding-top: var(--nav-h) !important;
-    padding-bottom: 0 !important;
-    justify-content: flex-start;
-  }
-
-  /* ── MODE AGRANDI (focus) : l'aperçu prend tout le cadre sous la navbar ──
-     Surcouche fixe, pleine largeur (on retire le cadre de 1240px pour exploiter
-     l'écran), snap coupé (géré sur `html.preview-focus` plus haut). */
-  html.preview-focus .story-band {
-    position: fixed;
-    inset: var(--nav-h) 0 0 0;
-    z-index: 900;
-    min-height: 0;
-    padding: 0 !important;
-  }
+  /* ── MODE AGRANDI (focus) : pleine largeur, on retire le cadre de 1240px ── */
   html.preview-focus .story-band .section-inner {
     max-width: none !important;
     padding: 0 !important;
   }
+}
+
+/* ── APERÇU : une vue à part entière, à toutes les largeurs ──────────────────
+   L'aperçu ne vit plus DANS le défilement de la page : la section devient une
+   surcouche fixe sous la navbar, exactement à la hauteur de l'écran. La page
+   derrière ne défile plus ; seul le document défile (`.scroll`). `inset` et non
+   `100vh` : sur mobile, 100vh inclut la barre d'adresse et coupait le bas.
+   `!important` sur `position` : la section porte `position: relative` en ligne. */
+html.preview-active,
+html.preview-active body {
+  overflow: hidden;
+  scroll-snap-type: none;
+}
+html.preview-active .story-band {
+  position: fixed !important;
+  inset: var(--nav-h) 0 0 0;
+  z-index: 900;
+  height: auto;
+  min-height: 0;
+  padding: 0 !important;
+}
+html.preview-active .story-band .section-inner {
+  height: 100%;
+  min-height: 0;
+}
+html.preview-active .content-viewer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+html.preview-active .app {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+html.preview-active .scroll {
+  overscroll-behavior: contain;
 }
 
 /* ============================
@@ -2472,8 +2489,9 @@ footer {
 .ui-drawer__voile {
   position: fixed;
   inset: 0;
-  background: rgba(13, 27, 62, .38);
-  backdrop-filter: blur(3px);
+  /* Pas de backdrop-filter : un flou plein écran recalculé à chaque image du
+     fondu faisait saccader l'ouverture du tiroir. */
+  background: rgba(13, 27, 62, .45);
   z-index: 1100;
 }
 .ui-drawer {
@@ -2484,6 +2502,7 @@ footer {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  will-change: transform;
   background: var(--white);
 }
 .ui-drawer--right { right: 0; box-shadow: -8px 0 40px rgba(13, 27, 62, .18); }
@@ -2622,6 +2641,12 @@ footer {
 }
 .compte__ligne--discrete { color: var(--gray-500); font-style: italic; }
 .compte__couronne { color: #ca8a04; }
+.compte__conso { margin-bottom: 8px; }
+.compte__note {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--gray-500);
+}
 .compte__chiffres {
   font-size: 12px;
   color: var(--gray-500);
@@ -3073,6 +3098,18 @@ footer {
 }
 .option--allumee { background: #fef9c3; border-color: #facc15; }
 .option--inactive { cursor: not-allowed; opacity: .6; }
+.option--compacte { position: relative; align-items: center; padding: 6px 8px; }
+.option--compacte .option__case { margin-top: 0; }
+
+/* Masqué à l'écran, lu par les lecteurs d'écran. */
+.masque-visuel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 .option:has(.option__case:focus-visible) {
   outline: 2px solid var(--blue-bright);
   outline-offset: 2px;
@@ -3102,4 +3139,41 @@ footer {
   font-size: 11px;
   line-height: 1.45;
   color: var(--gray-500);
+}
+
+/* Aperçu sur écran étroit : un volet à la fois, choisi par cette bascule. */
+.cv-bascule{display:inline-flex;padding:3px;border-radius:999px;background:var(--color-background-secondary,#f1f5f9);border:1px solid var(--color-border-tertiary,#e2e8f0)}
+.cv-bascule button{min-height:36px;padding:6px 16px;border:0;border-radius:999px;background:transparent;color:var(--color-text-secondary,#475569);font-size:13px;font-weight:500;cursor:pointer}
+.cv-bascule button[aria-pressed="true"]{background:var(--color-background-primary,#fff);color:var(--color-text-primary,#0f172a);box-shadow:0 1px 2px rgba(15,23,42,.12)}
+.cv-bascule button:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
+
+/* ── APERÇU SUR TÉLÉPHONE : visionneuse bord à bord ─────────────────────────
+   Le CONTENEUR est bord à bord (ni cadre ni marge) ; le document garde une
+   marge à l'intérieur, et défile verticalement (calage en largeur dans
+   PdfViewer, qui lit cette marge). Les miniatures passent SOUS le document,
+   en bande horizontale ; elles remplacent la pagination de la barre du haut.
+   Seuil = COMPACT_MAX_PX. */
+@media (max-width: 680px) {
+  html.preview-active .story-band .section-inner { padding: 0 !important; }
+  html.preview-active .content-viewer { padding-right: 0 !important; }
+  html.preview-active .app { border: 0; border-radius: 0; }
+  html.preview-active .body { flex-direction: column; }
+  html.preview-active .main { order: 1; min-height: 0; }
+  html.preview-active .sidebar {
+    order: 2; width: auto; flex-direction: row; align-items: flex-start;
+    overflow-x: auto; overflow-y: hidden; gap: 6px; padding: 6px 12px;
+    padding-bottom: calc(6px + env(safe-area-inset-bottom));
+    border-right: 0; border-top: 0.5px solid var(--color-border-tertiary);
+  }
+  /* Le numéro est posé DANS la miniature : pas de ligne à lui sous le cadre. */
+  html.preview-active .thumb { width: 38px; flex-shrink: 0; gap: 0; position: relative; }
+  html.preview-active .thumb-frame { width: 38px; height: 52px; padding: 4px 3px; }
+  html.preview-active .thumb-num {
+    position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%);
+    font-size: 9px; line-height: 13px; padding: 0 4px;
+  }
+  html.preview-active .scroll { padding: 12px; align-items: flex-start; }
+  .docbar { padding: 0 6px; gap: 4px; }
+  .docbar-pages, .docbar-fil, .docbar-agrandir { display: none !important; }
+  .cv-bascule button { min-height: 32px; padding: 4px 14px; white-space: nowrap; }
 }

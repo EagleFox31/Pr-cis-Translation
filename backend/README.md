@@ -43,7 +43,7 @@ app/
   services/        le travail : jobs, exécuteurs, cache de rendu, aperçus
 engines/           les moteurs — n'importent JAMAIS app/
 migrations/        Alembic
-tests/             13 suites, 313 contrôles, hors ligne
+tests/             21 suites, 418 controles, hors ligne
 ```
 
 Le détail des couches et de leurs interdits : [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
@@ -98,7 +98,7 @@ venv/Scripts/python.exe seed_admin.py            # crée le compte administrateu
 
 ## Tests
 
-Treize suites, **313 contrôles**, sans réseau et sans DeepSeek. Chacune
+Vingt et une suites, **418 contrôles**, sans réseau et sans DeepSeek. Chacune
 s'exécute seule :
 
 ```bash
@@ -140,8 +140,11 @@ illimitées et un stockage croissant. Les valeurs exactes (quotas, prix, zones) 
 sont **pas** en dur ici : source unique dans `app/models/` et `app/core/` (tarifs).
 Le droit acquis à un paiement porte sur **le document**, pas sur le plan.
 
-Compte administrateur : `seed_admin.py` (usage unique) — stockage illimité et mode
-« précis » activable.
+Compte administrateur : `seed_admin.py`, lancé à chaque démarrage du conteneur
+(`ADMIN_EMAIL`, idempotent) — stockage illimité et mode « précis » activable.
+Remise à zéro complète (toutes les tables + fichiers traduits, puis l'admin
+seul) : `reinitialiser_donnees.py --confirmer EFFACER-TOUT` ; sans la phrase,
+il n'affiche que ce qu'il effacerait.
 
 ## Documentation de l'API
 

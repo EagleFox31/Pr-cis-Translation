@@ -120,8 +120,32 @@ fi
 docker compose "${COMPOSE_FILES[@]}" --project-name "$COMPOSE_PROJECT_NAME" \
   --env-file "$ENV_FILE" config --quiet
 
+# Build before taking the migration backup, so a failed build cannot affect
+# the running release. The application entrypoint migrates only during `up`.
 docker compose "${COMPOSE_FILES[@]}" --project-name "$COMPOSE_PROJECT_NAME" \
-  --env-file "$ENV_FILE" up -d --build --wait --wait-timeout 300
+  --env-file "$ENV_FILE" build
+
+if [[ "$LIFECYCLE" == persistent ]] && \
+   [[ -n "$(docker compose "${COMPOSE_FILES[@]}" --project-name "$COMPOSE_PROJECT_NAME" --env-file "$ENV_FILE" ps -q db)" ]]; then
+  BACKUP_DIR="/opt/appfactory/precis-translation/backups/$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short=12 HEAD)"
+  install -d -m 0700 "$BACKUP_DIR"
+  docker compose "${COMPOSE_FILES[@]}" --project-name "$COMPOSE_PROJECT_NAME" --env-file "$ENV_FILE" \
+    exec -T db sh -eu -c 'exec pg_dump --format=custom --username="$POSTGRES_USER" "$POSTGRES_DB"' \
+    > "$BACKUP_DIR/postgres.dump.tmp"
+  test -s "$BACKUP_DIR/postgres.dump.tmp"
+  docker compose "${COMPOSE_FILES[@]}" --project-name "$COMPOSE_PROJECT_NAME" --env-file "$ENV_FILE" \
+    exec -T db pg_restore --list < "$BACKUP_DIR/postgres.dump.tmp" > /dev/null
+  mv "$BACKUP_DIR/postgres.dump.tmp" "$BACKUP_DIR/postgres.dump"
+  docker compose "${COMPOSE_FILES[@]}" --project-name "$COMPOSE_PROJECT_NAME" --env-file "$ENV_FILE" \
+    exec -T backend tar -C /app/backend/translations -czf - . > "$BACKUP_DIR/translations.tar.gz.tmp"
+  gzip -t "$BACKUP_DIR/translations.tar.gz.tmp"
+  mv "$BACKUP_DIR/translations.tar.gz.tmp" "$BACKUP_DIR/translations.tar.gz"
+  (cd "$BACKUP_DIR" && sha256sum postgres.dump translations.tar.gz > SHA256SUMS)
+  printf '%s\n' "Pre-migration backup verified: $BACKUP_DIR"
+fi
+
+docker compose "${COMPOSE_FILES[@]}" --project-name "$COMPOSE_PROJECT_NAME" \
+  --env-file "$ENV_FILE" up -d --no-build --wait --wait-timeout 300
 
 if [[ "$LIFECYCLE" == persistent ]]; then
   docker compose "${COMPOSE_FILES[@]}" --project-name "$COMPOSE_PROJECT_NAME" --env-file "$ENV_FILE" \

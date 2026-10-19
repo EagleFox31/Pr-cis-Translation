@@ -23,6 +23,7 @@ import io
 import re
 import json
 import math
+import logging
 import base64
 from pathlib import Path
 from collections import defaultdict
@@ -30,6 +31,9 @@ from collections import defaultdict
 import fitz  # PyMuPDF >= 1.23
 
 from . import reflow
+from .version import ENGINE_VERSION
+
+_log = logging.getLogger(__name__)
 
 # Caractères de contrôle parasites (hors \t \n \r) à purger du texte extrait.
 _CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
@@ -166,6 +170,388 @@ def _drawing_item_boxes(el):
     return boxes
 
 
+def _walk_clips(trace):
+    """Parcourt `get_drawings(extended=True)` en tenant la pile des découpes.
+
+    Rend (entrée, pile) où `pile` = découpes ACTIVES au niveau de l'entrée.
+    Une entrée de niveau L ferme tout ce qui a été ouvert à un niveau >= L
+    (MuPDF numérote les q/Q) ; une découpe s'empile ensuite à son niveau."""
+    pile = []
+    for d in trace:
+        lvl = d.get("level") or 0
+        pile = [c for c in pile if (c.get("level") or 0) < lvl]
+        yield d, pile
+        if d.get("type") == "clip":
+            pile = pile + [d]
+
+
+def _image_bytes(doc, xref):
+    """Octets d'une image de `doc` et leur extension — (None, "png") si illisible.
+
+    Partagé par l'extraction (copie dans le JSON) et le rendu (relecture dans
+    l'original quand le JSON ne garde que le `xref`) : les deux doivent
+    produire EXACTEMENT les mêmes octets.
+    """
+    # Octets de l'image (extraits une fois par xref). Si l'image a un
+    # masque de transparence (SMask), on la compose avec son alpha en
+    # PNG — sinon les zones transparentes deviennent noires à la
+    # réinjection (insert_image ne connaît pas le masque séparé).
+    img_bytes, ext = None, "png"
+    try:
+        extracted = doc.extract_image(xref)
+        smask_xref = extracted.get("smask", 0)
+        if smask_xref:
+            base = fitz.Pixmap(doc, xref)
+            if base.alpha:
+                base = fitz.Pixmap(base, 0)          # retire alpha existant
+            if base.colorspace and base.colorspace.n > 3:
+                base = fitz.Pixmap(fitz.csRGB, base)  # CMYK -> RGB
+            mask = fitz.Pixmap(doc, smask_xref)
+            pix = fitz.Pixmap(base, mask)             # applique l'alpha
+            img_bytes = pix.tobytes("png")
+            ext = "png"
+        else:
+            img_bytes = extracted["image"]
+            ext = extracted.get("ext", "png")
+    except Exception:
+        # Repli : pixmap composite direct.
+        try:
+            pix = fitz.Pixmap(doc, xref)
+            if pix.colorspace and pix.colorspace.n > 3:
+                pix = fitz.Pixmap(fitz.csRGB, pix)
+            img_bytes = pix.tobytes("png")
+            ext = "png"
+        except Exception:
+            img_bytes, ext = None, "png"
+
+    return img_bytes, ext
+
+
+_mu = getattr(fitz, "mupdf", None)
+
+
+if _mu is not None:
+    class _ClipPathWalker(_mu.FzPathWalker2):
+        """Relève un chemin de découpe en items `get_drawings()` (coordonnées
+        page). `rectto` donne un « re » quand la matrice garde les axes."""
+
+        def __init__(self, ctm):
+            super().__init__()
+            self.use_virtual_moveto()
+            self.use_virtual_lineto()
+            self.use_virtual_curveto()
+            self.use_virtual_closepath()
+            self.use_virtual_rectto()
+            self.ctm = ctm
+            self.items = []
+            self.cur = self.start = None
+
+        def _p(self, x, y):
+            p = _mu.fz_transform_point(_mu.FzPoint(x, y), self.ctm)
+            return fitz.Point(p.x, p.y)
+
+        def moveto(self, ctx, x, y):
+            self.cur = self.start = self._p(x, y)
+
+        def lineto(self, ctx, x, y):
+            p = self._p(x, y)
+            self.items.append(("l", self.cur, p))
+            self.cur = p
+
+        def curveto(self, ctx, x1, y1, x2, y2, x3, y3):
+            p = self._p(x3, y3)
+            self.items.append(("c", self.cur, self._p(x1, y1), self._p(x2, y2), p))
+            self.cur = p
+
+        def closepath(self, ctx):
+            if self.cur is not None and self.start is not None and self.cur != self.start:
+                self.items.append(("l", self.cur, self.start))
+            self.cur = self.start
+
+        def rectto(self, ctx, x0, y0, x1, y1):
+            pts = [self._p(x0, y0), self._p(x1, y0), self._p(x1, y1), self._p(x0, y1)]
+            if (abs(pts[0].y - pts[1].y) < 1e-3 and abs(pts[1].x - pts[2].x) < 1e-3):
+                self.items.append(("re", fitz.Rect(pts[0], pts[2]).normalize()))
+            else:
+                for a, b in zip(pts, pts[1:] + pts[:1]):
+                    self.items.append(("l", a, b))
+            self.cur = self.start = pts[0]
+
+    class _ImageClipDevice(_mu.FzDevice2):
+        """Device MuPDF qui tient la pile des découpes RÉELLEMENT actives et la
+        relève à chaque image peinte : aucune déduction par voisinage.
+
+        Une découpe que le PDF ne sait pas rejouer en « chemin W n » (texte,
+        masque d'image, contour de trait) entre dans la pile comme `None` : elle
+        compte pour `pop_clip`, mais l'image n'en reçoit aucune approximation."""
+
+        def __init__(self):
+            super().__init__()
+            for n in ("clip_path", "clip_stroke_path", "clip_text",
+                      "clip_stroke_text", "clip_image_mask", "pop_clip",
+                      "fill_image"):
+                getattr(self, "use_virtual_" + n)()
+            self.pile = []
+            self.images = []
+
+        def clip_path(self, ctx, path, even_odd, ctm, scissor):
+            w = _ClipPathWalker(_mu.FzMatrix(ctm))
+            _mu.fz_walk_path(_mu.FzPath(_mu.ll_fz_keep_path(path)), w, w.m_internal)
+            self.pile.append({"items": w.items, "even_odd": bool(even_odd)}
+                             if w.items else None)
+
+        def clip_stroke_path(self, ctx, *args):
+            self.pile.append(None)
+
+        def clip_text(self, ctx, *args):
+            self.pile.append(None)
+
+        def clip_stroke_text(self, ctx, *args):
+            self.pile.append(None)
+
+        def clip_image_mask(self, ctx, *args):
+            self.pile.append(None)
+
+        def pop_clip(self, ctx):
+            if self.pile:
+                self.pile.pop()
+
+        def fill_image(self, ctx, image, ctm, alpha, color_params):
+            r = _mu.fz_transform_rect(_mu.FzRect(0, 0, 1, 1), _mu.FzMatrix(ctm))
+            self.images.append((fitz.Rect(r.x0, r.y0, r.x1, r.y1), list(self.pile)))
+
+
+def _image_clip_stacks(page):
+    """Pour chaque image peinte, dans l'ordre de peinture : (rectangle, pile
+    des découpes actives). Liste vide si le device MuPDF est indisponible."""
+    if _mu is None:
+        return []
+    try:
+        dev = _ImageClipDevice()
+        # `fz_run_page` peint dans l'espace de la page PIVOTÉE ; le bboxlog et
+        # les bbox d'images sont dans l'espace NON pivoté. On dé-pivote, sans
+        # quoi une découpe de page `/Rotate 90` serait rejouée ailleurs.
+        _mu.fz_run_page(page.this, dev, _mu.FzMatrix(*page.derotation_matrix),
+                        _mu.FzCookie())
+        return dev.images
+    except Exception as exc:
+        _log.warning("découpes d'images non relevées (page %s) : %s",
+                     getattr(page, "number", "?"), exc)
+        return []
+
+
+def _effective_clips(pile, rect):
+    """Les découpes de `pile` qui changent quelque chose à `rect`, sérialisées.
+
+    Un rectangle de découpe qui contient l'objet n'a aucun effet (cas de la
+    quasi-totalité des PDF : tout sous un clip pleine page) : on l'omet, le
+    JSON n'enfle pas pour rien. Une découpe par CONTOUR de trait (`even_odd`
+    à None chez MuPDF) n'a pas d'équivalent « chemin W n » : on l'omet plutôt
+    que de la rejouer en découpe par l'intérieur du chemin."""
+    out = []
+    try:
+        r = fitz.Rect(rect)
+    except Exception:
+        return out
+    for c in pile:
+        items = c.get("items") or []
+        if not items or c.get("even_odd") is None:
+            continue
+        if (len(items) == 1 and items[0][0] == "re"
+                and fitz.Rect(items[0][1]).contains(r)):
+            continue
+        out.append({"items": [_serialize_drawing_item(it) for it in items],
+                    "even_odd": bool(c.get("even_odd"))})
+    return out
+
+
+def _sens_des_rectangles(page, el, max_rect=4):
+    """Fixe le SENS de tracé des rectangles d'un remplissage non-zéro composé.
+
+    En non-zéro, un sous-chemin tracé à contresens d'un autre y perce un trou
+    (icônes : enveloppe, calendrier). MuPDF ramène un « m l l l h »
+    rectangulaire à un item `re` dont le drapeau `orientation` ne dit pas le
+    vrai sens : mesuré, deux rectangles tracés en sens OPPOSÉS y valent tous
+    deux -1. Le seul témoin fiable est l'original : on essaie chaque
+    combinaison de sens et on garde celle dont l'encre coïncide le mieux avec
+    la page. Sans effet si le sens ne peut rien changer (un seul sous-chemin,
+    pair-impair, pas de remplissage) ; à égalité, le tracé par défaut reste."""
+    items = el.get("items") or []
+    rects = [i for i, it in enumerate(items) if it.get("op") == "re"]
+    if (not rects or len(rects) > max_rect or len(items) < 2
+            or el.get("even_odd") or el.get("fill_color") is None
+            or "f" not in (el.get("draw_type") or "") or page.rotation):
+        return
+    try:
+        bb = fitz.Rect(el["bbox"])
+        if bb.is_empty:
+            return
+        zoom = fitz.Matrix(4, 4)
+        ref = page.get_pixmap(matrix=zoom, clip=bb, colorspace=fitz.csGRAY)
+        encre = sum(el["fill_color"]) / 3 * 255
+        def masque(pix):
+            s = pix.samples
+            return [abs(v - encre) < 60 for v in s]
+        cible = masque(ref)
+        meilleur, score_max = None, -1
+        for combo in range(1 << len(rects)):
+            for k, i in enumerate(rects):
+                if combo >> k & 1:
+                    items[i]["sens"] = "horaire"
+                else:
+                    items[i].pop("sens", None)
+            doc = fitz.open()
+            pg = doc.new_page(width=page.rect.width, height=page.rect.height)
+            sh = pg.new_shape()
+            if _trace_items(sh, items):
+                sh.finish(fill=el["fill_color"], color=None, even_odd=False,
+                          closePath=False)
+                sh.commit()
+            pix = pg.get_pixmap(matrix=zoom, clip=bb, colorspace=fitz.csGRAY)
+            score = sum(a == b for a, b in zip(masque(pix), cible))
+            if score > score_max:
+                meilleur, score_max = combo, score
+        for k, i in enumerate(rects):
+            if meilleur >> k & 1:
+                items[i]["sens"] = "horaire"
+            else:
+                items[i].pop("sens", None)
+    except Exception:
+        for i in rects:
+            items[i].pop("sens", None)
+
+
+def _opaque_covers(draw_els):
+    """(seqno, rect) des aplats qui cachent À COUP SÛR ce qu'ils recouvrent :
+    rectangle plein, opaque, découpé (s'il l'est) par des rectangles seulement.
+    Tout le reste (chemin quelconque, transparence, découpe courbe) est écarté :
+    on ne déclare jamais caché un texte qui pourrait se voir."""
+    out = []
+    for el in draw_els:
+        seq = el.get("seqno")
+        items = el.get("items") or []
+        if (seq is None or el.get("fill_color") is None
+                or "f" not in (el.get("draw_type") or "")
+                or (el.get("fill_opacity") if el.get("fill_opacity")
+                    is not None else 1) < 1
+                or len(items) != 1 or items[0].get("op") != "re"):
+            continue
+        r = fitz.Rect(items[0]["rect"])
+        for c in el.get("clips") or ():
+            ci = c.get("items") or []
+            if len(ci) != 1 or ci[0].get("op") != "re":
+                r = None
+                break
+            r &= fitz.Rect(ci[0]["rect"])
+        if r is not None and not r.is_empty:
+            out.append((seq, r))
+    return out
+
+
+def _hidden_chars(page, draw_els):
+    """Caractères ENTIÈREMENT recouverts par un aplat opaque peint APRÈS eux.
+
+    Un PDF retouché dans un éditeur garde souvent son ancien texte sous un
+    rectangle blanc ou de la couleur du fond, la nouvelle version posée
+    par-dessus. Invisible dans l'original, ce texte ressortait au rendu : les
+    sections en double, décalées, chevauchant la version visible.
+    La nouvelle version est souvent posée AU MÊME ENDROIT que l'ancienne
+    (« 2026 » sur « 2024 ») : un même caractère, à la même origine, peut être
+    à la fois caché et visible. On compte donc, par (unicode, origine), les
+    occurrences cachées et visibles : `_is_hidden` retire les premières et
+    garde autant d'exemplaires que la page en montre.
+    Renvoie {unicode: [[origine, cachés, visibles], ...]}."""
+    covers = _opaque_covers(draw_els)
+    if not covers:
+        return {}
+    try:
+        trace = page.get_texttrace()
+    except Exception:
+        return {}
+    hidden = defaultdict(list)
+    for span in trace:
+        seq = span.get("seqno")
+        after = [r for s, r in covers if seq is not None and s > seq]
+        for ch in span.get("chars", ()):
+            u, origin, bb = ch[0], ch[2], fitz.Rect(ch[3])
+            if bb.is_empty:
+                bb = fitz.Rect(origin, origin)
+            cache = any((r + (-0.5, -0.5, 0.5, 0.5)).contains(bb) for r in after)
+            for e in hidden[u]:
+                if abs(e[0][0] - origin[0]) < 0.5 and abs(e[0][1] - origin[1]) < 0.5:
+                    e[1 if cache else 2] += 1
+                    break
+            else:
+                hidden[u].append([origin, int(cache), int(not cache)])
+    return {u: es for u, es in hidden.items() if any(e[1] for e in es)}
+
+
+def _is_hidden(hidden, c):
+    """Le caractère `rawdict` `c` est-il l'un des caractères cachés ? Chaque
+    réponse « oui » consomme une occurrence cachée à cette position."""
+    es = hidden.get(ord(c["c"])) if len(c["c"]) == 1 else None
+    if not es:
+        return False
+    ox, oy = c["origin"]
+    for e in es:
+        if abs(ox - e[0][0]) < 0.5 and abs(oy - e[0][1]) < 0.5:
+            if e[1] > 0:
+                e[1] -= 1
+                return True
+            return False
+    return False
+
+
+def _trace_items(shape, items):
+    """Construit dans `shape` le chemin des items sérialisés. Vrai si au moins
+    un segment a été tracé."""
+    drew = False
+    for it in items:
+        op = it.get("op")
+        try:
+            if op == "l":
+                shape.draw_line(fitz.Point(it["p1"]), fitz.Point(it["p2"]))
+                drew = True
+            elif op == "c":
+                shape.draw_bezier(fitz.Point(it["p1"]), fitz.Point(it["p2"]),
+                                  fitz.Point(it["p3"]), fitz.Point(it["p4"]))
+                drew = True
+            elif op == "re":
+                r = fitz.Rect(it["rect"])
+                if it.get("sens") == "horaire":
+                    # SENS du tracé : en remplissage non-zéro, c'est lui qui
+                    # perce un trou (icône enveloppe = cadre plein + intérieur
+                    # tracé à contresens). `draw_rect` trace en sens
+                    # antihoraire (à l'écran) ; cf. `_sens_des_rectangles`.
+                    shape.draw_polyline([r.tl, r.tr, r.br, r.bl, r.tl])
+                else:
+                    shape.draw_rect(r)
+                drew = True
+            elif op == "qu":
+                pts = it["quad"]
+                shape.draw_quad(fitz.Quad(fitz.Point(pts[0]), fitz.Point(pts[1]),
+                                          fitz.Point(pts[2]), fitz.Point(pts[3])))
+                drew = True
+        except Exception:
+            pass
+    return drew
+
+
+def _clip_ops(page, clips):
+    """Opérateurs PDF qui posent les découpes `clips` (« chemin W n », dans
+    l'ordre). Les coordonnées passent par `Shape`, qui connaît la matrice de
+    la page. Chaîne vide si rien à découper."""
+    if not clips:
+        return ""
+    ops = ""
+    for c in clips:
+        shape = page.new_shape()
+        if not _trace_items(shape, c.get("items", [])):
+            continue
+        ops += shape.draw_cont + "h " + ("W* n\n" if c.get("even_odd") else "W n\n")
+    return ops
+
+
 def _serialize_drawing(d):
     """Sérialise un dessin vectoriel complet (une entrée get_drawings())."""
     return {
@@ -244,23 +630,41 @@ class PDFObjectEngine:
         return data, output_json
 
     def extract_page_data(self, doc, page_num, page, embed_images=True,
-                          assets_dir=None):
+                          assets_dir=None, images_par_reference=False):
         """Extrait UNE page (élément `pages[]` du schéma JSON) — brique de
-        l'extraction complète et du pipeline progressif page par page."""
+        l'extraction complète et du pipeline progressif page par page.
+
+        `images_par_reference` : aucun octet d'image dans le JSON, seulement
+        le `xref` ; le rendu les relit dans l'original (`src_doc`). Les images
+        faisaient 94 % d'un `pages.json`, recopiées pour chaque langue et
+        chaque plage de pages alors que l'original, conservé, les contient."""
         page_data = {
             "page_num": page_num + 1,
             "width": page.rect.width,
             "height": page.rect.height,
+            # Version qui a DÉCOUPÉ la page : une page sauvegardée rejoue les
+            # décisions de ce moteur-là (paragraphes, alignements, cadres).
+            # Un autre numéro la désigne comme à redécouper (cf. stream.py).
+            "moteur": ENGINE_VERSION,
             "elements": [],
         }
         # Ordre de peinture (du fond vers l'avant), pour que les
         # objets se recouvrent comme dans l'original : dessins
         # vectoriels / fonds d'abord, puis images, puis texte au-dessus.
-        draw_els = self._extract_drawings(page)
+        #
+        # Les dessins et les images sont ensuite RE-TRIÉS sur leur numéro
+        # d'ordre de peinture (`seqno`) : une image peinte AVANT un fond qui la
+        # recouvre en partie doit rester dessous, et inversement.
+        trace = self._drawing_trace(page)
+        draw_els = self._extract_drawings(page, trace)
         img_els = self._extract_images(
-            doc, page, page_num, embed_images, assets_dir)
-        page_data["elements"].extend(draw_els)
-        page_data["elements"].extend(img_els)
+            doc, page, page_num, embed_images, assets_dir,
+            images_par_reference)
+        self._attach_image_order(page, img_els)
+        graphiques = draw_els + img_els
+        graphiques.sort(key=lambda e: e.get("seqno")
+                        if e.get("seqno") is not None else math.inf)
+        page_data["elements"].extend(graphiques)
         text_lines = self._extract_text(page, draw_els, img_els)
         if self.group_paragraphs:
             ctx = self._build_page_ctx(page, text_lines,
@@ -290,7 +694,8 @@ class PDFObjectEngine:
         #    CID/Type0 (Identity-H) sont embarquées sans cmap Unicode : on la
         #    reconstruit à partir de get_texttrace() qui expose, pour chaque
         #    caractère, son code Unicode ET son glyph-id dans le sous-ensemble.
-        u2g_by_xref = defaultdict(dict)     # xref -> {unicode: gid}
+        u2g_by_xref = defaultdict(dict)     # xref -> {unicode: {gid, ...}}
+        glyph_info = {}                     # xref -> (nb glyphes, cmap Unicode)
         name_xrefs = defaultdict(set)       # nom propre -> {xref, ...}
         name_ext = {}                       # xref -> ext
         for pno in range(len(doc)):
@@ -317,10 +722,16 @@ class PDFObjectEngine:
                 xrefs = page_name2xref.get(nm)
                 if not xrefs:
                     continue
-                for ch in span.get("chars", []):
-                    u, g = ch[0], ch[1]
-                    for xr in xrefs:     # ambiguïté (rare) : on renseigne tous
-                        u2g_by_xref[xr][u] = g
+                chars = [(ch[0], ch[1]) for ch in span.get("chars", [])]
+                for xr in self._span_owners(doc, xrefs, chars, glyph_info):
+                    for u, g in chars:
+                        u2g_by_xref[xr].setdefault(u, set()).add(g)
+        # Un unicode vu sous DEUX glyph-id différents pour un même xref : la
+        # trace n'a pas su dire à quel sous-ensemble il appartenait. Mieux vaut
+        # pas de glyphe (repli de police) qu'un glyphe FAUX.
+        u2g_by_xref = {xr: {u: next(iter(gs)) for u, gs in m.items()
+                            if len(gs) == 1}
+                       for xr, m in u2g_by_xref.items()}
 
         # 2) Extraction des octets de chaque sous-ensemble + patch de cmap si
         #    nécessaire. On garde TOUS les sous-ensembles d'un même nom : à la
@@ -340,6 +751,43 @@ class PDFObjectEngine:
                     "b64": base64.b64encode(buf).decode("ascii"),
                 })
         return fonts
+
+    @staticmethod
+    def _span_owners(doc, xrefs, chars, glyph_info):
+        """Sous-ensemble(s) auxquels attribuer les (unicode, gid) d'un span.
+
+        La trace ne donne que le nom SANS préfixe : deux sous-ensembles
+        homonymes (« AAAAAA+LiberationSerif » d'un éditeur, « JTNSRL+… » du
+        générateur d'origine) y sont indiscernables. Renseigner les deux
+        mélangeait leurs glyph-id : la cmap reconstruite de l'un pointait vers
+        les glyphes de l'autre, et « PROFIL » se rendait « P+OFI' ».
+        On départage par COHÉRENCE : un sous-ensemble à cmap Unicode revendique
+        le span si sa cmap donne exactement ces gid ; sinon le span revient aux
+        candidats sans cmap Unicode qui ont assez de glyphes pour l'afficher."""
+        if len(xrefs) == 1:
+            return xrefs
+        for xr in xrefs:
+            if xr not in glyph_info:
+                n, cmap = 0, {}
+                try:
+                    from fontTools.ttLib import TTFont
+                    ft = TTFont(io.BytesIO(doc.extract_font(xr)[3]))
+                    n = len(ft.getGlyphOrder())
+                    cmap = {u: ft.getGlyphID(name)
+                            for u, name in (ft.getBestCmap() or {}).items()}
+                except Exception:
+                    pass
+                glyph_info[xr] = (n, cmap)
+        def plausible(xr):
+            n = glyph_info[xr][0]
+            return n == 0 or all(g < n for _, g in chars)
+        avec = [xr for xr in xrefs if glyph_info[xr][1]]
+        for xr in avec:
+            cmap = glyph_info[xr][1]
+            if plausible(xr) and all(cmap.get(u) == g for u, g in chars):
+                return [xr]
+        sans = [xr for xr in xrefs if not glyph_info[xr][1] and plausible(xr)]
+        return sans
 
     @staticmethod
     def _maybe_patch_cmap(buf, u2g):
@@ -589,6 +1037,7 @@ class PDFObjectEngine:
         # Le texte, lui, reste INTACT (les espaces de tête sont un signal pour
         # les titres à lettres espacées), et `origin` aussi (peinture source).
         raw = page.get_text("rawdict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
+        hidden = _hidden_chars(page, draw_els)
         spans = []
         for block in raw.get("blocks", []):
             if block.get("type") != 0:      # 0 = texte
@@ -601,8 +1050,10 @@ class PDFObjectEngine:
                     # « Note: »), ils créent des spans/lignes parasites qui
                     # cassent le regroupement en lignes et paragraphes. Filtrés
                     # AU CARACTÈRE pour rester alignés avec leurs positions.
+                    # Idem pour les caractères CACHÉS sous un aplat opaque.
                     chars = [c for c in span.get("chars", ())
-                             if _CTRL_RE.sub("", c["c"])]
+                             if _CTRL_RE.sub("", c["c"])
+                             and not (hidden and _is_hidden(hidden, c))]
                     text = "".join(c["c"] for c in chars)
                     if not text.strip():
                         continue
@@ -2470,7 +2921,8 @@ class PDFObjectEngine:
         return re.sub(r"\s{2,}", " ", res)
 
     # ── Images : une occurrence = un objet ───────────────────────────────────
-    def _extract_images(self, doc, page, page_num, embed_images, assets_dir):
+    def _extract_images(self, doc, page, page_num, embed_images, assets_dir,
+                        images_par_reference=False):
         elements = []
         try:
             infos = page.get_images(full=True)
@@ -2484,37 +2936,12 @@ class PDFObjectEngine:
                 rects = []
             if not rects:
                 continue
-            # Octets de l'image (extraits une fois par xref). Si l'image a un
-            # masque de transparence (SMask), on la compose avec son alpha en
-            # PNG — sinon les zones transparentes deviennent noires à la
-            # réinjection (insert_image ne connaît pas le masque séparé).
-            img_bytes, ext = None, "png"
-            try:
-                extracted = doc.extract_image(xref)
-                smask_xref = extracted.get("smask", 0)
-                if smask_xref:
-                    base = fitz.Pixmap(doc, xref)
-                    if base.alpha:
-                        base = fitz.Pixmap(base, 0)          # retire alpha existant
-                    if base.colorspace and base.colorspace.n > 3:
-                        base = fitz.Pixmap(fitz.csRGB, base)  # CMYK -> RGB
-                    mask = fitz.Pixmap(doc, smask_xref)
-                    pix = fitz.Pixmap(base, mask)             # applique l'alpha
-                    img_bytes = pix.tobytes("png")
-                    ext = "png"
-                else:
-                    img_bytes = extracted["image"]
-                    ext = extracted.get("ext", "png")
-            except Exception:
-                # Repli : pixmap composite direct.
-                try:
-                    pix = fitz.Pixmap(doc, xref)
-                    if pix.colorspace and pix.colorspace.n > 3:
-                        pix = fitz.Pixmap(fitz.csRGB, pix)
-                    img_bytes = pix.tobytes("png")
-                    ext = "png"
-                except Exception:
-                    img_bytes, ext = None, "png"
+            if images_par_reference:
+                for rect in rects:
+                    elements.append({"type": "image", "bbox": _rect(rect),
+                                     "xref": xref})
+                continue
+            img_bytes, ext = _image_bytes(doc, xref)
 
             asset_ref = None
             asset_b64 = None
@@ -2538,16 +2965,88 @@ class PDFObjectEngine:
                 })
         return elements
 
+
     # ── Dessins vectoriels : un tracé = un objet ─────────────────────────────
-    def _extract_drawings(self, page):
-        elements = []
+    def _drawing_trace(self, page):
+        """`get_drawings(extended=True)` : les tracés PEINTS, mais aussi les
+        tracés de DÉCOUPE (clip) et leur profondeur d'imbrication (`level`)."""
         try:
-            drawings = page.get_drawings()
+            return page.get_drawings(extended=True)
         except Exception:
-            drawings = []
-        for d in drawings:
-            elements.append(_serialize_drawing(d))
+            return []
+
+    def _extract_drawings(self, page, trace=None):
+        """Un élément par tracé peint, avec les découpes qui le bornent.
+
+        LES DÉCOUPES COMPTENT. Une photo ronde est très souvent une image
+        CARRÉE découpée par un cercle ; un bandeau en biais, un rectangle
+        découpé par un triangle. Sans la découpe on repeint le carré, le
+        rectangle entier — qui passe alors DEVANT ce qu'il ne devait pas
+        toucher. Chaque tracé garde donc la pile des découpes actives à son
+        niveau d'imbrication (`clips`).
+        """
+        if trace is None:
+            trace = self._drawing_trace(page)
+        elements = []
+        for d, pile in _walk_clips(trace):
+            if d.get("type") in ("clip", "group"):
+                continue
+            el = _serialize_drawing(d)
+            _sens_des_rectangles(page, el)
+            clips = _effective_clips(pile, d.get("rect"))
+            if clips:
+                el["clips"] = clips
+            elements.append(el)
         return elements
+
+    def _attach_image_order(self, page, img_els):
+        """Donne à chaque image son ordre de peinture (`seqno`) et ses découpes.
+
+        `get_bboxlog()` liste TOUT ce qui est peint, dans l'ordre : son indice
+        est le `seqno` des tracés. Une image y apparaît en `fill-image`, avec
+        son rectangle : on l'apparie par position.
+
+        Les découpes d'une image ne figurent pas dans `get_drawings()` (une
+        image n'a pas de `level`) : `_image_clip_stacks` les relève au moment
+        même où l'image est peinte. Ses images arrivent dans le même ordre que
+        les `fill-image` du journal : la k-ième de l'un est la k-ième de l'autre.
+        Une découpe impossible à rejouer (texte, masque) est omise, jamais
+        approchée : mieux vaut un carré qu'une image amputée à tort.
+        """
+        if not img_els:
+            return
+        try:
+            log = page.get_bboxlog()
+        except Exception:
+            return
+        piles = _image_clip_stacks(page)
+        poses = [(i, fitz.Rect(r)) for i, (k, r) in enumerate(log)
+                 if k == "fill-image"]
+        if len(piles) != len(poses):
+            if piles:
+                _log.warning("découpes d'images ignorées (page %s) : %d relevées "
+                             "pour %d images peintes", getattr(page, "number", "?"),
+                             len(piles), len(poses))
+            piles = []          # appariement incertain : aucune découpe
+        poses = [(seq, pr, piles[k][1] if piles else [])
+                 for k, (seq, pr) in enumerate(poses)]
+        for el in img_els:
+            r = fitz.Rect(el["bbox"])
+            best, ecart = None, 2.0
+            for j, (seq, pr, pile) in enumerate(poses):
+                d = max(abs(pr.x0 - r.x0), abs(pr.y0 - r.y0),
+                        abs(pr.x1 - r.x1), abs(pr.y1 - r.y1))
+                if d < ecart:
+                    best, ecart = j, d
+            if best is None:
+                continue
+            seq, _, pile = poses.pop(best)
+            el["seqno"] = seq
+            if any(c is None for c in pile):
+                continue
+            clips = _effective_clips(pile, el["bbox"])
+            if clips:
+                el["clips"] = clips
 
     # ─────────────────────────────────────────────────────────────────────────
     # 2. RÉINJECTION (reconstruction sur page vierge + bordures)
@@ -2592,7 +3091,7 @@ class PDFObjectEngine:
         return output_pdf
 
     def render_page_into(self, doc, page_data, draw_borders=False,
-                         assets_dir=None, translated=False):
+                         assets_dir=None, translated=False, src_doc=None):
         """Peint UNE page (page_data) dans un document fitz existant — brique du
         rendu progressif page par page (le PDF partiel grandit au fil des pages
         traduites) et de `reinject`. Nécessite `_build_fonts(data)` au préalable."""
@@ -2618,7 +3117,7 @@ class PDFObjectEngine:
             kind = el.get("type")
             try:
                 if kind == "image":
-                    self._draw_image(page, el, assets_dir)
+                    self._draw_image(page, el, assets_dir, src_doc)
                 elif kind == "drawing":
                     # En mode traduit, un soulignement de lien consommé
                     # est redessiné SOUS le texte reflowé, pas ici (sinon
@@ -2671,7 +3170,7 @@ class PDFObjectEngine:
         return variants[0]   # meilleur effort : couverture partielle
 
     # ── Rendu image ──────────────────────────────────────────────────────────
-    def _draw_image(self, page, el, assets_dir):
+    def _draw_image(self, page, el, assets_dir, src_doc=None):
         rect = fitz.Rect(el["bbox"])
         if rect.is_empty or rect.is_infinite:
             return
@@ -2683,9 +3182,29 @@ class PDFObjectEngine:
             if os.path.exists(path):
                 with open(path, "rb") as fh:
                     stream = fh.read()
+        elif src_doc is not None and el.get("xref"):
+            stream, _ = _image_bytes(src_doc, el["xref"])
         if stream is None:
             return
+        clip = _clip_ops(page, el.get("clips"))
+        if not clip:
+            page.insert_image(rect, stream=stream)
+            return
+        # `insert_image` ajoute son propre flux de contenu à la page : on
+        # l'encadre de la découpe (q … W n … Q) une fois posé.
+        avant = set(page.get_contents())
         page.insert_image(rect, stream=stream)
+        # Une page aux q/Q déséquilibrés reçoit aussi des flux d'encadrement
+        # (`wrap_contents`) : seul celui qui invoque l'image (« Do ») est le sien.
+        doc = page.parent
+        neufs = [x for x in page.get_contents() if x not in avant]
+        corps = {x: doc.xref_stream(x) or b"" for x in neufs}
+        siens = [x for x in neufs if b" Do" in corps[x]]
+        if len(siens) != 1:
+            _log.warning("découpe d'image non posée : %d flux candidats", len(siens))
+            return
+        doc.update_stream(siens[0], b"q\n" + clip.encode("latin-1")
+                          + corps[siens[0]] + b"\nQ\n")
 
     # ── Rendu dessin vectoriel ───────────────────────────────────────────────
     def _draw_drawing(self, page, el):
@@ -2693,29 +3212,7 @@ class PDFObjectEngine:
         if draw_type in ("clip", "group"):
             return   # basique : on ignore les clips/groupes
         shape = page.new_shape()
-        drew = False
-        for it in el.get("items", []):
-            op = it.get("op")
-            try:
-                if op == "l":
-                    shape.draw_line(fitz.Point(it["p1"]), fitz.Point(it["p2"]))
-                    drew = True
-                elif op == "c":
-                    shape.draw_bezier(fitz.Point(it["p1"]), fitz.Point(it["p2"]),
-                                      fitz.Point(it["p3"]), fitz.Point(it["p4"]))
-                    drew = True
-                elif op == "re":
-                    shape.draw_rect(fitz.Rect(it["rect"]))
-                    drew = True
-                elif op == "qu":
-                    pts = it["quad"]
-                    quad = fitz.Quad(fitz.Point(pts[0]), fitz.Point(pts[1]),
-                                     fitz.Point(pts[2]), fitz.Point(pts[3]))
-                    shape.draw_quad(quad)
-                    drew = True
-            except Exception:
-                pass
-        if not drew:
+        if not _trace_items(shape, el.get("items", [])):
             return
 
         # draw_type : 's'=trait, 'f'=remplissage, 'fs'=les deux.
@@ -2752,6 +3249,11 @@ class PDFObjectEngine:
             # Repli minimal si un paramètre n'est pas accepté par cette version.
             shape.finish(color=finish_kwargs["color"], fill=finish_kwargs["fill"],
                          width=finish_kwargs["width"])
+        clip = _clip_ops(page, el.get("clips"))
+        if clip:
+            # `finish` a encadré le tracé de « q … Q » : la découpe se pose
+            # juste après le q, et ne vaut donc que pour ce tracé.
+            shape.totalcont = shape.totalcont.replace("q\n", "q\n" + clip, 1)
         shape.commit()
 
     # ── Rendu texte : paragraphe = lignes, ligne = runs (positions exactes) ──

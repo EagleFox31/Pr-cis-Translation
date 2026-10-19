@@ -29,6 +29,15 @@ class User(Base):
     google_id:     Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     avatar_url:    Mapped[str | None] = mapped_column(String(512), nullable=True)
     plan:          Mapped[str] = mapped_column(String(20), default="free", nullable=False)
+    # Fin d'un abonnement ACHETÉ : passée, le compte revient au Gratuit
+    # (`security._expire_plan_if_due`). NULL = plan sans échéance (gratuit, ou
+    # attribué par l'administration).
+    plan_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True),
+                                                             nullable=True)
+    # Début de l'abonnement acheté en cours : le quota de pages repart chaque
+    # mois à cette date (`usage.quota_period`). NULL = mois civil.
+    plan_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True),
+                                                             nullable=True)
     storage_used:  Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     storage_limit: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     # Pages achetées à l'unité et pas encore consommées (forfait Gratuit).

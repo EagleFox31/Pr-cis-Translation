@@ -7,9 +7,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from app.core.pricing import (CURRENCY, CURRENCY_DECIMALS, page_price,
+from app.core.pricing import (CURRENCY, CURRENCY_DECIMALS, PLAN_RANK,
+                              SELF_SERVE_PLANS, page_price,
                               plan_price, zone_for_country)
-from app.core.security import require_auth
+from app.core.security import require_admin, require_auth
 from app.models import (PLAN_LABELS, User, get_plan_monthly_pages,
                         get_plan_priority, get_plan_storage)
 from app.rate_limit import rate_limit_decorator
@@ -45,6 +46,15 @@ async def user_storage(
         "limit": get_plan_storage(user.plan),
         "plan": user.plan,
     }
+
+@router.get("/api/admin/ia")
+async def etat_ia(_admin=Depends(require_admin)):
+    """Solde DeepSeek, dépense des 24 h, seuils d'alerte et jetons consommés
+    depuis le démarrage. Relit le solde à la demande."""
+    from app.services import solde_ia
+    await solde_ia.verifier()
+    return solde_ia.etat()
+
 
 @router.get("/api/pricing")
 async def pricing(request: Request, country: str | None = None):
@@ -89,6 +99,9 @@ async def pricing(request: Request, country: str | None = None):
                 # Niveau de vitesse VENDU (la carte l'affiche). Son application
                 # réelle attend le chantier « file de priorité ».
                 "priority": get_plan_priority(key),
+                # Grille d'achat : rang (None = hors grille) et vente en ligne.
+                "rank": PLAN_RANK.get(key),
+                "for_sale": key in SELF_SERVE_PLANS,
             }
             for key in ("free", "starter", "pro", "enterprise")
         ],

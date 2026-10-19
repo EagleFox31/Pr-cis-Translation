@@ -153,6 +153,9 @@ def make_production(backend: dict[str, str], frontend: dict[str, str],
         'PRICING_DEFAULT_COUNTRY', 'TRANSLATION_WORKERS',
         'BRAND_NAME', 'BRAND_TAGLINE', 'ADMIN_ALERT_EMAIL',
         'ERROR_LOG_ALERT_THRESHOLD', 'ERROR_LOG_ALERT_COOLDOWN',
+        'ADMIN_EMAIL', 'PAYMENT_METHODS', 'DEEPSEEK_BASE_URL', 'DEEPSEEK_TIMEOUT_S',
+        'DEEPSEEK_SOLDE_ALERTE', 'DEEPSEEK_DEPENSE_JOUR_ALERTE',
+        'DEEPSEEK_SOLDE_INTERVALLE_S',
     )
     for name in allowed:
         if backend.get(name):
