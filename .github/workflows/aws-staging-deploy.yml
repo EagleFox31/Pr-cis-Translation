@@ -49,3 +49,5 @@ jobs:
 # Release: integrate upstream 0905278 (subscriptions, persistent quotas and document engines).
 
 # Release: seed each comma-separated ADMIN_EMAIL account from the imported runtime configuration.
+
+# Release: sync existing Google account display names and repair legacy seeded names.
