@@ -33,6 +33,7 @@ export interface StreamingState {
   /** Résultat final complet (quand terminé). */
   result: { blob: Blob; filename: string } | null;
   error: string | null;
+  notice: string | null;
   /** L'erreur vient d'un 402 (limite de forfait atteinte) → afficher un CTA. */
   limitReached: boolean;
   /** 402 rattrapable par un ACHAT : nombre de pages à régler pour ce document
@@ -51,6 +52,7 @@ const EMPTY: StreamingState = {
   readyPages: {},
   result: null,
   error: null,
+  notice: null,
   limitReached: false,
   creditsNeeded: null,
   queuePosition: null,
@@ -187,7 +189,10 @@ export function useStreamingTranslation() {
             }));
             throw new Error(detail);
           }
-          const { job_id } = await startRes.json();
+          const { job_id, ocr_pages } = await startRes.json();
+          if (ocr_pages > 0) {
+            setState((s) => ({ ...s, notice: t('story.ocr_notice', { count: ocr_pages }) }));
+          }
           jobIdRef.current = job_id;
           // Le serveur a enregistré le Document AVANT de répondre : ce qui
           // dépendait de son existence peut maintenant se faire.

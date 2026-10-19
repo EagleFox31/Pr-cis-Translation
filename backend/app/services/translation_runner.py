@@ -1019,6 +1019,7 @@ def run_pdf_v2_job(
     job_id: str, file_bytes: bytes, original_path: str,
     output_path: str, output_filename: str, partial_path: str,
     translation_path: str, target_lang: str, pages_set=None, debug: bool = False,
+    ocr_prepared: bytes | None = None,
 ):
     """Pipeline PDF v2 PROGRESSIF : chaque page est extraite, traduite et rendue
     avant la suivante. Le PDF partiel grandit page après page — le client
@@ -1032,6 +1033,11 @@ def run_pdf_v2_job(
         jobs.emit(job_id, "progress", {"step": "start", "message": "Démarrage du job...", "page": 0, "total": None})
 
         _sauver_original(original_path, file_bytes)
+
+        source_path = original_path
+        if ocr_prepared is not None:
+            source_path = translation_path + ".source.pdf"
+            _sauver_original(source_path, ocr_prepared)
 
         jobs.set(job_id, partial_path=partial_path)
 
@@ -1061,7 +1067,7 @@ def run_pdf_v2_job(
                 })
 
         pdf_v2_stream.translate_pdf_progressive(
-            original_path, output_path, target_lang=target_lang,
+            source_path, output_path, target_lang=target_lang,
             pages=pages_set, partial_path=partial_path, on_event=on_event,
             debug=debug, cache_path=translation_path,
         )
@@ -1120,6 +1126,11 @@ def render_translation_bytes(original_path: str, translation_path: str,
     with tempfile.TemporaryDirectory() as tmp:
         out = os.path.join(tmp, f"render.{ext}")
         if ext == "pdf":
+            source_path = original_path
+            if "ocrv1" in os.path.basename(translation_path).split(".")[0].split("_"):
+                source_path = translation_path + ".source.pdf"
+                if not os.path.isfile(source_path):
+                    raise FileNotFoundError("Copie OCR manquante pour reconstruire la traduction.")
             with open(translation_path, encoding="utf-8") as f:
                 prev = json.load(f)
             # Une page en mode structure n'a aucun paragraphe traduit
@@ -1141,7 +1152,7 @@ def render_translation_bytes(original_path: str, translation_path: str,
             if only_pages is not None:
                 pages_traduites &= set(only_pages)
             pdf_v2_stream.translate_pdf_progressive(
-                original_path, out, target_lang=target_lang,
+                source_path, out, target_lang=target_lang,
                 pages=pages_traduites, partial_path=None, on_event=None,
                 debug=debug, cache_path=translation_path,
             )

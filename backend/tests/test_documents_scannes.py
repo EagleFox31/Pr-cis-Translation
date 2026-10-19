@@ -235,11 +235,16 @@ async def _verifier_endpoint(scan: bytes) -> int:
         uid, solde_avant = u.id, u.page_credits
 
         televerse = UploadFile(filename="scan.pdf", file=io.BytesIO(scan))
-        reponse = await translate_endpoint(
-            request=None, file=televerse, target_lang="en",
-            format_options="{}", quality="fast", precise="", pages="",
-            debug="", x_api_key=cfg.FRONTEND_API_KEY,
-            current_user=u, db=db)
+        # Un scan lisible passe maintenant par l'OCR. Ici on verifie encore
+        # le contrat de non-debit quand la reconnaissance echoue.
+        from unittest.mock import patch
+        from app.services.ocr import OCRError
+        with patch("app.api.translate.prepare_scanned_pdf", side_effect=OCRError("Scan illisible. Aucune page decomptee.")):
+            reponse = await translate_endpoint(
+                request=None, file=televerse, target_lang="en",
+                format_options="{}", quality="fast", precise="", pages="",
+                debug="", x_api_key=cfg.FRONTEND_API_KEY,
+                current_user=u, db=db)
 
         check(getattr(reponse, "status_code", None) == 422,
               "un scan pur est REFUSE (422)",

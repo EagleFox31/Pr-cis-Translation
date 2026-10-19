@@ -11,7 +11,7 @@ Il fait **une seule chose**, en deux temps :
 1. **Extraction** — lit chaque page et sérialise **chaque objet détectable**
    (texte, image, dessin vectoriel) en JSON, dans l'ordre de peinture. Le texte
    passe par une analyse de disposition (façon « sélection de texte » d'un
-   lecteur PDF, **sans OCR**) : caractères/spans → **lignes visuelles** →
+   lecteur PDF, **OCR des scans préparé en amont par le service applicatif**) : caractères/spans → **lignes visuelles** →
    **paragraphes**. Un paragraphe détecté = un objet (avec ses lignes/runs).
 
 2. **Réinjection** — reconstruit chaque page sur une feuille **vierge** (mêmes
