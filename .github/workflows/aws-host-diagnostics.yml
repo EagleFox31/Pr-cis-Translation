@@ -43,6 +43,20 @@ jobs:
                       print('Previous SSM '+name+':')
                       print(sanitize(p.read_text(errors='replace')[-12000:]))
                       break
+          backups=sorted(Path('/opt/appfactory/precis-translation/backups').glob('*/SHA256SUMS'),reverse=True)
+          if backups:
+              latest=backups[0].parent
+              checked=subprocess.run(['sha256sum','--check','--status','SHA256SUMS'],cwd=latest,capture_output=True)
+              if checked.returncode:
+                  raise SystemExit('Latest pre-migration backup checksum verification failed')
+              print('Latest pre-migration backup verified: '+latest.name)
+              print('Recovery files: PostgreSQL custom dump and translation archive')
+          else:
+              raise SystemExit('No pre-migration backup found')
+          revision=subprocess.run(['docker','exec','precis-translation-staging-backend-1','alembic','current'],capture_output=True,text=True)
+          if revision.returncode:
+              raise SystemExit('Runtime migration revision could not be read')
+          print('Runtime migration: '+sanitize(revision.stdout.strip()))
           for cmd in (['cloud-init','status'],['docker','ps','-a']):
               p=subprocess.run(cmd,capture_output=True,text=True)
               print(sanitize(p.stdout+p.stderr))
