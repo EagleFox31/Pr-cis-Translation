@@ -42,6 +42,14 @@ jobs:
               report.append('SMTP credentials present: '+str(bool(vals.get('SMTP_PASSWORD'))))
               report.append('Google OAuth ID present: '+str(bool(vals.get('GOOGLE_CLIENT_ID'))))
               report.append('Campay credentials present: '+str(bool(vals.get('CAMPAY_USERNAME') and vals.get('CAMPAY_PASSWORD'))))
+              report.append('Campay environment: '+('PROD' if vals.get('CAMPAY_ENV') == 'PROD' else 'DEMO'))
+              routing=vals.get('PAYMENT_METHODS','mtn_momo=campay,orange_money=campay,card=')
+              providers={'campay','fapshi','trigenys',''}
+              for item in routing.split(','):
+                  method,sep,provider=item.partition('=')
+                  if method.strip() in {'mtn_momo','orange_money','card'} and provider.strip().lower() in providers:
+                      report.append('Payment route '+method.strip()+': '+(provider.strip().lower() or 'disabled'))
+              report.append('Fapshi credentials present: '+str(bool(vals.get('FAPSHI_API_USER') and vals.get('FAPSHI_API_KEY'))))
           host=call(['cloudformation','describe-stacks','--stack-name','precis-translation-staging-app'])
           if host.returncode:
               report.append('Application stack: absent' if 'does not exist' in host.stderr else 'Application stack: read failed')
