@@ -53,7 +53,7 @@ jobs:
               print('Recovery files: PostgreSQL custom dump and translation archive')
           else:
               raise SystemExit('No pre-migration backup found')
-          revision=subprocess.run(['docker','exec','precis-translation-staging-backend-1','alembic','current'],capture_output=True,text=True)
+          revision=subprocess.run(['docker','exec','-w','/app/backend','precis-translation-staging-backend-1','alembic','current'],capture_output=True,text=True)
           if revision.returncode:
               raise SystemExit('Runtime migration revision could not be read')
           print('Runtime migration: '+sanitize(revision.stdout.strip()))
