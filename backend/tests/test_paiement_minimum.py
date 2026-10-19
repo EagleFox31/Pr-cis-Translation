@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import uuid
+from unittest.mock import patch, PropertyMock
 
 import racine  # noqa: F401  -- met backend/ sur le chemin
 
@@ -235,8 +236,13 @@ async def run():
 
     check_calcul(ok)
     await check_credit(ok)
-    with TestClient(create_app()) as client:
-        await check_routes(client, ok)
+    # The collection transport is replaced by faux_collect above. Its local
+    # availability gate must also represent a configured synthetic provider;
+    # no real Campay credentials belong in this billing regression test.
+    with patch.object(type(route_payments.campay), "configured",
+                      new_callable=PropertyMock, return_value=True):
+        with TestClient(create_app()) as client:
+            await check_routes(client, ok)
 
     print()
     for nom, cond, detail in checks:

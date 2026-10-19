@@ -91,7 +91,7 @@ with tempfile.TemporaryDirectory() as tmp:
 appels = {"ia": 0, "extraction": 0}
 
 
-def _ia_factice(self, batch, lang_name, progress=None):
+def _ia_factice(self, batch, lang_name, progress=None, *args, **kwargs):
     appels["ia"] += 1
     for b in batch:
         b["translated_text"] = b["text"].upper()
@@ -105,6 +105,8 @@ def _extraction_comptee(self, *a, **k):
     return _extraire(self, *a, **k)
 
 
+TranslatorAI.__init__ = lambda self: None
+TranslatorAI.fiche_document = lambda self, *a, **k: ""
 TranslatorAI._translate_batch = _ia_factice
 PDFObjectEngine.extract_page_data = _extraction_comptee
 
