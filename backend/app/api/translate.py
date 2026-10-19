@@ -34,6 +34,7 @@ from app.rate_limit import verify_api_key
 from app.services.documents import (build_job_paths, cap_pages_for_plan,
                                     count_pages, pages_avec_texte)
 from app.services import usage
+from app.services.ocr import OCR_VERSION, OCRError, prepare_scanned_pdf
 from app.services.jobs import jobs
 from app.services.office import convert_to_pdf_bytes
 from app.services.scheduler import scheduler
@@ -233,6 +234,27 @@ async def translate_endpoint(
     # être traduit.
     lisibles = pages_avec_texte(file_bytes, ext)
     pages_ignorees = 0
+    ocr_prepared = None
+    ocr_pages = 0
+    if lisibles is not None:
+        visees_ocr = pages_set or set(range(1, count_pages(file_bytes, ext) + 1))
+        # Ne pas reconnaitre un document entier pour l'essai d'une page.
+        if get_plan_page_limit(current_user.plan) == 1 and not await usage.free_offer_used(db, current_user.id):
+            pages_set = cap_pages_for_plan(pages_set, ext, 1)
+            visees_ocr = pages_set
+        scans = visees_ocr - lisibles
+        if scans:
+            try:
+                ocr_prepared, ocr_pages = await run_in_threadpool(prepare_scanned_pdf, file_bytes, scans)
+            except OCRError as exc:
+                return JSONResponse(status_code=exc.status_code, content={
+                    "detail": str(exc), "reason": "scanned_document" if exc.status_code == 422 else "ocr_unavailable",
+                    "pages_scanned": len(scans),
+                })
+            if len(ocr_prepared) > MAX_FILE_SIZE:
+                raise HTTPException(status_code=413, detail="Le scan reconnu est trop volumineux. Selectionnez moins de pages.")
+            lisibles = pages_avec_texte(ocr_prepared, ext) or set()
+            qsuffix += f"_{OCR_VERSION}"
     if lisibles is not None:
         visees = pages_set or set(range(1, count_pages(file_bytes, ext) + 1))
         traduisibles = visees & lisibles
@@ -252,11 +274,9 @@ async def translate_endpoint(
                 status_code=422,
                 content={
                     "detail": (
-                        "Ce document ne contient aucun texte lisible : ses pages "
-                        "sont des images (document scanné ou photographié). "
-                        "Aucune page n'a été décomptée. Pour le traduire, "
-                        "convertissez-le d'abord en PDF texte avec un outil de "
-                        "reconnaissance de caractères (OCR)."
+                        "La reconnaissance du scan n'a trouvé aucun texte lisible. "
+                        "Aucune page n'a été décomptée. Réessayez avec un scan "
+                        "plus net, contenant du texte imprimé en français ou en anglais."
                     ),
                     "reason": "scanned_document",
                     "pages_scanned": len(visees),
@@ -438,7 +458,7 @@ async def translate_endpoint(
         target = run_pdf_v2_job
         job_args = (job_id, file_bytes, original_path, output_path,
                     output_filename, partial_path, translation_path, target_lang,
-                    pages_set, debug_mode)
+                    pages_set, debug_mode, ocr_prepared)
     elif ext == "pptx":
         # PPTX → moteur progressif slide par slide (comme le PDF v2).
         # Si compte admin : 5 slides traduites en parallèle.
@@ -497,6 +517,9 @@ async def translate_endpoint(
     # inchangées sans comprendre pourquoi, et croirait à une traduction ratée
     # là où il s'agit d'un scan qu'on n'a pas facturé.
     reponse = {"job_id": job_id}
+    if ocr_pages:
+        reponse["ocr_pages"] = ocr_pages
+        reponse["ocr_review_required"] = True
     if pages_ignorees:
         reponse["pages_ignorees"] = pages_ignorees
     return JSONResponse(reponse)

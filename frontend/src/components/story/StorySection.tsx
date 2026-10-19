@@ -36,6 +36,7 @@ interface StorySectionProps {
   previewRendering?: boolean;
   /** Erreur de traduction à afficher en bannière inline (pas de toast). */
   translationError?: string | null;
+  translationNotice?: string | null;
   /** L'erreur est un 402 → afficher un CTA vers les offres. */
   limitReached?: boolean;
   /** 402 rattrapable par un achat : pages à régler pour ce document. */
@@ -74,6 +75,7 @@ export default function StorySection({
   readyPages,
   previewRendering = false,
   translationError = null,
+  translationNotice = null,
   limitReached = false,
   creditsNeeded = null,
   onBuyPages,
@@ -291,6 +293,12 @@ export default function StorySection({
                 là où l'utilisateur regarde ses pages. Ici ne restent que les
                 vraies erreurs (réseau, échec de traduction) et la limite de
                 forfait sans achat possible. */}
+            {translationNotice && (
+              <p role="status" style={{ padding: '14px 18px', marginBottom: '16px',
+                border: '1px solid #bfdbfe', borderRadius: '12px', background: '#eff6ff', color: '#1e3a8a' }}>
+                {translationNotice}
+              </p>
+            )}
             {translationError && !creditsNeeded && (
               <div style={{
                 display: 'flex',

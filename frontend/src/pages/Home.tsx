@@ -493,6 +493,7 @@ export default function Home() {
           readyPages={stream.readyPages}
           previewRendering={previewLoading}
           translationError={stream.error}
+          translationNotice={stream.notice}
           limitReached={stream.limitReached}
           creditsNeeded={stream.creditsNeeded}
           onBuyPages={(p) => setPayPages(p)}

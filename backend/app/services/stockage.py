@@ -116,6 +116,8 @@ def balayer_magasin(references: set[str], version_moteur: str,
                         continue
                     if age > TRADUCTION_ORPHELINE_GRACE_S:
                         _effacer(chemin, compte, "traductions")
+                elif f.endswith(".json.source.pdf") and not os.path.isfile(chemin[:-len(".source.pdf")]):
+                    _effacer(chemin, compte, "traductions")
         _elaguer_dossiers_vides(racine)
     return compte
 

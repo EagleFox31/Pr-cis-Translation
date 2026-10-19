@@ -46,7 +46,7 @@
     "card_human_title": "AI + Human Expertise",
     "card_human_desc": "Ultra-fast AI translation systematically reviewed by certified human translators for flawless quality.",
     "card_ocr_title": "Multi-format & OCR",
-    "card_ocr_desc": "Native support for all Office and PDF formats. Image text translation via OCR coming soon.",
+    "card_ocr_desc": "Automatic OCR for scanned PDFs with printed French or English text, up to 10 pages per request. Review of the result recommended.",
     "card_languages_title": "50+ Languages",
     "card_languages_desc": "Cover all your markets with more than 50 language pairs available, from the most common to the most specialized.",
     "soon_badge": "Coming soon"
@@ -70,7 +70,7 @@
     "row_style_precis": "Adjustable parameters",
     "row_style_other": "Limited options",
     "row_ocr": "Image translation (OCR)",
-    "row_ocr_precis": "Coming soon",
+    "row_ocr_precis": "Scanned PDFs (FR/EN)",
     "row_ocr_other": "Not available",
     "row_data": "Data management",
     "row_data_precis": "Deleted within 24h",
@@ -137,7 +137,8 @@
     "retry_unavailable_title": "Cannot retry this document",
     "retry_unavailable_hint": "Its original file is missing or empty. Please upload it again.",
     "precise_label": "Precise mode (admin)",
-    "precise_desc": "Uses the reasoning model — slower (~2 min/page) but more reliable on complex layouts."
+    "precise_desc": "Uses the reasoning model — slower (~2 min/page) but more reliable on complex layouts.",
+    "ocr_notice": "Text recognized on {{count}} scanned page(s). Review the translation: fonts and layout in scanned documents remain approximate."
   },
   "library": {
     "title": "My documents",

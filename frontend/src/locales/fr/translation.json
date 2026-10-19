@@ -46,7 +46,7 @@
     "card_human_title": "IA + Expertise Humaine",
     "card_human_desc": "Traduction IA ultra-rapide systématiquement relue par des traducteurs humains certifiés pour une qualité irréprochable.",
     "card_ocr_title": "Multi-formats & OCR",
-    "card_ocr_desc": "Support natif de tous les formats Office et PDF. La traduction de texte dans les images via OCR arrive bientôt.",
+    "card_ocr_desc": "OCR automatique des PDF scannés imprimés en français ou en anglais, jusqu’à 10 pages par envoi. Vérification du résultat recommandée.",
     "card_languages_title": "50+ Langues",
     "card_languages_desc": "Couvrez tous vos marchés avec plus de 50 paires de langues disponibles, des plus courantes aux plus spécialisées.",
     "soon_badge": "À venir"
@@ -70,7 +70,7 @@
     "row_style_precis": "Paramètres ajustables",
     "row_style_other": "Options limitées",
     "row_ocr": "Traduction d'images (OCR)",
-    "row_ocr_precis": "Bientôt disponible",
+    "row_ocr_precis": "PDF scannés (FR/EN)",
     "row_ocr_other": "Non disponible",
     "row_data": "Gestion des données",
     "row_data_precis": "Supprimées sous 24h",
@@ -137,7 +137,8 @@
     "retry_unavailable_title": "Relance impossible",
     "retry_unavailable_hint": "Le fichier d'origine est absent ou vide. Renvoyez-le.",
     "precise_label": "Mode précis (admin)",
-    "precise_desc": "Utilise le modèle de raisonnement — plus lent (~2 min/page) mais plus fiable sur les mises en page complexes."
+    "precise_desc": "Utilise le modèle de raisonnement — plus lent (~2 min/page) mais plus fiable sur les mises en page complexes.",
+    "ocr_notice": "Reconnaissance effectuée sur {{count}} page(s) scannée(s). Vérifiez le texte traduit : les polices et la mise en page d’un scan restent approximatives."
   },
   "library": {
     "title": "Mes documents",

@@ -126,7 +126,7 @@ qui télécharge pendant l'écriture ne voit jamais un fichier tronqué.
 * **images pivotées** placées dans leur rectangle d'englobement, sans matrice ;
 * **texte pivoté** rendu à sa baseline, sans rotation ;
 * **clips et groupes** vectoriels ignorés ;
-* **PDF scannés** : aucun OCR. On ne traduit jamais ce qu'on n'a pas lu — voir
+* **PDF scannés** : OCR local FR/EN en amont du moteur (voir `docs/ocr-production.md`). On ne traduit jamais ce qu'on n'a pas lu — voir
   [`../../../docs/etude-ocr.md`](../../../docs/etude-ocr.md) ;
 * une **colonne justifiée de ≤ 5 lignes** peut rester mal recollée.
 

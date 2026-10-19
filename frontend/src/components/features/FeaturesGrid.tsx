@@ -12,7 +12,7 @@ import ComparisonContent from '../comparison/ComparisonTable';
 const features: { key: string; Icon: LucideIcon; badge?: boolean }[] = [
   { key: 'fidelity', Icon: Sparkles },
   { key: 'format', Icon: LayoutTemplate },
-  { key: 'ocr', Icon: ScanText, badge: true },
+  { key: 'ocr', Icon: ScanText },
   { key: 'security', Icon: ShieldCheck },
   { key: 'human', Icon: Users },
   { key: 'languages', Icon: Languages },

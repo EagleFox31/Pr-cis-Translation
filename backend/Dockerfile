@@ -43,6 +43,10 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
         libreoffice-calc \
         fonts-liberation \
         fonts-dejavu-core \
+        tesseract-ocr \
+        tesseract-ocr-fra \
+        tesseract-ocr-eng \
+        tesseract-ocr-osd \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
