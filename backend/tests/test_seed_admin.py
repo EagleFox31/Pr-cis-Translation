@@ -30,31 +30,43 @@ class AdminEmailsTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 seed_admin.admin_emails()
 
+    def test_names_belong_to_each_account(self):
+        self.assertEqual(seed_admin.admin_name("trigenysdataschool@gmail.com"),
+                         "trigenysdataschool")
+        self.assertEqual(seed_admin.admin_name("contact@trigenys.com"), "contact")
+        self.assertEqual(seed_admin.admin_name(seed_admin.DEFAULT_ADMIN_EMAIL),
+                         "mbowouibrah")
+        self.assertEqual(seed_admin.admin_name("another-owner@example.com"),
+                         "another-owner")
+
 
 async def verify_database():
     token = uuid.uuid4().hex
-    existing, new, other = [f"seed-{label}-{token}@example.com"
-                            for label in ("existing", "new", "other")]
-    emails = [existing, new, other]
+    existing, new, other, legacy = [f"seed-{label}-{token}@example.com"
+                            for label in ("existing", "new", "other", "legacy")]
+    emails = [existing, new, other, legacy]
     try:
         async with seed_admin._asm() as db:
             db.add_all([User(email=existing, name="Existing owner", plan="free"),
-                        User(email=other, name="Other admin", plan="admin")])
+                        User(email=other, name="Other admin", plan="admin"),
+                        User(email=legacy, name="Ibrahim Mbowou", plan="admin")])
             await db.commit()
-        with patch.dict(os.environ, {"ADMIN_EMAIL": f" {existing.upper()}, {new},,{existing}"}):
+        with patch.dict(os.environ, {"ADMIN_EMAIL": f" {existing.upper()}, {new},,{existing},{legacy}"}):
             await seed_admin.main()
             await seed_admin.main()
         async with seed_admin._asm() as db:
             users = (await db.execute(select(User).where(User.email.in_(emails)))).scalars().all()
-            assert len(users) == 3, "Restart must not create duplicate or combined addresses"
+            assert len(users) == 4, "Restart must not create duplicate or combined addresses"
             by_email = {user.email: user for user in users}
             assert by_email[existing].name == "Existing owner"
+            assert by_email[new].name == new.partition("@")[0]
+            assert by_email[legacy].name == legacy.partition("@")[0], "Repair the legacy seed name"
             for email in (existing, new):
                 user = by_email[email]
                 assert user.plan == "admin" and user.email_verified
                 assert user.storage_limit == 0 and user.plan_expires_at is None
             assert by_email[other].plan == "admin", "Existing admins keep their rights"
-        print("PASS: comma-separated admins created/promoted; restart idempotent; existing admins preserved")
+        print("PASS: separate admin accounts; legacy names repaired; custom names and rights preserved across restarts")
     finally:
         async with seed_admin._asm() as db:
             await db.execute(delete(User).where(User.email.in_(emails)))
