@@ -3,6 +3,7 @@ Routes documents — CRUD par utilisateur.
 """
 from __future__ import annotations
 import os
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import Response
@@ -13,7 +14,8 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import TRANSLATIONS_DIR, logger
-from app.services import render_cache
+from app.services import render_cache, stockage
+from app.services.jobs import jobs
 from app.services.office import convert_to_pdf_bytes
 from app.services.translation_runner import render_translation_bytes
 from app.core.database import get_db
@@ -38,6 +40,19 @@ router = APIRouter(prefix="/api/documents", tags=["Documents"])
 # la divergence devient impossible par construction, ce qui vaut mieux qu'un
 # test qui la constate.
 STORAGE_BASE = TRANSLATIONS_DIR
+
+
+def _lire(chemin: str) -> bytes:
+    """Lit un fichier ENTIER, à appeler par `run_in_threadpool`.
+
+    Un `open().read()` dans un `async def` fige la boucle d'événements le temps
+    de la lecture — donc TOUTE l'application, flux SSE de la traduction
+    progressive compris. Le service ne tourne qu'avec un seul worker uvicorn
+    (registre de jobs en mémoire) et les fichiers vont jusqu'à MAX_FILE_SIZE :
+    un téléchargement de 100 Mo suspendait les aperçus de tous les autres.
+    """
+    with open(chemin, "rb") as fh:
+        return fh.read()
 
 
 def _inside_store(path: str) -> bool:
@@ -91,11 +106,26 @@ async def _purge_if_orphan(db: AsyncSession, path: str) -> bool:
     conservateur, mais de la rétention de disque plutôt que la perte du
     fichier d'autrui.
     """
-    if not _inside_store(path):
+    if await _racine_orpheline(db, path) is None:
         return False
+    real = os.path.realpath(path)
+    if not os.path.isfile(real):
+        return False
+    try:
+        os.remove(real)
+    except OSError:
+        return False
+    _prune_empty_dirs(os.path.dirname(real))
+    return True
+
+
+async def _racine_orpheline(db: AsyncSession, path: str) -> str | None:
+    """Racine du job de `path` si plus AUCUN Document n'y renvoie, sinon None."""
+    if not _inside_store(path):
+        return None
     racine = _job_root(path)
     if racine is None:
-        return False
+        return None
     prefixe = racine + os.sep
     refs = await db.execute(
         select(func.count()).select_from(Document).where(
@@ -108,16 +138,8 @@ async def _purge_if_orphan(db: AsyncSession, path: str) -> bool:
         )
     )
     if (refs.scalar() or 0) > 0:
-        return False                      # quelqu'un d'autre tient encore au job
-    real = os.path.realpath(path)
-    if not os.path.isfile(real):
-        return False
-    try:
-        os.remove(real)
-    except OSError:
-        return False
-    _prune_empty_dirs(os.path.dirname(real))
-    return True
+        return None                       # quelqu'un d'autre tient encore au job
+    return racine
 
 
 def _prune_empty_dirs(start: str) -> None:
@@ -260,8 +282,7 @@ async def download_document(
     if not doc.translated_path:
         if not doc.original_path or not os.path.isfile(doc.original_path):
             raise HTTPException(status_code=404, detail="Le fichier n'est plus disponible. Réessayez ou rechargez la page.")
-        with open(doc.original_path, "rb") as f:
-            data = f.read()
+        data = await run_in_threadpool(_lire, doc.original_path)
         return Response(content=data, media_type="application/octet-stream",
                         headers={"Content-Disposition": f'attachment; filename="{doc.original_name}"'})
 
@@ -339,8 +360,7 @@ async def original_document(
         raise HTTPException(status_code=404, detail="Le fichier n'est plus disponible. Réessayez ou rechargez la page.")
     # Response explicite plutôt que FileResponse : évite les Range/206 qui
     # peuvent faire échouer le fetch côté frontend (ERR_FAILED 206).
-    with open(doc.original_path, "rb") as f:
-        data = f.read()
+    data = await run_in_threadpool(_lire, doc.original_path)
     ext = os.path.splitext(doc.original_name)[1].lstrip(".").lower()
 
     if as_ == "pdf" and ext != "pdf":
@@ -383,15 +403,43 @@ async def preview_document(
 
     ext = os.path.splitext(doc.original_name)[1].lstrip(".").lower()
 
-    # Pas encore de traduction : on montre l'original (le fichier de l'utilisateur).
+    # Pas encore de traduction consignée : le document est EN COURS (la
+    # bibliothèque laisse « Aperçu » actif pendant la traduction). On renvoyait
+    # l'original à la place de la traduction : rouvert depuis la liste, l'aperçu
+    # montrait original/original et n'avançait plus. On sert désormais le PDF
+    # PARTIEL du job (les pages déjà traduites), ou « rien encore » — jamais
+    # l'original déguisé en traduction. `X-Render` dit au client de redemander.
     if not doc.translated_path:
-        if not doc.original_path or not os.path.isfile(doc.original_path):
-            raise HTTPException(status_code=404, detail="Le fichier n'est plus disponible. Réessayez ou rechargez la page.")
-        with open(doc.original_path, "rb") as f:
-            data = f.read()
-        ext_orig = os.path.splitext(doc.original_name)[1].lstrip(".").lower()
-        media_orig = "application/pdf" if ext_orig == "pdf" else "application/octet-stream"
-        return Response(content=data, media_type=media_orig)
+        job = jobs.for_document(doc.id)
+        etat = job.get("state") if job else None
+        # Job FINI mais base pas à jour (report `sync_status` échoué) : servir
+        # le partiel ici ferait redemander le client indéfiniment. Le rendu
+        # final du job, s'il existe, est la vraie réponse ; sinon, rien.
+        # Hors PDF, le rendu final n'est pas un PDF : on garde le partiel
+        # (déjà converti) le temps que `sync_status` consigne la traduction —
+        # une minute au plus, sinon un report échoué ferait redemander le
+        # client sans fin.
+        if etat == "done" and job.get("result_path") and ext == "pdf":
+            chemin, rendu = job["result_path"], "full"
+        elif etat == "done" and time.time() - job.get("finished_at", 0) < 60:
+            chemin, rendu = job.get("partial_path"), "partial"
+        elif etat in ("done", "error") or doc.status != "translating":
+            chemin, rendu = None, None
+        else:
+            chemin, rendu = job.get("partial_path") if job else None, "partial"
+        if not chemin or not os.path.isfile(chemin):
+            if rendu != "partial":
+                raise HTTPException(status_code=404, detail="Traduction indisponible. Relancez-la depuis la bibliothèque.")
+            return Response(status_code=202, headers={"Cache-Control": "no-store",
+                                                      "X-Render": "pending"})
+        data = await run_in_threadpool(_lire, chemin)
+        if not _may_read_clear(user, doc):
+            # Même règle que /translate/partial : un plan d'essai ne reçoit
+            # que des pixels, et seules les pages traduites sont à protéger.
+            data = await run_in_threadpool(rasterize_for_trial, data, job.get("pages"))
+        return Response(content=data, media_type="application/pdf",
+                        headers={"Cache-Control": "no-store",
+                                 "X-Render": rendu})
 
     # Un plan d'essai ne reçoit que du rastérisé, et seulement pour le PDF : un
     # format non-PDF ne peut pas être filigrané ici sans risque de le livrer en
@@ -435,7 +483,7 @@ async def preview_document(
     if clear:
         cached = render_cache.cache_valid(doc.translated_path)
         if cached:
-            data = await run_in_threadpool(lambda: open(cached, "rb").read())
+            data = await run_in_threadpool(_lire, cached)
             return Response(content=data, media_type="application/pdf",
                             headers={"Cache-Control": "no-store",
                                      "X-Render": "full"})
@@ -506,7 +554,6 @@ async def delete_document(
     # faisait descendre `storage_used` sous la réalité à chaque suppression.
     charge = doc.storage_charged or 0
     original_path = doc.original_path
-    translated_path = doc.translated_path
     await db.delete(doc)
 
     # Libérer le quota
@@ -516,10 +563,14 @@ async def delete_document(
     # Purge par comptage de références. Le commit ci-dessus est INDISPENSABLE
     # avant de compter : tant que la suppression n'est pas validée, la ligne
     # courante se compterait elle-même et rien ne serait jamais orphelin.
+    #
+    # C'est TOUT le dossier du job qui part, pas les deux seuls chemins connus
+    # de la base : rendus en cache, extractions, autres plages et sorties de
+    # job restaient sinon sur le disque pour toujours (mesuré : 70 Mo sur 90).
     purged = 0
-    for path in (translated_path, original_path):
-        if path and await _purge_if_orphan(db, path):
-            purged += 1
+    racine = await _racine_orpheline(db, original_path)
+    if racine and stockage.purger_racine(racine):
+        purged = 1
 
     return {"message": "Document supprimé.", "storage_freed": charge,
             "files_purged": purged}

@@ -34,6 +34,7 @@ from app.core.security import (
 # `limiter` vaut None si slowapi manque : le decorateur devient alors neutre et
 # rien ne casse. Le plafond est par IP.
 from app.rate_limit import rate_limit_decorator
+from app.services.usage import usage_summary
 from app.core.email import EmailIndisponible, send_verification_email
 
 
@@ -137,6 +138,9 @@ def _user_response(user: User) -> dict:
         "email_verified": user.email_verified,
         "avatar_url": user.avatar_url,
         "plan": user.plan,
+        # Fin de l'abonnement acheté (à renouveler avant) ; null = sans échéance.
+        "plan_expires_at": (user.plan_expires_at.isoformat()
+                            if user.plan_expires_at else None),
         "storage_used": user.storage_used,
         # La colonne `storage_limit` est un VESTIGE : c'est `get_plan_storage`
         # qui décide réellement de ce qui passe (cf. `_save_document_for_user`).
@@ -420,7 +424,16 @@ async def me(user: User = Depends(require_auth)):
     return _user_response(user)
 
 
-# ── GET /verify-email (lien) ─────────────────────────────────────────────────
+@router.get("/me/usage")
+async def me_usage(user: User = Depends(require_auth),
+                   db: AsyncSession = Depends(get_db)):
+    """Ce qu'il reste ce mois-ci : traductions offertes, pages du quota, pages
+    achetées. Calculé par le même module que celui qui fait respecter les
+    quotas, pour que l'affichage ne promette jamais ce que la route refuse."""
+    return await usage_summary(db, user)
+
+
+# ── GET /verify-email (lien)─────────────────────────────────────────────────
 
 @router.get("/verify-email")
 async def verify_email_link(token: str, db: AsyncSession = Depends(get_db)):

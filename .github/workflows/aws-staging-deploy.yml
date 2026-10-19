@@ -45,3 +45,5 @@ jobs:
 # Release: publish static Open Graph metadata and branded link-preview image.
 
 # Release: publish search discovery, structured data and canonical landing routes.
+
+# Release: integrate upstream 0905278 (subscriptions, persistent quotas and document engines).

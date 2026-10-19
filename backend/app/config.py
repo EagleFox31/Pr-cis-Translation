@@ -133,6 +133,14 @@ os.makedirs(TRANSLATIONS_DIR, exist_ok=True)
 # headless. La conversion ne sert QUE l'aperçu — le téléchargement garde le
 # format d'origine. Résultats mis en cache disque (clé = hash du contenu).
 PREVIEW_CACHE_DIR = os.path.join(TRANSLATIONS_DIR, "_previews")
+# Plafond de ce cache : au-delà, les conversions les moins récemment servies
+# sont effacées (elles se refont à la demande). Sans borne, il ne faisait que
+# grossir.
+PREVIEW_CACHE_MAX_BYTES = int(os.getenv("PREVIEW_CACHE_MAX_MB", "500")) * 1024 * 1024
+# Une traduction que plus aucun Document ne cite est effacée au démarrage passé
+# ce délai : le temps qu'une relance après échec reprenne les pages déjà
+# traduites (et payées en appels IA) au lieu de tout refaire.
+TRADUCTION_ORPHELINE_GRACE_S = int(os.getenv("TRADUCTION_ORPHELINE_GRACE_JOURS", "7")) * 86400
 
 # ── Rétention des jobs ───────────────────────────────────────────────────────
 # Un job terminé reste consultable (partiel/résultat) pendant cette durée, puis
@@ -160,14 +168,19 @@ TRANSLATION_WORKERS = max(1, int(os.getenv("TRANSLATION_WORKERS", "2")))
 # Deux modes, choisis par requête via le paramètre `quality` :
 #  • "fast"    → modèle non-raisonnant, ~secondes/page, version stable (défaut) ;
 #  • "precise" → modèle à raisonnement, alignement id↔texte fiable sur les pages
-#                complexes (numéros + formules), mais ~1-2 min/page.
-# Noms surchargeables via .env si DeepSeek renomme ses modèles.
-# `deepseek-chat` était un ALIAS de compatibilité vers `deepseek-v4-flash` en
-# mode non-raisonnant, supprimé par DeepSeek le 24/07/2026 à 15:59 UTC. On vise
-# donc le modèle réel : à cette date, le comportement est identique — c'est le
-# même modèle — mais le nom, lui, survivra.
-FAST_MODEL = os.getenv("DEEPSEEK_MODEL_FAST", "deepseek-v4-flash")
-PRECISE_MODEL = os.getenv("DEEPSEEK_MODEL_PRECISE", "deepseek-v4-flash")
+#                complexes (numéros + formules), ~2,5× plus lent que fast.
+# Banc du 16/10/2026 (scripts/banc_deepseek.py, 7 pages CV / essai / brochure) :
+#   flash 0,0015 $/p · flash:high 0,0032 $/p · v4-pro 0,0065 $/p ·
+#   v4-pro:high 0,026 $/p et ~95 s/p. flash:high corrige les contresens de
+#   flash (« Probatoire » → « Probationary ») ; v4-pro sans réflexion traduit
+#   les noms d'établissements ; v4-pro:high, meilleur, coûte 8× flash:high.
+# Noms surchargeables via .env ; le suffixe « :low|high|max » active la
+# réflexion (cf. engines.translation_ai.decouper_modele), sans suffixe elle est
+# COUPÉE. DeepSeek l'active par défaut : depuis la suppression de l'alias
+# non-raisonnant `deepseek-chat` (24/07/2026), le mode « rapide » payait donc
+# un raisonnement que personne n'avait demandé.
+FAST_MODEL = os.getenv("DEEPSEEK_MODEL_FAST", "deepseek-flash")
+PRECISE_MODEL = os.getenv("DEEPSEEK_MODEL_PRECISE", "deepseek-flash:high")
 
 
 # ── Marque publique ──────────────────────────────────────────────────────────
@@ -178,7 +191,7 @@ PRECISE_MODEL = os.getenv("DEEPSEEK_MODEL_PRECISE", "deepseek-v4-flash")
 # libellé, ce qui est sans conséquence.
 BRAND_NAME = os.getenv("BRAND_NAME", "PRÉCIS")
 BRAND_TAGLINE = os.getenv("BRAND_TAGLINE", "Professional Translation")
-PUBLIC_SITE = os.getenv("PUBLIC_SITE", "precis-translator.com")
+PUBLIC_SITE = os.getenv("PUBLIC_SITE", "precis-translator.trigenys.com")
 
 
 # ── Journal des erreurs ──────────────────────────────────────────────────────
@@ -216,8 +229,20 @@ SECRETS_INTERDITS = {
 }
 # Marqueurs de gabarit : attrapent les variantes non listées (« your_x_here »,
 # « changeme », « à remplacer »…) sans qu'on ait à les énumérer.
-_MARQUEURS_GABARIT = ("change-me", "changeme", "your_", "_here", "remplacer",
-                      "xxx", "todo")
+_MARQUEURS_GABARIT = ("change-me", "changeme", "change-in-", "change_in_",
+                      "your_", "_here", "remplacer", "xxx", "todo",
+                      # Un secret qui s'annonce PROVISOIRE est un gabarit, même
+                      # sans « change-me » et même assez long pour passer le
+                      # plancher. C'est le cas qui a traversé les trois
+                      # contrôles : `dev-secret-key-change-in-production-…`,
+                      # 64 caractères, aucun marqueur connu. Il aurait signé
+                      # les jetons en production, et quiconque ayant lu ce
+                      # fichier aurait pu forger un jeton d'administrateur.
+                      "dev-secret", "dev_secret", "development",
+                      "not-for-production", "notforproduction",
+                      "insecure", "placeholder", "exemple", "example",
+                      "sample", "specimen", "dummy", "factice",
+                      "local-only", "local_only", "localonly")
 
 # Longueur minimale d'un secret de signature. En dessous, HS256 se force.
 JWT_SECRET_MIN_LEN = 32
@@ -263,6 +288,23 @@ def defauts_de_production() -> list[str]:
         fautes.append(
             "DEEPSEEK_API_KEY absente ou gabarit — aucune traduction ne "
             "pourra aboutir.")
+
+    # FRONTEND_URL n'est pas un secret, et c'est pour cela qu'on l'oublie :
+    # l'application démarre très bien sans lui et sa valeur par défaut a l'air
+    # anodine. Mais c'est l'adresse mise DANS les e-mails de vérification et
+    # dans la redirection de retour de Google. Restée sur `localhost`, elle
+    # envoie chaque nouvel inscrit sur sa propre machine : aucun compte ne
+    # s'active, et rien ne le signale.
+    _front = os.getenv("FRONTEND_URL", "").strip()
+    if not _front or _front.startswith(("http://localhost",
+                                        "http://127.0.0.1",
+                                        "https://localhost")):
+        fautes.append(
+            f"FRONTEND_URL vaut {_front or '(vide, donc localhost)'} — les "
+            "liens de vérification de compte et le retour de connexion Google "
+            "pointeraient vers la machine de l'utilisateur : aucune "
+            "inscription ne pourrait aboutir. Poser l'adresse publique du "
+            "site (ex. https://precis-translator.com).")
 
     if os.getenv("EMAIL_ENABLED", "true").lower() == "true" and not os.getenv(
             "SMTP_PASSWORD", "").strip():

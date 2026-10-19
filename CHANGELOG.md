@@ -8,9 +8,37 @@ leurs propres numéros internes.
 
 Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 
-## [Unreleased]
+## [Non publié]
 
 ### Ajouté
+- Excel : gestion de l'expansion. Une traduction plus longue que sa source
+  élargit sa colonne (selon l'alignement et les voisines vides) au lieu d'être
+  coupée, une cellule à retour à la ligne gagne la hauteur de ses lignes en
+  plus, un nombre dont le format porte un littéral traduit ne s'affiche plus
+  en `#####`.
+
+### Modifié
+- Moteur XLSX `0.2.0` → `1.0.0`.
+
+## [1.1.0] - 2026-10-09 — Comptes, paiement et mise en ligne
+
+### Ajouté
+- **Traduction Excel complète, avec aperçu progressif** (moteur XLSX `0.2.0`).
+  Les **dix** endroits où Excel range du texte sont désormais traités : chaînes
+  partagées et en ligne, noms d'onglets, graphiques, zones de texte, les **deux**
+  formats de commentaires (ancien et fils modernes), en-têtes de tableaux
+  structurés, croisés dynamiques, formats de nombre personnalisés et propriétés
+  du document. L'aperçu suit le même flux progressif que le PDF et le PPTX —
+  socle en langue source affichable tout de suite, puis chaque feuille traduite
+  greffée à sa place.
+  Deux règles gouvernent le moteur : **on ne traduit jamais un nombre ni une
+  formule** (une cellule cassée propage `#VALUE!` dans toute la feuille), et
+  **on traduit la source, on aligne ses copies** — les caches de graphiques,
+  d'en-têtes de tableaux et de croisés reflètent des cellules déjà traduites ;
+  les retraduire donnerait deux formulations pour la même donnée.
+  Ce qui n'est **pas** couvert : l'**expansion**. Une traduction plus longue que
+  sa source déborde de sa colonne ou s'affiche en `#####`. C'est la raison du
+  `0.2.0` plutôt qu'un `1.0.0`.
 - **Journal central des erreurs** : toutes les erreurs (interface, backend, API)
   sont captées et regroupées par empreinte. Capture front (erreurs JS, promesses
   rejetées, rendu React via `ErrorBoundary`, échecs réseau/5xx) → `POST
@@ -73,6 +101,40 @@ Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
   2 500 → **1 500** F/mois (annuel 1 900 → 1 200), Pro 6 900 → **4 500** F/mois
   (annuel 5 200 → 3 500), page à l'unité 100 → **75** F. Zones B/C inchangées.
 
+### Sécurité
+- **Un secret qui s'annonce provisoire est désormais refusé en production.**
+  `dev-secret-key-change-in-production-…` traversait les trois contrôles : absent
+  de la liste noire, sans marqueur connu (la liste cherchait `change-me`, le
+  secret disait `change-in-production`) et assez long pour passer le plancher. Il
+  aurait signé les jetons en ligne, et quiconque ayant lu ce fichier aurait pu
+  forger un jeton d'administrateur.
+- **`FRONTEND_URL` resté sur `localhost` bloque le démarrage en production.**
+  Ce n'est pas un secret, l'application démarrait très bien sans lui : les liens
+  de vérification de compte et le retour de connexion Google partaient vers la
+  machine de l'utilisateur — **aucune inscription ne pouvait aboutir**, sans une
+  ligne de journal.
+
+### Corrigé
+- **Quatre lectures de fichier figeaient l'application entière.** Un
+  `open().read()` dans un `async def` bloque la boucle d'événements : avec un
+  seul worker uvicorn et des fichiers jusqu'à 100 Mo, un téléchargement
+  suspendait les aperçus de tous les autres utilisateurs, flux SSE de la
+  traduction progressive compris. Lectures déportées hors de la boucle
+  (`run_in_threadpool` / `asyncio.to_thread`).
+- **Les 23 dépendances du backend sont épinglées** (`==` au lieu de `>=`) aux
+  versions sur lesquelles les 21 suites passent : une construction d'image ne
+  ramène plus une version majeure non testée.
+- Les sorties des bancs d'essai (`.ocr_out/`, plusieurs dizaines de Mo,
+  régénérables) ne sont plus candidates au suivi de version.
+- Décomptes de tests périmés corrigés dans six documents (13 suites / 313
+  contrôles → **21 suites / 418 contrôles**).
+
+### Ajouté (mise en ligne)
+- [`docs/deploiement.md`](docs/deploiement.md) : la marche à suivre pour mettre
+  le service en ligne sur une machine AWS derrière Cloudflare — choix de
+  l'hébergement argumenté, configuration obligatoire, HTTPS, parcours de
+  vérification, limites connues et retour arrière.
+
 Limites connues (assumées, non bloquantes) : PDF scannés non traduits (aucun OCR,
 étude dans [`docs/etude-ocr.md`](docs/etude-ocr.md)) ; une colonne PDF justifiée de
 ≤ 5 lignes peut rester mal recollée ; moteur XLSX à l'état de squelette (couverture
@@ -112,5 +174,5 @@ puis réinjecté dans le document d'origine — jamais reconstruit.
 
 ### Vérifié
 - Interface : `npm run build` + parité i18n (`scripts/check-i18n.mjs`).
-- Backend : 13 suites de tests hors ligne (aucun appel réseau ni DeepSeek),
+- Backend : 21 suites de tests hors ligne (aucun appel réseau ni DeepSeek),
   chacune en `exit=0`.

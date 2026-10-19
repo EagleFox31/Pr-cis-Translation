@@ -134,6 +134,8 @@
     "pages_hint": "Laissez vide pour tout traduire. Les pages non sélectionnées restent dans leur langue d'origine.",
     "free_plan_title": "Forfait Gratuit — 1 page / mois",
     "free_plan_hint": "Passez à Starter pour traduire des documents complets.",
+    "retry_unavailable_title": "Relance impossible",
+    "retry_unavailable_hint": "Le fichier d'origine est absent ou vide. Renvoyez-le.",
     "precise_label": "Mode précis (admin)",
     "precise_desc": "Utilise le modèle de raisonnement — plus lent (~2 min/page) mais plus fiable sur les mises en page complexes."
   },
@@ -174,6 +176,9 @@
     "start_free": "Commencer gratuitement",
     "contact_us": "Nous contacter",
     "choose": "Choisir {{plan}}",
+    "renew": "Renouveler",
+    "active_until": "Actif jusqu'au {{date}}",
+    "included": "Inclus dans votre forfait",
     "feat_free_page": "1 page traduite offerte chaque mois",
     "feat_free_then": "Puis {{price}} par page — payées avant traduction",
     "feat_free_no_sub": "Aucun abonnement, aucune carte à enregistrer",
@@ -233,6 +238,7 @@
   "preview": {
     "source_label": "Document original",
     "target_label": "Traduction",
+    "toggle_label": "Choisir la page affichée",
     "loading": "Préparation de l'aperçu…",
     "error": "Aperçu indisponible : {{error}}",
     "error_hint": "Le document traduit reste téléchargeable.",
@@ -241,15 +247,24 @@
     "status_rendering": "Reconstruction de la mise en page…",
     "page_pending": "Cette page est en attente de traduction.",
     "credits_needed": "Il reste {{count}} page(s) à régler pour traduire ce document.",
-    "trial_hover": "Version d'essai — Survolez pour apercevoir",
-    "trial_buy": "Acheter pour télécharger"
+    "trial_hover": "Essai : survolez la page pour la lire",
+    "trial_touch": "Essai : touchez la page pour la lire",
+    "trial_buy": "Débloquer"
   },
   "account": {
     "default_name": "Utilisateur",
     "storage": "Stockage",
     "unlimited": "Illimité",
     "no_storage": "Sans espace de stockage personnel",
-    "logout": "Déconnexion"
+    "logout": "Déconnexion",
+    "translations_left": "Traductions restantes",
+    "free_left_one": "{{count}} offerte ce mois",
+    "free_left_other": "{{count}} offertes ce mois",
+    "pages_left": "Pages restantes ce mois",
+    "credits_one": "+ {{count}} page achetée disponible",
+    "credits_other": "+ {{count}} pages achetées disponibles",
+    "renews": "Renouvellement le {{date}}",
+    "storage_left": "Stockage restant"
   },
   "plans": {
     "free": "Gratuit",
@@ -303,7 +318,21 @@
     "pay_launch_failed": "Le paiement n'a pas pu être lancé.",
     "pay_expired": "L'invite a expiré sans validation. Aucun montant n'a été prélevé.",
     "pay_refused": "Paiement refusé ou annulé. Aucun montant n'a été prélevé.",
-    "buy_pages_label": "Débloquez la traduction de ce document"
+    "refund_due": "Paiement reçu, mais votre forfait actuel couvre déjà cette offre : il n'a pas été modifié. Le montant vous sera remboursé ; contactez l'assistance si besoin.",
+    "buy_pages_label": "Débloquez la traduction de ce document",
+    "title": "Paiement",
+    "method_title": "Moyen de paiement",
+    "method_card": "Carte bancaire",
+    "method_soon": "Pas encore disponible",
+    "no_method": "Aucun moyen de paiement n'est disponible pour le moment.",
+    "phone_label": "Numéro de téléphone",
+    "method_mobile": "Mobile Money",
+    "phone_hint": "MTN ou Orange, reconnu au numéro. Indicatif 237 facultatif.",
+    "pay": "Payer",
+    "plan_label": "Forfait {{plan}}",
+    "plan_months_one": "{{count}} mois",
+    "plan_months_other": "{{count}} mois",
+    "plan_done": "Votre forfait {{plan}} est actif."
   },
   "common": {
     "preview_conv_failed": "La conversion de l'aperçu a échoué.",

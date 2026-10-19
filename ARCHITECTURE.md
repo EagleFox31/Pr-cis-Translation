@@ -51,7 +51,7 @@ cd backend && venv/Scripts/python.exe -c "import engines, sys; \
 | `backend/app/models/` | Modèles SQLAlchemy et forfaits. | contenir des règles de traduction |
 | `backend/app/services/` | Le travail : jobs, exécuteurs, cache de rendu, aperçu d'essai. | importer FastAPI |
 | `backend/engines/` | Les moteurs, et ce qu'ils partagent (LibreOffice, balises, client IA). | importer `app` |
-| `backend/tests/` | Treize suites, **313 contrôles**, exécutables séparément. | dépendre du réseau |
+| `backend/tests/` | Vingt et une suites, **418 contrôles**, exécutables séparément. | dépendre du réseau |
 
 ---
 
@@ -71,9 +71,16 @@ directement — ils demandent « qui traite le `.xlsx` ? ».
    refusé à la porte.
 5. C'est tout. Aucune route, aucun exécuteur à modifier.
 
-**Le numéro de version dit l'état réel.** Un moteur qui ne couvre pas encore
-son format part en `0.x` : le déclarer `1.0.0` ferait croire le contrat stable
-à quiconque lit `/health`. C'est le cas du moteur XLSX, en `0.1.0`.
+**Le numéro de version dit l'état réel.** Un moteur qui ne rend pas encore un
+document fidèle part en `0.x` : le déclarer `1.0.0` ferait croire le contrat
+stable à quiconque lit `/health`.
+
+Le moteur XLSX l'a illustré : resté en `0.2.0` alors que sa couverture du
+**texte** était complète, parce qu'un défaut de **rendu** subsistait —
+l'expansion (une traduction plus longue débordait de sa colonne ou s'affichait
+en `#####`). Il n'est passé en `1.0.0` qu'une fois l'expansion gérée : le
+numéro se mérite sur ce que l'utilisateur voit, pas sur une table de
+couverture remplie.
 
 Le **moteur PDF fait exception** : il ne figure pas au registre. Il n'a pas le
 contrat en deux temps — sa traduction est progressive par construction

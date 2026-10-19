@@ -1,16 +1,21 @@
 """Version du moteur XLSX.
 
-Le suivi part de **0.1.0**, et pas de 1.0.0 comme les trois autres moteurs :
-le squelette accepte un classeur, le traverse et le réassemble, mais ne couvre
-pas encore tout ce qu'un fichier Excel peut porter (voir `CONTEXTE.md`, section
-« Ce qui n'est pas encore fait »).
+**1.0.0** — la couverture du TEXTE est complète, et sa PRÉSENTATION suit.
 
-Une version majeure dit « le contrat est stable ». Ici il ne l'est pas encore,
-et l'annoncer en 1.0.0 ferait croire l'inverse à quiconque lit `/health`.
+Les dix endroits où Excel range du texte sont traités : chaînes partagées et
+en ligne, noms d'onglets, graphiques, zones de texte, les deux formats de
+commentaires, en-têtes de tableaux structurés, croisés dynamiques, formats de
+nombre personnalisés et propriétés du document. `couverture()` ne déclare plus
+aucun manque.
 
-Il passera en 1.0.0 quand les chaînes en ligne, les graphiques et les tableaux
-croisés dynamiques seront traités — c'est-à-dire quand un classeur quelconque
-en ressortira traduit sans surprise.
+L'expansion est gérée (`expansion.py`) : une traduction plus longue que sa
+source élargit sa colonne au lieu d'être coupée par sa voisine, une cellule à
+retour à la ligne gagne la hauteur de ses lignes en plus, un nombre dont le
+format porte un littéral traduit ne s'affiche plus en `#####`.
+
+La 0.2.0 refusait le 1.0.0 pour cette seule raison : qui lit « 1.0.0 » dans
+`/health` comprend « ce moteur rend un classeur fidèle ». C'est désormais vrai,
+aux limites près que `CONTEXTE.md` énumère.
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
