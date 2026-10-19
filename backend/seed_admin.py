@@ -30,6 +30,11 @@ DEFAULT_ADMIN_EMAIL = "mbowouibrah@gmail.com"
 ADMIN_NAME = "Ibrahim Mbowou"
 
 
+def admin_name(email: str) -> str:
+    """Un nom propre a l'adresse ; jamais l'identite d'un autre compte."""
+    return email.partition("@")[0]
+
+
 def admin_emails() -> list[str]:
     """Normalise la liste et ignore les entrees vides et les doublons."""
     value = os.getenv("ADMIN_EMAIL") or DEFAULT_ADMIN_EMAIL
@@ -52,7 +57,7 @@ async def ensure_admin(email: str | None = None) -> User:
             select(User).where(func.lower(User.email) == email))).scalar_one_or_none()
         created = user is None
         if created:
-            user = User(email=email, name=ADMIN_NAME)
+            user = User(email=email, name=admin_name(email))
             db.add(user)
         user.plan = "admin"
         user.email_verified = True
@@ -60,7 +65,11 @@ async def ensure_admin(email: str | None = None) -> User:
         # Plan attribue, pas achete : sans echeance.
         user.plan_expires_at = None
         user.plan_started_at = None
-        user.name = user.name or ADMIN_NAME
+        # Repare uniquement le nom historique attribue par erreur par ce script.
+        # Un nom personnalise reste intact aux redemarrages suivants.
+        if not user.name or (user.name == ADMIN_NAME and email != DEFAULT_ADMIN_EMAIL
+                             and not user.google_id):
+            user.name = admin_name(email)
         await db.commit()
         await db.refresh(user)
     print(f"OK  Compte admin {'cree' if created else 'a jour'} : {user.email}")

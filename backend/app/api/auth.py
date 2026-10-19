@@ -553,7 +553,7 @@ async def google_auth(body: GoogleBody, db: AsyncSession = Depends(get_db)):
 
     email = id_info.get("email", "").lower().strip()
     google_id = id_info.get("sub", "")
-    name = id_info.get("name")
+    name = (id_info.get("name") or "").strip() or None
     picture = id_info.get("picture")
 
     if not email or not google_id:
@@ -585,6 +585,10 @@ async def google_auth(body: GoogleBody, db: AsyncSession = Depends(get_db)):
         # Mise à jour
         if not user.google_id:
             user.google_id = google_id
+        # Le nom du jeton Google verifie est la source du profil Google,
+        # y compris pour un compte deja cree par l'amorcage administrateur.
+        if name:
+            user.name = name
         if not user.avatar_url and picture:
             user.avatar_url = picture
         if not user.email_verified:
