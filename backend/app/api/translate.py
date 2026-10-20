@@ -246,11 +246,17 @@ async def translate_endpoint(
     ocr_prepared = None
     ocr_pages = 0
     if lisibles is not None:
-        visees_ocr = pages_set or set(range(1, count_pages(file_bytes, ext) + 1))
-        # Ne pas reconnaitre un document entier pour l'essai d'une page.
-        if get_plan_page_limit(current_user.plan) == 1 and not await usage.free_offer_used(db, current_user.id):
-            pages_set = cap_pages_for_plan(pages_set, ext, 1)
-            visees_ocr = pages_set
+        visees_ocr = pages_set or set(range(1, nb_pages + 1))
+        hors_essai = set()
+        # Ne pas reconnaitre un document entier pour l'essai d'une page. Des
+        # pages ACHETEES passent avant l'essai : elles ouvrent tout le document.
+        # `pages_set` reste intact : le 402 `need_credits` doit encore compter
+        # tout le document pour proposer l'achat des pages manquantes.
+        if (get_plan_page_limit(current_user.plan) == 1 and current_user.page_credits <= 0
+                and not await usage.free_offer_used(db, current_user.id)):
+            essai_ocr = cap_pages_for_plan(pages_set, ext, 1)
+            hors_essai = visees_ocr - essai_ocr
+            visees_ocr = essai_ocr
         scans = visees_ocr - lisibles
         if scans:
             try:
@@ -264,6 +270,9 @@ async def translate_endpoint(
                 raise HTTPException(status_code=413, detail="Le scan reconnu est trop volumineux. Selectionnez moins de pages.")
             lisibles = pages_avec_texte(ocr_prepared, ext) or set()
             qsuffix += f"_{OCR_VERSION}"
+        # Non reconnues faute d'achat, pas illisibles : elles restent visées
+        # (et comptées), l'achat rejoue le document avec l'OCR complet.
+        lisibles |= hors_essai
     if lisibles is not None:
         visees = pages_set or set(range(1, nb_pages + 1))
         traduisibles = visees & lisibles
