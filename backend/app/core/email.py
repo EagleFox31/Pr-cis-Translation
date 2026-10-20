@@ -308,7 +308,7 @@ async def send_plain(to: list[str] | str, subject: str, body: str) -> None:
         await aiosmtplib.send(
             msg, hostname=SMTP_HOST, port=SMTP_PORT,
             username=SMTP_USER or None, password=SMTP_PASSWORD or None,
-            start_tls=True, use_tls=(SMTP_PORT == 465),
+            start_tls=(SMTP_PORT != 465), use_tls=(SMTP_PORT == 465),
         )
         logger.info("Alerte envoyée à %s", ", ".join(destinataires))
     except Exception as exc:
@@ -342,7 +342,7 @@ async def send_verification_email(email: str, code: str, token: str,
             port=SMTP_PORT,
             username=SMTP_USER or None,
             password=SMTP_PASSWORD or None,
-            start_tls=True,
+            start_tls=(SMTP_PORT != 465),
             use_tls=(SMTP_PORT == 465),
         )
         logger.info("Vérification envoyée à %s (%s)", email, langue)
@@ -384,7 +384,7 @@ async def send_invitation_email(destinataire: str, inviteur: str,
         await aiosmtplib.send(
             msg, hostname=SMTP_HOST, port=SMTP_PORT,
             username=SMTP_USER or None, password=SMTP_PASSWORD or None,
-            start_tls=True, use_tls=(SMTP_PORT == 465),
+            start_tls=(SMTP_PORT != 465), use_tls=(SMTP_PORT == 465),
         )
         logger.info("Invitation envoyée à %s (%s)", destinataire, langue)
     except Exception as exc:
