@@ -332,6 +332,7 @@
     "fee": "Transaction fee ({{percent}}%)",
     "pages_range": "Between 1 and {{max}} pages.",
     "min_pages": "The minimum amount is {{min}}: choose at least {{count}} pages to continue.",
+    "min_pages_card": "By card, the minimum amount is {{min}}: choose at least {{count}} pages to continue, or pay with Mobile Money.",
     "title": "Payment",
     "method_title": "Payment method",
     "method_card": "Bank card",

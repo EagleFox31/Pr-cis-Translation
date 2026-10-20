@@ -23,6 +23,8 @@ export interface Quote {
   /** Montant DÉBITÉ : `subtotal + fee`. */
   amount: number;
   min_amount: number;
+  /** Mêmes chiffres par carte : le minimum de Paddle est plus haut. */
+  card?: Pick<Quote, 'billed_pages' | 'subtotal' | 'fee' | 'amount' | 'min_amount'>;
   currency: string;
   zone: string;
   /** Achat d'abonnement : durée payée d'avance (1 ou 12 mois). */

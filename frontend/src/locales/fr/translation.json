@@ -332,6 +332,7 @@
     "fee": "Frais de transaction ({{percent}} %)",
     "pages_range": "Entre 1 et {{max}} pages.",
     "min_pages": "Le montant minimum est de {{min}} : choisissez au moins {{count}} pages pour continuer.",
+    "min_pages_card": "Par carte, le montant minimum est de {{min}} : choisissez au moins {{count}} pages pour continuer, ou payez par Mobile Money.",
     "title": "Paiement",
     "method_title": "Moyen de paiement",
     "method_card": "Carte bancaire",

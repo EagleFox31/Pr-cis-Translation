@@ -6,6 +6,7 @@ import { X, Smartphone, Loader2, CheckCircle2, AlertCircle, CreditCard, Lock, Ex
 import { usePayment, type PayMethodId, type PlanChoice } from '../../hooks/usePayment';
 import { usePricing, formatMoney } from '../../hooks/usePricing';
 import { detectOperator, OPERATOR_LABEL, type Operator } from '../../lib/mobileMoney';
+import { CARD_HEIGHT_MSG } from '../../lib/cardPayment';
 import { MtnLogo, OrangeLogo, VisaLogo, MastercardLogo } from './PayLogos';
 
 interface PaymentModalProps {
@@ -50,7 +51,7 @@ export default function PaymentModal({
   const { t } = useTranslation();
   const { pricing } = usePricing();
   const {
-    phase, quote, methods, ussdCode, operator, checkoutUrl, error,
+    phase, quote: baseQuote, methods, ussdCode, operator, checkoutUrl, error,
     getQuote, getPlanQuote, getMethods, pay, payPlan, reset,
   } = usePayment();
   const [phone, setPhone] = useState('');
@@ -63,11 +64,6 @@ export default function PaymentModal({
   // paiement, on ne les redemande pas ici.
   const askPhone = !!methods?.some((m) =>
     (m.id === 'mtn_momo' || m.id === 'orange_money') && m.available && m.needs_phone);
-  // Ce que le serveur facture réellement (montant minimum de l'opérateur).
-  const billed = quote?.billed_pages ?? pages;
-  // Taille retenue par le SERVEUR : pour un document, elle peut différer de
-  // la prop (taille jamais consignée côté bibliothèque, recomptée au devis).
-  const dues = quote?.pages ?? pages;
   const op = askPhone ? detectOperator(phone) : null;
   // Le numéro décide de l'opérateur (le serveur fait de même). Préfixe inconnu :
   // on ne bloque pas, le premier moyen ouvert part et le serveur tranche.
@@ -79,6 +75,14 @@ export default function PaymentModal({
       ? (opMethod ? (isOn(opMethod) ? opMethod : null)
          : isOn('mtn_momo') ? 'mtn_momo' : isOn('orange_money') ? 'orange_money' : null)
       : null;
+  // Par carte, le devis porte le minimum de Paddle (plus haut que celui du
+  // mobile money) : pages facturées, montant et message en découlent.
+  const quote = chosen === 'card' && baseQuote?.card ? { ...baseQuote, ...baseQuote.card } : baseQuote;
+  // Ce que le serveur facture réellement (montant minimum du moyen choisi).
+  const billed = quote?.billed_pages ?? pages;
+  // Taille retenue par le SERVEUR : pour un document, elle peut différer de
+  // la prop (taille jamais consignée côté bibliothèque, recomptée au devis).
+  const dues = quote?.pages ?? pages;
 
   // Achat d'avance : la saisie reste libre (champ vide, 0…) ; seule une
   // quantité valide part au parent, après une courte pause, pour ne pas
@@ -122,6 +126,19 @@ export default function PaymentModal({
   const embedded = phase === 'waiting' && !!checkoutUrl;
   const [frameReady, setFrameReady] = useState(false);
   useEffect(() => { setFrameReady(false); }, [checkoutUrl]);
+  // Hauteur annoncée par notre page carte ; null pour une page de prestataire.
+  const [cardH, setCardH] = useState<number | null>(null);
+  useEffect(() => {
+    setCardH(null);
+    if (!embedded) return;
+    const onMsg = (ev: MessageEvent) => {
+      if (ev.origin !== window.location.origin || ev.data?.type !== CARD_HEIGHT_MSG) return;
+      const h = Number(ev.data.height);
+      if (h > 0) setCardH(Math.ceil(h));
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, [embedded, checkoutUrl]);
   // Tout doit tenir sans défilement : la page est réduite à l'échelle de la
   // fenêtre, et recalculée quand celle-ci change de taille.
   const [vp, setVp] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
@@ -132,7 +149,11 @@ export default function PaymentModal({
     return () => window.removeEventListener('resize', onResize);
   }, [embedded]);
   const frameW = Math.min(460, vp.w * 0.96) - 24;
-  const scale = Math.min(1, (vp.h * 0.96 - 84) / HOSTED_H);
+  const availH = vp.h * 0.96 - 84;
+  // Page carte : taille réelle, défilement dans la découpe si l'écran est trop
+  // bas (la réduire rendrait les champs illisibles). Sinon : mise à l'échelle.
+  const scale = cardH ? 1 : Math.min(1, availH / HOSTED_H);
+  const clipH = cardH ? Math.min(cardH, availH) : Math.round(HOSTED_H * scale);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -215,8 +236,10 @@ export default function PaymentModal({
                 </div>
                 {/* Découpe à la hauteur utile, fond assorti à la page : le cadre
                     se fond dans la fenêtre, sans barre de défilement. */}
-                <div style={{ position: 'relative', width: frameW, height: Math.round(HOSTED_H * scale),
-                              borderRadius: '12px', overflow: 'hidden', background: '#f6f7f9' }}>
+                <div style={{ position: 'relative', width: frameW, height: clipH,
+                              borderRadius: '12px', overflowX: 'hidden',
+                              overflowY: cardH && cardH > clipH ? 'auto' : 'hidden',
+                              background: '#f6f7f9' }}>
                   {!frameReady && (
                     <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
                                   justifyContent: 'center', color: 'var(--blue)', zIndex: 1 }}>
@@ -229,8 +252,8 @@ export default function PaymentModal({
                   )}
                   {/* Cadre isolé : la page peut s'exécuter et envoyer son
                       formulaire, mais jamais naviguer notre site (pas de
-                      allow-top-navigation) ni lire quoi que ce soit chez nous
-                      (origine différente). */}
+                      allow-top-navigation). La page carte est servie par notre
+                      propre site (même origine) ; celle de Fapshi, non. */}
                   <iframe
                     src={checkoutUrl!}
                     title="Paiement sécurisé"
@@ -238,7 +261,7 @@ export default function PaymentModal({
                     sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
                     referrerPolicy="no-referrer"
                     scrolling="no"
-                    style={{ width: frameW / scale, height: FRAME_H, border: 0, display: 'block',
+                    style={{ width: frameW / scale, height: cardH ?? FRAME_H, border: 0, display: 'block',
                              transform: `scale(${scale})`, transformOrigin: '0 0',
                              opacity: frameReady ? 1 : 0, transition: 'opacity .2s' }}
                   />
@@ -340,7 +363,7 @@ export default function PaymentModal({
                   )}
                   {belowMin && quote && pricing && (
                     <p role="alert" style={{ fontSize: '12.5px', color: '#b91c1c', margin: '6px 0 0', lineHeight: 1.45 }}>
-                      {t('payment.min_pages', {
+                      {t(chosen === 'card' ? 'payment.min_pages_card' : 'payment.min_pages', {
                         min: formatMoney(quote.min_amount, quote.currency, pricing.decimals, 'fr'),
                         count: billed })}
                     </p>

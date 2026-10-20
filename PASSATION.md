@@ -1,33 +1,39 @@
-# PASSATION
+# PASSATION — 20/10/2026
 
 ## 1. Objectif en cours
-Résolution des polices non embarquées dans le moteur PDF (téléchargement à l'identique, sinon clone métrique, sinon police la plus proche), branche `feat/polices-telechargement-substitution`, moteur 1.0.12.
+Paiement par carte (dont Visa prépayée) via Paddle Billing sur la méthode `card` : page `/paiement/carte` (Paddle.js inline dans l'iframe de `PaymentModal`) + webhook signé qui crédite comme Fapshi. Priorité utilisateur : VOIR le paiement carte fonctionner en sandbox.
 
-## 2. Fait
-- Ticket CD26052553710 : points 1–7 commités (point 8 laissé de côté à la demande).
-- `backend/engines/pdf/polices.py` (nouveau) : `Resolveur` (identique locale / Google Fonts css2 validée famille-pente-graisse-encre / clone `CLONES` / plus proche par largeurs), cache `translations/_polices`, absences 30 j, disjoncteur réseau, verrou par variante en vol, redirections hors `_HOTES` refusées, échéance globale.
-- `backend/engines/pdf/engine.py` : profils de largeur (`_measure_span`, `_font_profiles_from`), chaîne `_full_fallback_font`.
-- `backend/engines/pdf/stream.py:149-153` : profils passés à `_extract_fonts` (sans eux, la couche « proche » était aveugle en production).
-- `backend/scripts/precharger_polices.py` : ~90 familles pré-chargées dans `backend/fonts/catalogue` (gitignoré + dockerignoré) ; lancé au build (`Dockerfile`, non bloquant) ; Carlito/Caladea installés.
-- `backend/tests/test_polices.py` : 20/20 ; `racine.py` pose `PRECIS_FONT_DOWNLOAD/SYSTEM/CATALOGUE=0`.
-- `test_rendu_structure.py` : `fiche_document` simulé (appelait réellement DeepSeek).
-- Commits : c6dfe71, a588a76, 2192374. 9 suites moteur en code 0.
+## 2. Fait (rien de commité, branche `feat/paiement-paddle`)
+- `backend/app/core/payment_gateway.py:461-620` : `paddle_amount`, `PaddleClient`, `verify_webhook_signature`.
+- `backend/app/core/payment_methods.py:111` : `PaddleProvider` ; `PADDLE_CHECKOUT_URL` (dev local) remplace le lien Paddle dans `checkout_url`.
+- `backend/app/api/payments.py` : webhook `POST /api/payments/paddle/webhook` ; garde « forfait en attente » (3 min) pour Mobile Money seulement ; carte : `_resume_card_plan` rouvre la transaction ouverte de la même offre (15 min), une autre offre crée un nouveau paiement.
+- Minimum par moyen : `pricing.py` `MIN_CARD_AMOUNT` (427 F / 0,70 $ / 0,65 €, `minimum_payment_amount` Paddle) + `min_payment_amount(zone, method)` ; `billable_pages(..., method)` dans `collect` ; `/quote` renvoie un bloc `card` ; `PaymentModal` bascule sur ce bloc quand la carte est choisie (bouton désactivé + `payment.min_pages_card`). Frais 3 % déjà à la charge du client pour tous les moyens (`_with_fee`).
+- Tests : test_paddle 21/21 ; test_fapshi 18/18 ; test_verrous_plan 17/17 ; test_paiement_minimum 15/15.
+- Front : `CardPaymentPage.tsx` (`_ptxn` lu une fois via `useState`, retiré de l'URL, `Checkout.open` gardé par `useRef` contre le double effet du mode strict ; `checkout.error` laissé à Paddle) ; `App.tsx` rend la page carte HORS `AuthProvider` (wrapper `App` → `MainApp`) ; commentaire iframe corrigé `PaymentModal.tsx:230`. tsc + lint + build OK.
+- Doc : bloc Paddle dans `backend/.env.example` (+ `PADDLE_CHECKOUT_URL` commenté), `frontend/.env.example`, `docs/deploiement.md`. CHANGELOG non édité (release-please).
 
-## 3. Décisions prises
-- Serif détecté par le nom seulement : le drapeau MuPDF n'est pas fiable.
-- Largeurs mesurées prioritaires dans le score « proche » (chasse fixe pénalité 10).
-- Base14 (Helvetica/Times/Courier) gardé en raccourci : métriques identiques à Liberation.
-- Pré-chargement laissé après `COPY backend/` : `engines/__init__.py` importe tous les moteurs.
+## 3. Décisions
+- Zone A en EUR (XAF / 655,957, arrondi sup.), B USD, C EUR ; base en XAF. Prix non-catalogue à chaque transaction, un seul produit Paddle sans prix.
+- Crédit seulement après relecture API ; le polling `GET /payments/{id}` relit aussi Paddle → démo locale sans webhook/ngrok.
+- Paddle refuse `localhost` comme Default payment link : lien de prod saisi chez Paddle, `PADDLE_CHECKOUT_URL=http://localhost:3000/paiement/carte` dans `backend/.env` local.
+- Revue : rejetés double crédit (UPDATE atomique), tolérance 300 s signature, webhook txn inconnue → 200.
 
-## 4. Reste à faire
-1. FAIT (1.0.11) : liste blanche `backend/fonts/google_familles.txt` (1950 familles, seules interrogées) ; rendu fait réseau dégradé non conservé (`render_cache.marque_polices()` → `store_render(..., marque)`) ; polices système désactivées par défaut (`PRECIS_FONT_SYSTEM=1` pour les activer). test_polices 23/23.
-2. FAIT (1.0.12) : `fsType=2` exclu de l'index ; « Arial Black », « Helvetica-Narrow » et autres chasses gardés dans la famille ; `absences.json` purgé et borné à 5000, plafond de 60 téléchargements par heure (refus noté comme dégradation) ; `PRECIS_FONTS_CACHE` posé par `app/config.py`.
-3. FAIT (1.0.12) : `categorie()` (catalogue Google `Famille	Catégorie`, puis marques du nom) sert aux fiches locales (panose souvent muet) et à la cible ; un changement de catégorie coûte 5.0 dans « proche ». test_polices 28/28, générique 100/100.
-4. Pousser la branche / PR vers main.
+## 4. Plan
+1. [x] `PaddleClient` + `PaddleProvider`.
+2. [x] Webhook.
+3. [x] Front `CardPaymentPage`.
+4. [x] Tests backend.
+5. [x] Doc.
+6. [x] Écarts de revue a–e corrigés, tests/build verts.
+7. [ ] ← Test sandbox : minimum carte à l'écran (1 page par carte → bouton grisé, « au moins 6 pages ») ; : paiement 4242 Pro 12 mois SUCCESSFUL en base (à confirmer à l'écran : crédit du forfait visible ; plus de message « Lien de paiement incomplet » au chargement). Reprise d'un checkout fermé OK (pas de 409).
+8. [ ] Commit conventionnel sans mention d'IA (pas de trailer).
+
+**Hors plan** : rattrapage serveur des paiements Fapshi `PENDING` (attend accord) ; secrets Paddle dans SSM au déploiement ; approbation du domaine en live ; test avec une vraie carte = mode live uniquement (sandbox : cartes de test seulement).
 
 ## 5. Pièges / contexte
-- Comparatif identité (sans API) : scripts dans le scratchpad de session (`run_corpus.py`, `comparer.py`) ; résultat 1.0.10 = 1.0.9 avec polices livrées ; sans elles, Inter/Oswald/PT Serif retéléchargées.
-- Python lisant des PDF téléchargés : `venv/Scripts/python.exe -I`.
-- Windows verrouille les fichiers ouverts : lire les polices en bytes.
-- Tout changement de rendu : bump `backend/engines/pdf/version.py`.
-- Tests : `cd backend && PYTHONIOENCODING=utf-8 venv/Scripts/python.exe tests/<fichier>`.
+- `backend/.env` en LIVE pour Fapshi : ne jamais valider d'invite réelle ; tester seulement la carte. Ne pas afficher les `.env` (vérifier par `grep -c`). Jamais de clé dans un fichier suivi.
+- Tests : `cd backend && PYTHONUTF8=1 /c/Users/IBRAH/Documents/Projets/Precis_Translator_backup_2026-06-10_13-10/backend/venv/Scripts/python.exe tests/<suite>.py` (pas de pytest).
+- Front : `cd frontend && npx tsc --noEmit -p . ; npm run lint --silent ; npm run build --silent | tail -n 8`.
+- StatReload sous Windows ne recharge pas toujours : après un changement backend, `npm run stop` puis relancer.
+- Démarrage : `npm run dev` échoue (pas de `backend/venv`) → en arrière-plan `PYTHONUTF8=1 <venv backup>/python.exe scripts/dev.py` à la racine ; arrêt `npm run stop`. Api :8000, front :3000.
+- Produit sandbox `pro_01m5cza0wrhn34kss0tk9zxg4j`. MCP `paddle-live` seulement sur demande « live ». Remote `origin` = EagleFox31.

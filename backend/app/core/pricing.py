@@ -172,12 +172,21 @@ def page_price(zone: str) -> int:
 # une page à 75 F seule échouerait chez l'opérateur, APRÈS l'invite USSD.
 # Les autres devises n'ont pas encore de moyen d'encaissement (pas de seuil).
 MIN_PAYMENT_AMOUNT: dict[str, int] = {"XAF": 100}
+# Carte (Paddle) : `minimum_payment_amount` de `GET /currencies`, 0,65 € et
+# 0,70 $. La zone A est facturée en euros : 65 c × 655,957 = 426,4 → 427 F.
+MIN_CARD_AMOUNT: dict[str, int] = {"XAF": 427, "EUR": 65, "USD": 70}
 
 
-def billable_pages(zone: str, pages: int) -> int:
+def min_payment_amount(zone: str, method: str | None = None) -> int:
+    """Montant minimum d'un encaissement dans la zone, selon le moyen choisi."""
+    table = MIN_CARD_AMOUNT if method == "card" else MIN_PAYMENT_AMOUNT
+    return table.get(CURRENCY[zone], 0)
+
+
+def billable_pages(zone: str, pages: int, method: str | None = None) -> int:
     """Pages réellement facturées : au moins `pages`, et assez pour atteindre
-    le montant minimum de la devise. Le surplus est crédité au compte, jamais
-    perdu."""
-    minimum = MIN_PAYMENT_AMOUNT.get(CURRENCY[zone], 0)
+    le montant minimum du moyen de paiement. Le surplus est crédité au compte,
+    jamais perdu."""
+    minimum = min_payment_amount(zone, method)
     unit = page_price(zone)
     return max(pages, -(-minimum // unit))

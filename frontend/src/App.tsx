@@ -11,6 +11,7 @@ import VerifyEmailPage from './pages/VerifyEmailPage';
 import AdminLogsPage from './pages/AdminLogsPage';
 import AdminUsersPage from './pages/AdminUsersPage';
 import AdminSupportPage from './pages/AdminSupportPage';
+import CardPaymentPage from './pages/CardPaymentPage';
 
 /** Redirige vers /home si déjà connecté ( pages auth ). */
 function GuestRoute({ children }: { children: React.ReactNode }) {
@@ -33,6 +34,14 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 const GOOGLE_CLIENT_ID = (import.meta as any).env.VITE_GOOGLE_CLIENT_ID || '';
 
 export default function App() {
+  // La page carte s'affiche dans le cadre de la fenêtre de paiement : hors
+  // AuthProvider, pour qu'une seconde instance ne dispute pas le jeton de
+  // rafraîchissement à l'application qui l'héberge.
+  if (window.location.pathname === '/paiement/carte') return <CardPaymentPage />;
+  return <MainApp />;
+}
+
+function MainApp() {
   const [showSplash, setShowSplash] = useState(true);
 
   return (

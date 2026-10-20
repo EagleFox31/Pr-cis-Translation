@@ -93,6 +93,11 @@ def check_calcul(ok):
        billable_pages(ZONE_AFRICA, 1) == 2, str(billable_pages(ZONE_AFRICA, 1)))
     ok("CALCUL  hors XAF : aucun arrondi",
        billable_pages(ZONE_EMERGING, 1) == 1 and billable_pages(ZONE_GLOBAL, 1) == 1)
+    # Carte : minimum Paddle (427 F, 0,70 $, 0,65 €) sur le montant net.
+    juste = all(billable_pages(z, 1, "card") * page_price(z) >= m
+                and (billable_pages(z, 1, "card") - 1) * page_price(z) < m
+                for z, m in ((ZONE_AFRICA, 427), (ZONE_EMERGING, 70), (ZONE_GLOBAL, 65)))
+    ok("CALCUL  carte : minimum Paddle atteint dans chaque zone, sans page superflue", juste)
 
 
 async def check_routes(client, ok):
@@ -119,6 +124,11 @@ async def check_routes(client, ok):
            r.status_code == 200 and q.get("billed_pages") == 2
            and q.get("subtotal") == 150 and q.get("fee") == 5
            and q.get("amount") == 155 and q.get("min_amount") == 100, str(q))
+        carte = q.get("card") or {}
+        ok("ROUTE   /quote carte 1 page : 6 facturees, 450 F + 14 F de frais, minimum 427 F",
+           carte.get("billed_pages") == 6 and carte.get("subtotal") == 450
+           and carte.get("fee") == 14 and carte.get("amount") == 464
+           and carte.get("min_amount") == 427, str(carte))
 
         r = client.post("/api/payments/collect",
                         json={"pages": 1, "phone": "237670000000"}, headers=ent)

@@ -8,6 +8,7 @@ visible en clair et téléchargeable ; rien d'autre ne l'est.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -15,20 +16,20 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models import User, Document, Payment, get_plan_storage
 from app.core.security import require_auth
 from app.core.pricing import (zone_for_country, CURRENCY, page_price,
-                               billable_pages, MIN_PAYMENT_AMOUNT, plan_price,
+                               billable_pages, min_payment_amount, plan_price,
                                PLAN_RANK, SELF_SERVE_PLANS, transaction_fee)
 from app.services.usage import add_months
 from app.services.documents import count_pages
 from app.core.payment_gateway import (campay, CampayError, ProviderError,
-                                      fapshi, normalize_phone)
-from app.core.payment_methods import (MTN_MOMO, PHONE_METHODS, PROVIDERS,
+                                      fapshi, normalize_phone, paddle)
+from app.core.payment_methods import (CARD, MTN_MOMO, PHONE_METHODS, PROVIDERS,
                                       list_methods, method_of_phone, needs_phone,
                                       provider_for)
 
@@ -105,6 +106,7 @@ async def quote(body: QuoteBody, request: Request, user: User = Depends(require_
     doc = await _owned_unpaid_document(db, user, body.document_id)
     pages = (await _document_pages(db, doc) if doc is not None else None) or body.pages
     billed = billable_pages(zone, pages)
+    card_billed = billable_pages(zone, pages, CARD)
     return {
         "pages": pages,
         # Peut dépasser `pages` : le montant minimum de l'opérateur l'impose.
@@ -114,7 +116,14 @@ async def quote(body: QuoteBody, request: Request, user: User = Depends(require_
         # `amount` = ce qui sera DÉBITÉ, frais compris ; `subtotal` + `fee` le
         # détaillent. Même calcul que `POST /` : le devis ne promet rien d'autre.
         **_with_fee(unit * billed),
-        "min_amount": MIN_PAYMENT_AMOUNT.get(CURRENCY[zone], 0),
+        "min_amount": min_payment_amount(zone),
+        # Le minimum de la carte (Paddle) est plus haut : la fenêtre bascule sur
+        # ces chiffres quand la carte est choisie, sans redemander de devis.
+        "card": {
+            "billed_pages": card_billed,
+            **_with_fee(unit * card_billed),
+            "min_amount": min_payment_amount(zone, CARD),
+        },
         "currency": CURRENCY[zone],
         "zone": zone,
     }
@@ -164,7 +173,7 @@ async def collect(body: CollectBody, request: Request,
     pages = (await _document_pages(db, doc) if doc is not None else None) or body.pages
     # Arrondi au montant minimum de l'opérateur ; `_apply_credit` reverse au
     # compte les pages payées au-delà du document.
-    billed = billable_pages(zone, pages)
+    billed = billable_pages(zone, pages, method)
     amount = _with_fee(page_price(zone) * billed)["amount"]
 
     payment = Payment(
@@ -250,8 +259,10 @@ async def _start_payment(db: AsyncSession, provider, payment: Payment,
 
 # Une invite Campay reste ouverte environ 3 min (le client cesse d'interroger
 # au même terme) : un second achat de forfait pendant ce temps est un double
-# clic ou un deuxième onglet, pas une intention.
+# clic ou un deuxième onglet, pas une intention. Un checkout carte Paddle reste
+# payable bien plus longtemps : on le rouvre (même offre) pendant ce délai.
 PENDING_PLAN_WINDOW = timedelta(minutes=3)
+PENDING_CARD_WINDOW = timedelta(minutes=15)
 
 
 def _with_fee(subtotal: int) -> dict:
@@ -331,16 +342,25 @@ async def buy_plan(body: PlanBody, request: Request,
     zone = _zone_of(request)
     _monthly, months, amount = _plan_offer(body.plan, body.annual, zone)
     _check_can_buy(user, body.plan)
+    maintenant = datetime.now(timezone.utc)
+    if body.method == CARD:
+        reprise = await _resume_card_plan(db, user, body.plan, months, maintenant)
+        if reprise:
+            return reprise
+    # Une invite Mobile Money en cours bloque une seconde demande. Pas un
+    # paiement par carte : rien n'est débité sans saisie du client, et sa
+    # transaction reste en attente (le webhook la créditerait encore).
     en_attente = await db.scalar(
         select(func.count()).select_from(Payment).where(
             Payment.user_id == user.id, Payment.plan.is_not(None),
             Payment.status == "PENDING",
-            Payment.created_at >= datetime.now(timezone.utc) - PENDING_PLAN_WINDOW,
+            or_(Payment.method.is_(None), Payment.method != CARD),
+            Payment.created_at >= maintenant - PENDING_PLAN_WINDOW,
         ))
     if en_attente:
         raise HTTPException(
             status_code=409,
-            detail="Un paiement de forfait attend déjà votre validation sur le téléphone.")
+            detail="Un paiement de forfait est déjà en cours ; terminez-le ou patientez quelques minutes.")
     method, phone, provider = _resolve_method(body.method, body.phone, zone)
     payment = Payment(
         user_id=user.id, pages=0, amount=amount, currency=CURRENCY[zone],
@@ -350,6 +370,41 @@ async def buy_plan(body: PlanBody, request: Request,
     return await _start_payment(db, provider, payment,
                                 f"Précis — forfait {body.plan} ({months} mois)",
                                 email=user.email)
+
+
+async def _resume_card_plan(db: AsyncSession, user: User, plan: str,
+                            months: int, now: datetime) -> dict | None:
+    """Rouvre la transaction carte encore ouverte pour la même offre : fermer
+    la fenêtre de paiement puis revenir ne doit ni bloquer ni en créer une
+    seconde."""
+    payment = await db.scalar(
+        select(Payment).where(
+            Payment.user_id == user.id, Payment.plan == plan,
+            Payment.months == months, Payment.method == CARD,
+            Payment.status == "PENDING", Payment.provider_ref.is_not(None),
+            Payment.created_at >= now - PENDING_CARD_WINDOW,
+        ).order_by(Payment.created_at.desc()).limit(1))
+    provider = PROVIDERS.get(payment.provider) if payment else None
+    if payment is None or not hasattr(provider, "resume"):
+        return None
+    try:
+        status, url = await provider.resume(payment.provider_ref)
+    except ProviderError as e:
+        logger.warning("Reprise %s impossible (%s) : %s", payment.provider, payment.id, e)
+        return None
+    if status != "PENDING":
+        payment.status = status
+        await db.commit()
+        await _apply_credit(db, payment)
+        if status == "SUCCESSFUL":
+            raise HTTPException(status_code=409,
+                                detail="Ce paiement vient d'être reçu : votre forfait est actif.")
+        return None
+    if not url:
+        return None
+    return {"payment_id": payment.id, "status": "PENDING", "amount": payment.amount,
+            "currency": payment.currency, "ussd_code": None, "operator": None,
+            "checkout_url": url}
 
 
 def _carry_over(user: User, payment: Payment, now: datetime) -> timedelta:
@@ -610,6 +665,53 @@ async def fapshi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         new_status = await PROVIDERS["fapshi"].status(payment.provider_ref)
     except ProviderError as e:
         logger.warning("Webhook : statut Fapshi indisponible (%s) : %s", trans_id, e)
+        raise HTTPException(status_code=503, detail="Réessayez.")
+
+    payment.status = new_status
+    await db.commit()
+    await _apply_credit(db, payment)
+    return {"ok": True}
+
+
+@router.post("/paddle/webhook", operation_id="paddle_webhook",
+             summary="Notification de paiement Paddle", include_in_schema=False)
+async def paddle_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    """Notification de Paddle (`transaction.*` : corps = {event_type, data}).
+
+    Mêmes deux barrières que pour Campay, la seconde suffisant seule :
+      1. l'en-tête `Paddle-Signature`, HMAC du corps BRUT (relu avant tout
+         décodage : un JSON re-sérialisé ne donnerait plus la même empreinte) ;
+      2. l'état retenu est celui que `GET /transactions/<id>` confirme quand
+         NOUS l'interrogeons, jamais celui annoncé dans le corps.
+    """
+    raw = await request.body()
+    if not paddle.verify_webhook_signature(request.headers.get("paddle-signature"), raw):
+        logger.warning("Webhook Paddle sans signature valide")
+        raise HTTPException(status_code=403, detail="Signature invalide.")
+    try:
+        body = json.loads(raw)
+        txn_id = (body.get("data") or {}).get("id")
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Corps illisible.")
+    if not str(body.get("event_type", "")).startswith("transaction."):
+        # Autres événements abonnés par erreur : 200, sinon Paddle réessaie.
+        return {"ok": True}
+    if not txn_id:
+        raise HTTPException(status_code=400, detail="Référence absente.")
+
+    stmt = select(Payment).where(Payment.provider == "paddle",
+                                 Payment.provider_ref == str(txn_id))
+    payment = (await db.execute(stmt)).scalar_one_or_none()
+    if payment is None:
+        logger.info("Webhook Paddle pour une transaction inconnue : %s", txn_id)
+        return {"ok": True}
+    if payment.status != "PENDING":
+        return {"ok": True}
+
+    try:
+        new_status = await PROVIDERS["paddle"].status(payment.provider_ref)
+    except ProviderError as e:
+        logger.warning("Webhook : statut Paddle indisponible (%s) : %s", txn_id, e)
         raise HTTPException(status_code=503, detail="Réessayez.")
 
     payment.status = new_status
