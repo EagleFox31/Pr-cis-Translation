@@ -8,6 +8,13 @@ leurs propres numéros internes.
 
 Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 
+## [1.5.2](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.5.1...v1.5.2) (2026-10-20)
+
+
+### Bug Fixes
+
+* **beta:** prevent repeated trials and flag suspicious applications ([#43](https://github.com/EagleFox31/Pr-cis-Translation/issues/43)) ([79d3586](https://github.com/EagleFox31/Pr-cis-Translation/commit/79d35862578327261f524cba0acb4f49f82907a9))
+
 ## [1.5.1](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.5.0...v1.5.1) (2026-10-20)
 
 
