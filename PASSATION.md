@@ -1,33 +1,45 @@
 # PASSATION
 
 ## 1. Objectif en cours
-Résolution des polices non embarquées dans le moteur PDF (téléchargement à l'identique, sinon clone métrique, sinon police la plus proche), branche `feat/polices-telechargement-substitution`, moteur 1.0.12.
+Invitations : depuis n'importe quel compte, saisir une ou plusieurs adresses et envoyer un e-mail personnalisé, à la marque Précis, invitant à découvrir l'app (https://precis-translator.trigenys.com/).
+Worktree `C:\Users\IBRAH\Documents\Projets\Precis-Translator-invitations`, branche `feat/invitations` (commits `164ee4f` backend, `ed81196` frontend).
 
 ## 2. Fait
-- Ticket CD26052553710 : points 1–7 commités (point 8 laissé de côté à la demande).
-- `backend/engines/pdf/polices.py` (nouveau) : `Resolveur` (identique locale / Google Fonts css2 validée famille-pente-graisse-encre / clone `CLONES` / plus proche par largeurs), cache `translations/_polices`, absences 30 j, disjoncteur réseau, verrou par variante en vol, redirections hors `_HOTES` refusées, échéance globale.
-- `backend/engines/pdf/engine.py` : profils de largeur (`_measure_span`, `_font_profiles_from`), chaîne `_full_fallback_font`.
-- `backend/engines/pdf/stream.py:149-153` : profils passés à `_extract_fonts` (sans eux, la couche « proche » était aveugle en production).
-- `backend/scripts/precharger_polices.py` : ~90 familles pré-chargées dans `backend/fonts/catalogue` (gitignoré + dockerignoré) ; lancé au build (`Dockerfile`, non bloquant) ; Carlito/Caladea installés.
-- `backend/tests/test_polices.py` : 20/20 ; `racine.py` pose `PRECIS_FONT_DOWNLOAD/SYSTEM/CATALOGUE=0`.
-- `test_rendu_structure.py` : `fiche_document` simulé (appelait réellement DeepSeek).
-- Commits : c6dfe71, a588a76, 2192374. 9 suites moteur en code 0.
+- API `POST /api/invitations` : `backend/app/api/invitations.py:43` (constantes l.30-35).
+- E-mail : `GABARIT_INVITATION` `backend/app/core/email.py:114`, `send_invitation_email` l.365 ; textes fr/en `TEXTES_INVITATION` dans `backend/app/core/email_content.py:80`.
+- Modèle `backend/app/models/invitation.py` + migration `backend/migrations/versions/0010_invitations.py` (après 0009_abonnements).
+- Front : `frontend/src/components/invite/InviteModal.tsx` + `inviteBus.ts` ; monté dans `pages/Home.tsx` à côté de `SupportModal` ; bouton « Inviter des proches » au-dessus de « Aide & support » dans le pied de `components/library/DocumentLibrary.tsx` ; bloc i18n `invite.*` (fr/en).
+- Preuves : `tests/test_invitations.py` 19/19, `tests/test_emails.py` 27/27, `npm run lint` (tsc + check-i18n) OK, `vite build` OK.
 
 ## 3. Décisions prises
-- Serif détecté par le nom seulement : le drapeau MuPDF n'est pas fiable.
-- Largeurs mesurées prioritaires dans le score « proche » (chasse fixe pénalité 10).
-- Base14 (Helvetica/Times/Courier) gardé en raccourci : métriques identiques à Liberation.
-- Pré-chargement laissé après `COPY backend/` : `engines/__init__.py` importe tous les moteurs.
+- Anti-abus : 5 req/min (IP), 10 adresses par envoi, 20 invitations/jour/compte, pas de renvoi à la même adresse sous 7 jours : l'e-mail part sous le nom Précis, donc pas de relais de spam.
+- Comptes existants et doublons écartés **en silence**, réponse générique `{ok, count}` : sinon l'API permettrait de savoir qui a un compte.
+- Expéditeur = marque (`Précis <SMTP_USER>`), `Reply-To` = inviteur : pas d'usurpation SPF/DKIM, mais les réponses vont à la personne.
+- Nom et mot de l'inviteur échappés en HTML ; sujet ramené à une seule ligne (pas d'injection d'en-tête).
+- Une trace n'est enregistrée qu'après un envoi réussi ; si tout échoue, 503.
+- Langue de l'e-mail = langue de l'interface de l'inviteur (Accept-Language).
 
-## 4. Reste à faire
-1. FAIT (1.0.11) : liste blanche `backend/fonts/google_familles.txt` (1950 familles, seules interrogées) ; rendu fait réseau dégradé non conservé (`render_cache.marque_polices()` → `store_render(..., marque)`) ; polices système désactivées par défaut (`PRECIS_FONT_SYSTEM=1` pour les activer). test_polices 23/23.
-2. FAIT (1.0.12) : `fsType=2` exclu de l'index ; « Arial Black », « Helvetica-Narrow » et autres chasses gardés dans la famille ; `absences.json` purgé et borné à 5000, plafond de 60 téléchargements par heure (refus noté comme dégradation) ; `PRECIS_FONTS_CACHE` posé par `app/config.py`.
-3. FAIT (1.0.12) : `categorie()` (catalogue Google `Famille	Catégorie`, puis marques du nom) sert aux fiches locales (panose souvent muet) et à la cible ; un changement de catégorie coûte 5.0 dans « proche ». test_polices 28/28, générique 100/100.
-4. Pousser la branche / PR vers main.
+## 4. Plan
+1. [x] Modèle + migration 0010
+2. [x] Gabarit e-mail + textes fr/en + tests e-mail
+3. [x] Endpoint + garde-fous
+4. [x] Fenêtre front + bouton + i18n ; lint/build
+4b. [x] Étude `docs/etude-invitations.md` (rédigée après coup)
+4c. [x] Décisions : SMTP actuel gardé ; « Copier le lien » ; purge > 30 j au démarrage + après chaque envoi (pas d'attribution ?ref=, pas de rappel)
+5. [x] `/code-review` + convergence : envoi en tâche de fond (pas d'oracle temporel, pas de session tenue pendant SMTP), traces réservées sous `pg_advisory_xact_lock` par compte, trace effacée si l'envoi échoue, `app/services/invitations.py`, TLS 465 corrigé (`start_tls=(SMTP_PORT != 465)`), front try/finally + toast 422 + indice « 10 max »
+6. [ ] `tests/test_invitations_api.py` : à lancer par l'utilisateur (base requise) ←
+7. [ ] Vérif Playwright de la fenêtre : non faite (connexion à la bibliothèque requise)
+8. [x] Note déploiement inutile : en prod, `docker-entrypoint.sh` applique les migrations (en local, `alembic upgrade head` à la main ; 0010 appliquée le 20/10)
+9. [ ] Push + PR vers main
+
+**Hors plan** : rien.
 
 ## 5. Pièges / contexte
-- Comparatif identité (sans API) : scripts dans le scratchpad de session (`run_corpus.py`, `comparer.py`) ; résultat 1.0.10 = 1.0.9 avec polices livrées ; sans elles, Inter/Oswald/PT Serif retéléchargées.
-- Python lisant des PDF téléchargés : `venv/Scripts/python.exe -I`.
-- Windows verrouille les fichiers ouverts : lire les polices en bytes.
-- Tout changement de rendu : bump `backend/engines/pdf/version.py`.
-- Tests : `cd backend && PYTHONIOENCODING=utf-8 venv/Scripts/python.exe tests/<fichier>`.
+- Ne pas toucher le dépôt principal `Precis-Translator` (branche `feat/paiement-paddle`, modifs non commitées).
+- Ne jamais lire ou grep les `.env` ; `backend/.env` est LIVE (Fapshi).
+- Le worktree a maintenant `backend/.env` et `frontend/.env` copiés du dépôt principal (non suivis). En local, migrations à la main : `cd backend && <venv>/python.exe -m alembic upgrade head` (0010 appliquée le 20/10). Test BDD :
+  `cd backend && PYTHONUTF8=1 <venv>/python.exe tests/test_invitations_api.py` (la table est créée puis supprimée si 0010 n'est pas appliquée).
+- venv : `C:\Users\IBRAH\Documents\Projets\Precis_Translator_backup_2026-06-10_13-10\backend\venv\Scripts\python.exe`.
+- Front : `npm run lint` = tsc + contrôle de concordance i18n ; pluriels i18next en `_one` / `_other`.
+- Sans `EMAIL_ENABLED` ou `SMTP_HOST`, l'e-mail est seulement journalisé `[DEV]`.
+- Lancer l'app depuis CE dossier, détachée : PowerShell `Start-Process <venv>/python.exe scripts/dev.py -WorkingDirectory <worktree> -WindowStyle Minimized` (en tâche de fond de session, dev.py meurt sans rien dire). `npm run stop` laisse parfois des processus : vérifier `netstat -ano | grep :8000`.

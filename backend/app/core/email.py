@@ -22,6 +22,7 @@ NOIR, ce qui donnait un logo illisible sur fond clair.
 """
 from __future__ import annotations
 
+import html as _html
 import logging
 import os
 from email.mime.image import MIMEImage
@@ -29,7 +30,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 
-from app.core.email_content import MARQUE, normaliser_langue, textes
+from app.core.email_content import (MARQUE, normaliser_langue, textes,
+                                    textes_invitation)
 
 logger = logging.getLogger("email_service")
 
@@ -105,6 +107,74 @@ GABARIT = """\
 </html>"""
 
 
+# ── Gabarit de l'invitation ─────────────────────────────────────────────────
+# Même charpente que le code de connexion (tableaux, styles en ligne), mais un
+# message de PRÉSENTATION : plus large, un liseré aux couleurs de la marque,
+# trois arguments, un seul bouton. Le mot personnel est optionnel ({mot}).
+GABARIT_INVITATION = """\
+<!DOCTYPE html>
+<html lang="{lang}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:{fond};font-family:system-ui,-apple-system,'Segoe UI',sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 16px">
+    <tr><td align="center">
+      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.05)">
+
+        <tr><td style="height:4px;background:{bleu};font-size:0;line-height:0">&nbsp;</td></tr>
+
+        <tr><td style="padding:32px 36px 8px;text-align:center">
+          <img src="cid:{cid}" width="52" alt="{marque}"
+               style="display:block;margin:0 auto 10px;border:0">
+          <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:{gris_clair}">{bandeau}</div>
+        </td></tr>
+
+        <tr><td style="padding:14px 36px 6px;text-align:center">
+          <h1 style="font-size:22px;line-height:1.3;font-weight:700;color:{encre};margin:0 0 8px">{titre}</h1>
+          <p style="font-size:15px;line-height:1.5;color:{gris};margin:0">{sous_titre}</p>
+        </td></tr>
+{mot}
+        <tr><td style="padding:22px 36px 4px">
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr><td width="24" valign="top" style="color:{bleu};font-weight:700;font-size:14px;padding:0 0 10px">&#10003;</td>
+                <td style="font-size:14px;line-height:1.5;color:{encre};padding:0 0 10px">{atout_1}</td></tr>
+            <tr><td width="24" valign="top" style="color:{bleu};font-weight:700;font-size:14px;padding:0 0 10px">&#10003;</td>
+                <td style="font-size:14px;line-height:1.5;color:{encre};padding:0 0 10px">{atout_2}</td></tr>
+            <tr><td width="24" valign="top" style="color:{bleu};font-weight:700;font-size:14px;padding:0">&#10003;</td>
+                <td style="font-size:14px;line-height:1.5;color:{encre};padding:0">{atout_3}</td></tr>
+          </table>
+        </td></tr>
+
+        <tr><td style="padding:26px 36px 8px;text-align:center">
+          <a href="{url}" style="display:inline-block;background:{bleu};color:#fff;
+             padding:14px 44px;border-radius:10px;text-decoration:none;
+             font-weight:600;font-size:15px">{bouton}</a>
+          <p style="font-size:12px;color:{gris_clair};margin:14px 0 0;word-break:break-all">{lien}</p>
+        </td></tr>
+
+        <tr><td style="padding:22px 36px 28px">
+          <div style="height:1px;background:{trait};margin-bottom:14px"></div>
+          <p style="font-size:11.5px;line-height:1.5;color:{gris_clair};text-align:center;margin:0">{pourquoi}</p>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
+# Le mot personnel, en citation. Absent, la ligne {mot} reste vide.
+BLOC_MOT = """
+        <tr><td style="padding:22px 36px 0">
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:{fond};border-left:3px solid {bleu};border-radius:8px">
+            <tr><td style="padding:14px 16px">
+              <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:{gris_clair};margin:0 0 6px">{mot_de}</div>
+              <div style="font-size:14px;line-height:1.55;color:{encre};font-style:italic">{texte}</div>
+            </td></tr>
+          </table>
+        </td></tr>
+"""
+
+
 def _logo() -> MIMEImage | None:
     """Le logo en pièce jointe INLINE, ou None s'il est introuvable.
 
@@ -158,6 +228,58 @@ def _message_verification(email: str, code: str, token: str,
     return msg
 
 
+def _message_invitation(destinataire: str, inviteur: str, inviteur_email: str,
+                        message: str | None, langue: str) -> MIMEMultipart:
+    """Compose l'invitation. `inviteur` et `message` sont saisis par un
+    utilisateur : ils sont ÉCHAPPÉS avant d'entrer dans le HTML — sinon
+    n'importe quel compte pourrait glisser un lien ou un formulaire dans un
+    e-mail qui part sous notre nom."""
+    t = textes_invitation(langue)
+    url = FRONTEND_URL
+    esc = _html.escape
+    nom_h, email_h, url_h = esc(inviteur), esc(inviteur_email), esc(url)
+    couleurs = {k: v for k, v in MARQUE.items() if k != "nom"}
+
+    mot = ""
+    if message:
+        mot = BLOC_MOT.format(
+            mot_de=t["mot_de"].format(inviteur=nom_h),
+            texte=esc(message).replace("\n", "<br>"), **couleurs)
+
+    html = GABARIT_INVITATION.format(
+        lang=langue, cid=LOGO_CID, url=url_h, marque=MARQUE["nom"], mot=mot,
+        bandeau=t["bandeau"], titre=t["titre"].format(inviteur=nom_h),
+        sous_titre=t["sous_titre"], atout_1=t["atout_1"],
+        atout_2=t["atout_2"], atout_3=t["atout_3"], bouton=t["bouton"],
+        lien=t["lien"].format(url=url_h),
+        pourquoi=t["pourquoi"].format(inviteur=nom_h, email=email_h),
+        **couleurs)
+    texte = t["texte_brut"].format(
+        inviteur=inviteur, email=inviteur_email, url=url,
+        message=f"\n« {message} »\n" if message else "")
+
+    msg = MIMEMultipart("related")
+    msg["From"] = f"{MARQUE['nom']} <{SMTP_USER}>"
+    msg["To"] = destinataire
+    # Un en-tête ne supporte pas les sauts de ligne : un nom qui en contiendrait
+    # casserait le message, voire injecterait des en-têtes.
+    msg["Subject"] = " ".join(t["sujet"].format(inviteur=inviteur).split())
+    # Répondre à l'invitation, c'est répondre à la personne qui invite — pas à
+    # une boîte que personne ne lit.
+    msg["Reply-To"] = inviteur_email
+    msg["X-Auto-Response-Suppress"] = "All"
+
+    corps = MIMEMultipart("alternative")
+    corps.attach(MIMEText(texte, "plain", "utf-8"))
+    corps.attach(MIMEText(html, "html", "utf-8"))
+    msg.attach(corps)
+
+    logo = _logo()
+    if logo is not None:
+        msg.attach(logo)
+    return msg
+
+
 async def send_plain(to: list[str] | str, subject: str, body: str) -> None:
     """Envoi d'un e-mail texte simple — alertes internes (journal d'erreurs).
 
@@ -186,7 +308,7 @@ async def send_plain(to: list[str] | str, subject: str, body: str) -> None:
         await aiosmtplib.send(
             msg, hostname=SMTP_HOST, port=SMTP_PORT,
             username=SMTP_USER or None, password=SMTP_PASSWORD or None,
-            start_tls=True, use_tls=(SMTP_PORT == 465),
+            start_tls=(SMTP_PORT != 465), use_tls=(SMTP_PORT == 465),
         )
         logger.info("Alerte envoyée à %s", ", ".join(destinataires))
     except Exception as exc:
@@ -220,7 +342,7 @@ async def send_verification_email(email: str, code: str, token: str,
             port=SMTP_PORT,
             username=SMTP_USER or None,
             password=SMTP_PASSWORD or None,
-            start_tls=True,
+            start_tls=(SMTP_PORT != 465),
             use_tls=(SMTP_PORT == 465),
         )
         logger.info("Vérification envoyée à %s (%s)", email, langue)
@@ -236,5 +358,36 @@ async def send_verification_email(email: str, code: str, token: str,
         # On ne l'avale PAS : répondre « c'est envoyé » quand rien n'est parti,
         # c'est laisser quelqu'un attendre un e-mail qui n'arrivera jamais.
         logger.error("Échec envoi à %s : %s", email, exc)
+        raise EmailIndisponible(
+            "L'envoi de l'e-mail a échoué. Réessayez dans un instant.") from exc
+
+
+async def send_invitation_email(destinataire: str, inviteur: str,
+                                inviteur_email: str, message: str | None = None,
+                                accept_language: str | None = None) -> None:
+    """Envoie une invitation à découvrir Précis, dans la langue de l'inviteur.
+
+    Lève `EmailIndisponible` si le serveur refuse : l'appelant décide s'il
+    continue avec les destinataires suivants."""
+    langue = normaliser_langue(accept_language)
+    msg = _message_invitation(destinataire, inviteur, inviteur_email,
+                              message, langue)
+
+    if not EMAIL_ENABLED or not SMTP_HOST:
+        logger.info("[DEV] Invitation → %s | de=%s | langue=%s",
+                    destinataire, inviteur_email, langue)
+        return
+
+    import aiosmtplib
+
+    try:
+        await aiosmtplib.send(
+            msg, hostname=SMTP_HOST, port=SMTP_PORT,
+            username=SMTP_USER or None, password=SMTP_PASSWORD or None,
+            start_tls=(SMTP_PORT != 465), use_tls=(SMTP_PORT == 465),
+        )
+        logger.info("Invitation envoyée à %s (%s)", destinataire, langue)
+    except Exception as exc:
+        logger.error("Échec invitation à %s : %s", destinataire, exc)
         raise EmailIndisponible(
             "L'envoi de l'e-mail a échoué. Réessayez dans un instant.") from exc

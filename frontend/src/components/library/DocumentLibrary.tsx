@@ -16,7 +16,7 @@
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { FolderOpen, LifeBuoy, LogOut, X } from 'lucide-react';
+import { FolderOpen, LifeBuoy, LogOut, UserPlus, X } from 'lucide-react';
 
 import type { DocMeta } from '../../hooks/useDocumentLibrary';
 import { useAuth } from '../../contexts/AuthContext';
@@ -27,6 +27,7 @@ import EmptyState from '../ui/EmptyState';
 import IconButton from '../ui/IconButton';
 import PaymentModal from '../payment/PaymentModal';
 import { openSupport } from '../support/supportBus';
+import { openInvite } from '../invite/inviteBus';
 import AccountPanel from './AccountPanel';
 import DocumentCard from './DocumentCard';
 
@@ -198,6 +199,11 @@ export default function DocumentLibrary({
           <footer className="biblio__pied" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {/* Aide au-DESSUS de la déconnexion : c'est une action qu'on cherche
                 quand ça coince, elle doit être à portée sans quitter le compte. */}
+            <Button variant="ghost" size="md" block
+              icon={<UserPlus size={15} strokeWidth={2.2} />}
+              onClick={() => { onClose(); openInvite(); }}>
+              {t('invite.open', 'Inviter des proches')}
+            </Button>
             <Button variant="ghost" size="md" block
               icon={<LifeBuoy size={15} strokeWidth={2.2} />}
               onClick={() => { onClose(); openSupport(); }}>

@@ -38,6 +38,7 @@ from .auth_tokens import RefreshToken, VerificationCode
 from .error_log import (ErrorLog, LEVELS, SOURCES, STATUS_HANDLED, STATUS_NEW)
 from .support_ticket import (SupportTicket, CATEGORIES,
                              STATUS_OPEN, STATUS_HANDLED as TICKET_HANDLED)
+from .invitation import Invitation
 
 __all__ = [
     "Base", "new_uuid", "utcnow",
@@ -45,6 +46,7 @@ __all__ = [
     "KIND_CREDITS", "KIND_FREE_OFFER", "KIND_LEGACY", "KIND_PLAN", "RefreshToken", "VerificationCode",
     "ErrorLog", "LEVELS", "SOURCES", "STATUS_HANDLED", "STATUS_NEW",
     "SupportTicket", "CATEGORIES", "STATUS_OPEN", "TICKET_HANDLED",
+    "Invitation",
     "ASSIGNABLE_PLANS", "FREE_PLAN", "PLAN_LABELS", "PLAN_MONTHLY_PAGES",
     "PLAN_PAGE_LIMIT", "PLAN_PRIORITY", "PLAN_STORAGE",
     "get_plan_monthly_pages", "get_plan_page_limit", "get_plan_priority",
