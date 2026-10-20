@@ -262,9 +262,10 @@ async def check_routes(client, ok):
 
         # FAPSHI_FLOW absent : le parcours direct est celui par defaut.
         os.environ.pop("FAPSHI_FLOW", None)
-        m = client.get("/api/payments/methods", headers=ent).json()["methods"]
-        r = client.post("/api/payments/collect",
-                        json={"pages": 2, "method": "mtn_momo"}, headers=ent)
+        with _FauxFapshi(reponse):
+            m = client.get("/api/payments/methods", headers=ent).json()["methods"]
+            r = client.post("/api/payments/collect",
+                            json={"pages": 2, "method": "mtn_momo"}, headers=ent)
         ok("ROUTE   parcours direct par defaut : numero exige (methods + 422)",
            {x["id"]: x["needs_phone"] for x in m}.get("mtn_momo") is True
            and r.status_code == 422, f"{r.status_code} {m}")
