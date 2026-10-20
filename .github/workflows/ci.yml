@@ -19,7 +19,7 @@ jobs:
       mode: ${{ github.event_name == 'workflow_dispatch' && 'all' || 'auto' }}
 
   iac:
-    name: Validate bounded staging IAM CloudFormation template
+    name: Validate bounded production IAM CloudFormation template
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -36,8 +36,8 @@ jobs:
       - name: Reject invalid or broad AWS IAM template
         run: python scripts/ci/verify_cloudformation_iam.py
 
-  staging-deploy:
-    name: Validate AppFactory AWS/SSM staging adapter (without AWS writes)
+  production-deploy:
+    name: Validate AppFactory AWS/SSM production adapter (without AWS writes)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -50,13 +50,18 @@ jobs:
         run: bash -n scripts/staging/aws-ssm-compose.sh
       - name: Validate ZIP-to-SSM staging importer syntax
         run: python3 -m py_compile scripts/staging/import-env-to-ssm.py
+      - name: Verify production metadata and reviewed OIDC migration
+        run: |
+          python3 -m pip install PyYAML==6.0.2
+          python3 scripts/ci/verify_production_automation.py
+          python3 -m unittest discover -s scripts/ci -p test_production_oidc.py
       - name: Refuse Atelier production parameters and unpinned workflow
         shell: bash
         run: |
           set -euo pipefail
-          ! grep -E 'atelier-maitre|atelier2026|AWS_SECRET_ACCESS_KEY' scripts/staging/aws-ssm-compose.sh .github/workflows/aws-staging-deploy.yml
-          grep -q 'arn:aws:iam::458018461157:role/precis-translation-staging-github-deployer' .github/workflows/aws-staging-deploy.yml
-          grep -q '/precis-translation/staging/env' .github/workflows/aws-staging-deploy.yml
+          ! grep -E 'atelier-maitre|atelier2026|AWS_SECRET_ACCESS_KEY' scripts/staging/aws-ssm-compose.sh .github/workflows/aws-production-deploy.yml
+          grep -q 'arn:aws:iam::458018461157:role/precis-translation-staging-github-deployer' .github/workflows/aws-production-deploy.yml
+          grep -q '/precis-translation/staging/env' .github/workflows/aws-production-deploy.yml
 
   python:
     needs: impact
@@ -260,7 +265,7 @@ jobs:
 
   result:
     if: always()
-    needs: [impact, python, frontend, iac, staging-deploy, seo]
+    needs: [impact, python, frontend, iac, production-deploy, seo]
     runs-on: ubuntu-latest
     permissions: {}
     steps:
@@ -271,7 +276,7 @@ jobs:
           PYTHON: ${{ needs.python.result }}
           FRONTEND: ${{ needs.frontend.result }}
           IAC: ${{ needs.iac.result }}
-          STAGING: ${{ needs.staging-deploy.result }}
+          STAGING: ${{ needs.production-deploy.result }}
         run: |
           if [[ "$SEO" != success ]]; then
             echo "::error::Search discovery contract failed: $SEO"

@@ -1,0 +1,20 @@
+{
+  "project": {
+    "owner": "EagleFox31",
+    "title": "Pr\u00e9cis Translator Development",
+    "bootstrap": true,
+    "template": "appfactory-product",
+    "linkRepository": true,
+    "importOpenIssues": true,
+    "createBoardView": true
+  },
+  "bootstrap": {
+    "boardViewName": "AppFactory Board",
+    "phases": [
+      "Foundation",
+      "Build",
+      "Release",
+      "Observe"
+    ]
+  }
+}
