@@ -8,6 +8,18 @@ leurs propres numéros internes.
 
 Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 
+## [1.4.0](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.3.0...v1.4.0) (2026-10-20)
+
+
+### Features
+
+* **beta:** manage invited testers with per-format quotas ([#33](https://github.com/EagleFox31/Pr-cis-Translation/issues/33)) ([4c7f80e](https://github.com/EagleFox31/Pr-cis-Translation/commit/4c7f80eb4b6aeb7a3ddaaf4ef0d5c0513bc0871e))
+
+
+### Bug Fixes
+
+* **config:** preserve Fapshi settings in production env imports ([#31](https://github.com/EagleFox31/Pr-cis-Translation/issues/31)) ([a4db1f6](https://github.com/EagleFox31/Pr-cis-Translation/commit/a4db1f6efefe9b7d1cc96560e5b273949a68ccc8))
+
 ## [1.3.0](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.2.0...v1.3.0) (2026-10-20)
 
 
