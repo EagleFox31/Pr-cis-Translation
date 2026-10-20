@@ -110,7 +110,7 @@ async def main() -> None:
         r = await download_original(id_ok, admin=admin, db=db)
     check(r.status_code == 200 and r.body == CONTENU, "original d'un autre compte : 200 + octets")
     cd = r.headers.get("content-disposition", "")
-    check(cd.startswith("attachment; filename*=UTF-8''") and "%C3%A9" in cd and " " not in cd,
+    check(cd.startswith("attachment; filename*=UTF-8''") and "%C3%A9" in cd and " " not in cd.split("''", 1)[-1],
           "Content-Disposition encodé en UTF-8")
 
     # ── 4. Fichier manquant / traduction absente / inconnu -> 404 ──────────────
