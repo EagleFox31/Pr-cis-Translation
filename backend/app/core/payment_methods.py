@@ -19,7 +19,8 @@ from __future__ import annotations
 import os
 import re
 
-from app.core.payment_gateway import campay, SUPPORTED_CURRENCY
+from app.core.payment_gateway import (campay, fapshi, FAPSHI_STATUS,
+                                      SUPPORTED_CURRENCY)
 
 MTN_MOMO = "mtn_momo"
 ORANGE_MONEY = "orange_money"
@@ -58,7 +59,31 @@ class CampayProvider:
         return res.get("status", "PENDING")
 
 
-PROVIDERS = {p.name: p for p in (CampayProvider(),)}
+class FapshiProvider:
+    """Invite USSD poussée par `direct-pay` ; Fapshi reconnaît l'opérateur au
+    numéro. N'encaisse que le franc CFA, au minimum 100 F."""
+    name = "fapshi"
+    currencies = frozenset({SUPPORTED_CURRENCY})
+    methods = frozenset({MTN_MOMO, ORANGE_MONEY})
+
+    @property
+    def configured(self) -> bool:
+        return fapshi.configured
+
+    async def start(self, *, amount: int, currency: str, phone: str | None,
+                    description: str, reference: str) -> dict:
+        res = await fapshi.direct_pay(amount=amount, phone=phone,
+                                      message=description, external_id=reference)
+        # Pas de code USSD à composer : l'invite arrive sur le téléphone.
+        return {"provider_ref": res.get("transId"), "ussd_code": None,
+                "operator": None}
+
+    async def status(self, provider_ref: str) -> str:
+        res = await fapshi.payment_status(provider_ref)
+        return FAPSHI_STATUS.get(res.get("status"), "PENDING")
+
+
+PROVIDERS = {p.name: p for p in (CampayProvider(), FapshiProvider())}
 
 
 def routing() -> dict[str, str]:

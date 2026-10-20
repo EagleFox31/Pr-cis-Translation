@@ -27,7 +27,7 @@ from app.core.pricing import (zone_for_country, CURRENCY, page_price,
 from app.services.usage import add_months
 from app.services.documents import count_pages
 from app.core.payment_gateway import (campay, CampayError, ProviderError,
-                                      normalize_phone)
+                                      fapshi, normalize_phone)
 from app.core.payment_methods import (MTN_MOMO, PHONE_METHODS, PROVIDERS,
                                       list_methods, method_of_phone, provider_for)
 
@@ -547,6 +547,54 @@ async def campay_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=503, detail="Réessayez.")
 
     payment.status = res.get("status", "PENDING")
+    await db.commit()
+    await _apply_credit(db, payment)
+    return {"ok": True}
+
+
+@router.post("/fapshi/webhook", operation_id="fapshi_webhook",
+             summary="Notification de paiement Fapshi", include_in_schema=False)
+async def fapshi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    """Notification de Fapshi (POST, corps = la transaction, envoyé quand elle
+    devient SUCCESSFUL, FAILED ou EXPIRED).
+
+    Mêmes deux barrières que pour Campay, la seconde suffisant seule :
+      1. l'en-tête `x-wh-secret` égal au secret du tableau de bord ;
+      2. l'état retenu est celui que `payment-status` confirme quand NOUS
+         l'interrogeons, jamais celui annoncé dans le corps.
+    """
+    if not fapshi.verify_webhook_secret(request.headers.get("x-wh-secret")):
+        logger.warning("Webhook Fapshi sans secret valide")
+        raise HTTPException(status_code=403, detail="Secret invalide.")
+    try:
+        body = dict(await request.json())
+    except Exception:
+        raise HTTPException(status_code=400, detail="Corps illisible.")
+
+    trans_id = body.get("transId")
+    if not trans_id:
+        raise HTTPException(status_code=400, detail="Référence absente.")
+
+    stmt = select(Payment).where(Payment.provider == "fapshi",
+                                 Payment.provider_ref == str(trans_id))
+    payment = (await db.execute(stmt)).scalar_one_or_none()
+    if payment is None:
+        logger.info("Webhook Fapshi pour une transaction inconnue : %s", trans_id)
+        return {"ok": True}
+    if payment.status != "PENDING":
+        return {"ok": True}
+
+    # Un PENDING mis en cache par l'écran d'attente masquerait le changement
+    # que ce webhook annonce : si l'utilisateur a fermé la page, plus rien ne
+    # réinterrogerait Fapshi et le crédit ne viendrait jamais.
+    fapshi.forget_status(payment.provider_ref)
+    try:
+        new_status = await PROVIDERS["fapshi"].status(payment.provider_ref)
+    except ProviderError as e:
+        logger.warning("Webhook : statut Fapshi indisponible (%s) : %s", trans_id, e)
+        raise HTTPException(status_code=503, detail="Réessayez.")
+
+    payment.status = new_status
     await db.commit()
     await _apply_credit(db, payment)
     return {"ok": True}

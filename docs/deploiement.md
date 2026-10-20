@@ -192,6 +192,11 @@ Le `/health` ne prouve que le démarrage. Faire le parcours réel, une fois :
   prestataire. Un moyen sans prestataire, ou dont le prestataire n'est pas
   configuré, s'affiche grisé « Pas encore disponible ». La carte attend son
   prestataire (ZitoPay pressenti).
+- **Fapshi** (`mtn_momo=fapshi,orange_money=fapshi`) : `FAPSHI_API_USER`,
+  `FAPSHI_API_KEY`, `FAPSHI_WEBHOOK_SECRET`, `FAPSHI_ENV=SANDBOX|LIVE`. En live,
+  `direct-pay` doit avoir été activé par Fapshi ; déclarer le webhook
+  `https://<domaine>/api/payments/fapshi/webhook` avec le même secret ; si une
+  liste blanche d'IP est posée, y mettre l'IP de l'instance.
 - **Aucune expiration automatique des fichiers traduits.** Le volume ne fait que
   croître ; surveiller et purger (voir ci-dessous).
 - **Documents scannés exclus** : détectés, refusés, non facturés. L'OCR est une
