@@ -5,11 +5,14 @@ import uuid
 from unittest.mock import patch
 
 import racine  # noqa: F401
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from sqlalchemy import select
 from app.api.auth import GoogleBody, google_auth
 from app.models import User
 import seed_admin
+
+# Profile unit test; HTTP throttling is covered in test_beta_abuse.py.
+google_handler = getattr(google_auth, '__wrapped__', google_auth)
 
 
 async def main():
@@ -22,7 +25,8 @@ async def main():
         with patch.dict(os.environ, {"GOOGLE_CLIENT_ID": "test-client"}), patch(
                 "google.oauth2.id_token.verify_oauth2_token", return_value=payload):
             async with seed_admin._asm() as db:
-                return await google_auth(GoogleBody(credential="test-token"), db)
+                return await google_handler(GoogleBody(credential="test-token"), db,
+                                            request=Request({"type": "http", "headers": []}))
 
     try:
         # Reproduit le compte administrateur amorce avant sa premiere connexion.
@@ -49,7 +53,8 @@ async def main():
                 "google.oauth2.id_token.verify_oauth2_token", side_effect=ValueError("invalid token")):
             async with seed_admin._asm() as db:
                 try:
-                    await google_auth(GoogleBody(credential="invalid-token"), db)
+                    await google_handler(GoogleBody(credential="invalid-token"), db,
+                                         request=Request({"type": "http", "headers": []}))
                 except HTTPException as exc:
                     assert exc.status_code == 401
                 else:

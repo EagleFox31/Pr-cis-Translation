@@ -40,10 +40,61 @@ async def verify():
         retained = (await db.execute(text("SELECT pages,document_id FROM usage_records WHERE id='migration-done'"))).one()
         assert tuple(retained) == (3, None), 'Deleting a legacy document must not erase its consumption'
     await engine.dispose()
-    print('PASS: 0007 -> head preserves accounts, plans, credits and payments; consumption survives document deletion.')
+    print('PASS: 0007 -> 0011 preserves accounts, plans, credits and payments; consumption survives document deletion.')
+
+
+async def seed_beta_legacy():
+    engine = create_async_engine(URL)
+    async with engine.begin() as db:
+        await db.execute(text("""
+            INSERT INTO beta_campaigns
+            (id,name,state,capacity,first_wave_capacity,access_days,limits,created_at)
+            VALUES ('migration-beta','Historical closed beta','draft',40,20,30,
+                    CAST('{}' AS JSON),CURRENT_TIMESTAMP)
+        """))
+        for number, email, state in (
+            (1, 'be.ta.migration+first@gmail.com', 'pending'),
+            (2, 'betamigration+second@googlemail.com', 'declined'),
+        ):
+            await db.execute(text("""
+                INSERT INTO beta_applications
+                (id,campaign_id,email,primary_format,motivation,state,submitted_at)
+                VALUES (:id,'migration-beta',:email,'pdf','Historical fixture',:state,CURRENT_TIMESTAMP)
+            """), {'id': f'migration-app-{number}', 'email': email, 'state': state})
+            await db.execute(text("""
+                INSERT INTO beta_enrollments
+                (id,campaign_id,email,primary_format,limits,invited_at)
+                VALUES (:id,'migration-beta',:email,'pdf',CAST('{}' AS JSON),CURRENT_TIMESTAMP)
+            """), {'id': f'migration-enrollment-{number}', 'email': email})
+    await engine.dispose()
+
+async def verify_beta_legacy():
+    engine = create_async_engine(URL)
+    async with engine.begin() as db:
+        campaign = (await db.execute(text(
+            "SELECT state,starts_at,access_days FROM beta_campaigns WHERE id='migration-beta'"))).one()
+        assert tuple(campaign) == ('draft', None, 30), 'Upgrade must never open recruitment'
+        for table in ('beta_applications', 'beta_enrollments'):
+            records = (await db.execute(text(
+                f"SELECT email,mailbox_key,ip_hash,device_hash FROM {table} WHERE campaign_id='migration-beta' ORDER BY id"))).all()
+            assert len(records) == 2, 'Historical aliases must never be deleted or merged'
+            assert [row[0] for row in records] == [
+                'be.ta.migration+first@gmail.com', 'betamigration+second@googlemail.com']
+            assert all(tuple(row[1:]) == ('betamigration@gmail.com', None, None) for row in records)
+        states = (await db.execute(text(
+            "SELECT state FROM beta_applications WHERE campaign_id='migration-beta' ORDER BY id"))).scalars().all()
+        assert list(states) == ['pending', 'declined'], 'Reviews must stay unchanged'
+        user = (await db.execute(text(
+            "SELECT plan,page_credits FROM users WHERE id='migration-user'"))).one()
+        assert tuple(user) == ('starter', 17)
+    await engine.dispose()
+    print('PASS: 0011 -> head backfills mailbox keys, preserves historical aliases and decisions, and invents no network metadata.')
 
 upgrade('0007_support_tickets')
 asyncio.run(seed())
-upgrade('head')
-upgrade('head')
+upgrade('0011_beta_applications')
 asyncio.run(verify())
+asyncio.run(seed_beta_legacy())
+upgrade('head')
+upgrade('head')
+asyncio.run(verify_beta_legacy())

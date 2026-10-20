@@ -72,9 +72,16 @@ async def _lifespan(_app: FastAPI):
     import asyncio
     from app.services import solde_ia
     surveillance_solde = asyncio.create_task(solde_ia.surveiller())
+    from app.services.beta_abuse import cleanup_loop
+    nettoyage_beta = asyncio.create_task(cleanup_loop())
     _afficher_banniere()
     yield
     surveillance_solde.cancel()
+    nettoyage_beta.cancel()
+    try:
+        await nettoyage_beta
+    except asyncio.CancelledError:
+        pass
 
 
 def _afficher_banniere() -> None:

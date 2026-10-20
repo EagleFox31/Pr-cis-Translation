@@ -552,7 +552,21 @@
         "open": "Les candidatures sont ouvertes."
       }
     },
+    "safety": {
+      "review": "Points à vérifier",
+      "hint": "Un réseau ou un navigateur partagé ne prouve pas un abus. Vérifiez le dossier avant de décider.",
+      "related": "Adresses liées",
+      "only_flagged": "Avec un signal à vérifier",
+      "same_mailbox_one": "Même boîte e-mail qu’une autre adresse.",
+      "same_mailbox_other": "Même boîte e-mail que {{count}} autres adresses.",
+      "same_ip_one": "Réseau partagé avec une autre adresse.",
+      "same_ip_other": "Réseau partagé avec {{count}} autres adresses.",
+      "same_browser_one": "Navigateur partagé avec une autre adresse.",
+      "same_browser_other": "Navigateur partagé avec {{count}} autres adresses.",
+      "rapid_sequence": "{{count}} adresses liées ont candidaté ou activé un accès dans la dernière heure."
+    },
     "application": {
+      "privacy_hint": "Un cookie de sécurité et des signaux réseau nous aident à repérer les doublons.",
       "motivation": "Quels documents souhaitez-vous tester ?",
       "placeholder": "Par exemple : des classeurs Excel de suivi commercial, en français et en anglais…",
       "commitment": "Partagez vos retours sur la traduction et la mise en page pendant le test. Déposer une candidature ne réserve pas de place.",

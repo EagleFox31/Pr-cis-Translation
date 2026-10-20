@@ -94,3 +94,13 @@
   .pricing-grid.pricing-grid--with-beta { grid-template-columns: minmax(0, 1fr); }
   .beta-public { padding: 20px; }
 }
+
+.beta-review-alert { margin: 12px 0; padding: 12px; border: 1px solid #efd39e; border-radius: 10px; background: #fffbf2; color: #713f12; font-size: 13px; overflow-wrap: anywhere; }
+.beta-review-alert summary { cursor: pointer; font-weight: 650; min-height: 24px; }
+.beta-review-alert summary:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; border-radius: 4px; }
+.beta-review-alert ul { margin: 8px 0; padding-left: 18px; }
+.beta-review-alert li { margin: 5px 0; }
+.beta-review-alert .beta-note { margin: 8px 0; color: #713f12; }
+.beta-review-filters { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.beta-risk-only { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--gray-700); }
+.beta-risk-only input { width: 16px; height: 16px; padding: 0; margin: 0; accent-color: var(--blue); }

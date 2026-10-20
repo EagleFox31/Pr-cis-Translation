@@ -1,8 +1,8 @@
 """Public program information and private, reviewed applications."""
 from fastapi import HTTPException
 from sqlalchemy import select
-from app.models.beta import BetaApplication
-from app.services import beta
+from app.models.beta import BetaApplication, BetaEnrollment
+from app.services import beta, beta_abuse
 from app.services.beta_meter import DEFAULT_LIMITS
 
 
@@ -39,7 +39,7 @@ async def for_user(db, user):
         BetaApplication.email == user.email.strip().casefold()))).scalar_one_or_none()
 
 
-async def submit(db, user, *, primary_format, motivation):
+async def submit(db, user, *, primary_format, motivation, signals=None):
     if not user.email_verified:
         raise HTTPException(403, "Vérifiez votre adresse e-mail avant de déposer une candidature.")
     campaign = await beta.campaign_row(db, lock=True)
@@ -52,13 +52,16 @@ async def submit(db, user, *, primary_format, motivation):
         raise HTTPException(409, "Toutes les places du programme sont engagées.")
     if await beta.enrollment_for(db, user):
         raise HTTPException(409, "Une invitation existe déjà pour ce compte.")
-    duplicate = (await db.execute(select(BetaApplication).where(
-        BetaApplication.campaign_id == "pilot",
-        BetaApplication.email == user.email.strip().casefold()))).scalar_one_or_none()
-    if duplicate:
-        raise HTTPException(409, "Une candidature a déjà été déposée avec cette adresse.")
+    if await beta_abuse.mailbox_match(db, BetaEnrollment, user.email):
+        raise HTTPException(409, "Une invitation existe déjà pour cette boîte e-mail.")
+    if await beta_abuse.mailbox_match(db, BetaApplication, user.email):
+        raise HTTPException(409, "Une candidature a déjà été déposée avec cette boîte e-mail.")
+    await beta_abuse.check_submission_rate(db, signals)
     row = BetaApplication(campaign_id="pilot", user_id=user.id,
-        email=user.email.strip().casefold(), primary_format=primary_format, motivation=motivation)
+        email=user.email.strip().casefold(), mailbox_key=beta_abuse.canonical_mailbox(user.email),
+        primary_format=primary_format, motivation=motivation,
+        ip_hash=signals.ip_hash if signals else None,
+        device_hash=signals.device_hash if signals else None)
     db.add(row)
     await db.flush()
     return row
