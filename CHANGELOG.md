@@ -28,9 +28,13 @@ Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
   l'achat, le document entier est traduit.
 - **Achat à la page** : un seul champ (1 à 500 pages, 2 par défaut), montant
   recalculé à la volée ; bandeau dédié sous la grille des tarifs.
+- PDF : polices non embarquées résolues (police identique locale ou Google
+  Fonts sur liste blanche, sinon clone métrique, sinon la plus proche par
+  largeurs mesurées) ; catalogue pré-chargé au build.
 
 ### Modifié
 - Moteur XLSX `0.2.0` → `1.0.0`.
+- Moteur PDF `1.0.5` → `1.0.12`.
 - **Frais de transaction (3 %) à la charge du client**, affichés avant de
   payer : sous-total, frais, total. Le montant enregistré est le total payé ;
   les pages créditées ne changent pas.
@@ -47,6 +51,11 @@ Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
   limite d'OCR à une page ne réduit plus le document compté.
 - Double dépense possible de crédits sur deux imports simultanés : le solde est
   relu sous verrou.
+- PDF : gras et italique synthétiques lus et reproduits ; opacité des images
+  reportée sur chaque pose ; une ligne en capitales n'est plus soudée à la
+  ligne en casse mixte qui suit.
+- Traduction : un même libellé reçoit la même traduction d'une page à
+  l'autre ; un fragment rendu inchangé est redemandé au modèle.
 
 ## [1.1.0] - 2026-10-09 — Comptes, paiement et mise en ligne
 

@@ -1,4 +1,4 @@
-"""Bounded sandbox-worker staging on the existing host; no PSP secrets or listener."""
+"""Stage one worker image with isolated sandbox/live configuration; no PSP calls."""
 import hashlib
 import json
 import os
@@ -14,7 +14,7 @@ import urllib.request
 import zipfile
 
 ROOT = Path('/opt/trigenys/payment-orchestrator-sandbox')
-SOURCE_SHA = 'a4db5bb7409349124e7f01680ac1fefe3d58c67a'
+SOURCE_SHA = 'a27c930ed5de36f09d8e74d2748adb66824576b5'
 
 
 def command(args, timeout=30):
@@ -109,44 +109,58 @@ def stage(config):
     metadata = json.loads(command(['docker', 'inspect', '--type=image', image_id]))[0]
     if metadata['Config'].get('Labels', {}).get('org.opencontainers.image.revision') != SOURCE_SHA:
         raise RuntimeError('Loaded worker source revision mismatch')
-    sandbox_env = ROOT / 'runtime.env'
-    if sandbox_env.is_symlink():
-        raise RuntimeError('Worker environment must not be a symlink')
-    if not sandbox_env.exists():
-        fd = os.open(sandbox_env, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, 'w') as target:
-            target.write('PAYMENT_SANDBOX_SWEEP_ENABLED=false\nDATABASE_URL=\n'
-                         'PAYMENT_SANDBOX_PROJECT_ID=\nPAYMENT_SANDBOX_MERCHANT_ID=\n'
-                         'FAPSHI_SANDBOX_SERVICE_NAME=\nFAPSHI_SANDBOX_APIUSER=\nFAPSHI_SANDBOX_APIKEY=\n')
-    sandbox_env.chmod(0o600)
     # Import-only smoke test: network disabled, no secrets, no PSP/database call.
     smoke = command([
         'docker', 'run', '--rm', '--network=none', '--read-only', '--cap-drop=ALL',
         '--security-opt=no-new-privileges', '--memory=128m', '--memory-swap=128m',
         '--cpus=0.25', '--pids-limit=64', '--user=node', image_id,
         'node', '--input-type=module', '-e',
-        'await import("./dist/src/worker/run-once.js"); console.log("sandbox worker import OK")'
+        'await import("./dist/src/worker/run-once.js"); console.log("payment worker import OK")'
     ], timeout=60)
-    if 'sandbox worker import OK' not in smoke:
+    if 'payment worker import OK' not in smoke:
         raise RuntimeError('Worker import verification failed')
-    script = ROOT / 'run-sandbox-once'
-    script_args = ['/usr/bin/docker', 'run', '--rm', '--read-only', '--cap-drop=ALL',
-                   '--security-opt=no-new-privileges', '--memory=128m', '--memory-swap=128m',
-                   '--cpus=0.25', '--pids-limit=64', '--user=node', '--env-file',
-                   str(sandbox_env), image_id, 'node', 'dist/src/worker/run-once.js']
-    script_text = '#!/bin/sh\nset -eu\nexec ' + shlex.join(script_args) + '\n'
-    temporary_script = ROOT / 'run-sandbox-once.new'
-    temporary_script.write_text(script_text)
-    temporary_script.chmod(0o700)
-    temporary_script.replace(script)
+    installed = []
+    for environment in ('sandbox', 'live'):
+        directory = ROOT if environment == 'sandbox' else ROOT.with_name('payment-orchestrator-live')
+        if directory.is_symlink():
+            raise RuntimeError('Worker environment directory must not be a symlink')
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        directory.chmod(0o700)
+        env_file = directory / 'runtime.env'
+        if env_file.is_symlink():
+            raise RuntimeError('Worker environment must not be a symlink')
+        if not env_file.exists():
+            suffix = environment.upper()
+            template = (f'PAYMENT_ENVIRONMENT={environment}\nPAYMENT_SWEEP_ENABLED=false\n'
+                        f'PAYMENT_{suffix}_DATABASE_URL=\n'
+                        f'PAYMENT_{suffix}_PROJECT_ID=\nPAYMENT_{suffix}_MERCHANT_ID=\n'
+                        f'FAPSHI_{suffix}_SERVICE_NAME=\nFAPSHI_{suffix}_APIUSER=\nFAPSHI_{suffix}_APIKEY=\n')
+            fd = os.open(env_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, 'w') as target:
+                target.write(template)
+        env_file.chmod(0o600)
+        script = directory / f'run-{environment}-once'
+        script_args = ['/usr/bin/docker', 'run', '--rm', '--read-only', '--cap-drop=ALL',
+                       '--security-opt=no-new-privileges', '--memory=128m', '--memory-swap=128m',
+                       '--cpus=0.25', '--pids-limit=64', '--user=node', '--env-file',
+                       str(env_file), '--env', f'PAYMENT_ENVIRONMENT={environment}',
+                       image_id, 'node', 'dist/src/worker/run-once.js']
+        script_text = '#!/bin/sh\nset -eu\nexec ' + shlex.join(script_args) + '\n'
+        temporary_script = script.with_suffix('.new')
+        temporary_script.write_text(script_text)
+        temporary_script.chmod(0o700)
+        temporary_script.replace(script)
+        installed.append({'environment': environment, 'directory': str(directory)})
     # Never install a timer, open a port, restart Precis, or modify its env.
     if application_state() != before:
         raise RuntimeError('Precis container state changed during staging; inspect before proceeding')
     record = {'source_sha': SOURCE_SHA, 'image_id': image_id, 'installed_at': int(time.time()),
               'smoke_test': 'passed', 'regular_processing_enabled': False,
-              'precis_containers_unchanged': True, 'capacity': available}
-    (ROOT / 'deployment.json').write_text(json.dumps(record, indent=2) + '\n')
-    (ROOT / 'deployment.json').chmod(0o600)
+              'precis_containers_unchanged': True, 'capacity': available, 'environments': installed}
+    for item in installed:
+        record_file = Path(item['directory']) / 'deployment.json'
+        record_file.write_text(json.dumps({**record, 'environment': item['environment']}, indent=2) + '\n')
+        record_file.chmod(0o600)
     print(json.dumps(record), flush=True)
 
 
@@ -156,4 +170,4 @@ def main(config):
     elif config['mode'] == 'stage':
         stage(config)
     else:
-        raise RuntimeError('Unknown sandbox worker operation')
+        raise RuntimeError('Unknown payment worker operation')
