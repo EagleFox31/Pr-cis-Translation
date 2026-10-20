@@ -375,6 +375,37 @@ class FapshiClient:
             return data
 
     @_as_fapshi_error
+    async def initiate_pay(self, *, amount: int, message: str,
+                           external_id: str, email: str | None = None,
+                           user_id: str | None = None) -> dict:
+        """Crée un lien vers la page de paiement hébergée par Fapshi : le client
+        y choisit MTN ou Orange et y saisit son numéro. Ouvert à tout compte,
+        contrairement à `direct-pay` qui exige l'accord de Fapshi. Le lien
+        expire au bout de 24 h ; l'état se suit comme pour direct-pay.
+        L'e-mail fourni est le seul champ que la page sait pré-remplir (elle
+        ne le redemande pas) ; le numéro, elle le demande toujours."""
+        if not self.configured:
+            raise FapshiError("FAPSHI_API_USER / FAPSHI_API_KEY absents")
+        body = {"amount": int(amount), "message": message,
+                "externalId": external_id}
+        if email:
+            body["email"] = email
+        if user_id:
+            body["userId"] = user_id
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            res = await client.post(
+                f"{self.host}/initiate-pay",
+                json=body,
+                headers=self._headers(),
+            )
+            if res.status_code != 200:
+                raise self._error(res, "initiate-pay")
+            data = res.json()
+            if not data.get("transId") or not data.get("link"):
+                raise FapshiError("initiate-pay sans transId ou sans lien")
+            return data
+
+    @_as_fapshi_error
     async def payment_status(self, trans_id: str) -> dict:
         """Transaction Fapshi (statut brut CREATED · PENDING · SUCCESSFUL ·
         FAILED · EXPIRED). Mis en cache quelques secondes, voir la limite."""

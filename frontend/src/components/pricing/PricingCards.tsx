@@ -23,6 +23,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { motion } from 'motion/react';
+import { useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../../contexts/AuthContext';
 import { usePricing, formatMoney, type PricingPlan } from '../../hooks/usePricing';
@@ -107,9 +108,14 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
   const { t, i18n } = useTranslation();
   const { user, refreshUser } = useAuth();
   const { pricing, loading } = usePricing();
+  // Navigation interne : un lien plein rechargerait l'application (et son écran d'accueil).
+  const navigate = useNavigate();
   const [buying, setBuying] = useState<PlanChoice | null>(null);
   // Séparé du plan : la modale garde son contenu pendant l'animation de fermeture.
   const [payOpen, setPayOpen] = useState(false);
+  // Achat de pages à l'unité, sans forfait.
+  const [packOpen, setPackOpen] = useState(false);
+  const [packPages, setPackPages] = useState(2);
 
   if (loading) {
     return (
@@ -213,7 +219,7 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
               href={toLogin ? '/login' : '#'}
               className={`btn-pricing${isActive && !renew ? ' btn-pricing--actif' : ''}`}
               aria-disabled={included || (isActive && !renew) || undefined}
-              onClick={(e) => { if (!toLogin) { e.preventDefault(); act(); } }}
+              onClick={(e) => { e.preventDefault(); if (toLogin) navigate('/login'); else act(); }}
             >
               {renew ? t('pricing.renew')
                 : isActive ? t('pricing.active_plan')
@@ -230,12 +236,38 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
       })}
     </div>
 
+    {/* Payer à la page, sans s'abonner : une offre à part entière, sous la
+        grille, et non un lien accroché à la seule carte Gratuit. Les pages
+        achetées restent créditées sur le compte jusqu'à leur utilisation. */}
+    <div className="pricing-payg">
+      <div>
+        <p className="pricing-payg__title">{t('pricing.payg_title')}</p>
+        <p className="pricing-payg__text">
+          {t('pricing.payg_text', {
+            price: formatMoney(pricing.page_price, pricing.currency, pricing.decimals, locale) })}
+        </p>
+      </div>
+      <a href={user ? '#' : '/login'} className="btn-pricing pricing-payg__btn"
+         onClick={(e) => { e.preventDefault(); if (user) setPackOpen(true); else navigate('/login'); }}>
+        {t('pricing.buy_pages')}
+      </a>
+    </div>
+
     <PaymentModal
       open={payOpen && buying !== null}
       onClose={() => setPayOpen(false)}
       pages={0}
       plan={buying ?? undefined}
       label={buying ? t('payment.plan_label', { plan: buying.label }) : ''}
+      onPaid={() => { void refreshUser(); }}
+    />
+
+    <PaymentModal
+      open={packOpen}
+      onClose={() => setPackOpen(false)}
+      pages={packPages}
+      onPagesChange={setPackPages}
+      label={t('payment.buy_credits_label')}
       onPaid={() => { void refreshUser(); }}
     />
     </>

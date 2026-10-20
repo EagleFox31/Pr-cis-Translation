@@ -35,6 +35,7 @@ DEFAULT_ROUTING = "mtn_momo=campay,orange_money=campay,card="
 
 class CampayProvider:
     """Invite USSD poussée sur le téléphone ; l'opérateur se déduit du numéro."""
+    needs_phone = True
     name = "campay"
     currencies = frozenset({SUPPORTED_CURRENCY})
     # Ce que le prestataire sait encaisser : un routage `card=campay` par
@@ -46,7 +47,8 @@ class CampayProvider:
         return campay.configured
 
     async def start(self, *, amount: int, currency: str, phone: str | None,
-                    description: str, reference: str) -> dict:
+                    description: str, reference: str,
+                    email: str | None = None, user_id: str | None = None) -> dict:
         res = await campay.collect(amount=amount, phone=phone,
                                    description=description,
                                    external_reference=reference)
@@ -60,8 +62,12 @@ class CampayProvider:
 
 
 class FapshiProvider:
-    """Invite USSD poussée par `direct-pay` ; Fapshi reconnaît l'opérateur au
-    numéro. N'encaisse que le franc CFA, au minimum 100 F."""
+    """Deux parcours, choisis par `FAPSHI_FLOW` :
+      • `checkout` (défaut) : page de paiement hébergée par Fapshi
+        (`initiate-pay`), ouverte à tout compte ;
+      • `direct` : invite poussée sur le téléphone (`direct-pay`), que Fapshi
+        n'active que sur demande.
+    N'encaisse que le franc CFA, au minimum 100 F."""
     name = "fapshi"
     currencies = frozenset({SUPPORTED_CURRENCY})
     methods = frozenset({MTN_MOMO, ORANGE_MONEY})
@@ -70,8 +76,25 @@ class FapshiProvider:
     def configured(self) -> bool:
         return fapshi.configured
 
+    @property
+    def hosted(self) -> bool:
+        return os.getenv("FAPSHI_FLOW", "checkout").strip().lower() != "direct"
+
+    @property
+    def needs_phone(self) -> bool:
+        # Sur la page hébergée, le client saisit lui-même opérateur et numéro :
+        # les redemander chez nous serait une double saisie.
+        return not self.hosted
+
     async def start(self, *, amount: int, currency: str, phone: str | None,
-                    description: str, reference: str) -> dict:
+                    description: str, reference: str,
+                    email: str | None = None, user_id: str | None = None) -> dict:
+        if self.hosted:
+            res = await fapshi.initiate_pay(amount=amount, message=description,
+                                            external_id=reference, email=email,
+                                            user_id=user_id)
+            return {"provider_ref": res.get("transId"), "ussd_code": None,
+                    "operator": None, "checkout_url": res.get("link")}
         res = await fapshi.direct_pay(amount=amount, phone=phone,
                                       message=description, external_id=reference)
         # Pas de code USSD à composer : l'invite arrive sur le téléphone.
@@ -119,7 +142,16 @@ def provider_for(method: str, currency: str):
 def list_methods(currency: str) -> list[dict]:
     # Sans la raison : l'état de la configuration ne regarde pas le client.
     return [{"id": m, "available": provider_for(m, currency)[0] is not None,
-             "needs_phone": m in PHONE_METHODS} for m in METHODS]
+             "needs_phone": needs_phone(m, currency)} for m in METHODS]
+
+
+def needs_phone(method: str, currency: str) -> bool:
+    """Le numéro est-il à saisir chez nous ? Non quand le prestataire le
+    recueille sur sa propre page."""
+    if method not in PHONE_METHODS:
+        return False
+    provider = provider_for(method, currency)[0]
+    return getattr(provider, "needs_phone", True)
 
 
 # Plan de numérotation camerounais (miroir de frontend/src/lib/mobileMoney.ts).

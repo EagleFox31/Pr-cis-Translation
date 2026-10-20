@@ -61,14 +61,16 @@ class _FauxFapshi:
             kw["transport"] = httpx.MockTransport(gerer)
             return self.vrai(*a, **kw)
         pg.httpx.AsyncClient = fabrique
-        self.ident = (fapshi.api_user, fapshi.api_key)
+        # Indépendant du .env local, qui peut viser le live.
+        self.ident = (fapshi.api_user, fapshi.api_key, fapshi.host)
         fapshi.api_user, fapshi.api_key = "user-test", "cle-test"
+        fapshi.host = pg.FAPSHI_SANDBOX_HOST
         fapshi._last_status.clear()
         return self
 
     def __exit__(self, *exc):
         pg.httpx.AsyncClient = self.vrai
-        fapshi.api_user, fapshi.api_key = self.ident
+        fapshi.api_user, fapshi.api_key, fapshi.host = self.ident
         fapshi._last_status.clear()
 
 
@@ -90,6 +92,25 @@ async def check_client(ok):
            and req.headers.get("apikey") == "cle-test"
            and corps == {"amount": 200, "phone": "670000000",
                          "message": "Precis", "externalId": "pay-1"}, str(corps))
+
+    with _FauxFapshi(_json(200, {"message": "ok", "transId": "T456",
+                                 "link": "https://checkout.fapshi.com/link/abc"})) as f:
+        res = await fapshi.initiate_pay(amount=300, message="Precis",
+                                        external_id="pay-2")
+        req = f.requetes[0]
+        ok("CLIENT  initiate-pay : URL, corps sans numero, lien rendu",
+           res["link"].endswith("/abc") and req.url.path == "/initiate-pay"
+           and json.loads(req.content) == {"amount": 300, "message": "Precis",
+                                           "externalId": "pay-2"},
+           str(req.content))
+
+    with _FauxFapshi(_json(200, {"message": "ok", "transId": "T457"})):
+        try:
+            await fapshi.initiate_pay(amount=300, message="x", external_id="p")
+            err = None
+        except ProviderError as e:
+            err = e
+        ok("CLIENT  initiate-pay sans lien : ProviderError", err is not None)
 
     with _FauxFapshi(_json(400, {"message": "Invalid phone number"})):
         try:
@@ -175,6 +196,14 @@ async def _supprimer(user_id):
         await db.commit()
 
 
+async def _supprimer_paiements(user_id):
+    async with async_session() as db:
+        for p in (await db.execute(select(Payment).where(
+                Payment.user_id == user_id))).scalars():
+            await db.delete(p)
+        await db.commit()
+
+
 async def _etat(user_id):
     async with async_session() as db:
         ps = (await db.execute(select(Payment).where(
@@ -197,10 +226,47 @@ async def check_routes(client, ok):
            "Authorization": "Bearer " + create_access_token(u.id, u.email)}
     hook = "/api/payments/fapshi/webhook"
     menteur = {"transId": trans, "status": "SUCCESSFUL"}
-    sauve_env = {k: os.environ.get(k) for k in ("PAYMENT_METHODS", "FAPSHI_WEBHOOK_SECRET")}
+    sauve_env = {k: os.environ.get(k) for k in ("PAYMENT_METHODS", "FAPSHI_WEBHOOK_SECRET", "FAPSHI_FLOW")}
     os.environ["PAYMENT_METHODS"] = "mtn_momo=fapshi,orange_money=fapshi,card="
     os.environ["FAPSHI_WEBHOOK_SECRET"] = SECRET
     try:
+        os.environ["FAPSHI_FLOW"] = "checkout"
+        with _FauxFapshi(lambda req: httpx.Response(200, json={
+                "transId": "C" + trans, "link": "https://checkout.fapshi.com/x"})) as f:
+            r = client.post("/api/payments/collect",
+                            json={"pages": 2, "method": "orange_money",
+                                  "phone": "690000000"}, headers=ent)
+            ps, _ = await _etat(u.id)
+            ok("ROUTE   parcours checkout : lien rendu, transId note, pas de direct-pay",
+               r.status_code == 200
+               and r.json().get("checkout_url") == "https://checkout.fapshi.com/x"
+               and [q.url.path for q in f.requetes] == ["/initiate-pay"]
+               and len(ps) == 1 and ps[0].provider_ref == "C" + trans,
+               f"{r.status_code} {r.text[:120]}")
+            corps = json.loads(f.requetes[0].content) if f.requetes else {}
+            ok("ROUTE   parcours checkout : e-mail du compte pre-rempli",
+               corps.get("email") == u.email and corps.get("userId") == u.id,
+               str(corps))
+            m = client.get("/api/payments/methods", headers=ent).json()["methods"]
+            ok("ROUTE   parcours checkout : numero non demande chez nous",
+               all(not x["needs_phone"] for x in m), str(m))
+        await _supprimer_paiements(u.id)
+        with _FauxFapshi(lambda req: httpx.Response(200, json={
+                "transId": "D" + trans, "link": "https://checkout.fapshi.com/y"})) as f:
+            r = client.post("/api/payments/collect",
+                            json={"pages": 2, "method": "mtn_momo"}, headers=ent)
+            ok("ROUTE   parcours checkout : paiement lance sans numero",
+               r.status_code == 200 and r.json().get("checkout_url") == "https://checkout.fapshi.com/y",
+               f"{r.status_code} {r.text[:120]}")
+        await _supprimer_paiements(u.id)
+
+        os.environ["FAPSHI_FLOW"] = "direct"
+        m = client.get("/api/payments/methods", headers=ent).json()["methods"]
+        r = client.post("/api/payments/collect",
+                        json={"pages": 2, "method": "mtn_momo"}, headers=ent)
+        ok("ROUTE   parcours direct : numero exige (methods + 422)",
+           {x["id"]: x["needs_phone"] for x in m}.get("mtn_momo") is True
+           and r.status_code == 422, f"{r.status_code} {m}")
         with _FauxFapshi(reponse) as f:
             r = client.post("/api/payments/collect",
                             json={"pages": 2, "method": "mtn_momo",

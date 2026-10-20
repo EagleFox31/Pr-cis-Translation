@@ -158,9 +158,10 @@ export default function Home() {
     (config: TranslateConfig) => {
       // Le catalogue ne propose que des codes de base ('en', 'fr'…) : plus de
       // variante régionale à réduire avant l'envoi.
-      const { file, targetLang, pages, debug, precise, onAccepted } = config;
-      // Mémorisé pour rejouer À L'IDENTIQUE après un achat de pages (402).
-      lastConfigRef.current = config;
+      const { file, targetLang, pages, debug, precise, onAccepted, coverOnly } = config;
+      // Mémorisé pour rejouer après un achat de pages (402) : en ENTIER, un
+      // achat sert à couvrir tout le document, jamais à rejouer une version partielle.
+      lastConfigRef.current = { ...config, coverOnly: false };
       setSelectedFile(file);
       setSourceIsPdf(false);      // fichier local, format d'origine
       setTargetLang(targetLang);
@@ -176,7 +177,7 @@ export default function Home() {
       setShowPreview(true);
 
       stream
-        .start(file, targetLang, pages, debug, precise, onAccepted)
+        .start(file, targetLang, pages, debug, precise, onAccepted, coverOnly)
         .then((result) => {
           setTranslatedBlob(result.blob);
           setTranslatedIsPdf(false);   // le RÉSULTAT est au format d'origine
@@ -444,8 +445,9 @@ export default function Home() {
         pages={payPages ?? 1}
         label={t('payment.buy_pages_label', 'Débloquez la traduction de ce document')}
         onPaid={() => {
+          // Pages achetées : on rejoue le document ENTIER, jamais le partiel.
           const cfg = lastConfigRef.current;
-          if (cfg) handleStartTranslate(cfg);
+          if (cfg) handleStartTranslate({ ...cfg, coverOnly: false });
         }}
       />
 
@@ -497,6 +499,11 @@ export default function Home() {
           limitReached={stream.limitReached}
           creditsNeeded={stream.creditsNeeded}
           onBuyPages={(p) => setPayPages(p)}
+          pagesCovered={stream.pagesCovered}
+          onTranslateCovered={() => {
+            const cfg = lastConfigRef.current;
+            if (cfg) handleStartTranslate({ ...cfg, coverOnly: true });
+          }}
           focus={previewFocus}
           onStartTranslate={handleStartTranslate}
           onBack={handleBack}

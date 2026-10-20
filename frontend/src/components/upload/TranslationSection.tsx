@@ -23,6 +23,9 @@ export interface TranslateConfig {
   precise: boolean;
   /** Appelé quand le serveur a accepté le job (le Document existe). */
   onAccepted?: () => void;
+  /** Après un 402 « crédits insuffisants » : ne traduire que les pages
+   *  couvertes par le solde (choix explicite de l'utilisateur). */
+  coverOnly?: boolean;
 }
 
 interface TranslationSectionProps {

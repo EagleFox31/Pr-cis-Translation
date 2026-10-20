@@ -36,9 +36,12 @@ export interface StreamingState {
   notice: string | null;
   /** L'erreur vient d'un 402 (limite de forfait atteinte) → afficher un CTA. */
   limitReached: boolean;
-  /** 402 rattrapable par un ACHAT : nombre de pages à régler pour ce document
-   *  (le forfait Gratuit n'a plus de crédit). `null` = pas ce cas. */
+  /** 402 « crédits insuffisants » : nombre de pages à ACHETER pour traduire
+   *  tout le document. `null` = pas ce cas. */
   creditsNeeded: number | null;
+  /** Même 402 : pages que le solde couvre déjà, si le serveur accepte de ne
+   *  traduire qu'elles (`covered_only`). `null` = aucun partiel possible. */
+  pagesCovered: number | null;
   /** En file d'attente : aucun worker libre. `null` = pas en file (démarré ou
    *  terminé). Le nombre est une estimation des demandes devant la vôtre. */
   queuePosition: number | null;
@@ -55,6 +58,7 @@ const EMPTY: StreamingState = {
   notice: null,
   limitReached: false,
   creditsNeeded: null,
+  pagesCovered: null,
   queuePosition: null,
 };
 
@@ -132,6 +136,7 @@ export function useStreamingTranslation() {
       debug: boolean = false,
       precise: boolean = false,
       onAccepted?: () => void,
+      coverOnly: boolean = false,
     ): Promise<{ blob: Blob; filename: string }> => {
       return new Promise(async (resolve, reject) => {
         // Fermer TOUT flux encore ouvert avant d'en démarrer un nouveau. Relancer
@@ -164,6 +169,9 @@ export function useStreamingTranslation() {
           if (debug) formData.append('debug', '1');
           if (precise) formData.append('precise', '1');
           if (pages && pages.trim()) formData.append('pages', pages.trim());
+          // Choix explicite de l'utilisateur après un 402 : ne traduire que les
+          // pages couvertes. Jamais envoyé d'office.
+          if (coverOnly) formData.append('covered_only', '1');
 
           // `authHeader()` est INDISPENSABLE ici, pas décoratif : le backend lit
           // l'utilisateur via `optional_auth`. Sans token il voit un visiteur
@@ -180,12 +188,14 @@ export function useStreamingTranslation() {
             const detail = err.detail || err.error || t('story.error_default');
             const is402 = startRes.status === 402;
             // 402 « crédits insuffisants » : le serveur dit COMBIEN de pages
-            // acheter — on le garde pour ouvrir le paiement à la page directement.
-            const needed = (err.reason === 'need_credits' && typeof err.pages_needed === 'number')
-              ? err.pages_needed as number : null;
+            // acheter, et combien sont déjà couvertes si un partiel est possible.
+            const credits = err.reason === 'need_credits' && typeof err.pages_missing === 'number';
+            const needed = credits ? err.pages_missing as number : null;
+            const covered = credits && err.partial_possible === true
+              && typeof err.pages_available === 'number' ? err.pages_available as number : null;
             setState((s) => ({
               ...s, isTranslating: false, error: detail,
-              limitReached: is402, creditsNeeded: needed,
+              limitReached: is402, creditsNeeded: needed, pagesCovered: covered,
             }));
             throw new Error(detail);
           }

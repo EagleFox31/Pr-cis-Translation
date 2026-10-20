@@ -29,6 +29,10 @@ interface DocumentPreviewProps {
   creditsNeeded?: number | null;
   /** Ouvre le paiement à la page pour `n` pages. */
   onBuyPages?: (pages: number) => void;
+  /** Pages déjà couvertes par le solde, si on peut ne traduire qu'elles. */
+  pagesCovered?: number | null;
+  /** Relance en ne traduisant que les pages couvertes. */
+  onTranslateCovered?: () => void;
   /** Essai : quitter l'aperçu pour les tarifs. */
   onUnlock?: () => void;
 }
@@ -54,6 +58,8 @@ export default function DocumentPreview({
   previewLoading,
   creditsNeeded,
   onBuyPages,
+  pagesCovered,
+  onTranslateCovered,
   onUnlock,
 }: DocumentPreviewProps) {
   const { t } = useTranslation();
@@ -125,6 +131,8 @@ export default function DocumentPreview({
       targetLabel={targetLabel}
       creditsNeeded={creditsNeeded}
       onBuyPages={onBuyPages}
+      pagesCovered={pagesCovered}
+      onTranslateCovered={onTranslateCovered}
       onUnlock={onUnlock}
     />
   );

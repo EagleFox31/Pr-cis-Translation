@@ -43,6 +43,10 @@ interface StorySectionProps {
   creditsNeeded?: number | null;
   /** Ouvre le paiement à la page pour `n` pages. */
   onBuyPages?: (pages: number) => void;
+  /** Pages déjà couvertes par le solde, si on peut ne traduire qu'elles. */
+  pagesCovered?: number | null;
+  /** Relance en ne traduisant que les pages couvertes. */
+  onTranslateCovered?: () => void;
   /** Mode agrandi (focus) actif ? */
   focus?: boolean;
   onStartTranslate: (config: TranslateConfig) => void;
@@ -79,6 +83,8 @@ export default function StorySection({
   limitReached = false,
   creditsNeeded = null,
   onBuyPages,
+  pagesCovered = null,
+  onTranslateCovered,
   focus = false,
   onStartTranslate,
   onBack,
@@ -485,6 +491,8 @@ export default function StorySection({
                       // à la place du message « page en attente ».
                       creditsNeeded={creditsNeeded}
                       onBuyPages={onBuyPages}
+                      pagesCovered={pagesCovered}
+                      onTranslateCovered={onTranslateCovered}
                       onUnlock={onUnlock}
                     />
                   </div>
