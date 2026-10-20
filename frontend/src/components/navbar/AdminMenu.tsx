@@ -72,6 +72,11 @@ export default function AdminMenu() {
           <button role="menuitem" onClick={() => go('/admin/beta')} style={itemStyle}>
             {t('beta.admin_title')}
           </button>
+          <button role="menuitem" onClick={() => go('/admin/documents')} style={itemStyle}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--gray-100)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+            {t('admin_docs.nav', 'Documents')}
+          </button>
           <button role="menuitem" onClick={() => go('/admin/support')} style={itemStyle}
             onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--gray-100)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
