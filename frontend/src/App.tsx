@@ -11,6 +11,7 @@ import VerifyEmailPage from './pages/VerifyEmailPage';
 import AdminLogsPage from './pages/AdminLogsPage';
 import AdminUsersPage from './pages/AdminUsersPage';
 import AdminSupportPage from './pages/AdminSupportPage';
+import AdminDocumentsPage from './pages/AdminDocumentsPage';
 
 /** Redirige vers /home si déjà connecté ( pages auth ). */
 function GuestRoute({ children }: { children: React.ReactNode }) {
@@ -52,6 +53,7 @@ export default function App() {
           <Route path="/verify-email" element={<VerifyEmailPage />} />
           <Route path="/admin/logs" element={<AdminRoute><AdminLogsPage /></AdminRoute>} />
           <Route path="/admin/users" element={<AdminRoute><AdminUsersPage /></AdminRoute>} />
+          <Route path="/admin/documents" element={<AdminRoute><AdminDocumentsPage /></AdminRoute>} />
           <Route path="/admin/support" element={<AdminRoute><AdminSupportPage /></AdminRoute>} />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
