@@ -48,15 +48,31 @@
   .beta-actions .tb-btn { flex: 1; text-align: center; }
 }
 
-.beta-public { padding: 28px; margin-bottom: 24px; border: 1px solid #bfdbfe; border-radius: 20px; background: linear-gradient(125deg,#eff6ff,#fff 70%); color: var(--navy); }
-.beta-public h2, .beta-public h3 { font-size: clamp(21px,3vw,28px); margin: 16px 0 12px; color: var(--navy); }
-.beta-public p { font-size: 14px; line-height: 1.65; color: var(--gray-600); margin: 8px 0; }
-.beta-public .section-tag { margin: 0; }
+.pricing-grid.pricing-grid--with-beta { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+.pricing-grid--with-beta > .pricing-card { min-width: 0; padding: 28px 18px; }
+.pricing-grid--with-beta .pricing-price { font-size: 1.9rem; line-height: 1.2; }
+.beta-public { padding: 24px; margin-bottom: 24px; border: 1px solid var(--gray-200); border-radius: 16px; background: #fff; color: var(--navy); }
+.beta-offer { border-color: #bfd2fb; background: linear-gradient(160deg, #f0f5ff 0%, #fff 42%); box-shadow: 0 8px 24px rgba(37, 99, 235, .06); justify-content: flex-start; color: var(--navy); }
+.beta-program-tag { display: inline-flex; align-self: flex-start; border-radius: 999px; padding: 5px 9px; background: #e5edff; color: #1d4ed8; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.beta-public .beta-program-title, .beta-offer .beta-program-title { margin: 16px 0 8px; font-size: 25px; line-height: 1.2; font-weight: 700; color: var(--navy); }
+.beta-program-description { margin: 0; font-size: 13px; line-height: 1.5; color: var(--gray-600); }
+.beta-program-quotas { list-style: none; padding: 0; margin: 18px 0 0; display: flex; flex-direction: column; }
+.beta-program-quotas li { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 12px 0; border-bottom: 1px solid #e8edf5; }
+.beta-program-quotas li:last-child { border-bottom: 0; }
+.beta-format-icon { width: 36px; height: 40px; flex: 0 0 36px; }
+.beta-format-icon--pdf { color: #c83239; }
+.beta-format-icon--pptx { color: #bf4926; }
+.beta-format-icon--docx { color: #185abd; }
+.beta-format-icon--xlsx { color: #187449; }
+.beta-format-copy { min-width: 0; }
+.beta-format-copy strong { display: block; font-size: 13px; line-height: 1.4; font-weight: 650; color: var(--navy); }
+.beta-format-copy span { display: block; margin-top: 2px; font-size: 12px; line-height: 1.5; color: var(--gray-600); overflow-wrap: anywhere; }
+.beta-offer .beta-program-quotas { flex: 1; }
+.beta-public .beta-program-quotas { max-width: 440px; }
+.beta-program-status { margin: 12px 0 0; font-size: 12px; line-height: 1.5; color: var(--gray-600); }
+.beta-offer .beta-actions { margin-top: auto; padding-top: 18px; }
+.beta-offer .beta-primary { width: 100%; gap: 8px; padding: 12px 10px; font-size: 13px; }
 .beta-public .beta-note, .beta-actions .beta-note { font-size: 13px; color: var(--gray-600); line-height: 1.5; }
-.beta-program-quotas { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; margin: 20px 0; }
-.beta-program-quotas li { display: flex; flex-direction: column; gap: 7px; padding: 14px; border: 1px solid #dbeafe; background: #ffffffbf; border-radius: 12px; }
-.beta-program-quotas strong { font-size: 14px; }
-.beta-program-quotas span { font-size: 13px; line-height: 1.5; color: var(--gray-700); }
 .beta-primary { display: inline-flex; align-items: center; justify-content: center; padding: 12px 18px; min-height: 44px; border-radius: 10px; border: 1px solid var(--blue); background: var(--blue); color: #fff; font: inherit; font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer; line-height: 1.4; }
 .beta-primary:hover { filter: brightness(.94); }
 .beta-primary:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; }
@@ -67,7 +83,14 @@
 .beta-card textarea { border: 1px solid var(--gray-300); border-radius: 9px; padding: 12px; font: inherit; font-size: 14px; line-height: 1.6; color: var(--navy); resize: vertical; width: 100%; box-sizing: border-box; }
 .beta-card textarea:focus-visible { outline: 3px solid var(--blue-light); border-color: var(--blue); }
 .beta-application-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-@media (max-width: 700px) {
+@media (max-width: 1200px) {
+  .pricing-grid.pricing-grid--with-beta { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .pricing-grid--with-beta .pricing-price { font-size: 2.4rem; }
+}
+@media (max-width: 1024px) {
+  .pricing-grid.pricing-grid--with-beta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 768px) {
+  .pricing-grid.pricing-grid--with-beta { grid-template-columns: minmax(0, 1fr); }
   .beta-public { padding: 20px; }
-  .beta-program-quotas { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }

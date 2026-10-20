@@ -29,6 +29,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { usePricing, formatMoney, type PricingPlan } from '../../hooks/usePricing';
 import { formatSize } from '../../lib/format';
 import Skeleton from '../ui/Skeleton';
+import BetaOffer from './BetaOffer';
 import PaymentModal from '../payment/PaymentModal';
 import { openSupport } from '../support/supportBus';
 import type { PlanChoice } from '../../hooks/usePayment';
@@ -119,7 +120,8 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
 
   if (loading) {
     return (
-      <div className="pricing-grid">
+      <div className="pricing-grid pricing-grid--with-beta">
+        <BetaOffer />
         {[0, 1, 2, 3].map((i) => (
           <div key={i} className="pricing-card">
             <Skeleton height={260} />
@@ -132,7 +134,10 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
   // Le serveur n'a pas répondu. On le dit, plutôt que d'afficher des prix de
   // secours qui pourraient ne plus être ceux pratiqués.
   if (!pricing) {
-    return <p className="pricing-indispo">{t('pricing.unavailable')}</p>;
+    return <div className="pricing-grid pricing-grid--with-beta">
+      <BetaOffer />
+      <p className="pricing-indispo">{t('pricing.unavailable')}</p>
+    </div>;
   }
 
   const locale = i18n.language || 'fr';
@@ -148,7 +153,8 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
 
   return (
     <>
-    <div className="pricing-grid">
+    <div className="pricing-grid pricing-grid--with-beta">
+      <BetaOffer />
       {pricing.plans.map((plan, idx) => {
         const isActive = user ? user.plan === plan.key : false;
         const isPopular = plan.key === 'pro';
