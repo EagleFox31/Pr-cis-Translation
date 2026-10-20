@@ -7,6 +7,7 @@ Both modes mask values. AWS writes require --apply and the approved account.
 from __future__ import annotations
 
 import argparse
+import getpass
 import os
 from pathlib import Path
 import re
@@ -25,6 +26,10 @@ LIMIT_ZIP = 2 * 1024 * 1024
 LIMIT_ENV = 128 * 1024
 KEY_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 MODEL_NAME = re.compile(r"^[a-zA-Z0-9._-]{3,100}$")
+FAPSHI_KEYS = (
+    'FAPSHI_API_USER', 'FAPSHI_API_KEY', 'FAPSHI_WEBHOOK_SECRET',
+    'FAPSHI_ENV', 'FAPSHI_FLOW',
+)
 
 
 class ImportErrorSafe(ValueError):
@@ -150,6 +155,7 @@ def make_production(backend: dict[str, str], frontend: dict[str, str],
         'JWT_EXPIRY_MINUTES', 'REFRESH_TOKEN_EXPIRY_DAYS',
         'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD',
         'CAMPAY_USERNAME', 'CAMPAY_PASSWORD', 'CAMPAY_WEBHOOK_KEY', 'CAMPAY_ENV',
+        *FAPSHI_KEYS,
         'PRICING_DEFAULT_COUNTRY', 'TRANSLATION_WORKERS',
         'BRAND_NAME', 'BRAND_TAGLINE', 'ADMIN_ALERT_EMAIL',
         'ERROR_LOG_ALERT_THRESHOLD', 'ERROR_LOG_ALERT_COOLDOWN',
@@ -172,9 +178,43 @@ def make_production(backend: dict[str, str], frontend: dict[str, str],
     if result['CAMPAY_ENV'] == 'PROD' and not all(
             result.get(k) for k in ('CAMPAY_USERNAME', 'CAMPAY_PASSWORD', 'CAMPAY_WEBHOOK_KEY')):
         raise ImportErrorSafe("Campay PROD : identifiants et clé de webhook requis")
+    validate_fapshi(result)
     result['FRONTEND_URL'] = origin
     result['ALLOWED_ORIGINS'] = origin
     result['PUBLIC_SITE'] = parsed.hostname
+    return result
+
+
+def validate_fapshi(variables: dict[str, str]) -> None:
+    """Validate supplied settings without choosing sandbox instead of live."""
+    if 'FAPSHI_ENV' in variables:
+        variables['FAPSHI_ENV'] = variables['FAPSHI_ENV'].strip().upper()
+        if variables['FAPSHI_ENV'] not in ('SANDBOX', 'LIVE'):
+            raise ImportErrorSafe('FAPSHI_ENV doit être SANDBOX ou LIVE')
+    if 'FAPSHI_FLOW' in variables:
+        variables['FAPSHI_FLOW'] = variables['FAPSHI_FLOW'].strip().lower()
+        if variables['FAPSHI_FLOW'] not in ('direct', 'checkout'):
+            raise ImportErrorSafe('FAPSHI_FLOW doit être direct ou checkout')
+    supplied = [bool(variables.get(key, '').strip())
+                for key in ('FAPSHI_API_USER', 'FAPSHI_API_KEY')]
+    if any(supplied) and not all(supplied):
+        raise ImportErrorSafe('Fapshi : FAPSHI_API_USER et FAPSHI_API_KEY sont requis ensemble')
+
+
+def patch_fapshi(existing: dict[str, str], updates: dict[str, str]) -> dict[str, str]:
+    """Repair the omitted integration without changing other imported settings."""
+    if existing.get('PRECIS_ENV') != 'production':
+        raise ImportErrorSafe('Réparation refusée : la configuration existante doit être production')
+    if set(updates) - set(FAPSHI_KEYS):
+        raise ImportErrorSafe('Réparation limitée aux variables FAPSHI_*')
+    if not all(updates.get(key, '').strip()
+               for key in ('FAPSHI_API_USER', 'FAPSHI_API_KEY')):
+        raise ImportErrorSafe('Fapshi : FAPSHI_API_USER et FAPSHI_API_KEY sont requis ensemble')
+    if any(any(char in value for char in ('\x00', '\n', '\r'))
+           for value in updates.values()):
+        raise ImportErrorSafe('Fapshi : les valeurs doivent tenir sur une seule ligne')
+    result = {**existing, **updates}
+    validate_fapshi(result)
     return result
 
 
@@ -214,6 +254,10 @@ def put_ssm(payload: dict[str, str], production: bool = False) -> None:
     if caller != ACCOUNT:
         raise ImportErrorSafe("Mauvais compte AWS : import refusé")
     overwrite = preserve_existing_secrets(payload) if production else False
+    write_secure_parameter(payload, overwrite=overwrite)
+
+
+def write_secure_parameter(payload: dict[str, str], *, overwrite: bool) -> None:
     value = '\n'.join(f'{name}={value}' for name, value in payload.items()) + '\n'
     if len(value.encode('utf-8')) > 4096:
         raise ImportErrorSafe("Configuration trop grande pour SSM Standard (4096 octets)")
@@ -232,15 +276,58 @@ def put_ssm(payload: dict[str, str], production: bool = False) -> None:
             Path(staging_file).unlink(missing_ok=True)
 
 
+def repair_fapshi(*, environment: str, apply: bool) -> int:
+    if not apply:
+        print('Prévisualisation : seules les variables FAPSHI_* seront ajoutées ou corrigées.')
+        print('Les autres variables SSM seront conservées ; aucune archive ZIP n’est nécessaire.')
+        print('Relancer avec --apply dans un terminal interactif pour la saisie masquée.')
+        return 0
+    if not sys.stdin.isatty():
+        raise ImportErrorSafe('La saisie masquée nécessite un terminal interactif CloudShell')
+    caller = aws(['sts', 'get-caller-identity', '--query', 'Account', '--output', 'text'])
+    if caller != ACCOUNT:
+        raise ImportErrorSafe('Mauvais compte AWS : réparation refusée')
+    updates = {
+        'FAPSHI_API_USER': getpass.getpass('FAPSHI_API_USER (saisie masquée) : ').strip(),
+        'FAPSHI_API_KEY': getpass.getpass('FAPSHI_API_KEY (saisie masquée) : ').strip(),
+        'FAPSHI_ENV': environment,
+    }
+    webhook = getpass.getpass('FAPSHI_WEBHOOK_SECRET (Entrée pour conserver la valeur actuelle) : ').strip()
+    if webhook:
+        updates['FAPSHI_WEBHOOK_SECRET'] = webhook
+    # Read after prompting, then immediately patch the latest configuration.
+    current = aws(['ssm', 'get-parameter', '--region', REGION, '--name', PARAMETER,
+                   '--with-decryption', '--output', 'json'])
+    try:
+        existing = parse_env(json.loads(current)['Parameter']['Value'].encode('utf-8'))
+    except (KeyError, ValueError, TypeError) as exc:
+        raise ImportErrorSafe('Configuration SSM existante non lisible') from exc
+    payload = patch_fapshi(existing, updates)
+    write_secure_parameter(payload, overwrite=True)
+    print('Variables Fapshi enregistrées dans SSM ; toutes les autres variables sont conservées.')
+    print('Aucun paiement lancé. Le service doit être rechargé pour utiliser ces variables.')
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description='Précis : import ZIP .env vers AWS SSM chiffré')
-    parser.add_argument('archive', type=Path, help='precis-env.zip avec backend/.env et frontend/.env')
+    parser.add_argument('archive', nargs='?', type=Path, help='precis-env.zip avec backend/.env et frontend/.env')
+    parser.add_argument('--repair-fapshi', action='store_true',
+                        help='Réparer uniquement Fapshi par saisie masquée, sans réimporter le ZIP')
+    parser.add_argument('--fapshi-env', choices=('LIVE', 'SANDBOX'),
+                        help='Environnement explicite de la réparation Fapshi')
     parser.add_argument('--apply', action='store_true', help='Créer le paramètre SSM SecureString')
     parser.add_argument('--production', action='store_true',
                         help='Conserver les intégrations de production du ZIP')
     parser.add_argument('--public-url', default='', help='Origine HTTPS de production')
     args = parser.parse_args()
     try:
+        if args.repair_fapshi:
+            if args.archive or args.production or args.public_url or not args.fapshi_env:
+                raise ImportErrorSafe('Utiliser --repair-fapshi --fapshi-env LIVE|SANDBOX, sans archive ni option --production')
+            return repair_fapshi(environment=args.fapshi_env, apply=args.apply)
+        if not args.archive or args.fapshi_env:
+            raise ImportErrorSafe('Une archive ZIP est nécessaire pour un import complet')
         backend, frontend = read_zip(args.archive)
         if args.production and not args.public_url:
             raise ImportErrorSafe("Production : --public-url est obligatoire")
@@ -250,7 +337,8 @@ def main() -> int:
         for name in payload:
             print(f'  {name}=********')
         if args.production:
-            print('Mode production : intégrations SMTP, Google et Campay conservées selon le ZIP.')
+            print('Mode production : intégrations SMTP, Google, Campay et Fapshi conservées selon le ZIP.')
+            print('Fapshi : '+('identifiants présents' if all(payload.get(k) for k in ('FAPSHI_API_USER', 'FAPSHI_API_KEY')) else 'identifiants absents, paiements indisponibles'))
             print('Secrets PostgreSQL/JWT/frontend existants préservés lors de réimportation.')
             print('Le chemin SSM historique staging/env reste utilisé par les rôles IAM installés.')
             print('Cet import ne crée pas de serveur et ne configure pas les DNS.')
@@ -273,3 +361,4 @@ def main() -> int:
 
 if __name__ == '__main__':
     raise SystemExit(main())
+
