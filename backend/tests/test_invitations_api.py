@@ -6,7 +6,9 @@ CE QUI EST VÉRIFIÉ
                  sans que la réponse le révèle.
   3. DOUBLON   — une adresse déjà invitée récemment ne reçoit rien de plus.
   4. QUOTA     — au-delà du quota quotidien : 429, rien n'est envoyé.
-  5. PANNE     — tous les envois échouent : 503, aucune trace enregistrée.
+  5. PANNE     — l'envoi (après la réponse) échoue : 200 quand même, et la
+                 trace est effacée pour que l'adresse reste invitable.
+  6. PURGE     — les traces de plus de 30 jours sont effacées.
 
 L'envoi réel est remplacé par un enregistreur : aucun e-mail ne part.
 Base PostgreSQL requise (DATABASE_URL). Si la migration 0010 n'est pas encore
@@ -18,6 +20,7 @@ Alembic n'est pas touché.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 import sys
 import uuid
 
@@ -30,7 +33,8 @@ from sqlalchemy.ext.asyncio import (                     # noqa: E402
 )
 from sqlalchemy.pool import NullPool                     # noqa: E402
 
-import app.api.invitations as module                     # noqa: E402
+import app.core.email as courriel                         # noqa: E402
+import app.services.invitations as module                # noqa: E402
 from app import create_app                               # noqa: E402
 from app.core.database import DATABASE_URL               # noqa: E402
 from app.core.email import EmailIndisponible             # noqa: E402
@@ -97,8 +101,8 @@ async def run():
             raise EmailIndisponible("panne simulée")
         envoyes.append((dest, inviteur, inviteur_email, message, langue))
 
-    vrai_envoi = module.send_invitation_email
-    module.send_invitation_email = faux_envoi
+    vrai_envoi = courriel.send_invitation_email
+    courriel.send_invitation_email = faux_envoi
     creee = await _table_absente()
     hote = await _utilisateur(name="Yves")
     inscrit = await _utilisateur()
@@ -151,13 +155,27 @@ async def run():
             # 5. Panne : la dernière invitation du quota échoue
             panne["active"] = True
             r = post({"emails": [autre]})
-            ok("PANNE   503", r.status_code == 503, r.status_code)
-            ok("PANNE   aucune trace", not await _invitations([autre]))
+            ok("PANNE   200 (réponse muette)", r.status_code == 200, r.status_code)
+            ok("PANNE   trace effacée après échec", not await _invitations([autre]))
             panne["active"] = False
             r = post({"emails": [autre]})
             ok("QUOTA   la dernière passe ensuite", r.status_code == 200 and envoyes, r.text)
+
+            # 6. Purge : une trace de 31 jours part, une récente reste
+            vieille, recente = _adresse("vieille"), _adresse("recente")
+            emails += [vieille, recente]
+            async with async_session() as db:
+                db.add(Invitation(inviter_id=hote.id, email=vieille,
+                                  created_at=datetime.now(timezone.utc) - timedelta(days=31)))
+                db.add(Invitation(inviter_id=hote.id, email=recente))
+                await db.commit()
+            async with async_session() as db:
+                n = await module.purger_invitations(db)
+                await db.commit()
+            ok("PURGE   > 30 j effacée", n >= 1 and not await _invitations([vieille]), n)
+            ok("PURGE   récente gardée", len(await _invitations([recente])) == 1)
     finally:
-        module.send_invitation_email = vrai_envoi
+        courriel.send_invitation_email = vrai_envoi
         await _nettoyer(users, emails)
         if creee:
             async with _eng.begin() as conn:

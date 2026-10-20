@@ -42,7 +42,8 @@ async def _lifespan(_app: FastAPI):
     et chaque ligne apparaissait en double. Seul le worker traverse le lifespan.
     """
     from app.services import office
-    from app.services.startup import reconcilier_jobs_orphelins
+    from app.services.startup import (purger_invitations_anciennes,
+                                      reconcilier_jobs_orphelins)
     from app.services.stockage import balayer_au_demarrage
 
     # `print` peut LEVER : la console Windows est en cp1252, et un caractère
@@ -63,6 +64,7 @@ async def _lifespan(_app: FastAPI):
     # APRÈS la réconciliation : les jobs perdus sont clos, la table des jobs
     # est vide, tout ce qui appartient à un job est orphelin par construction.
     await balayer_au_demarrage()
+    await purger_invitations_anciennes()
     office.prewarm()
     # Décor de l'aperçu d'essai : ~5 s au premier calque, payées ici en tâche
     # de fond plutôt que par le premier visiteur gratuit après un déploiement.

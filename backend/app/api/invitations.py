@@ -7,25 +7,26 @@ GARDE-FOUS
       * une adresse déjà invitée (par qui que ce soit) il y a moins de
         `_FENETRE_DOUBLON` n'en reçoit pas une seconde ;
       * une adresse qui a DÉJÀ un compte est ignorée.
-    Les deux derniers cas sont ignorés EN SILENCE : la réponse ne dit jamais
-    quelles adresses ont un compte (sinon la route devient un annuaire).
+    Le quota se compte sous un verrou par compte (PostgreSQL) : des envois
+    simultanés ne le dépassent pas. Les e-mails partent après la réponse
+    (`app.services.invitations`), pour que sa durée ne trahisse rien.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import langue_ui
-from app.config import logger
 from app.core.database import get_db
-from app.core.email import EmailIndisponible, send_invitation_email
 from app.core.security import require_auth
 from app.models import Invitation, User
+from app.models.base import new_uuid
 from app.rate_limit import rate_limit_decorator
+from app.services.invitations import envoyer_invitations
 
 router = APIRouter(prefix="/api/invitations", tags=["Invitations"])
 
@@ -33,8 +34,6 @@ _MAX_PAR_REQUETE = 10
 _QUOTA_JOUR = 20
 _FENETRE_DOUBLON = timedelta(days=7)
 _MAX_MESSAGE = 500
-
-
 class InvitationBody(BaseModel):
     emails: list[EmailStr] = Field(..., min_length=1, max_length=_MAX_PAR_REQUETE)
     message: str | None = Field(None, max_length=_MAX_MESSAGE)
@@ -45,6 +44,7 @@ class InvitationBody(BaseModel):
 async def inviter(
     request: Request,
     body: InvitationBody,
+    taches: BackgroundTasks,
     user: User = Depends(require_auth),
     db: AsyncSession = Depends(get_db),
     langue: str | None = Depends(langue_ui),
@@ -57,6 +57,11 @@ async def inviter(
     if not adresses:
         raise HTTPException(status_code=422, detail="Aucune adresse à inviter.")
 
+    if db.bind.dialect.name == "postgresql":
+        # Tenu jusqu'au commit : deux envois simultanés du même compte se
+        # comptent l'un après l'autre.
+        await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+                         {"k": f"invitations:{user.id}"})
     deja = await db.scalar(
         select(func.count()).select_from(Invitation).where(
             Invitation.inviter_id == user.id,
@@ -77,24 +82,14 @@ async def inviter(
 
     message = (body.message or "").strip() or None
     inviteur = (user.name or "").strip() or user.email
-    tentes = echecs = 0
-    for adresse in adresses:
-        if adresse in inscrits or adresse in recentes:
-            continue
-        tentes += 1
-        try:
-            await send_invitation_email(adresse, inviteur, user.email, message, langue)
-        except EmailIndisponible:
-            echecs += 1
-            continue
-        db.add(Invitation(inviter_id=user.id, email=adresse))
+    reservees = [(new_uuid(), a) for a in adresses
+                 if a not in inscrits and a not in recentes]
+    for inv_id, adresse in reservees:
+        db.add(Invitation(id=inv_id, inviter_id=user.id, email=adresse))
     await db.commit()
-
-    if echecs and echecs == tentes:
-        raise HTTPException(status_code=503,
-                            detail="L'envoi a échoué. Réessayez dans un instant.")
-    logger.info("Invitations de %s : %d adresse(s), %d échec(s)",
-                user.id, len(adresses), echecs)
+    if reservees:
+        taches.add_task(envoyer_invitations, reservees, inviteur, user.email,
+                        message, langue)
     # Volontairement le nombre d'adresses TRAITÉES, pas d'envois réels : la
     # réponse ne doit rien révéler des comptes existants.
     return {"ok": True, "count": len(adresses)}

@@ -57,3 +57,18 @@ async def reconcilier_jobs_orphelins():
     except Exception as e:
         # Ne JAMAIS empêcher le serveur de démarrer pour un ménage.
         logger.warning(f"Réconciliation des jobs orphelins impossible : {e}")
+
+
+async def purger_invitations_anciennes():
+    """Efface les invitations au-delà de leur durée de conservation."""
+    try:
+        from app.services.invitations import purger_invitations
+        from app.core.database import async_session
+        async with async_session() as db:
+            n = await purger_invitations(db)
+            await db.commit()
+        if n:
+            logger.info(f"{n} invitation(s) de plus de 30 jours purgée(s).")
+    except Exception as e:
+        # Ne JAMAIS empêcher le serveur de démarrer pour un ménage.
+        logger.warning(f"Purge des invitations impossible : {e}")
