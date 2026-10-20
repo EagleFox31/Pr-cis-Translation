@@ -7,6 +7,7 @@ from app.models import User
 from app.models.beta import BetaApplication, BetaCampaign, BetaEnrollment, BetaUsage
 from app.services.beta_meter import BetaCost, DEFAULT_LIMITS, FORMATS, UNIT_NAMES
 from app.services.usage import add_months
+from app.services import beta_abuse
 
 
 def now_utc():
@@ -123,11 +124,11 @@ async def invite(db, *, email, primary_format, limits=None, reviewer_id=None):
     if await capacity_used(db) >= wave_capacity(campaign):
         raise HTTPException(409, "La capacité de cette vague est atteinte.")
     email = email.strip().casefold()
-    existing = (await db.execute(select(BetaEnrollment).where(
-        BetaEnrollment.campaign_id == "pilot", BetaEnrollment.email == email))).scalar_one_or_none()
+    existing = await beta_abuse.mailbox_match(db, BetaEnrollment, email)
     if existing:
-        raise HTTPException(409, "Ce compte possède déjà une invitation à cette campagne.")
-    item = BetaEnrollment(campaign_id="pilot", email=email, primary_format=primary_format,
+        raise HTTPException(409, "Cette boîte e-mail possède déjà une invitation à cette campagne.")
+    item = BetaEnrollment(campaign_id="pilot", email=email, mailbox_key=beta_abuse.canonical_mailbox(email),
+                          primary_format=primary_format,
                           limits=dict(limits or campaign.limits))
     db.add(item)
     await db.flush()
@@ -142,7 +143,7 @@ async def invite(db, *, email, primary_format, limits=None, reviewer_id=None):
     return item
 
 
-async def activate(db, user):
+async def activate(db, user, *, signals=None):
     if not user.email_verified:
         raise HTTPException(403, "Vérifiez votre adresse e-mail avant d'activer la bêta.")
     campaign = await campaign_row(db, lock=True)
@@ -157,7 +158,13 @@ async def activate(db, user):
         return enrollment
     if not recruitment_open(campaign):
         raise HTTPException(409, "La période d'activation est terminée.")
+    if await beta_abuse.mailbox_match(db, BetaEnrollment, user.email,
+            exclude_id=enrollment.id, activated_only=True):
+        raise HTTPException(409, "Cette boîte e-mail a déjà bénéficié de la bêta.")
     enrollment.user_id = user.id
+    enrollment.mailbox_key = beta_abuse.canonical_mailbox(user.email)
+    enrollment.ip_hash = signals.ip_hash if signals else None
+    enrollment.device_hash = signals.device_hash if signals else None
     enrollment.activated_at = now_utc()
     enrollment.expires_at = enrollment.activated_at + timedelta(days=campaign.access_days)
     await db.flush()

@@ -1,6 +1,6 @@
 """Invitation-only beta allowances, independent of subscription credits."""
 from datetime import datetime
-from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from .base import Base, new_uuid, utcnow
 
@@ -24,10 +24,14 @@ class BetaEnrollment(Base):
     __table_args__ = (
         UniqueConstraint("campaign_id", "email", name="uq_beta_campaign_email"),
         UniqueConstraint("campaign_id", "user_id", name="uq_beta_campaign_user"),
+        Index("ix_beta_enrollment_mailbox", "campaign_id", "mailbox_key"),
     )
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_uuid)
     campaign_id: Mapped[str] = mapped_column(String(32), ForeignKey("beta_campaigns.id"), nullable=False, index=True)
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    mailbox_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ip_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    device_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     user_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("users.id", ondelete="SET NULL"), index=True)
     primary_format: Mapped[str] = mapped_column(String(8), nullable=False, default="pdf")
     limits: Mapped[dict] = mapped_column(JSON, nullable=False)
@@ -57,11 +61,18 @@ class BetaApplication(Base):
     __table_args__ = (
         UniqueConstraint("campaign_id", "email", name="uq_beta_application_email"),
         UniqueConstraint("campaign_id", "user_id", name="uq_beta_application_user"),
+        Index("ix_beta_application_mailbox", "campaign_id", "mailbox_key"),
+        Index("ix_beta_application_ip_recent", "campaign_id", "ip_hash", "submitted_at"),
+        Index("ix_beta_application_device_recent", "campaign_id", "device_hash", "submitted_at"),
+        Index("ix_beta_application_signal_age", "submitted_at"),
     )
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_uuid)
     campaign_id: Mapped[str] = mapped_column(String(32), ForeignKey("beta_campaigns.id"), nullable=False)
     user_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("users.id", ondelete="SET NULL"))
     email: Mapped[str] = mapped_column(String(255), nullable=False)
+    mailbox_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ip_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    device_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     primary_format: Mapped[str] = mapped_column(String(8), nullable=False)
     motivation: Mapped[str] = mapped_column(Text, nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")

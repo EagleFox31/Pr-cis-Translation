@@ -40,6 +40,7 @@ function ApplicationForm({ onSubmitted }: { onSubmitted: () => Promise<void> }) 
         value={motivation} onChange={event => setMotivation(event.target.value)}
         placeholder={t('beta.application.placeholder')} /></label>
       <p className="beta-note">{t('beta.application.commitment')}</p>
+      <p className="beta-note">{t('beta.application.privacy_hint')}</p>
       {error && <p role="alert" className="beta-error">{error}</p>}
       <button className="beta-primary" type="submit">{t(busy ? 'beta.loading' : 'beta.application.submit')}</button>
     </fieldset>

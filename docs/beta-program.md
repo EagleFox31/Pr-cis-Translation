@@ -82,3 +82,47 @@ la seconde. Lorsque les 40 places au total sont engagées, ou que le recrutement
 est fermé ou terminé, aucune nouvelle candidature n’est acceptée. Les décisions
 sont consultables dans l’application ; aucun e-mail n’est envoyé automatiquement.
 La migration n’ouvre pas le programme et ne crée aucun candidat réel.
+
+## Prévention des accès multiples
+
+La clé de boîte Bêta rapproche les variantes des adresses personnelles Gmail :
+points, suffixes + et domaines gmail.com/googlemail.com. L'adresse du compte et
+celle de l'invitation restent les identités de connexion et d'activation ; la
+clé ne fusionne jamais des comptes. Les domaines personnalisés conservent leurs
+points et suffixes. Les nouvelles candidatures et invitations d'une même boîte
+sont refusées ; le verrou de campagne sérialise ces contrôles. Les anciennes
+lignes restent intactes, y compris si elles comportent des alias historiques ;
+une deuxième activation d'une même boîte est bloquée.
+
+Les candidatures et premières activations enregistrent des empreintes HMAC de
+l'IP résolue par le serveur et d'un identifiant de navigateur aléatoire. Les
+en-têtes réseau fournis par le client ne sont pas interprétés par ce service.
+Le cookie de sécurité est signé, HttpOnly, SameSite=Lax, limité à /api/beta et
+Secure en production ; il expire après 30 jours et ne sert pas au profilage.
+Aucun fingerprint matériel ni nouvelle clé d'environnement n'est nécessaire.
+
+Les signaux réseau et navigateur sont utilisés pendant 30 jours, puis effacés
+par une purge quotidienne et au démarrage. Les candidatures, décisions,
+invitations et consommations sont conservées. L'administration affiche seulement
+des rapprochements et des adresses déjà accessibles aux admins : aucun hash,
+cookie ou IP n'est servi dans les réponses JSON Bêta. Une candidature suivie de son activation
+ne compte pas comme deux personnes.
+
+Les éléments « Points à vérifier » regroupent boîte identique, réseau ou
+navigateur commun, et au moins trois adresses liées actives dans la dernière
+heure. Un rapprochement réseau ou navigateur ne refuse jamais une décision ou
+une activation à lui seul. Un filtre permet d'isoler les candidatures à examiner.
+
+Une fenêtre de dix minutes limite les nouvelles candidatures à cinq par
+navigateur et vingt par IP. Ce plafond temporaire renvoie 429 et Retry-After ;
+il ne rejette pas la candidature et ne consomme aucun quota. Réenvoyer une
+candidature existante conserve le résultat initial. Les compteurs sont dérivés
+des lignes persistées sous le verrou de campagne, même après un redémarrage.
+La route Google rejoint les inscriptions e-mail avec une limite de cinq
+requêtes par minute et par IP. Les connexions habituelles et les crédits payants
+ne sont pas remplacés par ces signaux.
+
+Références des règles Gmail :
+- https://support.google.com/mail/answer/7436150
+- https://support.google.com/mail/answer/22370
+- https://support.google.com/mail/answer/10313

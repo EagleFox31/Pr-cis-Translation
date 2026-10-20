@@ -526,7 +526,8 @@ async def verify_email_code(request: Request, body: VerifyCodeBody,
 # ── POST /google ─────────────────────────────────────────────────────────────
 
 @router.post("/google")
-async def google_auth(body: GoogleBody, db: AsyncSession = Depends(get_db)):
+@rate_limit_decorator("5/minute")
+async def google_auth(body: GoogleBody, db: AsyncSession = Depends(get_db), *, request: Request):
     """Connexion/inscription via Google OAuth."""
     import google.auth.transport.requests
     from google.oauth2 import id_token

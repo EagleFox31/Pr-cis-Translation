@@ -552,7 +552,21 @@
         "open": "Applications are open."
       }
     },
+    "safety": {
+      "review": "Review signals",
+      "hint": "A shared network or browser does not prove abuse. Review the application before deciding.",
+      "related": "Related addresses",
+      "only_flagged": "With review signals",
+      "same_mailbox_one": "Same mailbox as another address.",
+      "same_mailbox_other": "Same mailbox as {{count}} other addresses.",
+      "same_ip_one": "Network shared with another address.",
+      "same_ip_other": "Network shared with {{count}} other addresses.",
+      "same_browser_one": "Browser shared with another address.",
+      "same_browser_other": "Browser shared with {{count}} other addresses.",
+      "rapid_sequence": "{{count}} related addresses applied or activated access within the last hour."
+    },
     "application": {
+      "privacy_hint": "A security cookie and network signals help us detect duplicate applications.",
       "motivation": "Which documents would you like to test?",
       "placeholder": "For example: sales tracking Excel workbooks, in French and English…",
       "commitment": "Share feedback on translation and layout during the test. Submitting an application does not reserve a place.",

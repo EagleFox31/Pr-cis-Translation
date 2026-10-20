@@ -1,6 +1,6 @@
 """Manage the closed pilot and accept email-bound invitations."""
 from typing import Literal
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -9,7 +9,7 @@ from app.core.database import get_db
 from app.core.security import require_admin, require_auth
 from app.models import User
 from app.models.beta import BetaApplication, BetaCampaign, BetaEnrollment
-from app.services import beta, beta_applications
+from app.services import beta, beta_applications, beta_abuse
 from app.services.usage import add_months
 
 router = APIRouter(tags=["Bêta"])
@@ -78,10 +78,12 @@ async def program(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/api/beta/applications")
-async def apply(body: ApplicationSubmission, user: User = Depends(require_auth),
-                db: AsyncSession = Depends(get_db)):
-    row = await beta_applications.submit(db, user, **body.model_dump())
+async def apply(body: ApplicationSubmission, request: Request, response: Response,
+                user: User = Depends(require_auth), db: AsyncSession = Depends(get_db)):
+    signals = beta_abuse.client_signals(request)
+    row = await beta_applications.submit(db, user, signals=signals, **body.model_dump())
     await db.commit()
+    beta_abuse.set_cookie(response, signals)
     return beta_applications.serialize(row)
 
 
@@ -94,15 +96,19 @@ async def review(application_id: str, body: ApplicationReview,
 
 
 @router.get("/api/admin/beta")
-async def dashboard(_admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+async def dashboard(response: Response, _admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    response.headers["Cache-Control"] = "private, no-store"
     campaign = await beta.campaign_row(db)
     rows = (await db.execute(select(BetaEnrollment).where(
         BetaEnrollment.campaign_id == "pilot").order_by(BetaEnrollment.invited_at.desc()))).scalars().all()
     applications = (await db.execute(select(BetaApplication).where(
         BetaApplication.campaign_id == "pilot").order_by(BetaApplication.submitted_at.desc()))).scalars().all()
+    risks = beta_abuse.admin_risks(applications, rows)
     return {"campaign": await beta.serialize_campaign(db, campaign),
-            "enrollments": [await beta.serialize_enrollment(db, row) for row in rows],
-            "applications": [beta_applications.serialize(row) for row in applications],
+            "enrollments": [{**(await beta.serialize_enrollment(db, row)),
+                "risk": risks[("enrollment", row.id)]} for row in rows],
+            "applications": [{**beta_applications.serialize(row),
+                "risk": risks[("application", row.id)]} for row in applications],
             "defaults": CampaignSettings().model_dump()}
 
 
@@ -172,6 +178,9 @@ async def update_enrollment(enrollment_id: str, body: EnrollmentUpdate,
     if body.revoke and row.revoked_at is None:
         row.revoked_at = beta.now_utc()
     elif body.revoke is False and row.revoked_at:
+        if await beta_abuse.mailbox_match(db, BetaEnrollment, row.email,
+                exclude_id=row.id, activated_only=True):
+            raise HTTPException(409, "Cette boîte e-mail a déjà bénéficié de la bêta.")
         if row.activated_at is None and (
                 not campaign or not beta.recruitment_open(campaign)
                 or await beta.capacity_used(db) >= beta.wave_capacity(campaign)):
@@ -182,7 +191,8 @@ async def update_enrollment(enrollment_id: str, body: EnrollmentUpdate,
 
 
 @router.get("/api/beta/me")
-async def me(user: User = Depends(require_auth), db: AsyncSession = Depends(get_db)):
+async def me(response: Response, user: User = Depends(require_auth), db: AsyncSession = Depends(get_db)):
+    response.headers["Cache-Control"] = "private, no-store"
     row = await beta.enrollment_for(db, user)
     if row and row.activated_at and row.user_id != user.id:
         row = None
@@ -198,7 +208,10 @@ async def me(user: User = Depends(require_auth), db: AsyncSession = Depends(get_
 
 
 @router.post("/api/beta/activate")
-async def activate(user: User = Depends(require_auth), db: AsyncSession = Depends(get_db)):
-    row = await beta.activate(db, user)
+async def activate(request: Request, response: Response, user: User = Depends(require_auth),
+                   db: AsyncSession = Depends(get_db)):
+    signals = beta_abuse.client_signals(request)
+    row = await beta.activate(db, user, signals=signals)
     await db.commit()
+    beta_abuse.set_cookie(response, signals)
     return await beta.serialize_enrollment(db, row)
