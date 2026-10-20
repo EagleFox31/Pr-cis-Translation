@@ -23,13 +23,14 @@ from app.models import User, Document, Payment, get_plan_storage
 from app.core.security import require_auth
 from app.core.pricing import (zone_for_country, CURRENCY, page_price,
                                billable_pages, MIN_PAYMENT_AMOUNT, plan_price,
-                               PLAN_RANK, SELF_SERVE_PLANS)
+                               PLAN_RANK, SELF_SERVE_PLANS, transaction_fee)
 from app.services.usage import add_months
 from app.services.documents import count_pages
 from app.core.payment_gateway import (campay, CampayError, ProviderError,
-                                      normalize_phone)
+                                      fapshi, normalize_phone)
 from app.core.payment_methods import (MTN_MOMO, PHONE_METHODS, PROVIDERS,
-                                      list_methods, method_of_phone, provider_for)
+                                      list_methods, method_of_phone, needs_phone,
+                                      provider_for)
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,9 @@ async def quote(body: QuoteBody, request: Request, user: User = Depends(require_
         # Le surplus est crédité au compte (cf. `_apply_credit`).
         "billed_pages": billed,
         "unit_price": unit,
-        "amount": unit * billed,
+        # `amount` = ce qui sera DÉBITÉ, frais compris ; `subtotal` + `fee` le
+        # détaillent. Même calcul que `POST /` : le devis ne promet rien d'autre.
+        **_with_fee(unit * billed),
         "min_amount": MIN_PAYMENT_AMOUNT.get(CURRENCY[zone], 0),
         "currency": CURRENCY[zone],
         "zone": zone,
@@ -162,14 +165,15 @@ async def collect(body: CollectBody, request: Request,
     # Arrondi au montant minimum de l'opérateur ; `_apply_credit` reverse au
     # compte les pages payées au-delà du document.
     billed = billable_pages(zone, pages)
-    amount = page_price(zone) * billed
+    amount = _with_fee(page_price(zone) * billed)["amount"]
 
     payment = Payment(
         user_id=user.id, document_id=body.document_id, pages=billed,
         amount=amount, currency=CURRENCY[zone], zone=zone,
         phone=phone, status="PENDING", provider=provider.name, method=method,
     )
-    return await _start_payment(db, provider, payment, f"Précis — {billed} page(s)")
+    return await _start_payment(db, provider, payment, f"Précis — {billed} page(s)",
+                                email=user.email)
 
 
 def _resolve_method(method: str, raw_phone: str | None, zone: str):
@@ -179,9 +183,7 @@ def _resolve_method(method: str, raw_phone: str | None, zone: str):
     # doivent être le même numéro. Le faire côté navigateur laisserait les deux
     # diverger dès qu'un autre client appellerait l'API.
     phone = normalize_phone(raw_phone) if raw_phone else None
-    if method in PHONE_METHODS:
-        if not phone:
-            raise HTTPException(status_code=422, detail="Numéro de téléphone requis.")
+    if method in PHONE_METHODS and phone:
         # Le numéro, pas la tuile cochée, décide de l'opérateur chez le
         # prestataire : un numéro Orange envoyé sous « MTN » sera encaissé par
         # Orange Money, c'est donc ce moyen-là qui doit être ouvert.
@@ -196,11 +198,15 @@ def _resolve_method(method: str, raw_phone: str | None, zone: str):
             status_code=501 if reason == "currency" else 409,
             detail="Ce moyen de paiement n'est pas encore disponible.",
         )
+    # Exigé seulement quand c'est nous qui le transmettons : sur une page
+    # hébergée, le client le saisit chez le prestataire.
+    if method in PHONE_METHODS and not phone and needs_phone(method, CURRENCY[zone]):
+        raise HTTPException(status_code=422, detail="Numéro de téléphone requis.")
     return method, phone, provider
 
 
 async def _start_payment(db: AsyncSession, provider, payment: Payment,
-                         description: str) -> dict:
+                         description: str, email: str | None = None) -> dict:
     """Enregistre le paiement PUIS sollicite le prestataire."""
     # La trace existe AVANT l'appel. Si le réseau coupe juste après que Campay
     # a débité le client, on a de quoi réconcilier ; l'inverse perd l'argent
@@ -213,6 +219,7 @@ async def _start_payment(db: AsyncSession, provider, payment: Payment,
         res = await provider.start(
             amount=payment.amount, currency=payment.currency, phone=payment.phone,
             description=description, reference=payment.id,
+            email=email, user_id=payment.user_id,
         )
     except ProviderError as e:
         # On journalise le détail, on n'en montre rien : la réponse d'un
@@ -235,6 +242,9 @@ async def _start_payment(db: AsyncSession, provider, payment: Payment,
         # composer ce code à la main.
         "ussd_code": res.get("ussd_code"),
         "operator": res.get("operator"),
+        # Page de paiement du prestataire, quand c'est là que le client paie
+        # (Fapshi `initiate-pay`) ; absent pour une invite poussée.
+        "checkout_url": res.get("checkout_url"),
     }
 
 
@@ -244,16 +254,23 @@ async def _start_payment(db: AsyncSession, provider, payment: Payment,
 PENDING_PLAN_WINDOW = timedelta(minutes=3)
 
 
+def _with_fee(subtotal: int) -> dict:
+    """Montant net → détail encaissé : les frais de transaction sont à la
+    charge du client (`pricing.PSP_FEE_PERCENT`)."""
+    fee = transaction_fee(subtotal)
+    return {"subtotal": subtotal, "fee": fee, "amount": subtotal + fee}
+
+
 def _plan_offer(plan: str, annual: bool, zone: str) -> tuple[int, int, int]:
-    """(prix mensuel, nombre de mois, montant à encaisser). L'annuel se paie
-    d'avance : douze fois le prix mensuel affiché sur la carte."""
+    """(prix mensuel, nombre de mois, montant à encaisser, frais compris).
+    L'annuel se paie d'avance : douze fois le prix mensuel affiché sur la carte."""
     if plan not in SELF_SERVE_PLANS:
         raise HTTPException(status_code=422, detail="Ce forfait ne s'achète pas en ligne.")
     monthly = plan_price(plan, zone, annual=annual)
     if not monthly:
         raise HTTPException(status_code=422, detail="Ce forfait ne s'achète pas en ligne.")
     months = 12 if annual else 1
-    return monthly, months, monthly * months
+    return monthly, months, _with_fee(monthly * months)["amount"]
 
 
 def _loses_rights(user: User, plan: str, now: datetime | None = None) -> bool:
@@ -291,7 +308,7 @@ async def plan_quote(body: PlanQuoteBody, request: Request,
     monthly, months, amount = _plan_offer(body.plan, body.annual, zone)
     _check_can_buy(user, body.plan)
     return {"plan": body.plan, "annual": body.annual, "months": months,
-            "monthly_price": monthly, "amount": amount,
+            "monthly_price": monthly, **_with_fee(monthly * months),
             "currency": CURRENCY[zone], "zone": zone}
 
 
@@ -331,7 +348,8 @@ async def buy_plan(body: PlanBody, request: Request,
         method=method, plan=body.plan, months=months,
     )
     return await _start_payment(db, provider, payment,
-                                f"Précis — forfait {body.plan} ({months} mois)")
+                                f"Précis — forfait {body.plan} ({months} mois)",
+                                email=user.email)
 
 
 def _carry_over(user: User, payment: Payment, now: datetime) -> timedelta:
@@ -547,6 +565,54 @@ async def campay_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=503, detail="Réessayez.")
 
     payment.status = res.get("status", "PENDING")
+    await db.commit()
+    await _apply_credit(db, payment)
+    return {"ok": True}
+
+
+@router.post("/fapshi/webhook", operation_id="fapshi_webhook",
+             summary="Notification de paiement Fapshi", include_in_schema=False)
+async def fapshi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    """Notification de Fapshi (POST, corps = la transaction, envoyé quand elle
+    devient SUCCESSFUL, FAILED ou EXPIRED).
+
+    Mêmes deux barrières que pour Campay, la seconde suffisant seule :
+      1. l'en-tête `x-wh-secret` égal au secret du tableau de bord ;
+      2. l'état retenu est celui que `payment-status` confirme quand NOUS
+         l'interrogeons, jamais celui annoncé dans le corps.
+    """
+    if not fapshi.verify_webhook_secret(request.headers.get("x-wh-secret")):
+        logger.warning("Webhook Fapshi sans secret valide")
+        raise HTTPException(status_code=403, detail="Secret invalide.")
+    try:
+        body = dict(await request.json())
+    except Exception:
+        raise HTTPException(status_code=400, detail="Corps illisible.")
+
+    trans_id = body.get("transId")
+    if not trans_id:
+        raise HTTPException(status_code=400, detail="Référence absente.")
+
+    stmt = select(Payment).where(Payment.provider == "fapshi",
+                                 Payment.provider_ref == str(trans_id))
+    payment = (await db.execute(stmt)).scalar_one_or_none()
+    if payment is None:
+        logger.info("Webhook Fapshi pour une transaction inconnue : %s", trans_id)
+        return {"ok": True}
+    if payment.status != "PENDING":
+        return {"ok": True}
+
+    # Un PENDING mis en cache par l'écran d'attente masquerait le changement
+    # que ce webhook annonce : si l'utilisateur a fermé la page, plus rien ne
+    # réinterrogerait Fapshi et le crédit ne viendrait jamais.
+    fapshi.forget_status(payment.provider_ref)
+    try:
+        new_status = await PROVIDERS["fapshi"].status(payment.provider_ref)
+    except ProviderError as e:
+        logger.warning("Webhook : statut Fapshi indisponible (%s) : %s", trans_id, e)
+        raise HTTPException(status_code=503, detail="Réessayez.")
+
+    payment.status = new_status
     await db.commit()
     await _apply_credit(db, payment)
     return {"ok": True}

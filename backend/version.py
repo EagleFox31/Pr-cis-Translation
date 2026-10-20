@@ -17,4 +17,8 @@ Le suivi repart de 1.0.0 le 22/07/2026.
 # 1.1.0 -- CORS restreint aux origines declarees, plafonds de debit sur les
 #          routes d'authentification, 503 parlant sur panne SMTP. Le contrat
 #          HTTP s'etend (nouveaux 429 et 503) sans rien retirer.
-__version__ = "1.1.0"
+# 1.2.0 -- paiement Fapshi (routes de statut et webhook), frais de transaction
+#          dans les devis (`subtotal`, `fee`), `fee_percent` dans /api/pricing,
+#          402 `need_credits` structure et champ `covered_only` a l'import.
+#          `detail` reste un texte : compatible.
+__version__ = "1.2.0"

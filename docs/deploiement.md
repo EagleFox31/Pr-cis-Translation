@@ -192,6 +192,25 @@ Le `/health` ne prouve que le démarrage. Faire le parcours réel, une fois :
   prestataire. Un moyen sans prestataire, ou dont le prestataire n'est pas
   configuré, s'affiche grisé « Pas encore disponible ». La carte attend son
   prestataire (ZitoPay pressenti).
+- **Fapshi** (`mtn_momo=fapshi,orange_money=fapshi`) : `FAPSHI_API_USER`,
+  `FAPSHI_API_KEY`, `FAPSHI_WEBHOOK_SECRET`, `FAPSHI_ENV=SANDBOX|LIVE`, `FAPSHI_FLOW=direct|checkout`.
+  `direct` (défaut) pousse l'invite sur le téléphone du client (`direct-pay`,
+  activé par Fapshi sur notre compte le 20/10/2026). Déclarer le webhook
+  `https://<domaine>/api/payments/fapshi/webhook` avec le même secret ; si une
+  liste blanche d'IP est posée, y mettre l'IP de l'instance.
+- **Fapshi, parcours de repli `checkout` (désactivé, conservé).** Si Fapshi
+  retire `direct-pay` (réponse 403 en live), poser `FAPSHI_FLOW=checkout` et
+  redémarrer, sans redéployer :
+  - la page de paiement hébergée (`initiate-pay`) s'affiche **dans la modale**
+    (iframe sandboxée, mise à l'échelle) ; le champ numéro disparaît ;
+  - seul l'e-mail du compte se pré-remplit (l'API n'accepte ni numéro, ni nom,
+    ni opérateur, ni langue) ; pas de `redirectUrl`, c'est le polling de la
+    modale qui détecte le succès (délai 15 min) ;
+  - le moyen enregistré est `mtn_momo` même si le client paie en Orange Money
+    sur la page (sans effet sur le crédit) ;
+  - `checkout.fapshi.com` n'envoie ni `X-Frame-Options` ni `frame-ancestors`
+    (vérifié le 20/10/2026) ; s'il change, le cadre reste blanc et le lien
+    « Nouvel onglet » prend le relais.
 - **Aucune expiration automatique des fichiers traduits.** Le volume ne fait que
   croître ; surveiller et purger (voir ci-dessous).
 - **Documents scannés exclus** : détectés, refusés, non facturés. L'OCR est une

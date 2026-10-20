@@ -34,6 +34,10 @@ interface PdfViewerProps {
    *  l'invitation à payer, avec le bouton dessous, au lieu du message d'attente. */
   creditsNeeded?: number | null;
   onBuyPages?: (pages: number) => void;
+  /** Pages déjà couvertes par le solde, si on peut ne traduire qu'elles. */
+  pagesCovered?: number | null;
+  /** Relance en ne traduisant que les pages couvertes. */
+  onTranslateCovered?: () => void;
   /** Essai : quitter l'aperçu pour les tarifs. */
   onUnlock?: () => void;
 }
@@ -57,6 +61,8 @@ export default function PdfViewer({
   previewLoading = false,
   creditsNeeded,
   onBuyPages,
+  pagesCovered,
+  onTranslateCovered,
   onUnlock,
 }: PdfViewerProps) {
   const { t } = useTranslation();
@@ -422,6 +428,10 @@ export default function PdfViewer({
               // Contient l'ombre portée géante du voile d'essai : elle ne doit
               // assombrir QUE le document, pas déborder autour.
               overflow: 'hidden',
+              // Refus pour crédits : rien n'a été dessiné, le canevas garde sa
+              // taille par défaut (300×150) et rognait les deux boutons.
+              ...(!translatedShown && creditsNeeded && onBuyPages
+                ? { minWidth: '320px', minHeight: '300px' } : null),
               // Curseur masqué seulement là où le voile le remplace : sur l'écran
               // « pages à régler » ou d'attente, l'utilisateur doit le voir.
               cursor: isTrialMode && translatedShown ? 'none' : 'auto',
@@ -481,7 +491,10 @@ export default function PdfViewer({
                    dessous lance le paiement. Pas de bannière ailleurs. */
                 <>
                   <Lock size={26} strokeWidth={1.8} style={{ color: 'var(--blue)' }} />
-                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--gray-700)', maxWidth: '260px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--gray-900)', maxWidth: '280px' }}>
+                    {t('preview.credits_insufficient')}
+                  </span>
+                  <span style={{ fontSize: '12.5px', color: 'var(--gray-600)', maxWidth: '280px', marginTop: '-6px' }}>
                     {t('preview.credits_needed', { count: creditsNeeded })}
                   </span>
                   <button
@@ -494,8 +507,21 @@ export default function PdfViewer({
                       boxShadow: '0 4px 14px rgba(37,99,235,0.28)',
                     }}
                   >
-                    {t('story.buy_pages_cta', 'Payer {{count}} page(s)', { count: creditsNeeded })}
+                    {t('story.buy_pages_cta', { count: creditsNeeded })}
                   </button>
+                  {pagesCovered && onTranslateCovered ? (
+                    <button
+                      onClick={onTranslateCovered}
+                      style={{
+                        padding: '8px 16px', borderRadius: '10px',
+                        border: '1px solid var(--gray-300)', background: 'white',
+                        color: 'var(--gray-700)', fontSize: '12.5px', fontWeight: 600,
+                        fontFamily: 'inherit', cursor: 'pointer',
+                      }}
+                    >
+                      {t('preview.translate_covered', { count: pagesCovered })}
+                    </button>
+                  ) : null}
                 </>
               ) : translatedPageStatus && translatedPageStatus !== 'waiting' ? (
                 <>

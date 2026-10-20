@@ -46,7 +46,7 @@ from app import config as cfg                            # noqa: E402
 from app import create_app                               # noqa: E402
 from app.core.security import create_access_token        # noqa: E402
 from app.core.payment_gateway import campay              # noqa: E402
-from app.core.pricing import plan_price, ZONE_AFRICA     # noqa: E402
+from app.core.pricing import plan_price, transaction_fee, ZONE_AFRICA  # noqa: E402
 from app.api.payments import _apply_credit               # noqa: E402
 from app.services.usage import (add_months as _add_months,  # noqa: E402
                                 quota_period, pages_used_this_month)
@@ -135,6 +135,11 @@ def check_dates(ok):
              datetime(2027, 4, 1, tzinfo=timezone.utc)), f"{p}")
 
 
+def _ttc(net: int) -> int:
+    """Montant encaissé : net + frais de transaction à la charge du client."""
+    return net + transaction_fee(net)
+
+
 async def check_routes(client, ok, a_nettoyer):
     appels = []
 
@@ -162,14 +167,15 @@ async def check_routes(client, ok, a_nettoyer):
                         json={"plan": "starter"}, headers=ent(u))
         q = r.json()
         ok("DEVIS   Starter mensuel : prix de pricing.py, 1 mois",
-           r.status_code == 200 and q.get("amount") == plan_price("starter", ZONE_AFRICA)
+           r.status_code == 200 and q.get("subtotal") == plan_price("starter", ZONE_AFRICA)
+           and q.get("amount") == _ttc(plan_price("starter", ZONE_AFRICA))
            and q.get("months") == 1 and q.get("currency") == "XAF", f"{r.status_code} {q}")
         r = client.post("/api/payments/plan/quote",
                         json={"plan": "pro", "annual": True}, headers=ent(u))
         q = r.json()
         ok("DEVIS   Pro annuel : 12 x le mensuel annuel affiché",
            r.status_code == 200 and q.get("months") == 12
-           and q.get("amount") == 12 * plan_price("pro", ZONE_AFRICA, annual=True), f"{q}")
+           and q.get("amount") == _ttc(12 * plan_price("pro", ZONE_AFRICA, annual=True)), f"{q}")
 
         for plan in ("enterprise", "free", "admin", "inconnu"):
             r = client.post("/api/payments/plan",
@@ -189,7 +195,7 @@ async def check_routes(client, ok, a_nettoyer):
         ps = await _paiements(u.id)
         ok("ACHAT   Starter : Campay appelé au prix serveur, paiement tracé",
            r.status_code == 200 and len(appels) == 1
-           and appels[0].get("amount") == plan_price("starter", ZONE_AFRICA)
+           and appels[0].get("amount") == _ttc(plan_price("starter", ZONE_AFRICA))
            and len(ps) == 1 and ps[0].plan == "starter" and ps[0].months == 1
            and ps[0].pages == 0 and ps[0].method == "mtn_momo",
            f"{r.status_code} {r.text[:120]} {appels}")
@@ -250,7 +256,7 @@ async def check_routes(client, ok, a_nettoyer):
         attendu = _add_months(avant + report, 12)
         ok("MONTEE  Starter -> Pro annuel : +12 mois + reste Starter au prorata",
            r.status_code == 200 and len(appels) == n + 1
-           and appels[-1].get("amount") == 12 * plan_price("pro", ZONE_AFRICA, annual=True)
+           and appels[-1].get("amount") == _ttc(12 * plan_price("pro", ZONE_AFRICA, annual=True))
            and c.plan == "pro" and report > timedelta(days=7)
            and _proche(c.plan_expires_at, attendu) and _proche(c.plan_started_at, avant),
            f"{r.status_code} {c.plan} {c.plan_expires_at} attendu {attendu}")

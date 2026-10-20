@@ -21,6 +21,7 @@ Endpoints (relevés dans le SDK officiel v1.1.0, 19/07/2026) :
 from __future__ import annotations
 
 import functools
+import hmac
 import logging
 import os
 import time
@@ -251,3 +252,195 @@ class CampayClient:
 
 
 campay = CampayClient()
+
+
+# ── Fapshi ──────────────────────────────────────────────────────────────────
+#
+# Doc officielle relevée le 20/10/2026 (docs.fapshi.com/en) :
+#   POST /direct-pay              {amount, phone, medium?, externalId?, message?}
+#                                                     → {message, transId, dateInitiated}
+#   GET  /payment-status/<transId>                    → transaction {status, amount, ...}
+#   en-têtes `apiuser` / `apikey` sur chaque appel ; erreurs 4XX {"message": ...}
+#
+# Ce qu'on ne devine pas :
+#   - `direct-pay` (invite USSD poussée) est DÉSACTIVÉ par défaut en live, il
+#     s'active auprès de Fapshi (fait pour notre compte le 20/10/2026) ; sans
+#     lui, 4XX à chaque encaissement : repli `FAPSHI_FLOW=checkout` ;
+#   - le téléphone s'écrit SANS indicatif (`67XXXXXXX`) ;
+#   - `payment-status` est limité à 6 appels/minute par transaction (429 au-delà),
+#     alors que l'écran d'attente interroge toutes les 3 s ;
+#   - le webhook n'est pas signé : seul un secret partagé arrive en en-tête
+#     `x-wh-secret`. Il ne sert donc qu'à savoir QUOI re-vérifier.
+
+FAPSHI_SANDBOX_HOST = "https://sandbox.fapshi.com"
+FAPSHI_LIVE_HOST = "https://live.fapshi.com"
+
+# Statuts Fapshi → les trois que connaissent les routes et l'écran d'attente.
+# CREATED : invite pas encore traitée ; EXPIRED : jamais payé, définitif.
+FAPSHI_STATUS = {"CREATED": "PENDING", "PENDING": "PENDING",
+                 "SUCCESSFUL": "SUCCESSFUL", "FAILED": "FAILED",
+                 "EXPIRED": "FAILED"}
+
+# Sous la limite de 6 appels/minute par transaction, webhook compris.
+FAPSHI_STATUS_MIN_INTERVAL = 12.0
+
+
+class FapshiError(ProviderError):
+    """Échec d'un appel Fapshi (voir `CampayError` pour les deux messages)."""
+
+
+def _as_fapshi_error(fn):
+    """Même rôle que `_as_campay_error` : aucune panne réseau ne doit remonter
+    en HTTP 500 pendant qu'un client attend de savoir si son argent est parti."""
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await fn(*args, **kwargs)
+        except FapshiError:
+            raise
+        except httpx.HTTPError as e:
+            raise FapshiError(
+                f"{type(e).__name__} vers Fapshi : {e}",
+                "Le service de paiement ne répond pas. Réessayez dans un instant.",
+            ) from e
+        except ValueError as e:
+            raise FapshiError(f"réponse Fapshi illisible : {e}") from e
+    return wrapper
+
+
+def fapshi_phone(phone: str) -> str:
+    """Numéro au format Fapshi : les 9 chiffres nationaux, sans indicatif.
+    `normalize_phone` l'a mis au format international pour notre base."""
+    digits = "".join(c for c in phone if c.isdigit())
+    if len(digits) == 12 and digits.startswith("237"):
+        return digits[3:]
+    return digits
+
+
+class FapshiClient:
+    def __init__(self) -> None:
+        self.api_user = os.getenv("FAPSHI_API_USER", "")
+        self.api_key = os.getenv("FAPSHI_API_KEY", "")
+        # Live sur demande EXPLICITE, comme Campay : un oubli ne doit pas
+        # encaisser d'argent réel. Les clés sandbox et live sont distinctes.
+        self.host = (FAPSHI_LIVE_HOST if os.getenv("FAPSHI_ENV", "").upper() == "LIVE"
+                     else FAPSHI_SANDBOX_HOST)
+        # transId → (instant, dernier statut) : de quoi répondre sans rappeler
+        # Fapshi quand l'écran d'attente interroge plus vite que la limite.
+        self._last_status: dict[str, tuple[float, dict]] = {}
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.api_user and self.api_key)
+
+    def _headers(self) -> dict:
+        return {"apiuser": self.api_user, "apikey": self.api_key}
+
+    @staticmethod
+    def _error(res: httpx.Response, what: str) -> FapshiError:
+        try:
+            detail = str(res.json().get("message", ""))[:200]
+        except ValueError:
+            detail = res.text[:200]
+        user_message = None
+        if res.status_code == 403:
+            # Identifiants faux ou IP de serveur absente de la liste blanche :
+            # rien que le client puisse corriger, mais l'exploitant doit le lire.
+            logger.error("Fapshi refuse l'accès (403) : identifiants ou IP non autorisée")
+        elif res.status_code == 400 and "phone" in detail.lower():
+            user_message = "Numéro invalide : seuls les numéros MTN et Orange du Cameroun sont acceptés."
+        return FapshiError(f"{what} refusé ({res.status_code}) : {detail}", user_message)
+
+    @_as_fapshi_error
+    async def direct_pay(self, *, amount: int, phone: str, message: str,
+                         external_id: str) -> dict:
+        """Pousse l'invite de paiement sur le téléphone. NE BLOQUE PAS : l'état
+        se suit par `payment_status` ou par le webhook."""
+        if not self.configured:
+            raise FapshiError("FAPSHI_API_USER / FAPSHI_API_KEY absents")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            res = await client.post(
+                f"{self.host}/direct-pay",
+                json={"amount": int(amount), "phone": fapshi_phone(phone),
+                      "message": message,
+                      # Notre identifiant : retrouver le paiement si la réponse
+                      # se perd (motif imposé ^[a-zA-Z0-9\-_]{1,100}$, un UUID passe).
+                      "externalId": external_id},
+                headers=self._headers(),
+            )
+            if res.status_code != 200:
+                raise self._error(res, "direct-pay")
+            data = res.json()
+            if not data.get("transId"):
+                raise FapshiError("direct-pay sans transId")
+            return data
+
+    @_as_fapshi_error
+    async def initiate_pay(self, *, amount: int, message: str,
+                           external_id: str, email: str | None = None,
+                           user_id: str | None = None) -> dict:
+        """Crée un lien vers la page de paiement hébergée par Fapshi : le client
+        y choisit MTN ou Orange et y saisit son numéro. Ouvert à tout compte,
+        contrairement à `direct-pay` qui exige l'accord de Fapshi. Le lien
+        expire au bout de 24 h ; l'état se suit comme pour direct-pay.
+        L'e-mail fourni est le seul champ que la page sait pré-remplir (elle
+        ne le redemande pas) ; le numéro, elle le demande toujours."""
+        if not self.configured:
+            raise FapshiError("FAPSHI_API_USER / FAPSHI_API_KEY absents")
+        body = {"amount": int(amount), "message": message,
+                "externalId": external_id}
+        if email:
+            body["email"] = email
+        if user_id:
+            body["userId"] = user_id
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            res = await client.post(
+                f"{self.host}/initiate-pay",
+                json=body,
+                headers=self._headers(),
+            )
+            if res.status_code != 200:
+                raise self._error(res, "initiate-pay")
+            data = res.json()
+            if not data.get("transId") or not data.get("link"):
+                raise FapshiError("initiate-pay sans transId ou sans lien")
+            return data
+
+    @_as_fapshi_error
+    async def payment_status(self, trans_id: str) -> dict:
+        """Transaction Fapshi (statut brut CREATED · PENDING · SUCCESSFUL ·
+        FAILED · EXPIRED). Mis en cache quelques secondes, voir la limite."""
+        if not self.configured:
+            raise FapshiError("FAPSHI_API_USER / FAPSHI_API_KEY absents")
+        now = time.monotonic()
+        cached = self._last_status.get(trans_id)
+        if cached and now - cached[0] < FAPSHI_STATUS_MIN_INTERVAL:
+            return cached[1]
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            # GET SANS corps : Fapshi rejette un GET qui en porte un.
+            res = await client.get(f"{self.host}/payment-status/{trans_id}",
+                                   headers=self._headers())
+            if res.status_code != 200:
+                raise self._error(res, "payment-status")
+            data = res.json()
+        if FAPSHI_STATUS.get(data.get("status")) == "PENDING":
+            self._last_status[trans_id] = (now, data)
+        else:
+            self._last_status.pop(trans_id, None)   # final : plus rien à mettre de côté
+        return data
+
+    def forget_status(self, trans_id: str) -> None:
+        self._last_status.pop(trans_id, None)
+
+    @staticmethod
+    def verify_webhook_secret(received: str | None) -> bool:
+        """L'en-tête `x-wh-secret` porte-t-il le secret du tableau de bord ?
+        Sans `FAPSHI_WEBHOOK_SECRET`, on refuse (un oubli ne doit pas ouvrir la
+        porte). Comparaison à temps constant."""
+        secret = os.getenv("FAPSHI_WEBHOOK_SECRET", "")
+        if not secret or not received:
+            return False
+        return hmac.compare_digest(received.encode(), secret.encode())
+
+
+fapshi = FapshiClient()

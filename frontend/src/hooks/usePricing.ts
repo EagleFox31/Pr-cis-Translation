@@ -31,6 +31,8 @@ export interface Pricing {
   currency: string;
   decimals: number;
   page_price: number;             // unités mineures
+  /** Frais de transaction ajoutés au paiement, à la charge du client. */
+  fee_percent: number;
   plans: PricingPlan[];
 }
 

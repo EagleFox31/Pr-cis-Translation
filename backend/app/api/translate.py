@@ -106,10 +106,11 @@ async def _save_document_for_user(user: "User | None", db: "AsyncSession",
                                   job_id: str, filename: str, target_lang: str,
                                   original_path: str, size: int,
                                   paid: bool = False, page_count: int = 1,
-                                  usage_kind: str | None = None):
+                                  usages: list[tuple[str, int]] = ()):
     """Enregistre un Document pour l'utilisateur connecté.
 
-    La consommation (`usage_kind`) est consignée dans `usage_records`, dans la
+    La consommation (`usages` : une ligne par titre — quota du plan, pages
+    achetées, offre du mois) est consignée dans `usage_records`, dans la
     MÊME transaction : c'est elle que comptent les quotas, et elle survit à la
     suppression du document. Le stockage n'est facturé que si le plan en offre
     ET que le quota le permet ; sinon `charge = 0`.
@@ -135,9 +136,10 @@ async def _save_document_for_user(user: "User | None", db: "AsyncSession",
                        page_count=page_count)
         db.add(doc)
         user.storage_used += charge
-        if usage_kind:
+        if usages:
             await db.flush()                # `doc.id` pour le lien
-            usage.record(db, user.id, doc.id, usage_kind, page_count)
+            for kind, n in usages:
+                usage.record(db, user.id, doc.id, kind, n)
         await db.commit()
         # Lien job → Document : permet à `jobs.done`/`jobs.error` de reporter
         # `status`/`translated_path` à la fin du traitement (thread worker).
@@ -159,6 +161,10 @@ async def translate_endpoint(
     precise: str = Form(""),
     pages: str = Form(""),
     debug: str = Form(""),
+    # « Traduire seulement les pages couvertes » : choix explicite de
+    # l'utilisateur après un 402 `need_credits`. Sans lui, un solde insuffisant
+    # refuse le document entier — jamais de troncature silencieuse.
+    covered_only: str = Form(""),
     x_api_key: str = Header(None),
     # CONNEXION OBLIGATOIRE (décision produit) : un visiteur ne lance aucune
     # traduction. `optional_auth` laissait passer l'anonyme avec 1 page —
@@ -232,16 +238,25 @@ async def translate_endpoint(
     # (cf. `translate_pdf_progressive`). L'utilisateur récupère donc son
     # document entier, ses pages scannées intactes, et ne paye que ce qui a pu
     # être traduit.
+    # Compté UNE fois, avant le verrou : relire le conteneur sous le lock
+    # retiendrait d'autant les autres requêtes du compte et ses webhooks.
+    nb_pages = count_pages(file_bytes, ext)
     lisibles = pages_avec_texte(file_bytes, ext)
     pages_ignorees = 0
     ocr_prepared = None
     ocr_pages = 0
     if lisibles is not None:
-        visees_ocr = pages_set or set(range(1, count_pages(file_bytes, ext) + 1))
-        # Ne pas reconnaitre un document entier pour l'essai d'une page.
-        if get_plan_page_limit(current_user.plan) == 1 and not await usage.free_offer_used(db, current_user.id):
-            pages_set = cap_pages_for_plan(pages_set, ext, 1)
-            visees_ocr = pages_set
+        visees_ocr = pages_set or set(range(1, nb_pages + 1))
+        hors_essai = set()
+        # Ne pas reconnaitre un document entier pour l'essai d'une page. Des
+        # pages ACHETEES passent avant l'essai : elles ouvrent tout le document.
+        # `pages_set` reste intact : le 402 `need_credits` doit encore compter
+        # tout le document pour proposer l'achat des pages manquantes.
+        if (get_plan_page_limit(current_user.plan) == 1 and current_user.page_credits <= 0
+                and not await usage.free_offer_used(db, current_user.id)):
+            essai_ocr = cap_pages_for_plan(pages_set, ext, 1)
+            hors_essai = visees_ocr - essai_ocr
+            visees_ocr = essai_ocr
         scans = visees_ocr - lisibles
         if scans:
             try:
@@ -255,8 +270,11 @@ async def translate_endpoint(
                 raise HTTPException(status_code=413, detail="Le scan reconnu est trop volumineux. Selectionnez moins de pages.")
             lisibles = pages_avec_texte(ocr_prepared, ext) or set()
             qsuffix += f"_{OCR_VERSION}"
+        # Non reconnues faute d'achat, pas illisibles : elles restent visées
+        # (et comptées), l'achat rejoue le document avec l'OCR complet.
+        lisibles |= hors_essai
     if lisibles is not None:
-        visees = pages_set or set(range(1, count_pages(file_bytes, ext) + 1))
+        visees = pages_set or set(range(1, nb_pages + 1))
         traduisibles = visees & lisibles
 
         if not traduisibles:
@@ -304,110 +322,125 @@ async def translate_endpoint(
     limit = get_plan_page_limit(plan)
     page_limit = limit if limit is not None else 999_999
 
-    # Un plan limité en pages n'a droit qu'aux formats où la limite est
-    # APPLICABLE (PDF, PPTX : l'extraction sait sélectionner ses pages). Le
-    # DOCX se traduit d'un bloc : l'autoriser ici, c'était offrir un document
-    # entier — la « limite » ne limitait rien.
-    if page_limit == 1 and ext not in ("pdf", "pptx"):
-        raise HTTPException(
-            status_code=402,
-            detail="Forfait Gratuit : essai sur PDF ou PPTX uniquement. "
-                   "Passez à Starter pour traduire ce format.",
-        )
-
     # Un plan payant couvre tout ce qu'il produit ; pour le forfait Gratuit,
     # seul l'achat rend le document lisible en clair (cf. `_may_read_clear`).
     doc_is_paid = is_paid_plan(plan)
 
-    # ── Forfait Gratuit : une traduction offerte par mois, puis à la page ─────
+    # ── Couverture : combien de pages ce compte peut-il traduire MAINTENANT ? ─
     #
-    # Deux titres pour traduire, dans cet ordre :
-    #   1. la traduction OFFERTE du mois — une page, une fois ;
-    #   2. les pages ACHETÉES d'avance, débitées ici.
+    # Trois titres, jamais cumulés au hasard :
+    #   • forfait Gratuit : les pages ACHETÉES d'avance ; à défaut, l'offre du
+    #     mois (une page d'essai, non lisible en clair). L'essai et l'achat ne
+    #     se mélangent pas : un document payé en partie et en essai pour le
+    #     reste n'aurait pas de statut cohérent (`Document.paid` est un booléen).
+    #   • plans payants : le reste du quota de la période, PUIS les pages
+    #     achetées pour le dépassement.
     #
     # Le débit a lieu AVANT de lancer quoi que ce soit : c'est la règle du
     # produit (« paiement avant même de traduire »), et c'est aussi la seule
     # façon d'éviter qu'un travail coûteux parte pour un solde déjà vide.
+    #
+    # Verrou pessimiste sur la ligne User : compter puis insérer est un
+    # lire-puis-écrire. Sans lock, deux requêtes simultanées du même compte
+    # liraient le même solde et passeraient toutes deux. Le lock tient jusqu'au
+    # commit de `_save_document_for_user` : la seconde attend, recompte, 402.
+    #
+    # `populate_existing` : l'authentification a déjà chargé cet utilisateur
+    # dans la même session ; sans lui, la requête verrouille la ligne mais
+    # rend l'objet en mémoire, avec le solde lu AVANT le verrou (double
+    # dépense, ou pages créditées par un webhook écrasées au débit).
+    locked = (await db.execute(
+        select(User).where(User.id == current_user.id).with_for_update()
+        .execution_options(populate_existing=True)
+    )).scalar_one()
+    solde = max(0, locked.page_credits)     # une dette ne couvre rien
+    reste_plan = None                       # None = quota illimité
+    essai = False
     if page_limit == 1:
-        # Verrou pessimiste sur la ligne User : le compteur est un
-        # lire-puis-écrire (COUNT ici, INSERT du Document plus bas). Sans lock,
-        # deux requêtes simultanées du même compte lisaient toutes deux 0 et
-        # passaient toutes deux. Le lock tient jusqu'au commit de
-        # `_save_document_for_user` : la seconde requête attend, recompte, 402.
-        # Il protège désormais AUSSI le solde de pages : sans lui, deux
-        # traductions lancées ensemble débiteraient toutes deux le même solde.
-        locked = (await db.execute(
-            select(User).where(User.id == current_user.id).with_for_update()
-        )).scalar_one()
+        # L'essai n'existe qu'en PDF et PPTX, où l'extraction sait se borner à
+        # une page ; un DOCX se traduit d'un bloc, l'y autoriser offrirait le
+        # document entier. Les pages ACHETÉES, elles, valent pour tout format.
+        if ext not in ("pdf", "pptx") and solde == 0:
+            raise HTTPException(
+                status_code=402,
+                detail="Forfait Gratuit : essai sur PDF ou PPTX uniquement. "
+                       "Achetez des pages ou passez à Starter pour traduire ce format.",
+            )
         # Compté dans le REGISTRE, pas dans `documents` : supprimer la
         # traduction du mois rendait l'offre à nouveau disponible.
-        free_used = await usage.free_offer_used(db, current_user.id)
-        usage_kind = KIND_FREE_OFFER
+        essai = solde == 0 and not await usage.free_offer_used(db, current_user.id)
+        couvert = 1 if essai else solde
+    else:
+        monthly = get_plan_monthly_pages(plan)
+        if monthly is None:
+            couvert = None
+        else:
+            reste_plan = max(0, monthly - await usage.pages_used_this_month(db, current_user))
+            couvert = reste_plan + solde
 
-        if not free_used:
+    # On facture ce qui sera RÉELLEMENT traduit : la sélection si elle existe,
+    # tout le document sinon.
+    needed = len(pages_set) if pages_set else nb_pages
+    if couvert is not None and needed > couvert:
+        # Seuls PDF et PPTX savent ne traduire qu'une partie de leurs pages.
+        partiel = ext in ("pdf", "pptx") and couvert > 0
+        if not (covered_only == "1" and partiel):
+            # Réponse STRUCTURÉE : le client propose d'acheter les pages
+            # manquantes ou de traduire les seules pages couvertes. `JSONResponse`
+            # et non `HTTPException(detail={...})` (cf. `scanned_document`).
+            detail = (f"Crédits insuffisants pour traduire tout le document : "
+                      f"il demande {needed} page(s), {couvert} couverte(s).")
+            if reste_plan is not None:
+                _debut, repart = usage.quota_period(current_user)
+                detail += f" Le quota du forfait repart le {repart:%d/%m/%Y}."
+            return JSONResponse(
+                status_code=402,
+                content={
+                    "detail": detail,
+                    "reason": "need_credits",
+                    "pages_needed": needed,
+                    "pages_available": couvert,
+                    # Pages à ACHETER pour tout traduire : la page d'essai ne
+                    # se combine pas avec l'achat, elle n'en déduit rien.
+                    "pages_missing": needed - (solde if essai else couvert),
+                    "partial_possible": partiel,
+                    "trial": essai,
+                },
+            )
+        # Choix explicite : les `couvert` PREMIÈRES pages visées, rien de plus.
+        # Les autres sont recopiées telles quelles par le moteur, sans être
+        # traduites ni facturées.
+        visees = sorted(pages_set) if pages_set else range(1, needed + 1)
+        pages_set = set(list(visees)[:couvert])
+        needed = couvert
+
+    # ── Débit ───────────────────────────────────────────────────────────────
+    if page_limit == 1:
+        if essai:
             # La traduction offerte : une page, celle que le plan autorise.
             pages_set = cap_pages_for_plan(pages_set, ext, page_limit)
+            usages = [(KIND_FREE_OFFER, 1)]
         else:
-            # On facture ce qui sera RÉELLEMENT traduit : la sélection si elle
-            # existe, tout le document sinon.
-            needed = len(pages_set) if pages_set else count_pages(file_bytes, ext)
-            if locked.page_credits < needed:
-                # Réponse STRUCTURÉE (pas un simple message) : le client a besoin
-                # du NOMBRE de pages à acheter pour ouvrir directement le paiement
-                # à la page, sans que l'utilisateur ait à deviner ni à retaper.
-                # `reason` distingue ce cas (rattrapable par un achat) d'un 402 de
-                # plan (mensuel), qu'un achat de pages ne débloque pas.
-                return JSONResponse(
-                    status_code=402,
-                    content={
-                        "detail": (f"Vous avez {locked.page_credits} page(s) disponible(s) "
-                                   f"mais ce document en nécessite {needed}. "
-                                   "Achetez des pages supplémentaires pour continuer."),
-                        "reason": "need_credits",
-                        "pages_needed": needed,
-                        "pages_available": locked.page_credits,
-                    },
-                )
-            locked.page_credits -= needed
-            usage_kind = KIND_CREDITS
             # Pas de `cap_pages_for_plan` ici : ces pages sont payées, les
-            # plafonner à une seule reviendrait à encaisser sans livrer.
-            #
-            # Et le document qui va naître est PAYÉ : sans ce drapeau, on
-            # débiterait le solde pour produire une traduction que son
-            # acheteur ne pourrait ni voir en clair ni télécharger.
+            # plafonner à une seule reviendrait à encaisser sans livrer. Et le
+            # document est PAYÉ : sans ce drapeau, on débiterait le solde pour
+            # une traduction que son acheteur ne pourrait ni voir ni télécharger.
+            locked.page_credits -= needed
+            usages = [(KIND_CREDITS, needed)]
             doc_is_paid = True
     else:
-        usage_kind = KIND_PLAN
         pages_set = cap_pages_for_plan(pages_set, ext, page_limit)
-
-        # ── Plans payants : quota de pages du MOIS ────────────────────────────
-        #
-        # Distinct du plafond par document (`page_limit`), qui ne limite qu'une
-        # traduction à la fois. Sans ce compteur, « 100 pages par mois » sur la
-        # carte de tarifs voulait dire « autant de documents de 100 pages que
-        # vous voulez » : le quota vendu n'existait tout simplement pas.
-        monthly = get_plan_monthly_pages(plan)
-        if monthly is not None:
-            # Même verrou que pour le forfait Gratuit, et pour la même raison :
-            # compter puis insérer est un lire-puis-écrire.
-            await db.execute(
-                select(User).where(User.id == current_user.id).with_for_update()
-            )
-            deja = await usage.pages_used_this_month(db, current_user)
-            demande = len(pages_set) if pages_set else count_pages(file_bytes, ext)
-            if deja + demande > monthly:
-                _debut, repart = usage.quota_period(current_user)
-                raise HTTPException(
-                    status_code=402,
-                    detail=(f"Vous avez déjà traduit {deja} page(s) sur cette période "
-                            f"(limite : {monthly}). Ce document en demande {demande}. "
-                            f"Le compteur repart le {repart:%d/%m/%Y}."),
-                )
+        du_plan = needed if reste_plan is None else min(needed, reste_plan)
+        achetees = needed - du_plan
+        locked.page_credits -= achetees
+        # Deux lignes distinctes : le quota mensuel ne compte que la première,
+        # et un remboursement rend la seconde au solde (`refund_for_document`).
+        usages = [(k, n) for k, n in ((KIND_PLAN, du_plan), (KIND_CREDITS, achetees))
+                  if n > 0]
 
     # Ce qui sera RÉELLEMENT traduit — enregistré sur le Document, sinon le
     # quota du mois prochain n'aurait rien à compter (`page_count` restait NULL).
-    pages_facturees = len(pages_set) if pages_set else count_pages(file_bytes, ext)
+    pages_facturees = len(pages_set) if pages_set else nb_pages
 
     ptok = pages_token(pages_set)
     psuffix = f"_{ptok}" if ptok else ""
@@ -496,7 +529,7 @@ async def translate_endpoint(
         await _save_document_for_user(current_user, db, job_id, filename,
                                       target_lang, original_path, len(file_bytes),
                                       paid=doc_is_paid, page_count=pages_facturees,
-                                      usage_kind=usage_kind)
+                                      usages=usages)
     except Exception:
         # Rien ne sera soumis : le job ouvert plus haut resterait « pending »
         # en mémoire, sans document ni worker, jusqu'au ménage.

@@ -17,6 +17,7 @@ PostgreSQL local requis (comme test_revue_ultra).
 """
 from __future__ import annotations
 import asyncio
+import os
 import sys
 import uuid
 from unittest.mock import patch, PropertyMock
@@ -103,37 +104,42 @@ async def check_routes(client, ok):
         return {"reference": uuid.uuid4().hex, "ussd_code": None,
                 "operator": "MTN"}
 
-    vrai = route_payments.campay.collect
-    route_payments.campay.collect = faux_collect
+    # Routage forcé sur Campay simulé : sans cela, `PAYMENT_METHODS` du .env
+    # (Fapshi, en LIVE) recevait la requête — un appel réel depuis un test.
+    c = route_payments.campay
+    vrais = (c.collect, c.username, c.password)
+    c.collect, c.username, c.password = faux_collect, "u", "p"
+    saved_env = os.environ.pop("PAYMENT_METHODS", None)
     ent = {"X-API-Key": cfg.FRONTEND_API_KEY, "X-Country": "CM",
            "Authorization": "Bearer " + create_access_token(u.id, u.email)}
     try:
         r = client.post("/api/payments/quote", json={"pages": 1}, headers=ent)
         q = r.json()
-        ok("ROUTE   /quote 1 page : 2 facturees, 150 F, minimum publie",
+        ok("ROUTE   /quote 1 page : 2 facturees, 150 F + 5 F de frais, minimum publie",
            r.status_code == 200 and q.get("billed_pages") == 2
-           and q.get("amount") == 150 and q.get("min_amount") == 100, str(q))
+           and q.get("subtotal") == 150 and q.get("fee") == 5
+           and q.get("amount") == 155 and q.get("min_amount") == 100, str(q))
 
         r = client.post("/api/payments/collect",
                         json={"pages": 1, "phone": "237670000000"}, headers=ent)
-        ok("ROUTE   /collect 1 page : Campay recoit 150 F",
-           r.status_code == 200 and envoye and envoye[-1]["amount"] == 150,
+        ok("ROUTE   /collect 1 page : le prestataire recoit 155 F (frais compris)",
+           r.status_code == 200 and envoye and envoye[-1]["amount"] == 155,
            f"{r.status_code} {envoye[-1:] }")
         async with async_session() as db:
             p = await db.get(Payment, r.json().get("payment_id"))
         ok("ROUTE   /collect enregistre les pages facturees (2)",
-           p is not None and p.pages == 2 and p.amount == 150)
+           p is not None and p.pages == 2 and p.amount == 155)
 
         d = await _document(u.id, 3)
         r = client.post("/api/payments/collect",
                         json={"pages": 1, "phone": "237670000000",
                               "document_id": d.id}, headers=ent)
-        ok("ROUTE   document de 3 pages annonce a 1 : facture 3 pages (225 F)",
-           r.status_code == 200 and envoye[-1]["amount"] == 225,
+        ok("ROUTE   document de 3 pages annonce a 1 : facture 3 pages (225 F + 7 F de frais)",
+           r.status_code == 200 and envoye[-1]["amount"] == 232,
            f"{r.status_code} {envoye[-1:]}")
 
         # Taille jamais consignée (page_count NULL) : le serveur recompte.
-        import fitz, os, tempfile
+        import fitz, tempfile
         fd, chemin = tempfile.mkstemp(suffix=".pdf")
         os.close(fd)
         pdf = fitz.open()
@@ -146,9 +152,9 @@ async def check_routes(client, ok):
             r = client.post("/api/payments/quote",
                             json={"pages": 1, "document_id": d2.id}, headers=ent)
             q = r.json()
-            ok("ROUTE   /quote document sans taille : recompte 3 pages (225 F)",
+            ok("ROUTE   /quote document sans taille : recompte 3 pages (225 F + 7 F de frais)",
                r.status_code == 200 and q.get("pages") == 3
-               and q.get("amount") == 225, str(q))
+               and q.get("amount") == 232, str(q))
             async with async_session() as db:
                 n = (await db.get(Document, d2.id)).page_count
             ok("ROUTE   la taille recomptee est consignee sur le document",
@@ -160,8 +166,8 @@ async def check_routes(client, ok):
             r = client.post("/api/payments/collect",
                             json={"pages": 1, "phone": "237670000000",
                                   "document_id": d2.id}, headers=ent)
-            ok("ROUTE   /collect document sans taille : facture 3 pages (225 F)",
-               r.status_code == 200 and envoye[-1]["amount"] == 225,
+            ok("ROUTE   /collect document sans taille : facture 3 pages (225 F + 7 F de frais)",
+               r.status_code == 200 and envoye[-1]["amount"] == 232,
                f"{r.status_code} {envoye[-1:]}")
             async with async_session() as db:
                 for p in (await db.execute(select(Payment).where(
@@ -172,7 +178,9 @@ async def check_routes(client, ok):
         finally:
             os.remove(chemin)
     finally:
-        route_payments.campay.collect = vrai
+        c.collect, c.username, c.password = vrais
+        if saved_env is not None:
+            os.environ["PAYMENT_METHODS"] = saved_env
         await _supprimer(u.id)
 
 

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
-import { X, Smartphone, Loader2, CheckCircle2, AlertCircle, CreditCard } from 'lucide-react';
+import { X, Smartphone, Loader2, CheckCircle2, AlertCircle, CreditCard, Lock, ExternalLink } from 'lucide-react';
 import { usePayment, type PayMethodId, type PlanChoice } from '../../hooks/usePayment';
 import { usePricing, formatMoney } from '../../hooks/usePricing';
 import { detectOperator, OPERATOR_LABEL, type Operator } from '../../lib/mobileMoney';
@@ -18,6 +19,8 @@ interface PaymentModalProps {
   label: string;
   /** Achat d'un abonnement au lieu de pages (`pages` est alors ignoré). */
   plan?: PlanChoice;
+  /** Achat de pages d'avance : le client choisit lui-même la quantité. */
+  onPagesChange?: (pages: number) => void;
   onPaid: () => void;
 }
 
@@ -28,6 +31,13 @@ const OPERATOR_LOGO: Record<Operator, typeof MtnLogo> = { mtn: MtnLogo, orange: 
 // se lit sur le numéro) et la carte.
 type Kind = 'mobile' | 'card';
 
+// Page de paiement intégrée : hauteur utile de son contenu (le pied de page
+// collé en bas de sa fenêtre tombe sous la découpe), et hauteur du cadre.
+const HOSTED_H = 660;
+const FRAME_H = 700;
+// Plafond d'un achat de pages d'avance (= MAX_PAGES_PER_PAYMENT du serveur).
+const MAX_PAGES = 500;
+
 const input: React.CSSProperties = {
   width: '100%', padding: '11px 12px 11px 38px', borderRadius: '10px',
   fontSize: '15px', outline: 'none', border: '1.5px solid var(--gray-200)',
@@ -35,12 +45,12 @@ const input: React.CSSProperties = {
 };
 
 export default function PaymentModal({
-  open, onClose, pages, documentId, label, plan, onPaid,
+  open, onClose, pages, documentId, label, plan, onPagesChange, onPaid,
 }: PaymentModalProps) {
   const { t } = useTranslation();
   const { pricing } = usePricing();
   const {
-    phase, quote, methods, ussdCode, operator, error,
+    phase, quote, methods, ussdCode, operator, checkoutUrl, error,
     getQuote, getPlanQuote, getMethods, pay, payPlan, reset,
   } = usePayment();
   const [phone, setPhone] = useState('');
@@ -49,12 +59,16 @@ export default function PaymentModal({
   const mobileOn = isOn('mtn_momo') || isOn('orange_money');
   const cardOn = isOn('card');
   const noMethod = methods !== null && !mobileOn && !cardOn;
+  // Page hébergée : l'opérateur et le numéro se saisissent sur la page de
+  // paiement, on ne les redemande pas ici.
+  const askPhone = !!methods?.some((m) =>
+    (m.id === 'mtn_momo' || m.id === 'orange_money') && m.available && m.needs_phone);
   // Ce que le serveur facture réellement (montant minimum de l'opérateur).
   const billed = quote?.billed_pages ?? pages;
   // Taille retenue par le SERVEUR : pour un document, elle peut différer de
   // la prop (taille jamais consignée côté bibliothèque, recomptée au devis).
   const dues = quote?.pages ?? pages;
-  const op = detectOperator(phone);
+  const op = askPhone ? detectOperator(phone) : null;
   // Le numéro décide de l'opérateur (le serveur fait de même). Préfixe inconnu :
   // on ne bloque pas, le premier moyen ouvert part et le serveur tranche.
   const opMethod = op ? METHOD_OF[op] : null;
@@ -65,6 +79,23 @@ export default function PaymentModal({
       ? (opMethod ? (isOn(opMethod) ? opMethod : null)
          : isOn('mtn_momo') ? 'mtn_momo' : isOn('orange_money') ? 'orange_money' : null)
       : null;
+
+  // Achat d'avance : la saisie reste libre (champ vide, 0…) ; seule une
+  // quantité valide part au parent, après une courte pause, pour ne pas
+  // redemander un devis à chaque frappe.
+  const [draft, setDraft] = useState(String(pages));
+  useEffect(() => { setDraft(String(pages)); }, [pages]);
+  const draftN = Number(draft);
+  const draftOk = Number.isInteger(draftN) && draftN >= 1 && draftN <= MAX_PAGES;
+  useEffect(() => {
+    if (!onPagesChange || !draftOk || draftN === pages) return;
+    const id = setTimeout(() => onPagesChange(draftN), 350);
+    return () => clearTimeout(id);
+  }, [draft, draftOk, draftN, pages, onPagesChange]);
+  const pending = !!onPagesChange && !plan && (!draftOk || draftN !== pages);
+  // Quantité CHOISIE sous le montant minimum : on bloque et on le dit, plutôt
+  // que de facturer en silence plus de pages que celles saisies.
+  const belowMin = !!onPagesChange && !plan && !pending && !!quote && billed > dues;
 
   useEffect(() => {
     if (!open) return;
@@ -86,13 +117,29 @@ export default function PaymentModal({
   // Fermer pendant l'attente laisserait l'utilisateur sans retour sur un
   // paiement peut-être abouti. On ne verrouille rien, mais on prévient.
   const busy = phase === 'starting' || phase === 'waiting';
+  // Page du prestataire intégrée à la fenêtre : plus large, et un voile de
+  // chargement tant que la page n'est pas arrivée.
+  const embedded = phase === 'waiting' && !!checkoutUrl;
+  const [frameReady, setFrameReady] = useState(false);
+  useEffect(() => { setFrameReady(false); }, [checkoutUrl]);
+  // Tout doit tenir sans défilement : la page est réduite à l'échelle de la
+  // fenêtre, et recalculée quand celle-ci change de taille.
+  const [vp, setVp] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
+  useEffect(() => {
+    if (!embedded) return;
+    const onResize = () => setVp({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [embedded]);
+  const frameW = Math.min(460, vp.w * 0.96) - 24;
+  const scale = Math.min(1, (vp.h * 0.96 - 84) / HOSTED_H);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     // Campay attend un numéro international sans « + ». On retire tout ce qui
     // n'est pas un chiffre : personne ne tape son numéro de la même façon.
     if (!chosen) return;
-    const digits = kind === 'mobile' ? phone.replace(/\D/g, '') : null;
+    const digits = kind === 'mobile' && askPhone ? phone.replace(/\D/g, '') : null;
     const ok = plan
       ? await payPlan(plan, chosen, digits)
       : await pay(pages, chosen, digits, documentId);
@@ -104,7 +151,9 @@ export default function PaymentModal({
     }
   }
 
-  return (
+  // Rendue sur <body> : ouverte depuis une section animée (transform), elle
+  // resterait sinon prise sous l'en-tête du site.
+  return createPortal(
     <AnimatePresence>
       {open && (
         <>
@@ -124,14 +173,16 @@ export default function PaymentModal({
             exit={{ opacity: 0, y: 10, scale: 0.98 }}
             style={{
               position: 'relative', pointerEvents: 'auto',
-              width: 'min(400px, 92vw)', maxHeight: '92vh', overflowY: 'auto',
+              width: embedded ? 'min(460px, 96vw)' : 'min(400px, 92vw)',
+              maxHeight: embedded ? '96vh' : '94vh', overflowY: embedded ? 'hidden' : 'auto',
               background: 'white', borderRadius: '18px',
-              boxShadow: '0 24px 70px rgba(13,27,62,0.28)', padding: '26px 24px',
+              boxShadow: '0 24px 70px rgba(13,27,62,0.28)',
+              padding: embedded ? '12px 12px 10px' : '26px 24px',
             }}
           >
-            {!busy && (
+            {(!busy || embedded) && (
               <button onClick={onClose} aria-label="Fermer"
-                style={{ position: 'absolute', top: 14, right: 14, background: 'none',
+                style={{ position: 'absolute', top: embedded ? 10 : 14, right: 14, background: 'none',
                          border: 'none', cursor: 'pointer', color: 'var(--gray-400)' }}>
                 <X size={18} />
               </button>
@@ -148,6 +199,68 @@ export default function PaymentModal({
                   {plan ? t('payment.plan_done', { plan: plan.label })
                     : 'Votre document est débloqué.'}
                 </p>
+              </div>
+            ) : phase === 'waiting' && checkoutUrl ? (
+              /* ── Paiement sur la page de paiement, intégrée ────────────── */
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, height: 24,
+                              margin: '0 32px 8px 4px', fontSize: '13.5px', fontWeight: 600 }}>
+                  <Lock size={14} color="#16a34a" />
+                  Paiement sécurisé
+                  {quote && pricing && (
+                    <span style={{ marginLeft: 'auto', fontWeight: 700 }}>
+                      {formatMoney(quote.amount, quote.currency, pricing.decimals, 'fr')}
+                    </span>
+                  )}
+                </div>
+                {/* Découpe à la hauteur utile, fond assorti à la page : le cadre
+                    se fond dans la fenêtre, sans barre de défilement. */}
+                <div style={{ position: 'relative', width: frameW, height: Math.round(HOSTED_H * scale),
+                              borderRadius: '12px', overflow: 'hidden', background: '#f6f7f9' }}>
+                  {!frameReady && (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+                                  justifyContent: 'center', color: 'var(--blue)', zIndex: 1 }}>
+                      <motion.span animate={{ rotate: 360 }}
+                        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                        style={{ display: 'inline-flex' }}>
+                        <Loader2 size={28} />
+                      </motion.span>
+                    </div>
+                  )}
+                  {/* Cadre isolé : la page peut s'exécuter et envoyer son
+                      formulaire, mais jamais naviguer notre site (pas de
+                      allow-top-navigation) ni lire quoi que ce soit chez nous
+                      (origine différente). */}
+                  <iframe
+                    src={checkoutUrl!}
+                    title="Paiement sécurisé"
+                    onLoad={() => setFrameReady(true)}
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+                    referrerPolicy="no-referrer"
+                    scrolling="no"
+                    style={{ width: frameW / scale, height: FRAME_H, border: 0, display: 'block',
+                             transform: `scale(${scale})`, transformOrigin: '0 0',
+                             opacity: frameReady ? 1 : 0, transition: 'opacity .2s' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                              gap: 8, margin: '8px 4px 0', fontSize: '12px', color: 'var(--gray-500)' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <motion.span animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                      style={{ display: 'inline-flex' }}>
+                      <Loader2 size={13} />
+                    </motion.span>
+                    En attente de la confirmation…
+                  </span>
+                  {/* Secours si la page refusait un jour d'être intégrée : un
+                      cadre bloqué ne se détecte pas depuis une autre origine. */}
+                  <a href={checkoutUrl!} target="_blank" rel="noopener noreferrer"
+                     style={{ display: 'inline-flex', alignItems: 'center', gap: 4,
+                              color: 'var(--blue)', textDecoration: 'none', fontWeight: 500 }}>
+                    Nouvel onglet <ExternalLink size={12} />
+                  </a>
+                </div>
               </div>
             ) : phase === 'waiting' ? (
               /* ── Attente de la validation sur le téléphone ─────────────── */
@@ -191,28 +304,61 @@ export default function PaymentModal({
                   {label}
                 </p>
 
-                {/* Le montant est annoncé AVANT de payer, et c'est exactement
-                    celui qui sera débité — aucun frais ne s'ajoute ensuite. */}
+                {/* Le montant est annoncé AVANT de payer, frais de transaction
+                    compris et détaillés : c'est exactement celui qui sera débité. */}
                 <div style={{ padding: '14px 16px', borderRadius: '12px',
                               background: 'var(--gray-50)', marginBottom: 18 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13.5px',
-                                color: 'var(--gray-600)', marginBottom: 6 }}>
+                                flexWrap: 'wrap', gap: '6px 10px', color: 'var(--gray-600)', marginBottom: 6 }}>
+                    {onPagesChange && !plan ? (
+                      <label className="pay-qty">
+                        <span className="pay-qty__label">{t('payment.pages_count')}</span>
+                        <span className="pay-qty__field">
+                          <input type="number" inputMode="numeric" min={1} max={MAX_PAGES} step={1}
+                                 value={draft} aria-invalid={!draftOk}
+                                 onChange={(e) => setDraft(e.target.value.replace(/[^0-9]/g, '').slice(0, 3))} />
+                          <span aria-hidden="true">page{draftN > 1 ? 's' : ''}</span>
+                        </span>
+                      </label>
+                    ) : (
                     <span>
                       {plan ? t('payment.plan_months', { count: quote?.months ?? (plan.annual ? 12 : 1) })
                         : `${billed} page${billed > 1 ? 's' : ''}`}
                     </span>
+                    )}
                     {quote && pricing && (
-                      <span>
+                      <span style={{ whiteSpace: 'nowrap', alignSelf: 'center', marginLeft: 'auto' }}>
                         {formatMoney(quote.unit_price, quote.currency, pricing.decimals, 'fr')}
                         {plan ? t('pricing.per_month') : ' / page'}
                       </span>
                     )}
                   </div>
+                  {onPagesChange && !plan && !draftOk && (
+                    <p role="alert" style={{ fontSize: '12px', color: '#b91c1c', margin: '-2px 0 10px' }}>
+                      {t('payment.pages_range', { max: MAX_PAGES })}
+                    </p>
+                  )}
+                  {belowMin && quote && pricing && (
+                    <p role="alert" style={{ fontSize: '12.5px', color: '#b91c1c', margin: '6px 0 0', lineHeight: 1.45 }}>
+                      {t('payment.min_pages', {
+                        min: formatMoney(quote.min_amount, quote.currency, pricing.decimals, 'fr'),
+                        count: billed })}
+                    </p>
+                  )}
+                  {!belowMin && <>
+                  {quote && pricing && !pending && quote.fee > 0 && (
+                    <div className="pay-breakdown">
+                      <span>{t('payment.subtotal')}</span>
+                      <span>{formatMoney(quote.subtotal, quote.currency, pricing.decimals, 'fr')}</span>
+                      <span>{t('payment.fee', { percent: pricing.fee_percent })}</span>
+                      <span>{formatMoney(quote.fee, quote.currency, pricing.decimals, 'fr')}</span>
+                    </div>
+                  )}
                   <div style={{ display: 'flex', justifyContent: 'space-between',
                                 alignItems: 'baseline', fontWeight: 700, fontSize: '20px' }}>
                     <span style={{ fontSize: '14px', fontWeight: 600 }}>Total</span>
                     <span>
-                      {quote && pricing
+                      {quote && pricing && !pending
                         ? formatMoney(quote.amount, quote.currency, pricing.decimals, 'fr')
                         : '…'}
                     </span>
@@ -226,6 +372,7 @@ export default function PaymentModal({
                       sur votre compte pour une prochaine traduction.
                     </p>
                   )}
+                  </>}
                 </div>
 
                 {error && (
@@ -296,7 +443,7 @@ export default function PaymentModal({
                     )}
                   </fieldset>
 
-                  {kind === 'mobile' && (<>
+                  {kind === 'mobile' && askPhone && (<>
                   <label htmlFor="pay-phone" style={{ display: 'block', fontSize: '13px', fontWeight: 500,
                                   color: 'var(--gray-700)', marginBottom: 5 }}>
                     {t('payment.phone_label')}
@@ -330,16 +477,18 @@ export default function PaymentModal({
                   </p>
                   </>)}
 
-                  <button type="submit" disabled={phase === 'starting' || !quote || !chosen}
+                  <button type="submit" disabled={phase === 'starting' || !quote || !chosen || pending || belowMin}
                     style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
                              gap: 8, padding: '12px', borderRadius: '10px', border: 'none',
                              background: 'var(--blue)', color: 'white', fontWeight: 600,
-                             fontSize: '14.5px', cursor: 'pointer', fontFamily: 'inherit',
-                             opacity: phase === 'starting' || !quote || !chosen ? 0.6 : 1 }}>
+                             fontSize: '14.5px', fontFamily: 'inherit',
+                             cursor: belowMin || pending ? 'not-allowed' : 'pointer',
+                             opacity: phase === 'starting' || !quote || !chosen || pending || belowMin ? 0.5 : 1 }}>
                     {phase === 'starting'
                       ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
                       : chosen === 'card' ? <CreditCard size={16} /> : <Smartphone size={16} />}
-                    {t('payment.pay')} {quote && pricing
+                    {/* Pas de montant tant qu'il n'est pas celui qui sera débité. */}
+                    {t('payment.pay')} {quote && pricing && !pending && !belowMin
                       ? formatMoney(quote.amount, quote.currency, pricing.decimals, 'fr')
                       : ''}
                   </button>
@@ -350,6 +499,7 @@ export default function PaymentModal({
           </div>
         </>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }

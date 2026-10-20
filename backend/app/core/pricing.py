@@ -131,10 +131,18 @@ PAGE_PRICE: dict[str, int] = {
     ZONE_AFRICA:   75,    # 75 FCFA (baissé de 100 le 24/07/2026, cf. zone A)
 }
 
-# Les frais Campay (2 % encaissement + 1 % reversement) sont DÉJÀ absorbés dans
-# les montants ci-dessus — on ne les ajoute jamais au moment de payer. Un prix
-# annoncé qui grossit à l'écran de paiement est la première cause d'abandon.
-PSP_FEE_RATE = 0.03
+# Frais de transaction À LA CHARGE DU CLIENT (décision du 20/10/2026) : les
+# prix ci-dessus sont nets, le prestataire de paiement prélève ~3 %, ajoutés
+# au moment de payer. Annoncés sur la grille ET détaillés dans la modale avant
+# l'invite : le montant débité reste celui affiché, jamais un autre.
+# En pourcentage ENTIER : le calcul se fait en unités mineures, sans flottant.
+PSP_FEE_PERCENT = 3
+
+
+def transaction_fee(amount: int) -> int:
+    """Frais ajoutés à un montant net, en unités mineures, arrondis à
+    l'unité SUPÉRIEURE : un frais arrondi vers le bas serait payé par nous."""
+    return -(-amount * PSP_FEE_PERCENT // 100)
 
 
 def plan_price(plan: str, zone: str, annual: bool = False) -> int | None:

@@ -143,7 +143,8 @@ async def run():
 
             # ── Pages achetées : débitées, remboursées en cas d'échec ───────
             u = comptes["credits"]
-            deposer(client, u)                          # consomme l'offre
+            # Les pages achetées passent AVANT l'offre : qui a payé reçoit une
+            # traduction lisible, pas un essai masqué.
             r = deposer(client, u, n_pages=2)
             ok("CRÉDITS  2 pages achetées couvrent un document de 2 pages",
                r.status_code == 200, f"{r.status_code} {r.text[:120]}")

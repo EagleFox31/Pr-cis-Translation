@@ -38,6 +38,18 @@ Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
   coupée, une cellule à retour à la ligne gagne la hauteur de ses lignes en
   plus, un nombre dont le format porte un littéral traduit ne s'affiche plus
   en `#####`.
+- **Paiement Fapshi** (Mobile Money MTN et Orange, Cameroun). Par défaut,
+  paiement direct : le client saisit son numéro et valide l'invite reçue sur
+  son téléphone ; le crédit arrive par le suivi du statut ou par le webhook
+  (`FAPSHI_WEBHOOK_SECRET`). La page de paiement hébergée, affichée DANS la
+  fenêtre de paiement sans défilement, est conservée en repli désactivé
+  (`FAPSHI_FLOW=checkout`, voir `docs/deploiement.md`).
+- **Crédits insuffisants à l'import** : au lieu d'un refus sec, la traduction
+  propose d'acheter les pages manquantes ou de ne traduire que les pages
+  couvertes (PDF, PPTX). Rien n'est lancé ni débité avant ce choix ; après
+  l'achat, le document entier est traduit.
+- **Achat à la page** : un seul champ (1 à 500 pages, 2 par défaut), montant
+  recalculé à la volée ; bandeau dédié sous la grille des tarifs.
 - PDF : polices non embarquées résolues (police identique locale ou Google
   Fonts sur liste blanche, sinon clone métrique, sinon la plus proche par
   largeurs mesurées) ; catalogue pré-chargé au build.
@@ -45,8 +57,22 @@ Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 ### Modifié
 - Moteur XLSX `0.2.0` → `1.0.0`.
 - Moteur PDF `1.0.5` → `1.0.12`.
+- **Frais de transaction (3 %) à la charge du client**, affichés avant de
+  payer : sous-total, frais, total. Le montant enregistré est le total payé ;
+  les pages créditées ne changent pas.
+- Forfait Gratuit : les pages achetées passent avant l'offre du mois et valent
+  pour tous les formats (l'essai offert reste limité au PDF et au PPTX).
+- Backend `1.1.0` → `1.2.0` : `/api/payments/quote` et `/plan/quote` renvoient
+  `subtotal`, `fee`, `amount` ; `/api/pricing` expose `fee_percent` ; la
+  traduction répond 402 `need_credits` (structuré) et accepte `covered_only`.
 
 ### Corrigé
+- Un compte Gratuit qui a acheté des pages voit désormais la reconnaissance
+  (OCR) d'un scan porter sur tout le document, et non sur la seule page d'essai.
+- L'essai sur un scan propose de nouveau l'achat des pages manquantes : la
+  limite d'OCR à une page ne réduit plus le document compté.
+- Double dépense possible de crédits sur deux imports simultanés : le solde est
+  relu sous verrou.
 - PDF : gras et italique synthétiques lus et reproduits ; opacité des images
   reportée sur chaque pose ; une ligne en capitales n'est plus soudée à la
   ligne en casse mixte qui suit.
