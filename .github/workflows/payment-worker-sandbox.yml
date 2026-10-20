@@ -1,4 +1,4 @@
-name: Stage isolated Payment Orchestrator sandbox worker
+name: Stage shared Payment Orchestrator worker (sandbox and live)
 
 on:
   push:
@@ -74,23 +74,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Trigenys/payment-orchestrator
-          ref: a4db5bb7409349124e7f01680ac1fefe3d58c67a
+          ref: a27c930ed5de36f09d8e74d2748adb66824576b5
           path: payment-worker-source
           persist-credentials: false
       - name: Build pinned worker on the runner, not the production host
         run: |
           set -euo pipefail
           docker build -f scripts/staging/Dockerfile.payment-worker \
-            --label org.opencontainers.image.revision=a4db5bb7409349124e7f01680ac1fefe3d58c67a \
-            -t trigenys-payment-inbox:sandbox-a4db5bb payment-worker-source
+            --label org.opencontainers.image.revision=a27c930ed5de36f09d8e74d2748adb66824576b5 \
+            -t trigenys-payment-inbox:environments-a27c930 payment-worker-source
           mkdir -p worker-artifact
-          docker save trigenys-payment-inbox:sandbox-a4db5bb | gzip > worker-artifact/payment-worker.tar.gz
+          docker save trigenys-payment-inbox:environments-a27c930 | gzip > worker-artifact/payment-worker.tar.gz
           sha256sum worker-artifact/payment-worker.tar.gz | cut -d ' ' -f 1 > worker-artifact/image.sha256
-          docker image inspect --format '{{.Id}}' trigenys-payment-inbox:sandbox-a4db5bb > worker-artifact/image.id
+          docker image inspect --format '{{.Id}}' trigenys-payment-inbox:environments-a27c930 > worker-artifact/image.id
       - uses: actions/upload-artifact@v4
         id: image
         with:
-          name: payment-worker-sandbox-image
+          name: payment-worker-image
           path: worker-artifact/payment-worker.tar.gz
           retention-days: 1
           compression-level: 0
@@ -111,7 +111,7 @@ jobs:
           except urllib.error.HTTPError as response:
               if response.code!=302: raise SystemExit('Artifact download authorization failed')
               archive_url=response.headers['Location']
-          config={'mode':'stage','source_sha':'a4db5bb7409349124e7f01680ac1fefe3d58c67a','image_id':Path('worker-artifact/image.id').read_text().strip(),'archive_sha256':Path('worker-artifact/image.sha256').read_text().strip(),'archive_url':archive_url}
+          config={'mode':'stage','source_sha':'a27c930ed5de36f09d8e74d2748adb66824576b5','image_id':Path('worker-artifact/image.id').read_text().strip(),'archive_sha256':Path('worker-artifact/image.sha256').read_text().strip(),'archive_url':archive_url}
           script=Path('scripts/staging/payment-worker-host.py').read_text()+'\nmain('+repr(config)+')\n'
           command="python3 - <<'PAYMENT_HOST'\n"+script+"\nPAYMENT_HOST"
           result=subprocess.run(['aws','ssm','send-command','--instance-ids','i-0ce97ff971dd343b2','--document-name','AWS-RunShellScript','--timeout-seconds','900','--parameters',json.dumps({'commands':[command],'executionTimeout':['900']}),'--query','Command.CommandId','--output','text'],capture_output=True,text=True)
