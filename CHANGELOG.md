@@ -8,6 +8,28 @@ leurs propres numéros internes.
 
 Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 
+## 1.2.0 (2026-10-20)
+
+
+### Features
+
+* **pdf:** polices non embarquées et correctifs de rendu (moteur 1.0.12) ([b5eb58c](https://github.com/EagleFox31/Pr-cis-Translation/commit/b5eb58c3955bba6c2a62afb2317f7cd34e9fd27c))
+* **pdf:** résoudre les polices non embarquées (identique, clone, la plus proche) ([5e62360](https://github.com/EagleFox31/Pr-cis-Translation/commit/5e62360f396857696c16bc3c18d94eadce5c63f5))
+
+
+### Bug Fixes
+
+* **ci:** propagate production and connect AppFactory release automation ([#27](https://github.com/EagleFox31/Pr-cis-Translation/issues/27)) ([e169d2f](https://github.com/EagleFox31/Pr-cis-Translation/commit/e169d2f46ac88d3576c09646c08146c7cdc8de53))
+* **pdf:** lire et reproduire l'italique synthétique (police droite penchée par la matrice de texte) ([47eb4bd](https://github.com/EagleFox31/Pr-cis-Translation/commit/47eb4bd9ab7769b0d69a7ecd36e213c460d4a185))
+* **pdf:** lire et reproduire le gras synthétique (police Regular peinte en mode 2) ([8d55814](https://github.com/EagleFox31/Pr-cis-Translation/commit/8d55814ce4aae9e4c94a55400a58f31d74e50d7c))
+* **pdf:** ne pas souder une ligne en capitales et la ligne en casse mixte qui suit ([a143361](https://github.com/EagleFox31/Pr-cis-Translation/commit/a1433619c9dbb906d5b30b1ab5ac001b3dca16ce))
+* **pdf:** polices — catégorie serif/sans respectée, noms composés, licences, absences bornées ([982b102](https://github.com/EagleFox31/Pr-cis-Translation/commit/982b1026613ed9ef760ef9565e91f5f7174581da))
+* **pdf:** polices — liste blanche Google Fonts, rendu dégradé non mis en cache, polices système désactivées par défaut ([7782f45](https://github.com/EagleFox31/Pr-cis-Translation/commit/7782f45d1458cd25c3c1316192602a9aaf7bb8eb))
+* **pdf:** rattacher chaque pose d'image à son objet et reporter son opacité ([185e577](https://github.com/EagleFox31/Pr-cis-Translation/commit/185e57730f07067e886f0f6cfd096993cb66b674))
+* **release:** bound first AppFactory release to deployed lineage ([#28](https://github.com/EagleFox31/Pr-cis-Translation/issues/28)) ([1e93b19](https://github.com/EagleFox31/Pr-cis-Translation/commit/1e93b19766b9ab53fbd981b3208fcdd63264bac4))
+* **traduction:** même libellé, même traduction d'une page à l'autre ([d51b589](https://github.com/EagleFox31/Pr-cis-Translation/commit/d51b589cce3952e7768561da1401ffdc64dcffed))
+* **traduction:** redemander un fragment rendu entièrement inchangé ([88b8a82](https://github.com/EagleFox31/Pr-cis-Translation/commit/88b8a82faa2054eeaa489147bd6dfd3f1c15c2a4))
+
 ## [Non publié]
 
 ### Ajouté
