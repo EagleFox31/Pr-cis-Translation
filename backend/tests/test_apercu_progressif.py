@@ -23,6 +23,7 @@ import os
 import sys
 import tempfile
 import time
+from unittest.mock import patch
 
 import racine  # noqa: F401  -- met backend/ sur le chemin
 
@@ -84,12 +85,18 @@ def main() -> int:
     # ── 6. Le profil partagé tient-il sa promesse ? ──────────────────────
     with open(origine, "rb") as f:
         brut = f.read()
-    t0 = time.time(); socle = office.convert_to_pdf(brut, "pptx"); froid = time.time() - t0
-    t0 = time.time(); office.convert_to_pdf(brut, "pptx"); chaud = time.time() - t0
-    ok("PROFIL  la 2e conversion est plus rapide que la 1re",
-       chaud < froid, f"{froid:.2f}s puis {chaud:.2f}s")
-    ok("PROFIL  le gain est SUBSTANTIEL (pas du bruit de mesure)",
-       chaud < froid * 0.75, f"{froid:.2f}s -> {chaud:.2f}s")
+    # Observe the real converter commands: reuse is the functional contract.
+    # A percentage speedup on a shared CI runner is a benchmark, not an invariant.
+    with patch.object(office.subprocess, "run", wraps=office.subprocess.run) as conversions:
+        t0 = time.perf_counter(); socle = office.convert_to_pdf(brut, "pptx"); froid = time.perf_counter() - t0
+        t0 = time.perf_counter(); office.convert_to_pdf(brut, "pptx"); chaud = time.perf_counter() - t0
+    profils = [[arg for arg in call.args[0] if arg.startswith("-env:UserInstallation=")]
+               for call in conversions.call_args_list]
+    ok("PROFIL  chaque conversion utilise un unique profil explicite",
+       len(profils) == 2 and all(len(args) == 1 for args in profils))
+    ok("PROFIL  les deux conversions reutilisent le profil partage",
+       profils == [[office.profil_argument()], [office.profil_argument()]])
+    print(f"  MESURE LibreOffice : {froid:.2f}s puis {chaud:.2f}s (diagnostic, hors seuil CI)")
 
     # ── 1. Le socle montre tout le document, en langue SOURCE ────────────
     ok("SOCLE  toutes les pages sont là avant toute traduction",
