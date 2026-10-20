@@ -444,6 +444,7 @@
     "emails_ph": "nom@exemple.com, …",
     "hint": "Séparez par une virgule ou Entrée — {{max}} au maximum.",
     "invalid": "Adresse invalide.",
+    "full": "{{max}} adresses au maximum par envoi.",
     "remove": "Retirer {{email}}",
     "message_label": "Un mot (facultatif)",
     "message_ph": "J’utilise Précis pour traduire mes documents, essaie-le !",
@@ -456,6 +457,12 @@
     "limit_title": "Limite atteinte",
     "limit_body": "Vous avez atteint le nombre d’invitations du jour. Réessayez demain.",
     "error_title": "Envoi impossible",
-    "error_body": "Réessayez dans un instant."
+    "error_body": "Réessayez dans un instant.",
+    "rejected_body": "Une des adresses est refusée : vérifiez-les.",
+    "or_share": "ou partagez le lien vous-même",
+    "link_label": "Lien de Précis",
+    "copy": "Copier le lien",
+    "copied": "Lien copié",
+    "copy_error": "Copie impossible"
   }
 }

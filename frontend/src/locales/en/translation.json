@@ -444,6 +444,7 @@
     "emails_ph": "name@example.com, …",
     "hint": "Separate with a comma or Enter — up to {{max}}.",
     "invalid": "Invalid address.",
+    "full": "{{max}} addresses at most per send.",
     "remove": "Remove {{email}}",
     "message_label": "A personal note (optional)",
     "message_ph": "I use Précis to translate my documents, give it a try!",
@@ -456,6 +457,12 @@
     "limit_title": "Limit reached",
     "limit_body": "You've reached today's invitation limit. Try again tomorrow.",
     "error_title": "Couldn't send",
-    "error_body": "Please try again in a moment."
+    "error_body": "Please try again in a moment.",
+    "rejected_body": "One of the addresses was rejected: please check them.",
+    "or_share": "or share the link yourself",
+    "link_label": "Précis link",
+    "copy": "Copy link",
+    "copied": "Link copied",
+    "copy_error": "Couldn't copy"
   }
 }

@@ -6,10 +6,13 @@
  * Même hôte unique que `SupportModal`, ouvert par `openInvite()`.
  * Le serveur borne les envois (10 par envoi, quota quotidien) et ne dit jamais
  * quelles adresses ont déjà un compte : on affiche un succès générique.
+ *
+ * Repli « copier le lien » : là où l'e-mail n'est pas le canal habituel
+ * (WhatsApp…), l'utilisateur partage lui-même l'adresse du site.
  */
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, UserPlus, Loader2, Send } from 'lucide-react';
+import { X, UserPlus, Loader2, Send, Link2, Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import api from '../../services/api';
@@ -21,6 +24,7 @@ const MAX_EMAILS = 10;
 const MAX_MESSAGE = 500;
 const EMAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
 const SEPARATEURS = /[\s,;]+/;
+const LIEN_APP = window.location.origin;
 
 const field: React.CSSProperties = {
   width: '100%', padding: '11px 12px', borderRadius: '10px', fontSize: '14px',
@@ -36,14 +40,25 @@ export default function InviteModal() {
   const [draft, setDraft] = useState('');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const [copied, setCopied] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => subscribeInvite(() => {
     setEmails([]);
     setDraft('');
     setMessage('');
+    setCopied(false);
     setOpen(true);
   }), []);
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(LIEN_APP);
+      setCopied(true);
+    } catch {
+      showToast('error', t('invite.copy_error', 'Copie impossible'), LIEN_APP);
+    }
+  }
 
   const close = () => setOpen(false);
   const self = user?.email?.toLowerCase();
@@ -91,18 +106,27 @@ export default function InviteModal() {
     e.preventDefault();
     if (!canSend) return;
     setSending(true);
-    const res = await api.post('/api/invitations', {
-      emails: all, message: message.trim() || null,
-    });
-    setSending(false);
-    if (res.ok) {
+    let res;
+    try {
+      res = await api.post('/api/invitations', {
+        emails: all, message: message.trim() || null,
+      });
+    } catch {
+      res = null;
+    } finally {
+      setSending(false);
+    }
+    if (res?.ok) {
       showToast('success', t('invite.sent_title', 'Invitations envoyées'),
         t('invite.sent_body', { count: all.length,
           defaultValue: '{{count}} invitation(s) en route.' }));
       close();
-    } else if (res.status === 429) {
+    } else if (res?.status === 429) {
       showToast('error', t('invite.limit_title', 'Limite atteinte'),
         t('invite.limit_body', 'Vous avez atteint le nombre d’invitations du jour. Réessayez demain.'));
+    } else if (res?.status === 422) {
+      showToast('error', t('invite.error_title', 'Envoi impossible'),
+        t('invite.rejected_body', 'Une des adresses est refusée : vérifiez-les.'));
     } else {
       showToast('error', t('invite.error_title', 'Envoi impossible'),
         t('invite.error_body', 'Réessayez dans un instant.'));
@@ -193,6 +217,9 @@ export default function InviteModal() {
                           color: draftInvalid ? 'var(--red, #dc2626)' : 'var(--gray-400)' }}>
                 {draftInvalid
                   ? t('invite.invalid', 'Adresse invalide.')
+                  : emails.length >= MAX_EMAILS
+                  ? t('invite.full', { max: MAX_EMAILS,
+                      defaultValue: '{{max}} adresses au maximum par envoi.' })
                   : t('invite.hint', { max: MAX_EMAILS,
                       defaultValue: 'Séparez par une virgule ou Entrée — {{max}} au maximum.' })}
               </p>
@@ -222,6 +249,29 @@ export default function InviteModal() {
                   : t('invite.send', 'Envoyer l’invitation')}
               </button>
             </form>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0 12px',
+                          fontSize: '12px', color: 'var(--gray-500)' }}>
+              <span style={{ flex: 1, height: 1, background: 'var(--gray-200)' }} />
+              {t('invite.or_share', 'ou partagez le lien vous-même')}
+              <span style={{ flex: 1, height: 1, background: 'var(--gray-200)' }} />
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input readOnly value={LIEN_APP} aria-label={t('invite.link_label', 'Lien de Précis')}
+                onFocus={(e) => e.currentTarget.select()}
+                style={{ ...field, flex: 1, minWidth: 0, color: 'var(--gray-600)' }} />
+              <button type="button" onClick={copyLink}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 14px',
+                         borderRadius: '10px', border: '1px solid var(--gray-200)',
+                         background: 'white', color: copied ? '#047857' : 'var(--gray-700)',
+                         fontWeight: 600, fontSize: '13.5px', cursor: 'pointer',
+                         fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                {copied ? <Check size={15} /> : <Link2 size={15} />}
+                <span aria-live="polite">
+                  {copied ? t('invite.copied', 'Lien copié') : t('invite.copy', 'Copier le lien')}
+                </span>
+              </button>
+            </div>
           </motion.div>
         </>
       )}
