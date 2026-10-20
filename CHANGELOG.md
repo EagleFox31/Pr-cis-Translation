@@ -8,6 +8,13 @@ leurs propres numéros internes.
 
 Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 
+## [1.5.1](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.5.0...v1.5.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* **ui:** simplify the public beta offer card ([#41](https://github.com/EagleFox31/Pr-cis-Translation/issues/41)) ([292112e](https://github.com/EagleFox31/Pr-cis-Translation/commit/292112e74f5c1f48fc6b3bda03761f85b49248d2))
+
 ## [1.5.0](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.4.1...v1.5.0) (2026-10-20)
 
 
