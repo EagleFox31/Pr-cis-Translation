@@ -22,6 +22,8 @@ import api from '../../services/api';
 import { formatSize, percent } from '../../lib/format';
 import Avatar from '../ui/Avatar';
 import ProgressBar from '../ui/ProgressBar';
+import { Link } from 'react-router-dom';
+import { useBeta } from '../../hooks/useBeta';
 
 interface AccountPanelProps {
   user: AuthUser;
@@ -44,6 +46,7 @@ interface Usage {
 export default function AccountPanel({ user, refreshKey }: AccountPanelProps) {
   const { t, i18n } = useTranslation();
   const { refreshUser } = useAuth();
+  const beta = useBeta(refreshKey);
   const [usage, setUsage] = useState<Usage | null>(null);
 
   // Relu à chaque changement de la liste : une suppression libère du stockage,
@@ -120,6 +123,13 @@ export default function AccountPanel({ user, refreshKey }: AccountPanelProps) {
           {usage.monthly_pages !== null && (
             <p className="compte__note">{t('account.renews', { date: renouvellement })}</p>
           )}
+        </div>
+      )}
+
+      {beta.data?.enrollment && (
+        <div className="beta-account">
+          <Link to="/beta">{t('beta.my_access')} · {t(`beta.states.${beta.data.enrollment.state}`)}</Link>
+          <p>{t('beta.account_hint')}</p>
         </div>
       )}
 

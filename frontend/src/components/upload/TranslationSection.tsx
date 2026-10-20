@@ -11,6 +11,8 @@ import FileUploader from './FileUploader';
 import LanguagePicker from './LanguagePicker';
 import { useAuth } from '../../contexts/AuthContext';
 import { findLang, isLangAvailable } from '../../lib/languages';
+import { Link } from 'react-router-dom';
+import { useBeta } from '../../hooks/useBeta';
 
 export interface TranslateConfig {
   file: File;
@@ -26,6 +28,7 @@ export interface TranslateConfig {
   /** Après un 402 « crédits insuffisants » : ne traduire que les pages
    *  couvertes par le solde (choix explicite de l'utilisateur). */
   coverOnly?: boolean;
+  beta?: boolean;
 }
 
 interface TranslationSectionProps {
@@ -72,6 +75,8 @@ export default function TranslationSection({
   const [pages, setPages] = useState('');
   const [structureMode, setStructureMode] = useState(false);
   const { user } = useAuth();
+  const betaAccess = useBeta(file?.name);
+  const [useBetaCredits, setUseBetaCredits] = useState(true);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [preciseMode, setPreciseMode] = useState(false);
   const [justReset, setJustReset] = useState(false);
@@ -118,6 +123,8 @@ export default function TranslationSection({
       pages: supportsPages ? pages.trim() : '',
       debug: supportsStructure && structureMode,
       precise: supportsPrecise && preciseMode,
+      beta: betaAccess.data ? Boolean(betaAccess.data.enrollment && useBetaCredits) : undefined,
+      onAccepted: () => { void betaAccess.refresh(); },
     });
   };
 
@@ -136,6 +143,15 @@ export default function TranslationSection({
       onSubmit={submit}
       style={{ display: 'flex', flexDirection: 'column', gap: '18px', flex: 1, width: '100%' }}
     >
+      {betaAccess.data?.enrollment && (
+        <div className="beta-upload">
+          <label><input type="checkbox" checked={useBetaCredits} disabled={isTranslating}
+            onChange={event => setUseBetaCredits(event.target.checked)} />
+            {t('beta.use_credits')}</label>
+          <p>{t(`beta.states.${betaAccess.data.enrollment.state}`)} · <Link to="/beta">{t('beta.my_access')}</Link></p>
+          <p>{t('beta.choice_hint')}</p>
+        </div>
+      )}
       {/* En-tête — ancre le formulaire : le titre reste fixe quel que soit
           l'état, et annonce ce que fait la carte. */}
       <header style={{

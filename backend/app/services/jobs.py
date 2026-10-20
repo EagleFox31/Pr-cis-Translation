@@ -275,11 +275,10 @@ class JobManager:
         async def _maj(db):
             from app.models import Document
             doc = await db.get(Document, doc_id)
-            if doc is None:
-                return
-            doc.status = status
-            if translated_path:
-                doc.translated_path = translated_path
+            if doc is not None:
+                doc.status = status
+                if translated_path:
+                    doc.translated_path = translated_path
             if status == "error":
                 # On ne facture pas ce qu'on n'a pas livré : l'offre du mois
                 # redevient libre, les pages achetées reviennent au solde.

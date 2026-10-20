@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AnimatePresence } from 'motion/react';
 import { GoogleOAuthProvider } from '@react-oauth/google';
@@ -11,6 +11,10 @@ import VerifyEmailPage from './pages/VerifyEmailPage';
 import AdminLogsPage from './pages/AdminLogsPage';
 import AdminUsersPage from './pages/AdminUsersPage';
 import AdminSupportPage from './pages/AdminSupportPage';
+import './beta.css';
+
+const AdminBetaPage = lazy(() => import('./pages/AdminBetaPage'));
+const BetaPage = lazy(() => import('./pages/BetaPage'));
 
 /** Redirige vers /home si déjà connecté ( pages auth ). */
 function GuestRoute({ children }: { children: React.ReactNode }) {
@@ -53,6 +57,8 @@ export default function App() {
           <Route path="/admin/logs" element={<AdminRoute><AdminLogsPage /></AdminRoute>} />
           <Route path="/admin/users" element={<AdminRoute><AdminUsersPage /></AdminRoute>} />
           <Route path="/admin/support" element={<AdminRoute><AdminSupportPage /></AdminRoute>} />
+          <Route path="/admin/beta" element={<AdminRoute><Suspense fallback={null}><AdminBetaPage /></Suspense></AdminRoute>} />
+          <Route path="/beta" element={<Suspense fallback={null}><BetaPage /></Suspense>} />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
       </AuthProvider>

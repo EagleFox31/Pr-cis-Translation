@@ -137,6 +137,7 @@ export function useStreamingTranslation() {
       precise: boolean = false,
       onAccepted?: () => void,
       coverOnly: boolean = false,
+      useBeta?: boolean,
     ): Promise<{ blob: Blob; filename: string }> => {
       return new Promise(async (resolve, reject) => {
         // Fermer TOUT flux encore ouvert avant d'en démarrer un nouveau. Relancer
@@ -172,6 +173,7 @@ export function useStreamingTranslation() {
           // Choix explicite de l'utilisateur après un 402 : ne traduire que les
           // pages couvertes. Jamais envoyé d'office.
           if (coverOnly) formData.append('covered_only', '1');
+          if (typeof useBeta === 'boolean') formData.append('use_beta', useBeta ? '1' : '0');
 
           // `authHeader()` est INDISPENSABLE ici, pas décoratif : le backend lit
           // l'utilisateur via `optional_auth`. Sans token il voit un visiteur
@@ -185,17 +187,19 @@ export function useStreamingTranslation() {
           });
           if (!startRes.ok) {
             const err = await startRes.json().catch(() => ({}));
-            const detail = err.detail || err.error || t('story.error_default');
+            const betaError = String(err.reason || '').startsWith('beta_');
+            const detail = err.reason === 'beta_inactive' ? t('beta.inactive_error')
+              : betaError ? t('beta.translation_error') : err.detail || err.error || t('story.error_default');
             const is402 = startRes.status === 402;
             // 402 « crédits insuffisants » : le serveur dit COMBIEN de pages
             // acheter, et combien sont déjà couvertes si un partiel est possible.
             const credits = err.reason === 'need_credits' && typeof err.pages_missing === 'number';
             const needed = credits ? err.pages_missing as number : null;
-            const covered = credits && err.partial_possible === true
+            const covered = (credits || betaError) && err.partial_possible === true
               && typeof err.pages_available === 'number' ? err.pages_available as number : null;
             setState((s) => ({
               ...s, isTranslating: false, error: detail,
-              limitReached: is402, creditsNeeded: needed, pagesCovered: covered,
+              limitReached: is402 && !betaError, creditsNeeded: needed, pagesCovered: covered,
             }));
             throw new Error(detail);
           }
