@@ -25,3 +25,5 @@ permissions, servers, billing or application secrets. Its default is read-only.
 
 After that one-time migration, rerun failed production jobs. CI guards the
 logical environment and release-to-deployment SHA mapping against regressions.
+
+Initial release bootstrap is bounded to the existing deployed lineage at b022d2e689b241ffd1fb1db9e9a4cd8741bf7583. The first managed version is 1.2.0; later versions follow commits and the persisted manifest. This avoids scanning the unrelated initial repository history, which produced a GitHub GraphQL internal error during first adoption. Existing manual changelog entries are preserved.

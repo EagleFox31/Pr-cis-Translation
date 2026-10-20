@@ -22,6 +22,8 @@ jobs:
     uses: EagleFox31/appfactory-project-automation/.github/workflows/reusable-release.yml@94968781c914a28c539a37c9f22f30e3744c9471
     with:
       release-type: node
+      config-file: release-please-config.json
+      manifest-file: .release-please-manifest.json
       target-branch: main
       release-as: ${{ inputs.release_as }}
     secrets:
