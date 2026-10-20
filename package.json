@@ -1,6 +1,6 @@
 {
   "name": "precis-translator",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Precis Translator root project configuration",
   "scripts": {
     "dev": "backend\\venv\\Scripts\\python scripts/dev.py",
