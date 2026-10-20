@@ -63,10 +63,11 @@ class CampayProvider:
 
 class FapshiProvider:
     """Deux parcours, choisis par `FAPSHI_FLOW` :
-      • `checkout` (défaut) : page de paiement hébergée par Fapshi
-        (`initiate-pay`), ouverte à tout compte ;
-      • `direct` : invite poussée sur le téléphone (`direct-pay`), que Fapshi
-        n'active que sur demande.
+      • `direct` (défaut) : invite poussée sur le téléphone (`direct-pay`),
+        activée par Fapshi sur notre compte le 20/10/2026 ;
+      • `checkout` : page de paiement hébergée par Fapshi (`initiate-pay`),
+        affichée dans la modale. DÉSACTIVÉE mais conservée : elle ne demande
+        aucune activation et sert de repli si direct-pay est retiré.
     N'encaisse que le franc CFA, au minimum 100 F."""
     name = "fapshi"
     currencies = frozenset({SUPPORTED_CURRENCY})
@@ -78,7 +79,7 @@ class FapshiProvider:
 
     @property
     def hosted(self) -> bool:
-        return os.getenv("FAPSHI_FLOW", "checkout").strip().lower() != "direct"
+        return os.getenv("FAPSHI_FLOW", "direct").strip().lower() == "checkout"
 
     @property
     def needs_phone(self) -> bool:

@@ -16,12 +16,12 @@ Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
   coupée, une cellule à retour à la ligne gagne la hauteur de ses lignes en
   plus, un nombre dont le format porte un littéral traduit ne s'affiche plus
   en `#####`.
-- **Paiement Fapshi** (Mobile Money MTN et Orange, Cameroun). Par défaut, la
-  page de paiement hébergée s'affiche DANS la fenêtre de paiement, sans
-  défilement, l'e-mail du compte pré-rempli ; le crédit arrive par le suivi du
-  statut ou par le webhook (`FAPSHI_WEBHOOK_SECRET`). Le paiement direct
-  (`FAPSHI_FLOW=direct`, saisie du numéro) reste disponible une fois activé
-  par le prestataire.
+- **Paiement Fapshi** (Mobile Money MTN et Orange, Cameroun). Par défaut,
+  paiement direct : le client saisit son numéro et valide l'invite reçue sur
+  son téléphone ; le crédit arrive par le suivi du statut ou par le webhook
+  (`FAPSHI_WEBHOOK_SECRET`). La page de paiement hébergée, affichée DANS la
+  fenêtre de paiement sans défilement, est conservée en repli désactivé
+  (`FAPSHI_FLOW=checkout`, voir `docs/deploiement.md`).
 - **Crédits insuffisants à l'import** : au lieu d'un refus sec, la traduction
   propose d'acheter les pages manquantes ou de ne traduire que les pages
   couvertes (PDF, PPTX). Rien n'est lancé ni débité avant ce choix ; après

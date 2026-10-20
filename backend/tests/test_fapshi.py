@@ -260,11 +260,12 @@ async def check_routes(client, ok):
                f"{r.status_code} {r.text[:120]}")
         await _supprimer_paiements(u.id)
 
-        os.environ["FAPSHI_FLOW"] = "direct"
+        # FAPSHI_FLOW absent : le parcours direct est celui par defaut.
+        os.environ.pop("FAPSHI_FLOW", None)
         m = client.get("/api/payments/methods", headers=ent).json()["methods"]
         r = client.post("/api/payments/collect",
                         json={"pages": 2, "method": "mtn_momo"}, headers=ent)
-        ok("ROUTE   parcours direct : numero exige (methods + 422)",
+        ok("ROUTE   parcours direct par defaut : numero exige (methods + 422)",
            {x["id"]: x["needs_phone"] for x in m}.get("mtn_momo") is True
            and r.status_code == 422, f"{r.status_code} {m}")
         with _FauxFapshi(reponse) as f:

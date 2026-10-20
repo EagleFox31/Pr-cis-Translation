@@ -264,7 +264,8 @@ campay = CampayClient()
 #
 # Ce qu'on ne devine pas :
 #   - `direct-pay` (invite USSD poussée) est DÉSACTIVÉ par défaut en live, il
-#     s'active auprès de Fapshi ; sans lui, 4XX à chaque encaissement ;
+#     s'active auprès de Fapshi (fait pour notre compte le 20/10/2026) ; sans
+#     lui, 4XX à chaque encaissement : repli `FAPSHI_FLOW=checkout` ;
 #   - le téléphone s'écrit SANS indicatif (`67XXXXXXX`) ;
 #   - `payment-status` est limité à 6 appels/minute par transaction (429 au-delà),
 #     alors que l'écran d'attente interroge toutes les 3 s ;
