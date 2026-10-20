@@ -11,6 +11,7 @@ import VerifyEmailPage from './pages/VerifyEmailPage';
 import AdminLogsPage from './pages/AdminLogsPage';
 import AdminUsersPage from './pages/AdminUsersPage';
 import AdminSupportPage from './pages/AdminSupportPage';
+import AdminDocumentsPage from './pages/AdminDocumentsPage';
 import './beta.css';
 
 const AdminBetaPage = lazy(() => import('./pages/AdminBetaPage'));
