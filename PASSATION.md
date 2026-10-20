@@ -37,8 +37,9 @@ Worktree `C:\Users\IBRAH\Documents\Projets\Precis-Translator-invitations`, branc
 ## 5. Pièges / contexte
 - Ne pas toucher le dépôt principal `Precis-Translator` (branche `feat/paiement-paddle`, modifs non commitées).
 - Ne jamais lire ou grep les `.env` ; `backend/.env` est LIVE (Fapshi).
-- Le worktree n'a pas de `.env` : `test_invitations_api.py` a besoin de `DATABASE_URL`. Le charger depuis le `.env` principal a été refusé. À lancer par l'utilisateur :
+- Le worktree a maintenant `backend/.env` et `frontend/.env` copiés du dépôt principal (non suivis). En local, migrations à la main : `cd backend && <venv>/python.exe -m alembic upgrade head` (0010 appliquée le 20/10). Test BDD :
   `cd backend && PYTHONUTF8=1 <venv>/python.exe tests/test_invitations_api.py` (la table est créée puis supprimée si 0010 n'est pas appliquée).
 - venv : `C:\Users\IBRAH\Documents\Projets\Precis_Translator_backup_2026-06-10_13-10\backend\venv\Scripts\python.exe`.
 - Front : `npm run lint` = tsc + contrôle de concordance i18n ; pluriels i18next en `_one` / `_other`.
 - Sans `EMAIL_ENABLED` ou `SMTP_HOST`, l'e-mail est seulement journalisé `[DEV]`.
+- Lancer l'app depuis CE dossier, détachée : PowerShell `Start-Process <venv>python.exe scriptsdev.py -WorkingDirectory <worktree> -WindowStyle Minimized` (en tâche de fond de session, dev.py meurt sans rien dire). `npm run stop` laisse parfois des processus : vérifier `netstat -ano | grep :8000`.
