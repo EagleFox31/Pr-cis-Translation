@@ -50,7 +50,7 @@ def main():
     condition = trusts[0]["Condition"]["StringEquals"]
     assert condition["token.actions.githubusercontent.com:aud"] == "sts.amazonaws.com"
     assert condition["token.actions.githubusercontent.com:sub"] == (
-        "repo:EagleFox31@86088743/Pr-cis-Translation@1411758415:environment:staging"
+        "repo:EagleFox31@86088743/Pr-cis-Translation@1411758415:environment:production"
     )
     policies = props["Policies"]
     assert len(policies) == 1

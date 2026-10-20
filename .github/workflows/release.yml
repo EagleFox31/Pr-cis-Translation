@@ -1,0 +1,78 @@
+name: Release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_as:
+        description: Optional one-time version override
+        required: false
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: precis-release-main
+  cancel-in-progress: false
+jobs:
+  release:
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    uses: EagleFox31/appfactory-project-automation/.github/workflows/reusable-release.yml@94968781c914a28c539a37c9f22f30e3744c9471
+    with:
+      release-type: node
+      target-branch: main
+      release-as: ${{ inputs.release_as }}
+    secrets:
+      release_token: ${{ secrets.APPFACTORY_RELEASE_TOKEN }}
+  validate-release-pr:
+    needs: release
+    if: needs.release.outputs.release_pr_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: write
+    steps:
+      - name: Run existing CI when the default GitHub token created the release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PYCODE'
+          import json,os,subprocess
+          repo=os.environ['GH_REPO']
+          prs=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/pulls?state=open&base=main&per_page=100'],text=True))
+          for pr in prs:
+              branch=pr['head']['ref']
+              if pr['head']['repo']['full_name']!=repo or not branch.startswith('release-please--branches--main'):
+                  continue
+              if 'autorelease: pending' not in [label['name'] for label in pr['labels']]:
+                  continue
+              runs=json.loads(subprocess.check_output(['gh','api',f"repos/{repo}/actions/runs?head_sha={pr['head']['sha']}&event=pull_request"],text=True))
+              if not any(run['name']=='CI' for run in runs.get('workflow_runs',[])):
+                  subprocess.run(['gh','workflow','run','ci.yml','--repo',repo,'--ref',branch],check=True)
+                  print('CI dispatched for release PR '+str(pr['number']))
+          PYCODE
+  deploy-production:
+    needs: release
+    if: needs.release.outputs.release_created == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: EagleFox31/appfactory-project-automation/.github/workflows/reusable-aws-ssm-compose-deploy.yml@94968781c914a28c539a37c9f22f30e3744c9471
+    with:
+      github_environment: production
+      deployment_mode: persistent
+      existing_instance_id: i-0ce97ff971dd343b2
+      public_origin: https://precis-translator.trigenys.com
+      appfactory_ref: 94968781c914a28c539a37c9f22f30e3744c9471
+      source_sha: ${{ needs.release.outputs.release_sha }}
+      project_slug: precis-translation
+      account_id: '458018461157'
+      region: eu-west-3
+      stack_name: precis-translation-staging-app
+      deploy_role_arn: arn:aws:iam::458018461157:role/precis-translation-staging-github-deployer
+      cloudformation_role_arn: arn:aws:iam::458018461157:role/precis-translation-staging-cfn-execution
+      runtime_parameter: /precis-translation/staging/env

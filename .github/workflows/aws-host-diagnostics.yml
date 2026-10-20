@@ -10,7 +10,7 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    environment: staging
+    environment: production
     timeout-minutes: 5
     steps:
       - uses: aws-actions/configure-aws-credentials@v4

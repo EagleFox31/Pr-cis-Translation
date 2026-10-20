@@ -1,6 +1,7 @@
-name: Deploy Précis permanent host through AppFactory AWS/SSM
+name: Deploy Précis production through AppFactory AWS/SSM
 
-# Deploy the permanent host using the already installed historical staging IAM scope.
+# Production target on the existing permanent host. Historical AWS resource IDs
+# remain stable to preserve the instance, volumes and imported SecureString.
 # Public HTTPS and off-host backup verification remain separate completion gates.
 # First trusted main merge starts the first deployment automatically. Later
 # releases use workflow_dispatch. No pull_request can reach AWS cloud writes.
@@ -8,7 +9,7 @@ on:
   push:
     branches: [main]
     paths:
-      - .github/workflows/aws-staging-deploy.yml
+      - .github/workflows/aws-production-deploy.yml
   workflow_dispatch:
 
 permissions:
@@ -16,12 +17,15 @@ permissions:
   id-token: write
 
 jobs:
-  staging:
+  production:
     if: github.repository == 'EagleFox31/Pr-cis-Translation' && github.ref == 'refs/heads/main'
-    uses: EagleFox31/appfactory-project-automation/.github/workflows/reusable-aws-ssm-compose-deploy.yml@e3e32673d47f10470628530f23a436541c4f2e52
+    uses: EagleFox31/appfactory-project-automation/.github/workflows/reusable-aws-ssm-compose-deploy.yml@94968781c914a28c539a37c9f22f30e3744c9471
     with:
+      github_environment: production
+      existing_instance_id: i-0ce97ff971dd343b2
+      public_origin: https://precis-translator.trigenys.com
       deployment_mode: persistent
-      appfactory_ref: e3e32673d47f10470628530f23a436541c4f2e52
+      appfactory_ref: 94968781c914a28c539a37c9f22f30e3744c9471
       source_sha: ${{ github.sha }}
       project_slug: precis-translation
       account_id: '458018461157'
