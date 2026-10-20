@@ -29,7 +29,7 @@ Worktree `C:\Users\IBRAH\Documents\Projets\Precis-Translator-invitations`, branc
 5. [x] `/code-review` + convergence : envoi en tâche de fond (pas d'oracle temporel, pas de session tenue pendant SMTP), traces réservées sous `pg_advisory_xact_lock` par compte, trace effacée si l'envoi échoue, `app/services/invitations.py`, TLS 465 corrigé (`start_tls=(SMTP_PORT != 465)`), front try/finally + toast 422 + indice « 10 max »
 6. [ ] `tests/test_invitations_api.py` : à lancer par l'utilisateur (base requise) ←
 7. [ ] Vérif Playwright de la fenêtre : non faite (connexion à la bibliothèque requise)
-8. [x] Note déploiement inutile : migrations appliquées au démarrage
+8. [x] Note déploiement inutile : en prod, `docker-entrypoint.sh` applique les migrations (en local, `alembic upgrade head` à la main ; 0010 appliquée le 20/10)
 9. [ ] Push + PR vers main
 
 **Hors plan** : rien.
