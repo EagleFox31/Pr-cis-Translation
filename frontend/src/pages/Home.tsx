@@ -15,6 +15,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useDocumentLibrary } from '../hooks/useDocumentLibrary';
 import { useStreamingTranslation } from '../hooks/useStreamingTranslation';
 import { isTrialFor } from '../lib/plans';
+import { subscribeSection } from '../lib/sectionBus';
 import type { TranslateConfig } from '../components/upload/TranslationSection';
 
 export default function Home() {
@@ -387,6 +388,24 @@ export default function Home() {
     }
     document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth' });
   }, [showPreview, handleBack]);
+
+  // Même règle pour TOUT ce qui mène à une section, pas seulement la barre :
+  // boutons « voir les forfaits » (`goToSection`) et liens `#section` de la
+  // page. Un lien dont le composant gère déjà le clic (preventDefault) est
+  // laissé tel quel.
+  useEffect(() => {
+    const onLink = (e: MouseEvent) => {
+      if (!showPreview || e.defaultPrevented || e.button !== 0) return;
+      const a = (e.target as Element | null)?.closest?.('a[href^="#"]');
+      const id = a?.getAttribute('href')?.slice(1);
+      if (!id || !document.getElementById(id)) return;
+      e.preventDefault();
+      handleNavClick(id);
+    };
+    const off = subscribeSection(handleNavClick);
+    document.addEventListener('click', onLink);
+    return () => { off(); document.removeEventListener('click', onLink); };
+  }, [showPreview, handleNavClick]);
 
   // ---- Original : le fichier tel qu'il a été déposé ----
   // Document de la bibliothèque : le serveur le renvoie au format NATIF (le

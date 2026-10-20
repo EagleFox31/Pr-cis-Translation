@@ -8,6 +8,7 @@ import ViewerToolbar from '../preview/ViewerToolbar';
 import DocumentPreview from '../preview/DocumentPreview';
 import type { PageStatus } from '../../hooks/useStreamingTranslation';
 import { baseCode } from '../../lib/languages';
+import { goToSection } from '../../lib/sectionBus';
 
 
 interface StorySectionProps {
@@ -330,10 +331,7 @@ export default function StorySection({
                 <span style={{ flex: 1 }}>{translationError}</span>
                 {limitReached && (
                   <button
-                    onClick={() => {
-                      const el = document.getElementById('pricing');
-                      if (el) el.scrollIntoView({ behavior: 'smooth' });
-                    }}
+                    onClick={() => goToSection('pricing')}
                     style={{
                       padding: '8px 16px',
                       borderRadius: '8px',

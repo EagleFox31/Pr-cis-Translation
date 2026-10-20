@@ -8,6 +8,7 @@ import {
 import { baseCode } from '../../lib/languages';
 import ProgressBar from '../ui/ProgressBar';
 import { openSupport } from '../support/supportBus';
+import { goToSection } from '../../lib/sectionBus';
 
 // Le badge de langue passait par une table `LANG_LABELS` codée à la main —
 // dix entrées, à tenir à jour à chaque langue ajoutée, et un doublon de ce que
@@ -235,7 +236,7 @@ export default function ViewerToolbar({
             // Défiler vers #pricing sans fermer l'aperçu ne montrait rien :
             // la grille est sous la surcouche fixe.
             if (onUnlock) onUnlock();
-            else document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' });
+            else goToSection('pricing');
             return;
           }
           onDownload();
