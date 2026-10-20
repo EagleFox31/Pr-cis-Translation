@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
 import AuthLayout from '../components/auth/AuthLayout';
 import CodeStep from '../components/auth/CodeStep';
+import { authReturnTo } from '../lib/authReturn';
 
 export default function VerifyEmailPage() {
   const { verifyCode, resendVerification } = useAuth();
@@ -40,7 +41,7 @@ export default function VerifyEmailPage() {
     if (full.length !== 6) { setError(t('auth.err_six_digits')); return; }
     setError(''); setBusy(true);
     const res = await verifyCode(email, full); setBusy(false);
-    if (res.ok) navigate('/home', { replace: true });
+    if (res.ok) navigate(authReturnTo(params), { replace: true });
     else setError(typeof res.error === 'string' ? res.error : t('auth.err_code_invalid'));
   }
 

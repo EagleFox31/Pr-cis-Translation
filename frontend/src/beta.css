@@ -47,3 +47,27 @@
   .beta-invite > label { flex-basis: 100%; }
   .beta-actions .tb-btn { flex: 1; text-align: center; }
 }
+
+.beta-public { padding: 28px; margin-bottom: 24px; border: 1px solid #bfdbfe; border-radius: 20px; background: linear-gradient(125deg,#eff6ff,#fff 70%); color: var(--navy); }
+.beta-public h2, .beta-public h3 { font-size: clamp(21px,3vw,28px); margin: 16px 0 12px; color: var(--navy); }
+.beta-public p { font-size: 14px; line-height: 1.65; color: var(--gray-600); margin: 8px 0; }
+.beta-public .section-tag { margin: 0; }
+.beta-public .beta-note, .beta-actions .beta-note { font-size: 13px; color: var(--gray-600); line-height: 1.5; }
+.beta-program-quotas { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; margin: 20px 0; }
+.beta-program-quotas li { display: flex; flex-direction: column; gap: 7px; padding: 14px; border: 1px solid #dbeafe; background: #ffffffbf; border-radius: 12px; }
+.beta-program-quotas strong { font-size: 14px; }
+.beta-program-quotas span { font-size: 13px; line-height: 1.5; color: var(--gray-700); }
+.beta-primary { display: inline-flex; align-items: center; justify-content: center; padding: 12px 18px; min-height: 44px; border-radius: 10px; border: 1px solid var(--blue); background: var(--blue); color: #fff; font: inherit; font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer; line-height: 1.4; }
+.beta-primary:hover { filter: brightness(.94); }
+.beta-primary:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; }
+.beta-primary:disabled { opacity: .5; cursor: not-allowed; }
+.beta-application-form { display: flex; flex-direction: column; gap: 16px; max-width: 700px; }
+.beta-application-form label { display: flex; flex-direction: column; gap: 8px; font-size: 14px; font-weight: 600; color: var(--navy); }
+.beta-application-form .beta-primary { align-self: flex-start; }
+.beta-card textarea { border: 1px solid var(--gray-300); border-radius: 9px; padding: 12px; font: inherit; font-size: 14px; line-height: 1.6; color: var(--navy); resize: vertical; width: 100%; box-sizing: border-box; }
+.beta-card textarea:focus-visible { outline: 3px solid var(--blue-light); border-color: var(--blue); }
+.beta-application-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  .beta-public { padding: 20px; }
+  .beta-program-quotas { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}

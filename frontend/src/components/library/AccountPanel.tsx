@@ -126,9 +126,11 @@ export default function AccountPanel({ user, refreshKey }: AccountPanelProps) {
         </div>
       )}
 
-      {beta.data?.enrollment && (
+      {(beta.data?.enrollment || beta.data?.application) && (
         <div className="beta-account">
-          <Link to="/beta">{t('beta.my_access')} · {t(`beta.states.${beta.data.enrollment.state}`)}</Link>
+          <Link to="/beta">{t('beta.my_access')} · {beta.data.enrollment
+            ? t(`beta.states.${beta.data.enrollment.state}`)
+            : t(`beta.application.states.${beta.data.application!.state}`)}</Link>
           <p>{t('beta.account_hint')}</p>
         </div>
       )}

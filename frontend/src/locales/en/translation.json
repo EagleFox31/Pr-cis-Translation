@@ -529,6 +529,56 @@
       "xlsx_words": "Excel — total words"
     },
     "feedback_subject": "Beta — test feedback",
-    "feedback_template": "Format tested:\nTranslation quality:\nLayout:\nIssue or suggestion:\n"
+    "feedback_template": "Format tested:\nTranslation quality:\nLayout:\nIssue or suggestion:\n",
+    "public": {
+      "tag": "Beta program · Apply to join",
+      "title": "Try Précis free for {{days}} days",
+      "description": "Up to {{capacity}} testers, recruited in two waves over two months. Test your documents and help us improve translation and layout quality.",
+      "excel": "{{sheets}} sheets and {{words}} words in total",
+      "conditions": "Allowances are granted once for the whole period. Access starts when you activate it after approval; your regular plan remains available.",
+      "selection": "Applications require approval",
+      "apply": "Apply to join",
+      "discover": "Explore the program",
+      "availability": {
+        "open": "Applications open",
+        "closed": "Applications closed",
+        "full": "Program full",
+        "ended": "Recruitment ended"
+      },
+      "closed_hint": {
+        "closed": "Applications are currently closed. The details above describe the planned program.",
+        "full": "All places in this program are taken.",
+        "ended": "The recruitment period has ended. Existing active access keeps its expiry date.",
+        "open": "Applications are open."
+      }
+    },
+    "application": {
+      "motivation": "Which documents would you like to test?",
+      "placeholder": "For example: sales tracking Excel workbooks, in French and English…",
+      "commitment": "Share feedback on translation and layout during the test. Submitting an application does not reserve a place.",
+      "submit": "Submit my application",
+      "login_hint": "Sign in or create an account to apply and track the decision.",
+      "verify_email": "Verify your email address before applying.",
+      "bound_email": "Application linked to {{email}}.",
+      "admin_title": "Beta program applications",
+      "pending_count": "Pending applications: {{count}}",
+      "filter": "Filter applications",
+      "admin_hint": "Approval creates an invitation and reserves a place in the current wave. Access starts when the tester activates it. A manual invitation also approves the matching application.",
+      "none": "No applications with this status.",
+      "approve": "Approve and invite",
+      "decline": "Decline",
+      "decline_confirm": "Decline the application from {{email}}?",
+      "approval_unavailable": "Approval requires open recruitment and an available place in the current wave.",
+      "states": {
+        "pending": "Pending",
+        "approved": "Approved",
+        "declined": "Not selected"
+      },
+      "messages": {
+        "pending": "Your application has been received. No place is reserved yet. Check the decision here or in My Beta access.",
+        "approved": "Your application is approved. Refresh this page to find your invitation and activate your access.",
+        "declined": "Your application was not selected. Your regular plan remains available."
+      }
+    }
   }
 }

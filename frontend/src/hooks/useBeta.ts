@@ -17,8 +17,14 @@ export interface BetaEnrollment {
 }
 export interface BetaMe {
   enrollment: BetaEnrollment | null; campaign_name: string | null;
+  application: BetaApplication | null;
   can_activate: boolean; email_verified: boolean;
   access_days: number | null;
+}
+
+export interface BetaApplication {
+  id: string; email: string; primary_format: BetaFormat; motivation: string;
+  state: 'pending' | 'approved' | 'declined'; submitted_at: string; reviewed_at: string | null;
 }
 
 export function useBeta(refreshKey?: unknown) {

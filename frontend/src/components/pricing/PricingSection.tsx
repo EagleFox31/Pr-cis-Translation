@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import PlanToggle from './PlanToggle';
 import PricingCards from './PricingCards';
+import BetaOffer from './BetaOffer';
 
 interface PricingSectionProps {
   isAnnual: boolean;
@@ -34,6 +35,7 @@ export default function PricingSection({ isAnnual, onAnnualChange }: PricingSect
           <PlanToggle isAnnual={isAnnual} onChange={onAnnualChange} />
         </div>
 
+        <BetaOffer />
         <PricingCards isAnnual={isAnnual} />
       </div>
     </section>

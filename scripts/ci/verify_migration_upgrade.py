@@ -34,7 +34,7 @@ async def verify():
         assert [tuple(row) for row in usage] == [('migration-done','legacy',3,False),('migration-error','legacy',2,True)]
         payment = (await db.execute(text("SELECT credited,refund_due,plan,months,method FROM payments WHERE id='migration-payment'"))).one()
         assert tuple(payment) == (True, False, None, None, None)
-        for table in ("beta_campaigns", "beta_enrollments", "beta_usage"):
+        for table in ("beta_campaigns", "beta_enrollments", "beta_usage", "beta_applications"):
             assert (await db.execute(text(f"SELECT count(*) FROM {table}"))).scalar() == 0
         await db.execute(text("DELETE FROM documents WHERE id='migration-done'"))
         retained = (await db.execute(text("SELECT pages,document_id FROM usage_records WHERE id='migration-done'"))).one()

@@ -7,7 +7,7 @@
  * dans `components/auth/`, écrit une fois.
  */
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Mail, User, ArrowRight } from 'lucide-react';
 
@@ -17,6 +17,7 @@ import CodeStep from '../components/auth/CodeStep';
 import Alert from '../components/ui/Alert';
 import Button from '../components/ui/Button';
 import Field from '../components/ui/Field';
+import { authPageLink, authReturnTo } from '../lib/authReturn';
 
 const CODE_VIDE = ['', '', '', '', '', ''];
 
@@ -24,6 +25,7 @@ export default function RegisterPage() {
   const { register, verifyCode, resendVerification } = useAuth();
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -46,7 +48,7 @@ export default function RegisterPage() {
     if (full.length !== 6) { setError(t('auth.err_six_digits')); return; }
     setError(''); setBusy(true);
     const res = await verifyCode(email, full); setBusy(false);
-    if (res.ok) navigate('/home', { replace: true });
+    if (res.ok) navigate(authReturnTo(params), { replace: true });
     else setError(res.error || t('auth.err_code_invalid'));
   }
 
@@ -105,7 +107,7 @@ export default function RegisterPage() {
       </form>
 
       <p className="auth-pied">
-        {t('auth.have_account')} <Link to="/login">{t('auth.sign_in')}</Link>
+        {t('auth.have_account')} <Link to={authPageLink('/login', params)}>{t('auth.sign_in')}</Link>
       </p>
     </AuthLayout>
   );

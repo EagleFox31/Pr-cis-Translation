@@ -8,8 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import require_admin, require_auth
 from app.models import User
-from app.models.beta import BetaCampaign, BetaEnrollment
-from app.services import beta
+from app.models.beta import BetaApplication, BetaCampaign, BetaEnrollment
+from app.services import beta, beta_applications
 from app.services.usage import add_months
 
 router = APIRouter(tags=["Bêta"])
@@ -61,13 +61,48 @@ class EnrollmentUpdate(BaseModel):
     revoke: bool | None = None
 
 
+class ApplicationSubmission(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    primary_format: Literal["pdf", "pptx", "docx", "xlsx"]
+    motivation: str = Field(min_length=10, max_length=1000)
+
+
+class ApplicationReview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: Literal["approved", "declined"]
+
+
+@router.get("/api/beta/program")
+async def program(db: AsyncSession = Depends(get_db)):
+    return await beta_applications.public_program(db)
+
+
+@router.post("/api/beta/applications")
+async def apply(body: ApplicationSubmission, user: User = Depends(require_auth),
+                db: AsyncSession = Depends(get_db)):
+    row = await beta_applications.submit(db, user, **body.model_dump())
+    await db.commit()
+    return beta_applications.serialize(row)
+
+
+@router.patch("/api/admin/beta/applications/{application_id}")
+async def review(application_id: str, body: ApplicationReview,
+                 admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    row = await beta_applications.review(db, application_id, body.decision, admin)
+    await db.commit()
+    return beta_applications.serialize(row)
+
+
 @router.get("/api/admin/beta")
 async def dashboard(_admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
     campaign = await beta.campaign_row(db)
     rows = (await db.execute(select(BetaEnrollment).where(
         BetaEnrollment.campaign_id == "pilot").order_by(BetaEnrollment.invited_at.desc()))).scalars().all()
+    applications = (await db.execute(select(BetaApplication).where(
+        BetaApplication.campaign_id == "pilot").order_by(BetaApplication.submitted_at.desc()))).scalars().all()
     return {"campaign": await beta.serialize_campaign(db, campaign),
             "enrollments": [await beta.serialize_enrollment(db, row) for row in rows],
+            "applications": [beta_applications.serialize(row) for row in applications],
             "defaults": CampaignSettings().model_dump()}
 
 
@@ -118,7 +153,7 @@ async def update_campaign(body: CampaignUpdate, _admin: User = Depends(require_a
 @router.post("/api/admin/beta/invitations", status_code=201)
 async def invite(body: Invitation, _admin: User = Depends(require_admin),
                  db: AsyncSession = Depends(get_db)):
-    row = await beta.invite(db, email=str(body.email), primary_format=body.primary_format)
+    row = await beta.invite(db, email=str(body.email), primary_format=body.primary_format, reviewer_id=_admin.id)
     await db.commit()
     return await beta.serialize_enrollment(db, row)
 
@@ -152,7 +187,9 @@ async def me(user: User = Depends(require_auth), db: AsyncSession = Depends(get_
     if row and row.activated_at and row.user_id != user.id:
         row = None
     campaign = await beta.campaign_row(db)
+    application = await beta_applications.for_user(db, user)
     return {"enrollment": await beta.serialize_enrollment(db, row) if row else None,
+            "application": beta_applications.serialize(application) if application else None,
             "campaign_name": campaign.name if campaign else None,
             "access_days": campaign.access_days if campaign else None,
             "can_activate": bool(row and row.activated_at is None and not row.revoked_at
