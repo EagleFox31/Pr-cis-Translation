@@ -1,0 +1,49 @@
+.beta-card { background: #fff; border: 1px solid var(--gray-200); border-radius: 16px; padding: 24px; margin-bottom: 20px; }
+.beta-card h2 { color: var(--navy); font-size: 19px; margin: 0 0 10px; }
+.beta-card h3 { font-size: 15px; color: var(--navy); margin: 22px 0 12px; }
+.beta-card p { font-size: 14px; line-height: 1.6; color: var(--gray-600); margin: 8px 0 16px; }
+.beta-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.beta-heading p { margin: 5px 0 16px; }
+.beta-heading strong { overflow-wrap: anywhere; color: var(--navy); }
+.beta-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.beta-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; }
+.beta-fields label, .beta-invite label { display: flex; flex-direction: column; gap: 7px; font-size: 13px; color: var(--gray-700); font-weight: 600; }
+.beta-card input, .beta-card select { border: 1px solid var(--gray-300); border-radius: 9px; padding: 10px 12px; font: inherit; font-size: 14px; min-width: 0; background: white; color: var(--navy); width: 100%; box-sizing: border-box; }
+.beta-card input:focus-visible, .beta-card select:focus-visible { outline: 3px solid var(--blue-light); border-color: var(--blue); }
+.beta-card .beta-note { font-size: 13px; color: var(--gray-600); }
+.beta-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+.beta-actions .tb-btn, .beta-invite .tb-btn { text-decoration: none; min-height: 40px; }
+.beta-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 12px 0 24px; }
+.beta-metrics > div { background: var(--gray-50); border-radius: 10px; padding: 14px; }
+.beta-metrics strong, .beta-metrics span { display: block; }
+.beta-metrics strong { font-size: 19px; color: var(--navy); }
+.beta-metrics span { font-size: 12px; color: var(--gray-600); margin-top: 6px; }
+.beta-invite { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.beta-invite label { flex: 1; min-width: 180px; }
+.beta-allowances { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 16px 0; }
+.beta-allowance { border: 1px solid var(--gray-200); padding: 14px; border-radius: 10px; display: flex; flex-direction: column; gap: 8px; }
+.beta-allowance strong { color: var(--navy); font-size: 14px; }
+.beta-allowance span, .beta-allowance small { color: var(--gray-600); font-size: 12px; line-height: 1.4; }
+.beta-allowance progress { width: 100%; height: 6px; accent-color: var(--blue); }
+.beta-status { display: inline-block; color: var(--navy); font-weight: 700; font-size: 12px; padding: 6px 10px; background: var(--gray-100); border-radius: 999px; white-space: nowrap; }
+.beta-status--active { background: var(--blue-light); color: var(--blue); }
+.beta-status--expired, .beta-status--revoked { background: #fff1f2; color: #9f1239; }
+.beta-tester { border-top: 1px solid var(--gray-200); padding: 22px 0; }
+.beta-tester:last-child { padding-bottom: 0; }
+.beta-tester .beta-actions { margin-top: 8px; }
+.beta-error { border: 1px solid #fecaca; background: #fff1f2; color: #991b1b !important; border-radius: 10px; padding: 12px; }
+.beta-notice { border: 1px solid #bfdbfe; background: #eff6ff; color: #1e40af; border-radius: 10px; padding: 12px; }
+.beta-dialog { width: min(680px, calc(100% - 32px)); max-height: 85vh; overflow: auto; margin: auto; box-sizing: border-box; }
+.beta-dialog::backdrop { background: rgba(13,27,62,.45); }
+.beta-upload { background: var(--blue-light); border: 1px solid #bfdbfe; border-radius: 10px; padding: 12px; color: var(--navy); font-size: 13px; line-height: 1.5; }
+.beta-upload label { display: flex; gap: 9px; align-items: center; font-weight: 600; }
+.beta-upload p { margin: 6px 0 0; }
+.beta-account { margin-top: 14px; padding: 12px; border: 1px solid var(--gray-200); border-radius: 10px; }
+.beta-account a { font-size: 13px; color: var(--blue); font-weight: 600; }
+.beta-account p { font-size: 12px; margin-top: 6px; color: var(--gray-600); }
+@media (max-width: 600px) {
+  .beta-card { padding: 17px; }
+  .beta-fields, .beta-allowances { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .beta-invite > label { flex-basis: 100%; }
+  .beta-actions .tb-btn { flex: 1; text-align: center; }
+}

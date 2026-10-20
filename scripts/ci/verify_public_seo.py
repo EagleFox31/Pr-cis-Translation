@@ -55,7 +55,7 @@ assert any(node["@type"] == "SoftwareApplication" for node in page.jsonld[0]["@g
 for path in ["/?share=2", "/home/?share=2", "/index.html?share=2"]:
     status, headers, _ = fetch(path)
     assert status == 308 and headers["Location"] == "/home?share=2", (path, status, headers)
-for path in ["/login", "/register", "/verify-email", "/admin/users", "/admin/logs", "/admin/support"]:
+for path in ["/login", "/register", "/verify-email", "/beta", "/beta/", "/admin/users", "/admin/logs", "/admin/support", "/admin/beta"]:
     status, headers, _ = fetch(path)
     assert status == 200 and "noindex" in headers.get("X-Robots-Tag", ""), path
 for path in ["/missing-seo-page", "/missing-seo-file.txt", "/assets/missing-seo.js"]:

@@ -12,6 +12,8 @@ export type SupportCategory = 'problem' | 'subscription' | 'other';
 
 export interface SupportPrefill {
   category?: SupportCategory;
+  subject?: string;
+  message?: string;
   /** Document concerné (référencement automatique). `id` peut manquer côté
    *  aperçu d'une traduction fraîche ; le `name` suffit à identifier. */
   document?: { id?: string; name?: string };

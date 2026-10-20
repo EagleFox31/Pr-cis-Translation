@@ -150,7 +150,7 @@ export default function Home() {
     (config: TranslateConfig) => {
       // Le catalogue ne propose que des codes de base ('en', 'fr'…) : plus de
       // variante régionale à réduire avant l'envoi.
-      const { file, targetLang, pages, debug, precise, onAccepted, coverOnly } = config;
+      const { file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta } = config;
       // Mémorisé pour rejouer après un achat de pages (402) : en ENTIER, un
       // achat sert à couvrir tout le document, jamais à rejouer une version partielle.
       lastConfigRef.current = { ...config, coverOnly: false };
@@ -169,7 +169,7 @@ export default function Home() {
       setShowPreview(true);
 
       stream
-        .start(file, targetLang, pages, debug, precise, onAccepted, coverOnly)
+        .start(file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta)
         .then((result) => {
           setTranslatedBlob(result.blob);
           setTranslatedIsPdf(false);   // le RÉSULTAT est au format d'origine
@@ -180,12 +180,9 @@ export default function Home() {
             targetLang,
             ext,
           });
-          // Forfait freemium = 1 page max, on invite à upgrader
-          if (user?.plan === 'free') {
-            showToast('success', t('story.free_plan_title'), t('story.free_plan_hint'));
-          } else {
-            showToast('success', t('story.success_done'), result.filename);
-          }
+          // Le serveur a déjà appliqué le budget choisi (Bêta, forfait ou
+          // pages achetées) : le nom du forfait ne décrit pas cette livraison.
+          showToast('success', t('story.success_done'), result.filename);
         })
         .catch(() => {
           // L'erreur est déjà dans stream.error (et stream.limitReached pour

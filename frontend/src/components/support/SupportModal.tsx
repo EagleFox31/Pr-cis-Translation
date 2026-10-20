@@ -39,8 +39,8 @@ export default function SupportModal() {
   useEffect(() => subscribeSupport((prefill) => {
     setCategory(prefill.category ?? 'problem');
     setDoc(prefill.document);
-    setSubject('');
-    setMessage('');
+    setSubject(prefill.subject ?? '');
+    setMessage(prefill.message ?? '');
     setOpen(true);
   }), []);
 
