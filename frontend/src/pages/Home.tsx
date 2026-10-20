@@ -188,12 +188,9 @@ export default function Home() {
             targetLang,
             ext,
           });
-          // Forfait freemium = 1 page max, on invite à upgrader
-          if (user?.plan === 'free') {
-            showToast('success', t('story.free_plan_title'), t('story.free_plan_hint'));
-          } else {
-            showToast('success', t('story.success_done'), result.filename);
-          }
+          // Le serveur a déjà appliqué le budget choisi (Bêta, forfait ou
+          // pages achetées) : le nom du forfait ne décrit pas cette livraison.
+          showToast('success', t('story.success_done'), result.filename);
         })
         .catch(() => {
           // L'erreur est déjà dans stream.error (et stream.limitReached pour
