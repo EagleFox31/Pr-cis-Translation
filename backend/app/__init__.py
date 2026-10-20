@@ -72,9 +72,14 @@ async def _lifespan(_app: FastAPI):
     import asyncio
     from app.services import solde_ia
     surveillance_solde = asyncio.create_task(solde_ia.surveiller())
+    # Journal d'erreurs : erreurs corrigées par cette version marquées
+    # traitées, puis purge quotidienne du traité expiré.
+    from app.services import error_log_menage
+    menage_journal = asyncio.create_task(error_log_menage.entretenir())
     _afficher_banniere()
     yield
     surveillance_solde.cancel()
+    menage_journal.cancel()
 
 
 def _afficher_banniere() -> None:

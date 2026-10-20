@@ -234,6 +234,14 @@ La vue **`/admin/logs`** regroupe les erreurs par empreinte et alerte par e-mail
 au-delà d'un seuil ; **`/admin/support`** reçoit les demandes des utilisateurs.
 Les consulter vaut mieux que lire les journaux.
 
+Le journal se tient seul : au démarrage (donc à chaque déploiement), les
+erreurs déclarées corrigées dans `backend/app/erreurs_resolues.py` passent à
+« traitées » — seules leurs occurrences antérieures au démarrage, une rechute
+reste visible. Puis, chaque jour, le traité de plus de `ERROR_LOG_RETENTION_DAYS`
+jours (30) est supprimé et chaque groupe est plafonné à
+`ERROR_LOG_MAX_PAR_GROUPE` occurrences (200, les plus récentes gardées). Une PR
+qui corrige une erreur vue dans `/admin/logs` ajoute donc son entrée au registre.
+
 ## Revenir en arrière
 
 ```bash
