@@ -104,6 +104,8 @@ async def refund_for_document(db: AsyncSession, document_id: str) -> None:
 
     Idempotent : un échec reporté deux fois ne rembourse qu'une fois. Les
     pages achetées reviennent au solde ; l'offre du mois redevient libre."""
+    from app.services import beta
+    await beta.refund_for_document(db, document_id)
     rows = (await db.execute(
         select(UsageRecord).where(UsageRecord.document_id == document_id,
                                   UsageRecord.refunded.is_(False))
@@ -127,6 +129,8 @@ async def rebill_for_document(db: AsyncSession, document_id: str) -> None:
     enregistrement remboursé puis livré ne peut venir que de là. Le solde
     peut passer sous zéro si les pages rendues ont déjà servi : c'est la
     dette réelle, et elle bloque le prochain débit."""
+    from app.services import beta
+    await beta.refund_for_document(db, document_id, refunded=False)
     rows = (await db.execute(
         select(UsageRecord).where(UsageRecord.document_id == document_id,
                                   UsageRecord.refunded.is_(True))
