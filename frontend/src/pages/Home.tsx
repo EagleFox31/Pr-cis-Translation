@@ -134,6 +134,9 @@ export default function Home() {
   useEffect(() => {
     if (apercuEtaitOuvert.current && !showPreview) {
       document.getElementById(retourVers.current)?.scrollIntoView({ behavior: 'instant' });
+      // Le scroll spy ne voit pas ce saut (aucune transition d'intersection
+      // sous la surcouche) : la barre restait sur « Fonctionnement ».
+      setActiveSection(retourVers.current);
       retourVers.current = 'story';
     }
     apercuEtaitOuvert.current = showPreview;

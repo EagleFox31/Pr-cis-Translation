@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { motion, useScroll, useTransform } from 'motion/react';
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Check } from 'lucide-react';
 import TranslationSection from '../upload/TranslationSection';
 import type { TranslateConfig } from '../upload/TranslationSection';
@@ -106,6 +106,21 @@ export default function StorySection({
   ).length;
   const { t } = useTranslation();
   const storyRef = useRef<HTMLElement>(null);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+
+  // La vignette de la page affichée reste visible dans la colonne : on fait
+  // défiler la colonne seule (scrollIntoView bougerait aussi la page).
+  useEffect(() => {
+    const bar = sidebarRef.current;
+    const thumb = bar?.children[currentPage - 1] as HTMLElement | undefined;
+    if (!bar || !thumb) return;
+    const haut = thumb.getBoundingClientRect().top - bar.getBoundingClientRect().top + bar.scrollTop;
+    const bas = haut + thumb.offsetHeight;
+    if (haut < bar.scrollTop) bar.scrollTo({ top: haut - 8, behavior: 'smooth' });
+    else if (bas > bar.scrollTop + bar.clientHeight) {
+      bar.scrollTo({ top: bas - bar.clientHeight + 8, behavior: 'smooth' });
+    }
+  }, [currentPage]);
 
   // Format du document à prévisualiser : déterminé d'abord par le fichier
   // traduit (toujours présent), sinon par l'original. Les formats non-PDF sont
@@ -352,7 +367,7 @@ export default function StorySection({
 
             <div className="app">
               <div className="body">
-                <div className="sidebar">
+                <div className="sidebar" ref={sidebarRef}>
                   {Array.from({ length: numPages }).map((_, i) => {
                     const pageNo = i + 1;
                     const status = pageStatuses[pageNo];
