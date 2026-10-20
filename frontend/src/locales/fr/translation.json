@@ -435,5 +435,27 @@
     "note_prompt": "Note interne (facultatif) — ce qui a été fait :",
     "note_label": "Note interne",
     "plan_label": "forfait"
+  },
+  "invite": {
+    "open": "Inviter des proches",
+    "title": "Inviter des proches",
+    "subtitle": "Ils recevront un e-mail de votre part pour découvrir Précis.",
+    "emails_label": "Adresses e-mail",
+    "emails_ph": "nom@exemple.com, …",
+    "hint": "Séparez par une virgule ou Entrée — {{max}} au maximum.",
+    "invalid": "Adresse invalide.",
+    "remove": "Retirer {{email}}",
+    "message_label": "Un mot (facultatif)",
+    "message_ph": "J’utilise Précis pour traduire mes documents, essaie-le !",
+    "send": "Envoyer l’invitation",
+    "send_n": "Envoyer {{count}} invitations",
+    "close": "Fermer",
+    "sent_title": "Invitations envoyées",
+    "sent_body_one": "Votre invitation est en route.",
+    "sent_body_other": "{{count}} invitations en route.",
+    "limit_title": "Limite atteinte",
+    "limit_body": "Vous avez atteint le nombre d’invitations du jour. Réessayez demain.",
+    "error_title": "Envoi impossible",
+    "error_body": "Réessayez dans un instant."
   }
 }

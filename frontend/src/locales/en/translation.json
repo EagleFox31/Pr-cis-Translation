@@ -435,5 +435,27 @@
     "note_prompt": "Internal note (optional) — what was done:",
     "note_label": "Internal note",
     "plan_label": "plan"
+  },
+  "invite": {
+    "open": "Invite friends",
+    "title": "Invite friends",
+    "subtitle": "They'll get an email from you to discover Précis.",
+    "emails_label": "Email addresses",
+    "emails_ph": "name@example.com, …",
+    "hint": "Separate with a comma or Enter — up to {{max}}.",
+    "invalid": "Invalid address.",
+    "remove": "Remove {{email}}",
+    "message_label": "A personal note (optional)",
+    "message_ph": "I use Précis to translate my documents, give it a try!",
+    "send": "Send invitation",
+    "send_n": "Send {{count}} invitations",
+    "close": "Close",
+    "sent_title": "Invitations sent",
+    "sent_body_one": "Your invitation is on its way.",
+    "sent_body_other": "{{count}} invitations on their way.",
+    "limit_title": "Limit reached",
+    "limit_body": "You've reached today's invitation limit. Try again tomorrow.",
+    "error_title": "Couldn't send",
+    "error_body": "Please try again in a moment."
   }
 }

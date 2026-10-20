@@ -9,6 +9,7 @@ import PricingSection from '../components/pricing/PricingSection';
 import AboutSection from '../components/about/AboutSection';
 import ToastContainer, { showToast } from '../components/ui/Toast';
 import SupportModal from '../components/support/SupportModal';
+import InviteModal from '../components/invite/InviteModal';
 import PaymentModal from '../components/payment/PaymentModal';
 import DocumentLibrary from '../components/library/DocumentLibrary';
 import { useAuth } from '../contexts/AuthContext';
@@ -436,6 +437,7 @@ export default function Home() {
     <div className="min-h-screen bg-white text-gray-900 font-body">
       <ToastContainer />
       <SupportModal />
+      <InviteModal />
 
       {/* Paiement à la page : achat des crédits nécessaires à la traduction
           courante (402). Une fois payé, on REJOUE la traduction telle quelle. */}
