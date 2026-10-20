@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
   Download, Loader2, CheckCircle2, ArrowRight, Lock,
-  Maximize2, Minimize2, Flag,
+  Maximize2, Minimize2, Flag, FileDown,
 } from 'lucide-react';
 
 import { baseCode } from '../../lib/languages';
@@ -30,6 +30,10 @@ interface ViewerToolbarProps {
   onPageChange: (page: number) => void;
   onBack: () => void;
   onDownload: () => void;
+  /** Récupérer le fichier d'origine tel qu'il a été déposé. */
+  onDownloadOriginal?: () => void;
+  /** Essai : quitter l'aperçu pour les tarifs (ils sont SOUS la surcouche). */
+  onUnlock?: () => void;
   onToggleFocus?: () => void;
 }
 
@@ -48,6 +52,8 @@ export default function ViewerToolbar({
   onPageChange,
   onBack,
   onDownload,
+  onDownloadOriginal,
+  onUnlock,
   onToggleFocus,
 }: ViewerToolbarProps) {
   const { t } = useTranslation();
@@ -208,11 +214,28 @@ export default function ViewerToolbar({
         <Flag size={15} strokeWidth={2.2} />
       </button>
 
+      {/* Original — toujours disponible : c'est le fichier de l'utilisateur,
+          ni l'essai ni une traduction en cours ne le retiennent. */}
+      {onDownloadOriginal && (
+        <button
+          onClick={onDownloadOriginal}
+          className="tb-btn ghost"
+          aria-label={t('viewer.download_original', 'Télécharger l’original')}
+          title={t('viewer.download_original', 'Télécharger l’original')}
+          style={{ display: 'flex', alignItems: 'center', padding: '6px' }}
+        >
+          <FileDown size={15} strokeWidth={2.2} />
+        </button>
+      )}
+
       {/* Téléchargement — indisponible tant que la traduction n'est pas finie */}
       <button
         onClick={() => {
           if (isTrialMode) {
-            document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' });
+            // Défiler vers #pricing sans fermer l'aperçu ne montrait rien :
+            // la grille est sous la surcouche fixe.
+            if (onUnlock) onUnlock();
+            else document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' });
             return;
           }
           onDownload();
