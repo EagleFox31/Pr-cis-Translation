@@ -1,0 +1,15 @@
+# Build only on the GitHub runner from the pinned Payment Orchestrator source.
+FROM node:24-bookworm-slim AS builder
+WORKDIR /app
+COPY . .
+RUN npm install --ignore-scripts && npm run build && npm prune --omit=dev --ignore-scripts
+
+FROM node:24-bookworm-slim
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/package.json ./package.json
+USER node
+CMD ["node", "dist/src/worker/run-once.js"]
