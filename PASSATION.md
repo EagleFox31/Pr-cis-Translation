@@ -10,8 +10,8 @@ Branche `feat/visionneuse` (worktree `Precis-Translator-visionneuse`) : visionne
 3b. [x] Aperçu : bouton « Original » (re-télécharger son fichier source, chaque utilisateur) dans `ViewerToolbar`.
 4. [x] Plancher de fidélité 60 % dans `retranslate_overflows` + test.
 5. [x] Admin : `/api/admin/documents` (liste, original, traduit, journalisé) + page `/admin/documents` + tests.
-6. [ ] Vérif : tests backend, tsc, lint, build ; Playwright sur la visionneuse.
-7. [ ] Commit, push, PR.
+6. [ ] Vérif : tsc, lint, build OK ; test_retraduction_fidele 3/3, redécoupage 12/12. Reste : test_admin_documents + Playwright (worktree sans `backend/.env` : à copier par l'utilisateur).
+7. [x] Commit (a8211d9, f572655, 587f976), push, PR.
 
 ## 5. Pièges / contexte
 - Ne pas toucher le dépôt principal (feat/paiement-paddle) ni le worktree invitations.
