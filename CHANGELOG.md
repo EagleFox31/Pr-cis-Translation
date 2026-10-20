@@ -8,6 +8,14 @@ leurs propres numéros internes.
 
 Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 
+## [1.4.1](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.4.0...v1.4.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* **beta:** serve direct activation links through nginx ([#37](https://github.com/EagleFox31/Pr-cis-Translation/issues/37)) ([f25dfc7](https://github.com/EagleFox31/Pr-cis-Translation/commit/f25dfc73460101583f28f75a58ebcc79bdeb1ce8))
+* **ui:** acknowledge delivered documents without free-plan restriction ([#36](https://github.com/EagleFox31/Pr-cis-Translation/issues/36)) ([0b568ed](https://github.com/EagleFox31/Pr-cis-Translation/commit/0b568edd9f08146e582fd53b6a846444a910a005))
+
 ## [1.4.0](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.3.0...v1.4.0) (2026-10-20)
 
 
