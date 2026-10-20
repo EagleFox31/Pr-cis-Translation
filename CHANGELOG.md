@@ -8,6 +8,13 @@ leurs propres numéros internes.
 
 Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 
+## [1.3.0](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.2.0...v1.3.0) (2026-10-20)
+
+
+### Features
+
+* **paiement:** Fapshi, achat des pages manquantes et frais client (backend 1.2.0) ([44c9b8f](https://github.com/EagleFox31/Pr-cis-Translation/commit/44c9b8fd0cd5fb2eba4b6863f0a54dc88344462d))
+
 ## 1.2.0 (2026-10-20)
 
 
