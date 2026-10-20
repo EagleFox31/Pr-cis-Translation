@@ -42,4 +42,4 @@ Worktree `C:\Users\IBRAH\Documents\Projets\Precis-Translator-invitations`, branc
 - venv : `C:\Users\IBRAH\Documents\Projets\Precis_Translator_backup_2026-06-10_13-10\backend\venv\Scripts\python.exe`.
 - Front : `npm run lint` = tsc + contrôle de concordance i18n ; pluriels i18next en `_one` / `_other`.
 - Sans `EMAIL_ENABLED` ou `SMTP_HOST`, l'e-mail est seulement journalisé `[DEV]`.
-- Lancer l'app depuis CE dossier, détachée : PowerShell `Start-Process <venv>python.exe scriptsdev.py -WorkingDirectory <worktree> -WindowStyle Minimized` (en tâche de fond de session, dev.py meurt sans rien dire). `npm run stop` laisse parfois des processus : vérifier `netstat -ano | grep :8000`.
+- Lancer l'app depuis CE dossier, détachée : PowerShell `Start-Process <venv>/python.exe scripts/dev.py -WorkingDirectory <worktree> -WindowStyle Minimized` (en tâche de fond de session, dev.py meurt sans rien dire). `npm run stop` laisse parfois des processus : vérifier `netstat -ano | grep :8000`.
