@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import AdminShell from '../components/admin/AdminShell';
 import BetaAllowances, { BETA_FORMATS } from '../components/library/BetaAllowances';
-import type { BetaEnrollment, BetaFormat, BetaLimits } from '../hooks/useBeta';
+import type { BetaApplication, BetaEnrollment, BetaFormat, BetaLimits } from '../hooks/useBeta';
 import api from '../services/api';
 
 interface Settings {
@@ -13,7 +13,7 @@ interface Campaign extends Settings {
   starts_at: string | null; recruitment_ends_at: string | null; second_wave_at: string | null;
   recruitment_open: boolean;
 }
-interface Dashboard { campaign: Campaign | null; enrollments: BetaEnrollment[]; defaults: Settings }
+interface Dashboard { campaign: Campaign | null; enrollments: BetaEnrollment[]; defaults: Settings; applications: BetaApplication[] }
 const LIMIT_KEYS: (keyof BetaLimits)[] = ['pdf', 'pptx', 'docx', 'xlsx', 'xlsx_words'];
 
 function LimitsEditor({ value, onChange }: { value: BetaLimits; onChange: (v: BetaLimits) => void }) {
@@ -40,6 +40,7 @@ export default function AdminBetaPage() {
   const [editing, setEditing] = useState<BetaEnrollment | null>(null);
   const [editLimits, setEditLimits] = useState<BetaLimits | null>(null);
   const [filter, setFilter] = useState('all');
+  const [applicationFilter, setApplicationFilter] = useState('pending');
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     if (editing && dialog.current && !dialog.current.open) dialog.current.showModal();
@@ -72,6 +73,8 @@ export default function AdminBetaPage() {
     } finally { setBusy(false); }
   };
   const campaign = data?.campaign;
+  const applications = data?.applications || [];
+  const shownApplications = applications.filter(row => applicationFilter === 'all' || row.state === applicationFilter);
   const date = (value: string | null) => value ? new Date(value).toLocaleDateString(i18n.language) : '—';
   const copyLink = async () => {
     try { await navigator.clipboard.writeText(window.location.origin + '/beta'); setNotice(t('beta.copied')); }
@@ -135,6 +138,42 @@ export default function AdminBetaPage() {
                 </div>
               </fieldset>
             </form>
+          </section>
+
+          <section className="beta-card" aria-label={t('beta.application.admin_title')}>
+            <div className="beta-heading">
+              <div><h2>{t('beta.application.admin_title')}</h2>
+                <p>{t('beta.application.pending_count', { count: applications.filter(row => row.state === 'pending').length })}</p>
+              </div>
+              <select aria-label={t('beta.application.filter')} value={applicationFilter}
+                onChange={event => setApplicationFilter(event.target.value)}>
+                <option value="all">{t('beta.all')}</option>
+                {['pending', 'approved', 'declined'].map(state => <option key={state} value={state}>
+                  {t(`beta.application.states.${state}`)}
+                </option>)}
+              </select>
+            </div>
+            <p className="beta-note">{t('beta.application.admin_hint')}</p>
+            {shownApplications.length === 0 && <p>{t('beta.application.none')}</p>}
+            {shownApplications.map(row => <article className="beta-tester" key={row.id}>
+              <div className="beta-heading">
+                <div><strong>{row.email}</strong><p>{t(`beta.formats.${row.primary_format}`)} · {date(row.submitted_at)}</p></div>
+                <span className="beta-status">{t(`beta.application.states.${row.state}`)}</span>
+              </div>
+              <p className="beta-application-text">{row.motivation}</p>
+              {row.state !== 'approved' && <div className="beta-actions">
+                <button className="beta-primary" disabled={busy || !campaign?.recruitment_open || campaign.seats_used >= campaign.current_capacity}
+                  onClick={() => void mutate('/api/admin/beta/applications/' + row.id, { decision: 'approved' }, 'patch')}>
+                  {t('beta.application.approve')}
+                </button>
+                {row.state === 'pending' && <button className="tb-btn ghost" disabled={busy} onClick={() => {
+                  if (window.confirm(t('beta.application.decline_confirm', { email: row.email })))
+                    void mutate('/api/admin/beta/applications/' + row.id, { decision: 'declined' }, 'patch');
+                }}>{t('beta.application.decline')}</button>}
+              </div>}
+              {row.state === 'pending' && (!campaign?.recruitment_open || campaign.seats_used >= campaign.current_capacity)
+                && <p className="beta-note">{t('beta.application.approval_unavailable')}</p>}
+            </article>)}
           </section>
 
           {campaign && <section className="beta-card">

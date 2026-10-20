@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useSearchParams } from 'react-router-dom';
 import { AnimatePresence } from 'motion/react';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -12,6 +12,7 @@ import AdminLogsPage from './pages/AdminLogsPage';
 import AdminUsersPage from './pages/AdminUsersPage';
 import AdminSupportPage from './pages/AdminSupportPage';
 import './beta.css';
+import { authReturnTo } from './lib/authReturn';
 
 const AdminBetaPage = lazy(() => import('./pages/AdminBetaPage'));
 const BetaPage = lazy(() => import('./pages/BetaPage'));
@@ -19,8 +20,9 @@ const BetaPage = lazy(() => import('./pages/BetaPage'));
 /** Redirige vers /home si déjà connecté ( pages auth ). */
 function GuestRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
+  const [params] = useSearchParams();
   if (loading) return null;
-  if (user) return <Navigate to="/home" replace />;
+  if (user) return <Navigate to={authReturnTo(params)} replace />;
   return <>{children}</>;
 }
 

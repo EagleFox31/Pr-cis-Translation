@@ -1,5 +1,9 @@
 # Programme Bêta Précis
 
+L’encart Programme Bêta est visible dans la section Offres de la page principale.
+Il présente les paramètres actuels du programme, sans modifier l’offre Gratuite.
+La page /beta reste consultable lorsque les candidatures sont fermées.
+
 L'administration se trouve dans le menu Administration → Bêta-testeurs,
 à l'adresse /admin/beta. Aucun programme ni participant n'est activé au
 déploiement.
@@ -54,3 +58,27 @@ Le bouton Donner mon avis ouvre l'assistance avec un retour de bêta prérempli.
 Les quotas sont contrôlés côté serveur dans la transaction de création du
 document. Les importations simultanées, changements administrateur et
 remboursements partagent le verrou du participant.
+
+## Candidatures depuis la page publique
+
+Lorsque le recrutement est ouvert, le bouton Demander à participer mène à /beta.
+La personne se connecte (ou crée un compte) avec un e-mail vérifié, choisit son
+format principal et décrit les documents qu’elle souhaite tester. Le parcours
+de connexion par mot de passe, Google ou code conserve le retour vers /beta.
+Une candidature est unique par compte et e-mail pour ce programme.
+
+Déposer une candidature ne réserve aucune place et ne donne aucun quota.
+Le candidat retrouve sa décision dans Mon accès Bêta. Le contenu des
+candidatures et les adresses e-mail ne figurent jamais dans l’API publique.
+
+Dans Administration → Bêta-testeurs, la section Candidatures permet de filtrer
+et d’approuver ou de ne pas retenir une demande. Approuver crée une invitation
+dans la limite de la vague actuelle ; l’accès commence à l’activation par le
+testeur. Une invitation manuelle approuve aussi une candidature correspondante.
+Une candidature non retenue peut être réexaminée tant qu’une place est disponible.
+
+La première vague peut être complète tout en acceptant des candidatures pour
+la seconde. Lorsque les 40 places au total sont engagées, ou que le recrutement
+est fermé ou terminé, aucune nouvelle candidature n’est acceptée. Les décisions
+sont consultables dans l’application ; aucun e-mail n’est envoyé automatiquement.
+La migration n’ouvre pas le programme et ne crée aucun candidat réel.

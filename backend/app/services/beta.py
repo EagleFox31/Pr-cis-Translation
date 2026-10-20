@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 from sqlalchemy import func, or_, select
 from app.models import User
-from app.models.beta import BetaCampaign, BetaEnrollment, BetaUsage
+from app.models.beta import BetaApplication, BetaCampaign, BetaEnrollment, BetaUsage
 from app.services.beta_meter import BetaCost, DEFAULT_LIMITS, FORMATS, UNIT_NAMES
 from app.services.usage import add_months
 
@@ -116,7 +116,7 @@ async def serialize_campaign(db, campaign):
     }
 
 
-async def invite(db, *, email, primary_format, limits=None):
+async def invite(db, *, email, primary_format, limits=None, reviewer_id=None):
     campaign = await campaign_row(db, lock=True)
     if not campaign or not recruitment_open(campaign):
         raise HTTPException(409, "Les inscriptions à la bêta sont fermées.")
@@ -131,6 +131,14 @@ async def invite(db, *, email, primary_format, limits=None):
                           limits=dict(limits or campaign.limits))
     db.add(item)
     await db.flush()
+    # A manual invitation also resolves the matching pending application.
+    application = (await db.execute(select(BetaApplication).where(
+        BetaApplication.campaign_id == "pilot", BetaApplication.email == email,
+        BetaApplication.state.in_(("pending", "declined"))))).scalar_one_or_none()
+    if application:
+        application.state = "approved"
+        application.reviewed_at = now_utc()
+        application.reviewer_id = reviewer_id
     return item
 
 

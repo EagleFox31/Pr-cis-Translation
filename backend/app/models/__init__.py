@@ -30,7 +30,7 @@ from .plans import (
     is_paid_plan,
 )
 from .user import User
-from .beta import BetaCampaign, BetaEnrollment, BetaUsage
+from .beta import BetaApplication, BetaCampaign, BetaEnrollment, BetaUsage
 from .document import Document
 from .payment import Payment
 from .usage import (UsageRecord, KIND_CREDITS, KIND_FREE_OFFER, KIND_LEGACY,
@@ -42,7 +42,7 @@ from .support_ticket import (SupportTicket, CATEGORIES,
 
 __all__ = [
     "Base", "new_uuid", "utcnow",
-    "User", "Document", "Payment", "UsageRecord", "BetaCampaign", "BetaEnrollment", "BetaUsage",
+    "User", "Document", "Payment", "UsageRecord", "BetaApplication", "BetaCampaign", "BetaEnrollment", "BetaUsage",
     "KIND_CREDITS", "KIND_FREE_OFFER", "KIND_LEGACY", "KIND_PLAN", "RefreshToken", "VerificationCode",
     "ErrorLog", "LEVELS", "SOURCES", "STATUS_HANDLED", "STATUS_NEW",
     "SupportTicket", "CATEGORIES", "STATUS_OPEN", "TICKET_HANDLED",

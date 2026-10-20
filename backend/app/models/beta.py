@@ -1,6 +1,6 @@
 """Invitation-only beta allowances, independent of subscription credits."""
 from datetime import datetime
-from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from .base import Base, new_uuid, utcnow
 
@@ -50,3 +50,21 @@ class BetaUsage(Base):
     words: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     refunded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class BetaApplication(Base):
+    __tablename__ = "beta_applications"
+    __table_args__ = (
+        UniqueConstraint("campaign_id", "email", name="uq_beta_application_email"),
+        UniqueConstraint("campaign_id", "user_id", name="uq_beta_application_user"),
+    )
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_uuid)
+    campaign_id: Mapped[str] = mapped_column(String(32), ForeignKey("beta_campaigns.id"), nullable=False)
+    user_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("users.id", ondelete="SET NULL"))
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    primary_format: Mapped[str] = mapped_column(String(8), nullable=False)
+    motivation: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewer_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("users.id", ondelete="SET NULL"))

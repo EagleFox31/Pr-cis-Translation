@@ -529,6 +529,56 @@
       "xlsx_words": "Excel — mots cumulés"
     },
     "feedback_subject": "Bêta — retour de test",
-    "feedback_template": "Format testé :\nQualité de traduction :\nMise en page :\nProblème rencontré ou suggestion :\n"
+    "feedback_template": "Format testé :\nQualité de traduction :\nMise en page :\nProblème rencontré ou suggestion :\n",
+    "public": {
+      "tag": "Programme Bêta · Sur candidature",
+      "title": "Testez Précis gratuitement pendant {{days}} jours",
+      "description": "{{capacity}} testeurs maximum, recrutés en deux vagues sur deux mois. Testez vos documents et aidez-nous à améliorer la traduction et la mise en page.",
+      "excel": "{{sheets}} feuilles et {{words}} mots cumulés",
+      "conditions": "Les quotas sont offerts une seule fois pour toute la période. La durée commence à l’activation après validation ; votre forfait habituel reste disponible.",
+      "selection": "Candidature soumise à validation",
+      "apply": "Demander à participer",
+      "discover": "Découvrir le programme",
+      "availability": {
+        "open": "Candidatures ouvertes",
+        "closed": "Candidatures fermées",
+        "full": "Programme complet",
+        "ended": "Recrutement terminé"
+      },
+      "closed_hint": {
+        "closed": "Les candidatures sont actuellement fermées. Les informations ci-dessus présentent le programme prévu.",
+        "full": "Toutes les places du programme sont engagées.",
+        "ended": "La période de recrutement est terminée. Les accès déjà activés conservent leur date de fin.",
+        "open": "Les candidatures sont ouvertes."
+      }
+    },
+    "application": {
+      "motivation": "Quels documents souhaitez-vous tester ?",
+      "placeholder": "Par exemple : des classeurs Excel de suivi commercial, en français et en anglais…",
+      "commitment": "Partagez vos retours sur la traduction et la mise en page pendant le test. Déposer une candidature ne réserve pas de place.",
+      "submit": "Envoyer ma candidature",
+      "login_hint": "Connectez-vous ou créez un compte pour déposer votre candidature et suivre la décision.",
+      "verify_email": "Vérifiez votre adresse e-mail avant de déposer votre candidature.",
+      "bound_email": "Candidature liée à {{email}}.",
+      "admin_title": "Candidatures au programme Bêta",
+      "pending_count": "Candidatures en attente : {{count}}",
+      "filter": "Filtrer les candidatures",
+      "admin_hint": "Approuver crée une invitation et réserve une place dans la vague actuelle. La durée d’accès commence à l’activation par le testeur. Une invitation manuelle valide aussi la candidature correspondante.",
+      "none": "Aucune candidature pour ce statut.",
+      "approve": "Approuver et inviter",
+      "decline": "Ne pas retenir",
+      "decline_confirm": "Ne pas retenir la candidature de {{email}} ?",
+      "approval_unavailable": "Pour approuver, les inscriptions doivent être ouvertes et la vague actuelle doit disposer d’une place.",
+      "states": {
+        "pending": "En attente",
+        "approved": "Approuvée",
+        "declined": "Non retenue"
+      },
+      "messages": {
+        "pending": "Votre candidature a été reçue. Aucune place n’est réservée à ce stade. Retrouvez la décision sur cette page ou dans Mon accès Bêta.",
+        "approved": "Votre candidature est approuvée. Actualisez cette page pour retrouver votre invitation et activer votre accès.",
+        "declined": "Votre candidature n’a pas été retenue. Votre forfait habituel reste disponible."
+      }
+    }
   }
 }
