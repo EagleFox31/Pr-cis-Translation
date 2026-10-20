@@ -1,0 +1,134 @@
+name: Stage isolated Payment Orchestrator sandbox worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/payment-worker-sandbox.yml
+      - scripts/staging/payment-worker-host.py
+      - scripts/staging/Dockerfile.payment-worker
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/payment-worker-sandbox.yml
+      - scripts/staging/payment-worker-host.py
+      - scripts/staging/Dockerfile.payment-worker
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: precis-payment-worker-sandbox
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m py_compile scripts/staging/payment-worker-host.py
+
+  stage:
+    needs: validate
+    if: github.repository == 'EagleFox31/Pr-cis-Translation' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::458018461157:role/precis-translation-staging-github-deployer
+          aws-region: eu-west-3
+      - name: Inspect spare host capacity before staging
+        run: |
+          python3 - <<'PY'
+          import json,subprocess,time,os
+          from pathlib import Path
+          code=Path('scripts/staging/payment-worker-host.py').read_text()
+          script=code+'\nmain({"mode":"inspect"})\n'
+          result=subprocess.run(['aws','ssm','send-command','--instance-ids','i-0ce97ff971dd343b2','--document-name','AWS-RunShellScript','--parameters',json.dumps({'commands':["python3 - <<'PAYMENT_HOST'\n"+script+"\nPAYMENT_HOST"]}),'--query','Command.CommandId','--output','text'],capture_output=True,text=True)
+          if result.returncode: raise SystemExit('AWS SSM capacity inspection could not be started')
+          for _ in range(60):
+              invocation=subprocess.run(['aws','ssm','get-command-invocation','--command-id',result.stdout.strip(),'--instance-id','i-0ce97ff971dd343b2','--output','json'],capture_output=True,text=True)
+              if invocation.returncode==0:
+                  data=json.loads(invocation.stdout)
+                  if data['Status'] in ('Success','Failed','TimedOut','Cancelled'):
+                      print(data.get('StandardOutputContent',''))
+                      if data['Status']!='Success': raise SystemExit('Host capacity inspection failed')
+                      report=json.loads(data['StandardOutputContent'].strip().splitlines()[-1])
+                      if not report['capacity']['sufficient']: raise SystemExit('Insufficient spare memory/disk; worker deployment stopped')
+                      break
+              time.sleep(2)
+          else: raise SystemExit('Host capacity inspection timed out')
+          PY
+      - uses: actions/checkout@v4
+        with:
+          repository: Trigenys/payment-orchestrator
+          ref: a4db5bb7409349124e7f01680ac1fefe3d58c67a
+          path: payment-worker-source
+          persist-credentials: false
+      - name: Build pinned worker on the runner, not the production host
+        run: |
+          set -euo pipefail
+          docker build -f scripts/staging/Dockerfile.payment-worker \
+            --label org.opencontainers.image.revision=a4db5bb7409349124e7f01680ac1fefe3d58c67a \
+            -t trigenys-payment-inbox:sandbox-a4db5bb payment-worker-source
+          mkdir -p worker-artifact
+          docker save trigenys-payment-inbox:sandbox-a4db5bb | gzip > worker-artifact/payment-worker.tar.gz
+          sha256sum worker-artifact/payment-worker.tar.gz | cut -d ' ' -f 1 > worker-artifact/image.sha256
+          docker image inspect --format '{{.Id}}' trigenys-payment-inbox:sandbox-a4db5bb > worker-artifact/image.id
+      - uses: actions/upload-artifact@v4
+        id: image
+        with:
+          name: payment-worker-sandbox-image
+          path: worker-artifact/payment-worker.tar.gz
+          retention-days: 1
+          compression-level: 0
+      - name: Install isolated worker and verify Precis remained running
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKER_ARTIFACT_ID: ${{ steps.image.outputs.artifact-id }}
+        run: |
+          python3 - <<'PY'
+          import json,os,subprocess,time,urllib.request
+          from pathlib import Path
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,*args,**kwargs): return None
+          request=urllib.request.Request('https://api.github.com/repos/EagleFox31/Pr-cis-Translation/actions/artifacts/'+os.environ['WORKER_ARTIFACT_ID']+'/zip',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+          try:
+              urllib.request.build_opener(NoRedirect).open(request,timeout=30)
+              raise SystemExit('Expected temporary artifact download redirect')
+          except urllib.error.HTTPError as response:
+              if response.code!=302: raise SystemExit('Artifact download authorization failed')
+              archive_url=response.headers['Location']
+          config={'mode':'stage','source_sha':'a4db5bb7409349124e7f01680ac1fefe3d58c67a','image_id':Path('worker-artifact/image.id').read_text().strip(),'archive_sha256':Path('worker-artifact/image.sha256').read_text().strip(),'archive_url':archive_url}
+          script=Path('scripts/staging/payment-worker-host.py').read_text()+'\nmain('+repr(config)+')\n'
+          command="python3 - <<'PAYMENT_HOST'\n"+script+"\nPAYMENT_HOST"
+          result=subprocess.run(['aws','ssm','send-command','--instance-ids','i-0ce97ff971dd343b2','--document-name','AWS-RunShellScript','--timeout-seconds','900','--parameters',json.dumps({'commands':[command],'executionTimeout':['900']}),'--query','Command.CommandId','--output','text'],capture_output=True,text=True)
+          if result.returncode: raise SystemExit('AWS SSM worker staging could not be started')
+          for _ in range(180):
+              invocation=subprocess.run(['aws','ssm','get-command-invocation','--command-id',result.stdout.strip(),'--instance-id','i-0ce97ff971dd343b2','--output','json'],capture_output=True,text=True)
+              if invocation.returncode==0:
+                  data=json.loads(invocation.stdout)
+                  if data['Status'] in ('Success','Failed','TimedOut','Cancelled'):
+                      print(data.get('StandardOutputContent',''))
+                      if data['Status']!='Success':
+                          # Do not echo a traceback containing the short-lived artifact URL.
+                          last=data.get('StandardErrorContent','').strip().splitlines()
+                          if last and 'http' not in last[-1].lower() and 'sig=' not in last[-1].lower():
+                              print(last[-1][:300])
+                          raise SystemExit('Worker staging failed; inspect bounded host diagnostics')
+                      break
+              time.sleep(3)
+          else: raise SystemExit('Worker staging timed out')
+          PY
