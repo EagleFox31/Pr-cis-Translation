@@ -49,7 +49,9 @@ jobs:
       - name: Check staged host deploy script
         run: bash -n scripts/staging/aws-ssm-compose.sh
       - name: Validate ZIP-to-SSM staging importer syntax
-        run: python3 -m py_compile scripts/staging/import-env-to-ssm.py
+        run: |
+          python3 -m py_compile scripts/staging/import-env-to-ssm.py
+          python3 -m unittest discover -s scripts/ci -p test_env_import.py
       - name: Verify production metadata and reviewed OIDC migration
         run: |
           python3 -m pip install PyYAML==6.0.2
@@ -301,3 +303,4 @@ jobs:
             fi
           done
           echo "Impact analysis passed; impacted gates have completed successfully." >> "$GITHUB_STEP_SUMMARY"
+

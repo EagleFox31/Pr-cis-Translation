@@ -27,3 +27,21 @@ After that one-time migration, rerun failed production jobs. CI guards the
 logical environment and release-to-deployment SHA mapping against regressions.
 
 Initial release bootstrap is bounded to the existing deployed lineage at b022d2e689b241ffd1fb1db9e9a4cd8741bf7583. The first managed version is 1.2.0; later versions follow commits and the persisted manifest. This avoids scanning the unrelated initial repository history, which produced a GitHub GraphQL internal error during first adoption. Existing manual changelog entries are preserved.
+
+The production ZIP importer retains FAPSHI_API_USER, FAPSHI_API_KEY,
+FAPSHI_WEBHOOK_SECRET, FAPSHI_ENV and FAPSHI_FLOW. Earlier revisions
+silently omitted these five settings even when the uploaded ZIP contained
+them. An import success therefore did not prove Fapshi was configured.
+
+To repair an affected import without uploading the ZIP again, run the reviewed
+importer in an administrator CloudShell terminal:
+
+    python3 import-env-to-ssm.py --repair-fapshi --fapshi-env LIVE --apply
+
+The terminal prompts privately for the API user/key and an optional webhook
+secret. It reads the latest existing SecureString after prompting, updates only
+the supplied Fapshi settings, and preserves all other configuration. Select
+SANDBOX explicitly for a sandbox account. Without --apply, no AWS calls,
+prompts or writes occur. Reload the existing production service afterward;
+no payment is initiated by the repair.
+
