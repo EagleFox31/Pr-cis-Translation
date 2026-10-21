@@ -115,13 +115,14 @@ async def quote(body: QuoteBody, request: Request, user: User = Depends(require_
         "unit_price": unit,
         # `amount` = ce qui sera DÉBITÉ, frais compris ; `subtotal` + `fee` le
         # détaillent. Même calcul que `POST /` : le devis ne promet rien d'autre.
-        **_with_fee(unit * billed),
+        **_with_fee(unit * billed, zone),
         "min_amount": min_payment_amount(zone),
-        # Le minimum de la carte (Paddle) est plus haut : la fenêtre bascule sur
-        # ces chiffres quand la carte est choisie, sans redemander de devis.
+        # Minimum et frais de la carte (Paddle) sont plus hauts : la fenêtre
+        # bascule sur ces chiffres quand la carte est choisie, sans redemander
+        # de devis.
         "card": {
             "billed_pages": card_billed,
-            **_with_fee(unit * card_billed),
+            **_with_fee(unit * card_billed, zone, CARD),
             "min_amount": min_payment_amount(zone, CARD),
         },
         "currency": CURRENCY[zone],
@@ -174,7 +175,7 @@ async def collect(body: CollectBody, request: Request,
     # Arrondi au montant minimum de l'opérateur ; `_apply_credit` reverse au
     # compte les pages payées au-delà du document.
     billed = billable_pages(zone, pages, method)
-    amount = _with_fee(page_price(zone) * billed)["amount"]
+    amount = _with_fee(page_price(zone) * billed, zone, method)["amount"]
 
     payment = Payment(
         user_id=user.id, document_id=body.document_id, pages=billed,
@@ -265,23 +266,23 @@ PENDING_PLAN_WINDOW = timedelta(minutes=3)
 PENDING_CARD_WINDOW = timedelta(minutes=15)
 
 
-def _with_fee(subtotal: int) -> dict:
-    """Montant net → détail encaissé : les frais de transaction sont à la
-    charge du client (`pricing.PSP_FEE_PERCENT`)."""
-    fee = transaction_fee(subtotal)
+def _with_fee(subtotal: int, zone: str, method: str | None = None) -> dict:
+    """Montant net → détail encaissé : les frais de transaction du moyen
+    choisi sont à la charge du client (`pricing.transaction_fee`)."""
+    fee = transaction_fee(subtotal, CURRENCY[zone], method)
     return {"subtotal": subtotal, "fee": fee, "amount": subtotal + fee}
 
 
-def _plan_offer(plan: str, annual: bool, zone: str) -> tuple[int, int, int]:
-    """(prix mensuel, nombre de mois, montant à encaisser, frais compris).
-    L'annuel se paie d'avance : douze fois le prix mensuel affiché sur la carte."""
+def _plan_offer(plan: str, annual: bool, zone: str) -> tuple[int, int]:
+    """(prix mensuel, nombre de mois). L'annuel se paie d'avance : douze fois
+    le prix mensuel affiché sur la carte. Frais : `_with_fee(monthly * months)`."""
     if plan not in SELF_SERVE_PLANS:
         raise HTTPException(status_code=422, detail="Ce forfait ne s'achète pas en ligne.")
     monthly = plan_price(plan, zone, annual=annual)
     if not monthly:
         raise HTTPException(status_code=422, detail="Ce forfait ne s'achète pas en ligne.")
     months = 12 if annual else 1
-    return monthly, months, _with_fee(monthly * months)["amount"]
+    return monthly, months
 
 
 def _loses_rights(user: User, plan: str, now: datetime | None = None) -> bool:
@@ -316,10 +317,12 @@ async def plan_quote(body: PlanQuoteBody, request: Request,
                      user: User = Depends(require_auth)):
     """Prix d'un abonnement, tel qu'il sera encaissé par `POST /plan`."""
     zone = _zone_of(request)
-    monthly, months, amount = _plan_offer(body.plan, body.annual, zone)
+    monthly, months = _plan_offer(body.plan, body.annual, zone)
     _check_can_buy(user, body.plan)
     return {"plan": body.plan, "annual": body.annual, "months": months,
-            "monthly_price": monthly, **_with_fee(monthly * months),
+            "monthly_price": monthly, **_with_fee(monthly * months, zone),
+            # Frais propres à la carte : même bascule que `/quote`.
+            "card": _with_fee(monthly * months, zone, CARD),
             "currency": CURRENCY[zone], "zone": zone}
 
 
@@ -340,7 +343,7 @@ async def buy_plan(body: PlanBody, request: Request,
     chaque mois (ou année) est un nouveau paiement, qui prolonge l'échéance.
     """
     zone = _zone_of(request)
-    _monthly, months, amount = _plan_offer(body.plan, body.annual, zone)
+    monthly, months = _plan_offer(body.plan, body.annual, zone)
     _check_can_buy(user, body.plan)
     maintenant = datetime.now(timezone.utc)
     if body.method == CARD:
@@ -362,6 +365,7 @@ async def buy_plan(body: PlanBody, request: Request,
             status_code=409,
             detail="Un paiement de forfait est déjà en cours ; terminez-le ou patientez quelques minutes.")
     method, phone, provider = _resolve_method(body.method, body.phone, zone)
+    amount = _with_fee(monthly * months, zone, method)["amount"]
     payment = Payment(
         user_id=user.id, pages=0, amount=amount, currency=CURRENCY[zone],
         zone=zone, phone=phone, status="PENDING", provider=provider.name,

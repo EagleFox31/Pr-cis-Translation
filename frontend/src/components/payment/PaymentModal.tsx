@@ -373,7 +373,10 @@ export default function PaymentModal({
                     <div className="pay-breakdown">
                       <span>{t('payment.subtotal')}</span>
                       <span>{formatMoney(quote.subtotal, quote.currency, pricing.decimals, 'fr')}</span>
-                      <span>{t('payment.fee', { percent: pricing.fee_percent })}</span>
+                      {/* Carte : taux + part fixe, un pourcentage serait faux. */}
+                      <span>{chosen === 'card'
+                        ? t('payment.fee_card')
+                        : t('payment.fee', { percent: pricing.fee_percent })}</span>
                       <span>{formatMoney(quote.fee, quote.currency, pricing.decimals, 'fr')}</span>
                     </div>
                   )}

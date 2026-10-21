@@ -41,6 +41,8 @@ from app.core import payment_gateway as pg               # noqa: E402
 from app.core.payment_gateway import (paddle, PaddleClient, ProviderError,  # noqa: E402
                                       paddle_amount)
 from app.core.payment_methods import PROVIDERS, provider_for  # noqa: E402
+from app.core.pricing import (ZONE_AFRICA, card_fee, plan_price,  # noqa: E402
+                              transaction_fee)
 
 engine = create_async_engine(DATABASE_URL, poolclass=NullPool)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -310,7 +312,15 @@ async def check_routes(client, ok):
                and r1.json()["payment_id"] == r2.json()["payment_id"]
                and r2.json().get("checkout_url") == r1.json().get("checkout_url"),
                f"{r1.status_code} {r2.status_code} {r2.text[:120]} crees={crees}")
-            r3 = client.post("/api/payments/plan", json={**achat, "annual": False},
+            # Starter annuel zone A : 12 × 1 200 F nets + frais carte (5 % + 309 F).
+            net = 12 * plan_price("starter", ZONE_AFRICA, annual=True)
+            q = client.post("/api/payments/plan/quote", json=achat, headers=ent).json()
+            ok("ROUTE   forfait carte : frais carte au devis ET a l'encaissement",
+               q.get("card", {}).get("amount") == net + card_fee(net, "XAF")
+               == r1.json().get("amount")
+               and q.get("amount") == net + transaction_fee(net),
+               f"{q} {r1.json().get('amount')}")
+            r3 =client.post("/api/payments/plan", json={**achat, "annual": False},
                              headers=ent)
             ok("ROUTE   autre offre par carte : nouveau paiement, pas de 409",
                r3.status_code == 200 and r3.json()["payment_id"] != r1.json()["payment_id"],

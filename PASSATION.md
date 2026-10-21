@@ -1,9 +1,9 @@
 # PASSATION — 20/10/2026
 
 ## 1. Objectif en cours
-Paiement par carte (dont Visa prépayée) via Paddle Billing sur la méthode `card` : page `/paiement/carte` (Paddle.js inline dans l'iframe de `PaymentModal`) + webhook signé qui crédite comme Fapshi. Priorité utilisateur : VOIR le paiement carte fonctionner en sandbox.
+Paiement par carte (dont Visa prépayée) via Paddle Billing sur la méthode `card` : page `/paiement/carte` (Paddle.js inline dans l'iframe de `PaymentModal`) + webhook signé qui crédite comme Fapshi. Sandbox validé ; prochaine étape : passage en LIVE (prod).
 
-## 2. Fait (rien de commité, branche `feat/paiement-paddle`)
+## 2. Fait (commit d0826c6, branche `feat/paiement-paddle`, non poussée)
 - `backend/app/core/payment_gateway.py:461-620` : `paddle_amount`, `PaddleClient`, `verify_webhook_signature`.
 - `backend/app/core/payment_methods.py:111` : `PaddleProvider` ; `PADDLE_CHECKOUT_URL` (dev local) remplace le lien Paddle dans `checkout_url`.
 - `backend/app/api/payments.py` : webhook `POST /api/payments/paddle/webhook` ; garde « forfait en attente » (3 min) pour Mobile Money seulement ; carte : `_resume_card_plan` rouvre la transaction ouverte de la même offre (15 min), une autre offre crée un nouveau paiement.
@@ -25,8 +25,15 @@ Paiement par carte (dont Visa prépayée) via Paddle Billing sur la méthode `ca
 4. [x] Tests backend.
 5. [x] Doc.
 6. [x] Écarts de revue a–e corrigés, tests/build verts.
-7. [ ] ← Test sandbox : minimum carte à l'écran (1 page par carte → bouton grisé, « au moins 6 pages ») ; : paiement 4242 Pro 12 mois SUCCESSFUL en base (à confirmer à l'écran : crédit du forfait visible ; plus de message « Lien de paiement incomplet » au chargement). Reprise d'un checkout fermé OK (pas de 409).
-8. [ ] Commit conventionnel sans mention d'IA (pas de trailer).
+7. [x] Test sandbox (4242, Pro 12 mois crédité, reprise checkout, minimum carte).
+8. [x] Commit + doc `docs/paiement-carte-paddle.md`.
+9. [ ] Frais carte (étude `docs/etude-frais-carte.md`, A+B, 5 % + 0,50 $, minimum pages 3 000 F / 5 € / 5 $) :
+   9a. [x] Backend `pricing.py` (`card_fee`, `transaction_fee(..., method)`, `MIN_CARD_AMOUNT`) + `payments.py` (`_with_fee` par moyen, bloc `card` de `/plan/quote`, `/plan` et `/collect`) + `system.py`.
+   9b. [x] Tests backend (minimum, abonnements, paddle) + nouveaux cas frais carte.
+   9c. [x] Front : libellé frais carte sans %, bloc `card` du devis forfait, i18n fr/en ; tsc/lint/build.
+   9d. [x] Doc `paiement-carte-paddle.md` ; revue du diff ; commit.
+10. [ ] Passage en live : checklist « Passage en live » de `docs/paiement-carte-paddle.md` (MCP `paddle-live` sur demande explicite).
+11. [ ] Push + PR vers main.
 
 **Hors plan** : rattrapage serveur des paiements Fapshi `PENDING` (attend accord) ; secrets Paddle dans SSM au déploiement ; approbation du domaine en live ; test avec une vraie carte = mode live uniquement (sandbox : cartes de test seulement).
 

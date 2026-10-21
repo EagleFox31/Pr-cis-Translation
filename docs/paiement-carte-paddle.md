@@ -38,17 +38,23 @@ paiement. La garde « forfait en attente » (3 min, 409) ne vise que le Mobile M
 La base garde le montant dans la devise de la zone (XAF en zone A).
 
 **Minimum.** Paddle refuse une transaction sous `minimum_payment_amount`
-(`GET /currencies`) : 0,65 € et 0,70 $. Côté code, `MIN_CARD_AMOUNT`
-(`backend/app/core/pricing.py`) : 427 F, 70 c$, 65 c€, comparés au montant net.
-Sous ce seuil, la fenêtre grise le bouton et indique le nombre de pages minimum
+(`GET /currencies`) : 0,65 € et 0,70 $. Pour les **achats de pages**, Précis
+applique un seuil économique plus haut, `MIN_CARD_AMOUNT`
+(`backend/app/core/pricing.py`) : 3 000 F, 5 €, 5 $ net (40 / 42 / 27 pages en
+zones A / B / C), pour que la part fixe des frais reste diluée. Sous ce seuil,
+la fenêtre grise le bouton et indique le nombre de pages minimum
 (`payment.min_pages_card`), sans modifier la quantité. Le serveur applique la
 même règle (`billable_pages(zone, pages, method)`) ; un document payé au-delà
-de sa taille crédite le surplus au compte.
+de sa taille crédite le surplus au compte. Les forfaits ne s'arrondissent pas :
+ils gardent le seul minimum technique de Paddle, sous tous les prix.
 
-**Frais.** `PSP_FEE_PERCENT` (3 %) est ajouté au prix et payé par le client,
-pour tous les moyens, et détaillé dans la fenêtre avant paiement.
-À revoir avant la production : Paddle facture 5 % + 0,50 $ par transaction
-(à confirmer sur le contrat du compte), non couvert par les 3 % actuels.
+**Frais.** À la charge du client, détaillés dans la fenêtre avant paiement.
+Mobile money : `PSP_FEE_PERCENT` (3 %). Carte : tarif Paddle 5 % + 0,50 $
+(`CARD_FEE_PERCENT`, `CARD_FEE_FIXED` : 50 c$, 47 c€, 309 F), calculé « grossi »
+par `card_fee` pour que le net reçu après commission égale le prix catalogue :
+`total = ⌈(net + fixe) × 100 / 95⌉`. Libellé « Frais de paiement par carte »,
+sans pourcentage. La TVA éventuelle (`tax_mode: internal`) reste hors calcul ;
+voir `docs/etude-frais-carte.md`.
 
 ## Configuration
 
@@ -87,7 +93,7 @@ En production, les secrets vont dans SSM, jamais dans un fichier suivi.
 5. Clé API live et jeton client live ; `PADDLE_ENV=LIVE`,
    `VITE_PADDLE_ENV=production` ; retirer `PADDLE_CHECKOUT_URL`.
 6. Secrets dans SSM, redémarrage du backend, rebuild du front.
-7. Revoir les frais carte (cf. *Frais*) et vérifier que `MIN_CARD_AMOUNT`
-   correspond toujours à `GET /currencies` en live.
+7. Confirmer le tarif du contrat Paddle (`CARD_FEE_PERCENT`, `CARD_FEE_FIXED`)
+   et vérifier que le minimum de `GET /currencies` en live reste sous les prix.
 8. Paiement réel de faible montant avec une vraie carte, puis remboursement
    depuis le tableau de bord Paddle.
