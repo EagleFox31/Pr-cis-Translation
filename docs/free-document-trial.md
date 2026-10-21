@@ -29,8 +29,9 @@ the accepted-job response or the library record; it does not infer it from being
 on a paid subscription. All ownership checks remain server-side.
 
 The public pricing response includes monthly and annual charge totals computed
-with the same integer fee rounding as payment quotes. Plan cards include payment
-fees and show the full annual total. A rounded monthly equivalent is marked as
+with the same integer fee rounding as payment quotes. Plan cards display monthly
+prices without fee notes or explanatory footnotes; the payment modal retains
+the fee breakdown and full charge total. A rounded monthly equivalent is marked as
 approximate when the annual total cannot be divided exactly into twelve minor-unit
 amounts. Pay-as-you-go remains the published base page rate plus the disclosed
 fee; its total is confirmed by the existing payment quote before collection.
