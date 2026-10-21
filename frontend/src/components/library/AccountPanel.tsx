@@ -93,7 +93,7 @@ export default function AccountPanel({ user, refreshKey }: AccountPanelProps) {
                 {t('account.translations_left')}
               </span>
               <span className="compte__chiffres">
-                {t('account.free_left', { count: usage.free_translations_remaining ?? 0 })}
+                {t('account.free_left', { count: usage.pages_remaining ?? 0 })}
               </span>
             </div>
           ) : usage.monthly_pages == null ? (

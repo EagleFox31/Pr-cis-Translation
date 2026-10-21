@@ -45,6 +45,7 @@ interface DocumentLibraryProps {
     docId: string;
     filename: string;
     ext: string;
+    paid: boolean;
     source: Promise<Blob | undefined>;
   }) => void;
   onDelete: (id: string) => void;
@@ -86,7 +87,7 @@ export default function DocumentLibrary({
   // aller-retour de plusieurs mégaoctets par ouverture.
   const handlePreview = useCallback((doc: DocMeta) => {
     onPreview({
-      docId: doc.id,
+      docId: doc.id, paid: doc.paid,
       filename: doc.filename,
       ext: doc.ext,
       source: getOriginalBlob(doc.id, true),

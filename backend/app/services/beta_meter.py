@@ -47,7 +47,7 @@ def office_cost(data: bytes, ext: str) -> BetaCost:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             entries = archive.infolist()
             if len(entries) > 10_000 or sum(e.file_size for e in entries) > 128 * 1024 * 1024:
-                raise ValueError("Le document décompressé est trop volumineux pour la bêta.")
+                raise ValueError("Le document décompressé est trop volumineux pour être traité.")
             for entry in entries:
                 path = PurePosixPath(entry.filename.replace("\\", "/"))
                 if path.is_absolute() or ".." in path.parts or entry.flag_bits & 1:
