@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import (                     # noqa: E402
 from sqlalchemy.pool import NullPool                     # noqa: E402
 
 from app.core.database import DATABASE_URL               # noqa: E402
-from app.models import User, UsageRecord, KIND_PLAN      # noqa: E402
+from app.models import User, UsageRecord, KIND_PLAN, KIND_FREE_OFFER      # noqa: E402
 from app.core.security import create_access_token        # noqa: E402
 from app import config as cfg                            # noqa: E402
 from app import create_app                               # noqa: E402
@@ -105,10 +105,10 @@ async def run():
         with TestClient(create_app()) as client:
             # ── Gratuit : supprimer ne rend pas l'offre ─────────────────────
             u = comptes["libre"]
-            ok("GRATUIT  le profil annonce 1 traduction offerte",
-               reste(client, u).get("free_translations_remaining") == 1,
+            ok("GRATUIT  le profil annonce 5 pages offertes",
+               reste(client, u).get("free_translations_remaining") == 5,
                str(reste(client, u)))
-            r1 = deposer(client, u)
+            r1 = deposer(client, u, n_pages=5)
             ok("GRATUIT  la traduction offerte passe", r1.status_code == 200,
                f"{r1.status_code} {r1.text[:120]}")
             ok("GRATUIT  le profil annonce 0 ensuite",
@@ -128,13 +128,13 @@ async def run():
 
             # ── Échec de traduction : l'offre est rendue ────────────────────
             u = comptes["echec"]
-            r = deposer(client, u)
+            r = deposer(client, u, n_pages=5)
             job_id = r.json().get("job_id")
             await asyncio.to_thread(jobs.sync_status, job_id, "error")
             ok("ÉCHEC  une traduction échouée rend l'offre du mois",
-               reste(client, u).get("free_translations_remaining") == 1)
+               reste(client, u).get("free_translations_remaining") == 5)
             await asyncio.to_thread(jobs.sync_status, job_id, "error")
-            r = deposer(client, u)
+            r = deposer(client, u, n_pages=5)
             ok("ÉCHEC  on peut donc relancer", r.status_code == 200,
                f"{r.status_code} {r.text[:120]}")
             r = deposer(client, u)
@@ -143,8 +143,10 @@ async def run():
 
             # ── Pages achetées : débitées, remboursées en cas d'échec ───────
             u = comptes["credits"]
-            # Les pages achetées passent AVANT l'offre : qui a payé reçoit une
-            # traduction lisible, pas un essai masqué.
+            # Offre mensuelle déjà consommée : tester le débit des seuls crédits.
+            async with async_session() as db:
+                db.add(UsageRecord(user_id=u.id, kind=KIND_FREE_OFFER, pages=5))
+                await db.commit()
             r = deposer(client, u, n_pages=2)
             ok("CRÉDITS  2 pages achetées couvrent un document de 2 pages",
                r.status_code == 200, f"{r.status_code} {r.text[:120]}")

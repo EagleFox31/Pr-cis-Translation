@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (KIND_CREDITS, KIND_FREE_OFFER, KIND_LEGACY, UsageRecord,
-                        User, get_plan_monthly_pages, get_plan_page_limit)
+                        User, get_plan_monthly_pages)
 
 
 def month_start(now: datetime | None = None) -> datetime:
@@ -58,18 +58,30 @@ def _du_mois(user_id: str):
             UsageRecord.refunded.is_(False))
 
 
-async def free_offer_used(db: AsyncSession, user_id: str) -> bool:
-    """La traduction offerte du mois a-t-elle déjà servi ?
+async def free_pages_used(db: AsyncSession, user_id: str) -> int:
+    """Pages offertes réservées ce mois-ci, même si le document a été supprimé.
 
-    `legacy` compte aussi : avant le registre, tout document du mois
-    consommait l'offre."""
+    Les anciennes offres et reprises restent comptées à leur valeur réelle.
+    Un remboursement est exclu ; un achat ne consomme pas ce quota.
+    """
     r = await db.execute(
-        select(func.count()).select_from(UsageRecord).where(
+        select(func.coalesce(func.sum(UsageRecord.pages), 0)).where(
             *_du_mois(user_id),
             UsageRecord.kind.in_((KIND_FREE_OFFER, KIND_LEGACY)),
         )
     )
-    return (r.scalar() or 0) >= 1
+    return int(r.scalar() or 0)
+
+
+async def free_offer_used(db: AsyncSession, user_id: str) -> bool:
+    """Compatibilité : le quota offert du mois est-il épuisé ?"""
+    return await free_pages_used(db, user_id) >= get_plan_monthly_pages("free")
+
+
+async def free_pages_remaining(db: AsyncSession, user: User) -> int:
+    if not user.email_verified:
+        return 0
+    return max(0, get_plan_monthly_pages("free") - await free_pages_used(db, user.id))
 
 
 async def pages_used_this_month(db: AsyncSession, user: User) -> int:
@@ -147,10 +159,16 @@ async def rebill_for_document(db: AsyncSession, document_id: str) -> None:
 async def usage_summary(db: AsyncSession, user: User) -> dict:
     """Ce qu'il reste à l'utilisateur ce mois-ci, tel que la route l'appliquera."""
     plan = user.plan
-    if get_plan_page_limit(plan) == 1:
-        offert = 0 if await free_offer_used(db, user.id) else 1
+    if plan == "free":
+        utilise = await free_pages_used(db, user.id)
+        offert = (max(0, get_plan_monthly_pages("free") - utilise)
+                  if user.email_verified else 0)
         return {
             "kind": "free",
+            "monthly_pages": get_plan_monthly_pages("free"),
+            "pages_used": utilise,
+            "pages_remaining": offert,
+            # Ancien champ conservé pour les clients déjà ouverts.
             "free_translations_remaining": offert,
             "page_credits": user.page_credits,
             "resets_at": _mois_suivant().isoformat(),

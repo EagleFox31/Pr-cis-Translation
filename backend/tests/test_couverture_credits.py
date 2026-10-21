@@ -56,6 +56,15 @@ class _File:
         self.soumis.append((job_id, args))
 
 
+def _docx() -> bytes:
+    from docx import Document as WordDocument
+    data = io.BytesIO()
+    document = WordDocument()
+    document.add_paragraph("A valid small document")
+    document.save(data)
+    return data.getvalue()
+
+
 def _pdf(n: int) -> bytes:
     doc = fitz.open()
     for i in range(n):
@@ -75,7 +84,7 @@ async def _compte(plan: str, credits: int, offre_prise: bool = False,
         db.add(u)
         await db.flush()
         if offre_prise:
-            db.add(UsageRecord(user_id=u.id, kind=KIND_FREE_OFFER, pages=1))
+            db.add(UsageRecord(user_id=u.id, kind=KIND_FREE_OFFER, pages=5))
         if quota_pris:
             db.add(UsageRecord(user_id=u.id, kind=KIND_PLAN, pages=quota_pris))
         await db.commit()
@@ -158,28 +167,28 @@ async def run():
     try:
         # ── Gratuit, offre du mois libre, document de 3 pages ──────────────
         uid = await compte("free", 0)
-        r = await _importer(uid, _pdf(3))
+        r = await _importer(uid, _pdf(7))
         c = r["corps"]
-        ok("GRATUIT-ESSAI  3 pages sans solde : 402 need_credits AVANT traduction",
+        ok("GRATUIT-ESSAI  7 pages sans solde : 402 need_credits AVANT traduction",
            r["statut"] == 402 and c.get("reason") == "need_credits"
            and r["soumis"] is None, f"{r['statut']} {c}")
-        ok("GRATUIT-ESSAI  manquent 3 pages, 1 couverte (essai), partiel possible",
-           c.get("pages_missing") == 3 and c.get("pages_available") == 1
+        ok("GRATUIT-ESSAI  manquent 2 pages, 5 couvertes (offre), partiel possible",
+           c.get("pages_missing") == 2 and c.get("pages_available") == 5
            and c.get("partial_possible") is True and c.get("trial") is True, str(c))
         ok("GRATUIT-ESSAI  refus : rien consommé", r["registre"] == [], str(r["registre"]))
 
-        r = await _importer(uid, _pdf(3), covered_only="1")
-        ok("GRATUIT-ESSAI  choix « couvertes » : page 1 seule traduite",
-           r["statut"] == 200 and r["soumis"] == {1}, f"{r['statut']} {r['soumis']}")
-        ok("GRATUIT-ESSAI  offre consommée, document NON payé (aperçu masqué)",
-           r["registre"] == [(KIND_FREE_OFFER, 1)] and r["doc"].paid is False,
+        r = await _importer(uid, _pdf(7), covered_only="1")
+        ok("GRATUIT-ESSAI  choix « couvertes » : pages 1 à 5 traduites",
+           r["statut"] == 200 and r["soumis"] == {1, 2, 3, 4, 5}, f"{r['statut']} {r['soumis']}")
+        ok("GRATUIT-ESSAI  offre consommée, résultat accessible",
+           r["registre"] == [(KIND_FREE_OFFER, 5)] and r["doc"].paid is True,
            f"{r['registre']} paid={r['doc'] and r['doc'].paid}")
 
         # ── Gratuit, document d'une page, offre libre : passe sans question ─
         uid = await compte("free", 0)
         r = await _importer(uid, _pdf(1))
         ok("GRATUIT-ESSAI  1 page : l'offre couvre tout, aucun avertissement",
-           r["statut"] == 200 and r["soumis"] == {1}, f"{r['statut']} {r['soumis']}")
+           r["statut"] == 200 and r["soumis"] is None, f"{r['statut']} {r['soumis']}")
 
         # ── Gratuit avec solde partiel ─────────────────────────────────────
         uid = await compte("free", 2, offre_prise=True)
@@ -200,9 +209,9 @@ async def run():
         # ── Gratuit, solde présent : l'achat passe AVANT l'essai ───────────
         uid = await compte("free", 5)
         r = await _importer(uid, _pdf(3))
-        ok("GRATUIT-SOLDE  solde suffisant : tout traduit, payé, offre intacte",
-           r["statut"] == 200 and r["soumis"] is None and r["solde"] == 2
-           and r["registre"] == [(KIND_CREDITS, 3)] and r["doc"].paid,
+        ok("GRATUIT-SOLDE  offre disponible : utilisée avant les crédits achetés",
+           r["statut"] == 200 and r["soumis"] is None and r["solde"] == 5
+           and r["registre"] == [(KIND_FREE_OFFER, 3)] and r["doc"].paid,
            f"{r['statut']} {r['soumis']} solde={r['solde']} {r['registre']}")
 
         # ── Solde modifié entre l'authentification et le verrou ────────────
@@ -219,14 +228,14 @@ async def run():
 
         # ── Gratuit, autres formats : les pages achetées y donnent droit ───
         uid = await compte("free", 0)
-        r = await _importer(uid, b"PK\x03\x04 pas un vrai docx", nom="d.docx")
-        ok("GRATUIT-DOCX  sans solde : refusé (l'essai ne vaut que PDF/PPTX)",
-           r["statut"] == 402 and r["registre"] == [], f"{r['statut']} {r['corps']}")
+        r = await _importer(uid, _docx(), nom="d.docx")
+        ok("GRATUIT-DOCX  sans solde : couvert par l'offre et exportable",
+           r["statut"] == 200 and r["registre"] == [(KIND_FREE_OFFER, 1)] and r["doc"].paid, f"{r['statut']} {r['corps']}")
         uid = await compte("free", 4)
-        r = await _importer(uid, b"PK\x03\x04 pas un vrai docx", nom="d.docx")
-        ok("GRATUIT-DOCX  pages achetées : traduit, débité, payé, offre intacte",
-           r["statut"] == 200 and r["registre"] == [(KIND_CREDITS, 1)]
-           and r["solde"] == 3 and r["doc"].paid,
+        r = await _importer(uid, _docx(), nom="d.docx")
+        ok("GRATUIT-DOCX  offre disponible : crédits achetés conservés",
+           r["statut"] == 200 and r["registre"] == [(KIND_FREE_OFFER, 1)]
+           and r["solde"] == 4 and r["doc"].paid,
            f"{r['statut']} {r['corps'] if r['statut'] != 200 else ''} "
            f"solde={r['solde']} {r['registre']}")
 
@@ -267,7 +276,7 @@ async def run():
            and r["solde"] == 0, f"{r['registre']} solde={r['solde']}")
 
         uid = await compte("starter", 0, quota_pris=100)
-        r = await _importer(uid, b"PK\x03\x04 pas un vrai docx", nom="d.docx",
+        r = await _importer(uid, _docx(), nom="d.docx",
                             covered_only="1")
         ok("STARTER  quota épuisé, DOCX : 402, partiel impossible",
            r["statut"] == 402 and r["corps"].get("partial_possible") is False,

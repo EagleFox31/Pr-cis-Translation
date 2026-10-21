@@ -296,13 +296,14 @@ class BetaTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(restored.json()["expires_at"], enrollment["expires_at"])
         self.assertEqual(restored.json()["formats"]["pdf"]["used"], 2)
 
-    async def test_explicit_regular_plan_choice_uses_existing_credit_rules(self):
+    async def test_explicit_regular_plan_choice_uses_free_quota_without_beta_usage(self):
         enrollment = await self.activate_tester()
         result = await self.translate(pdf(2), use_beta="0")
         self.assertEqual(result.status_code, 200, result.text)
         async with self.sessions() as db:
             self.assertEqual(await beta.totals(db, enrollment["id"]), {})
-            self.assertEqual((await db.get(User, self.tester.id)).page_credits, 5)
+            self.assertEqual((await db.get(User, self.tester.id)).page_credits, 7)
+            self.assertEqual(await usage.free_pages_used(db, self.tester.id), 2)
 
     async def test_default_updates_do_not_change_existing_allowances_or_recruitment_dates(self):
         enrollment = await self.activate_tester()
