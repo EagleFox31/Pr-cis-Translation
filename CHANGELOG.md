@@ -8,6 +8,13 @@ leurs propres numéros internes.
 
 Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 
+## [1.6.0](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.5.2...v1.6.0) (2026-10-21)
+
+
+### Features
+
+* **trial:** offer five usable document pages per month ([#45](https://github.com/EagleFox31/Pr-cis-Translation/issues/45)) ([04395f5](https://github.com/EagleFox31/Pr-cis-Translation/commit/04395f59f2bd1da5750c49aec1cc1369c43d2c63))
+
 ## [1.5.2](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.5.1...v1.5.2) (2026-10-20)
 
 
