@@ -8,6 +8,13 @@ leurs propres numéros internes.
 
 Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 
+## [1.6.1](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.6.0...v1.6.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* **pricing:** make billing period controls accessible and reliable ([#47](https://github.com/EagleFox31/Pr-cis-Translation/issues/47)) ([46a6392](https://github.com/EagleFox31/Pr-cis-Translation/commit/46a63926bb5d1ab42cace19b414f3217f92037f7))
+
 ## [1.6.0](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.5.2...v1.6.0) (2026-10-21)
 
 
