@@ -42,7 +42,8 @@ async def _lifespan(_app: FastAPI):
     et chaque ligne apparaissait en double. Seul le worker traverse le lifespan.
     """
     from app.services import office
-    from app.services.startup import reconcilier_jobs_orphelins
+    from app.services.startup import (purger_invitations_anciennes,
+                                      reconcilier_jobs_orphelins)
     from app.services.stockage import balayer_au_demarrage
 
     # `print` peut LEVER : la console Windows est en cp1252, et un caractère
@@ -63,6 +64,7 @@ async def _lifespan(_app: FastAPI):
     # APRÈS la réconciliation : les jobs perdus sont clos, la table des jobs
     # est vide, tout ce qui appartient à un job est orphelin par construction.
     await balayer_au_demarrage()
+    await purger_invitations_anciennes()
     office.prewarm()
     # Décor de l'aperçu d'essai : ~5 s au premier calque, payées ici en tâche
     # de fond plutôt que par le premier visiteur gratuit après un déploiement.
@@ -180,6 +182,7 @@ def create_app() -> FastAPI:
     from app.api.beta import router as beta_router
     from app.api.auth import router as auth_router
     from app.api.documents import router as documents_router
+    from app.api.invitations import router as invitations_router
     from app.api.logs import router as logs_router
     from app.api.payments import router as payments_router
     from app.api.support import router as support_router
@@ -187,7 +190,7 @@ def create_app() -> FastAPI:
     from app.api.translate import router as translate_router
 
     for router in (admin_users_router, beta_router, auth_router, documents_router,
-                   logs_router, payments_router, support_router,
+                   invitations_router, logs_router, payments_router, support_router,
                    system_router, translate_router):
         application.include_router(router)
 

@@ -77,6 +77,7 @@ Selon ce que touche le changement, **avant de livrer** :
 | Socle commun des moteurs | [`backend/engines/CONTEXTE.md`](backend/engines/CONTEXTE.md) |
 | Un moteur en particulier | `backend/engines/<moteur>/CONTEXTE.md` |
 | Étude d'une feature à venir (OCR) | [`docs/etude-ocr.md`](docs/etude-ocr.md) |
+| Étude des invitations par e-mail | [`docs/etude-invitations.md`](docs/etude-invitations.md) |
 
 ---
 
