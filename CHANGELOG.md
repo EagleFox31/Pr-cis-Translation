@@ -8,6 +8,13 @@ leurs propres numéros internes.
 
 Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 
+## [1.6.2](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.6.1...v1.6.2) (2026-10-21)
+
+
+### Bug Fixes
+
+* **pricing:** remove fee notes from plan cards ([#49](https://github.com/EagleFox31/Pr-cis-Translation/issues/49)) ([3c18341](https://github.com/EagleFox31/Pr-cis-Translation/commit/3c18341272bbff35bb389fe724aaf3a0f3117c7c))
+
 ## [1.6.1](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.6.0...v1.6.1) (2026-10-21)
 
 
