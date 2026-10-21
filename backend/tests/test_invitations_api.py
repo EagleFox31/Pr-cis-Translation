@@ -11,7 +11,7 @@ CE QUI EST VÉRIFIÉ
   6. PURGE     — les traces de plus de 30 jours sont effacées.
 
 L'envoi réel est remplacé par un enregistreur : aucun e-mail ne part.
-Base PostgreSQL requise (DATABASE_URL). Si la migration 0010 n'est pas encore
+Base PostgreSQL requise (DATABASE_URL). Si la migration 0013 n'est pas encore
 appliquée, la table est créée pour le test puis supprimée — l'historique
 Alembic n'est pas touché.
 

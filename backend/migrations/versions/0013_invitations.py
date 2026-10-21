@@ -3,16 +3,16 @@
 Trace de chaque e-mail d'invitation envoyé : sert de garde contre l'abus (quota
 quotidien par compte, pas deux invitations à la même adresse trop rapprochées).
 
-Revision ID: 0010_invitations
-Revises: 0009_abonnements
+Revision ID: 0013_invitations
+Revises: 0012_beta_abuse_guards
 Create Date: 2026-10-20
 """
 from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = "0010_invitations"
-down_revision: Union[str, None] = "0009_abonnements"
+revision: str = "0013_invitations"
+down_revision: Union[str, None] = "0012_beta_abuse_guards"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

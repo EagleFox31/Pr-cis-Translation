@@ -59,7 +59,7 @@ après la première traduction réussie (non fait, à valider).
 ## 3. Ce qui est en place
 
 - `POST /api/invitations` (`backend/app/api/invitations.py`), table
-  `invitations` (migration 0010).
+  `invitations` (migration 0013).
 - E-mail fr/en dans la langue de l'interface de l'inviteur, logo embarqué,
   version texte, « pourquoi vous recevez ce message »
   (`backend/app/core/email.py`, `email_content.py`).
@@ -101,4 +101,4 @@ après la première traduction réussie (non fait, à valider).
 - `backend/tests/test_invitations_api.py` à lancer sur une base (garde-fous de
   bout en bout).
 - Vérification de la fenêtre dans le navigateur.
-- `alembic upgrade head` au déploiement (migration 0010).
+- `alembic upgrade head` au déploiement (migration 0013).
