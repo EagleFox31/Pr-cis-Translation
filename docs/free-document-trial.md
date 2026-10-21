@@ -4,6 +4,8 @@ Verified free accounts receive five equivalent pages per calendar month. PDF pag
 and PowerPoint slides each consume one unit; Word, Excel and UTF-8 TXT consume
 one unit per started block of 500 extracted words. Office formulas, numeric cells
 and blank cells do not consume words. Unspaced CJK characters count individually.
+Long unbroken strings are split into 50-character word equivalents to prevent
+an arbitrarily large token being billed as one word.
 The same unit definition applies to normal plans and purchased page credits, so a
 large Office file cannot bypass quota by being counted as one file.
 

@@ -100,6 +100,11 @@ class FreeDocumentTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(ext=ext):
                 self.assertEqual(count_pages(data, ext), 2)
         self.assertEqual(count_pages(docx(500), "docx"), 1)
+        # A compressed file containing one enormous token cannot buy unlimited
+        # model input by pretending it contains just one word.
+        huge_token = await self.upload(("a" * 150001).encode(), "unbroken.txt")
+        self.assertEqual(huge_token.status_code, 402, huge_token.text)
+        self.assertGreater(huge_token.json()["pages_needed"], 5)
         response = await self.upload(fixtures.xlsx(2501), "large.xlsx", covered_only="1")
         self.assertEqual(response.status_code, 402, response.text)
         self.assertEqual(response.json()["pages_needed"], 6)
