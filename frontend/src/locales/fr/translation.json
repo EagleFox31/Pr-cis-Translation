@@ -165,10 +165,6 @@
   "pricing": {
     "feat_free_page_other": "{{count}} pages équivalentes offertes par mois",
     "feat_all_formats": "PDF, Word, PowerPoint, Excel et TXT",
-    "billed_annually_total": "{{total}} facturés par an, frais inclus",
-    "fees_included": "Forfaits : frais de paiement inclus.",
-    "equivalence": "PDF : pages · PowerPoint : diapositives · Word, Excel et TXT : 1 page pour {{count}} mots, arrondie au supérieur.",
-    "payg_fees": "+ {{percent}} % de frais, total confirmé avant paiement.",
     "tag": "Nos Tarifs Transparents",
     "title": "Des prix <strong>transparents</strong>",
     "monthly": "Mensuel",

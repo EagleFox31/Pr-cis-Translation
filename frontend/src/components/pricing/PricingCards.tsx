@@ -204,14 +204,6 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
               )}
             </div>
 
-            {/* L'engagement annuel se facture à l'année : le dire ici évite de
-                laisser croire qu'on peut résilier au mois à ce prix-là. */}
-            {isAnnual && billedTotal !== null && billedTotal !== 0 && (
-              <p className="pricing-annuel">{t('pricing.billed_annually_total', {
-                total: formatMoney(billedTotal, pricing.currency, pricing.decimals, locale),
-              })}</p>
-            )}
-
             <div className="pricing-divider" />
 
             <ul className="pricing-features">
@@ -241,9 +233,6 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
       })}
     </div>
 
-    <p className="pricing-annuel">{t('pricing.fees_included')}</p>
-    <p className="pricing-annuel">{t('pricing.equivalence', { count: pricing.words_per_page })}</p>
-
     {/* Payer à la page, sans s'abonner : une offre à part entière, sous la
         grille, et non un lien accroché à la seule carte Gratuit. Les pages
         achetées restent créditées sur le compte jusqu'à leur utilisation. */}
@@ -254,7 +243,6 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
           {t('pricing.payg_text', {
             price: formatMoney(pricing.page_price, pricing.currency, pricing.decimals, locale) })}
         </p>
-        <p className="pricing-annuel">{t('pricing.payg_fees', { percent: pricing.fee_percent })}</p>
       </div>
       <a href={user ? '#' : '/login'} className="btn-pricing pricing-payg__btn"
          onClick={(e) => { e.preventDefault(); if (user) setPackOpen(true); else navigate('/login'); }}>
