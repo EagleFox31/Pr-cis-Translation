@@ -11,6 +11,7 @@ import VerifyEmailPage from './pages/VerifyEmailPage';
 import AdminLogsPage from './pages/AdminLogsPage';
 import AdminUsersPage from './pages/AdminUsersPage';
 import AdminSupportPage from './pages/AdminSupportPage';
+import AdminDocumentsPage from './pages/AdminDocumentsPage';
 import './beta.css';
 import { authReturnTo } from './lib/authReturn';
 
@@ -58,6 +59,7 @@ export default function App() {
           <Route path="/verify-email" element={<VerifyEmailPage />} />
           <Route path="/admin/logs" element={<AdminRoute><AdminLogsPage /></AdminRoute>} />
           <Route path="/admin/users" element={<AdminRoute><AdminUsersPage /></AdminRoute>} />
+          <Route path="/admin/documents" element={<AdminRoute><AdminDocumentsPage /></AdminRoute>} />
           <Route path="/admin/support" element={<AdminRoute><AdminSupportPage /></AdminRoute>} />
           <Route path="/admin/beta" element={<AdminRoute><Suspense fallback={null}><AdminBetaPage /></Suspense></AdminRoute>} />
           <Route path="/beta" element={<Suspense fallback={null}><BetaPage /></Suspense>} />

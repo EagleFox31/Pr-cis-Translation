@@ -15,6 +15,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useDocumentLibrary } from '../hooks/useDocumentLibrary';
 import { useStreamingTranslation } from '../hooks/useStreamingTranslation';
 import { isTrialFor } from '../lib/plans';
+import { subscribeSection } from '../lib/sectionBus';
 import type { TranslateConfig } from '../components/upload/TranslationSection';
 
 export default function Home() {
@@ -129,28 +130,19 @@ export default function Home() {
   // défiler jusqu'à lui. En le fermant, on revient sur le formulaire de
   // traduction, quel que soit l'endroit d'où l'aperçu a été ouvert.
   const apercuEtaitOuvert = useRef(false);
-  const retourVers = useRef<'story' | 'pricing'>('story');
+  const retourVers = useRef<string>('story');
   useEffect(() => {
     if (apercuEtaitOuvert.current && !showPreview) {
       document.getElementById(retourVers.current)?.scrollIntoView({ behavior: 'instant' });
+      // Le scroll spy ne voit pas ce saut (aucune transition d'intersection
+      // sous la surcouche) : la barre restait sur « Fonctionnement ».
+      setActiveSection(retourVers.current);
       retourVers.current = 'story';
     }
     apercuEtaitOuvert.current = showPreview;
   }, [showPreview]);
 
   const toggleFocus = useCallback(() => setPreviewFocus((v) => !v), []);
-
-  // ---- Nav click handler ----
-  const handleNavClick = useCallback((sectionId: string) => {
-    // Quitter une autre section depuis le mode agrandi : on revient d'abord au
-    // rendu NORMAL (la surcouche plein cadre `preview-focus` est `position:fixed`
-    // + `overflow:hidden` — sans ça, le scroll vers la cible n'aurait aucun effet).
-    setPreviewFocus(false);
-    const el = document.getElementById(sectionId);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, []);
 
   // ---- Démarrage de la traduction : l'aperçu s'ouvre IMMÉDIATEMENT, les pages
   //      traduites y apparaissent au fil de l'eau (streaming page par page). ----
@@ -380,6 +372,65 @@ export default function Home() {
     handleBack();
   }, [handleBack]);
 
+  // ---- Nav click handler ----
+  // La barre reste visible au-dessus de l'aperçu, mais l'aperçu est une
+  // surcouche FIXE : défiler vers une section la faisait bouger dessous, sans
+  // rien changer à l'écran — on « restait bloqué » jusqu'au bouton Retour.
+  // On ferme donc l'aperçu (comme Retour) et l'effet de fermeture défile vers
+  // la cible. La traduction continue côté serveur, le document reste dans la
+  // bibliothèque.
+  const handleNavClick = useCallback((sectionId: string) => {
+    setPreviewFocus(false);
+    if (showPreview) {
+      retourVers.current = sectionId;
+      handleBack();
+      return;
+    }
+    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth' });
+  }, [showPreview, handleBack]);
+
+  // Même règle pour TOUT ce qui mène à une section, pas seulement la barre :
+  // boutons « voir les forfaits » (`goToSection`) et liens `#section` de la
+  // page. Un lien dont le composant gère déjà le clic (preventDefault) est
+  // laissé tel quel.
+  useEffect(() => {
+    const onLink = (e: MouseEvent) => {
+      if (!showPreview || e.defaultPrevented || e.button !== 0) return;
+      const a = (e.target as Element | null)?.closest?.('a[href^="#"]');
+      const id = a?.getAttribute('href')?.slice(1);
+      if (!id || !document.getElementById(id)) return;
+      e.preventDefault();
+      handleNavClick(id);
+    };
+    const off = subscribeSection(handleNavClick);
+    document.addEventListener('click', onLink);
+    return () => { off(); document.removeEventListener('click', onLink); };
+  }, [showPreview, handleNavClick]);
+
+  // ---- Original : le fichier tel qu'il a été déposé ----
+  // Document de la bibliothèque : le serveur le renvoie au format NATIF (le
+  // panneau gauche n'en a qu'une conversion PDF). Traduction en direct : c'est
+  // le fichier local, déjà en main.
+  const handleDownloadOriginal = useCallback(async () => {
+    let blob: Blob | undefined;
+    let name = selectedFile?.name ?? 'document';
+    if (libraryDocId) {
+      blob = await getOriginalBlob(libraryDocId);
+      name = documents.find((d) => d.id === libraryDocId)?.originalName ?? name;
+    } else {
+      blob = selectedFile ?? undefined;
+    }
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  }, [libraryDocId, selectedFile, documents, getOriginalBlob]);
+
   // Aperçu du panneau « traduit » : blob final si dispo, sinon PDF partiel
   // (pages déjà prêtes), mis à jour au fil de l'eau pendant le streaming.
   const previewTranslatedBlob = translatedBlob ?? stream.partialBlob;
@@ -414,9 +465,37 @@ export default function Home() {
     };
     // Ctrl + molette = zoom (comme un lecteur PDF). `passive:false` pour pouvoir
     // annuler le zoom natif de la page.
+    // Molette seule : on défile dans la page ; une fois le BORD atteint, un
+    // nouvel élan passe à la page suivante / précédente. Le seuil cumulé et la
+    // pause évitent qu'un pavé tactile (inertie) saute plusieurs pages d'un coup.
     const scrollEl = document.getElementById('scroll');
+    let cumul = 0;
+    let bloqueJusqua = 0;
     const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey) return;
+      if (!e.ctrlKey) {
+        if (!scrollEl || e.deltaY === 0) return;
+        const enBas = scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 2;
+        const enHaut = scrollEl.scrollTop <= 2;
+        const sens = e.deltaY > 0 ? 1 : -1;
+        if ((sens > 0 && !enBas) || (sens < 0 && !enHaut)) { cumul = 0; return; }
+        e.preventDefault();
+        const now = Date.now();
+        if (now < bloqueJusqua) return;
+        if (Math.sign(cumul) !== sens) cumul = 0;
+        cumul += e.deltaY;
+        if (Math.abs(cumul) < 60) return;
+        cumul = 0;
+        bloqueJusqua = now + 500;
+        setCurrentPage((p) => {
+          const n = Math.min(effectiveNumPages, Math.max(1, p + sens));
+          // Nouvelle page vue depuis son début (en avançant) ou sa fin (en reculant).
+          if (n !== p) requestAnimationFrame(() => {
+            scrollEl.scrollTop = sens > 0 ? 0 : scrollEl.scrollHeight;
+          });
+          return n;
+        });
+        return;
+      }
       e.preventDefault();
       setZoom((z) => Math.min(3, Math.max(0.5,
         +(z + (e.deltaY < 0 ? 0.15 : -0.15)).toFixed(2))));
@@ -509,6 +588,7 @@ export default function Home() {
           onZoomChange={setZoom}
           onPageChange={setCurrentPage}
           onDownload={handleDownload}
+          onDownloadOriginal={selectedFile ? handleDownloadOriginal : undefined}
           onPagesLoaded={setNumPages}
           onLibraryOpen={() => setShowLibrary(true)}
         />

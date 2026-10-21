@@ -1,33 +1,37 @@
-# PASSATION
+# PASSATION — 20/10/2026
 
 ## 1. Objectif en cours
-Résolution des polices non embarquées dans le moteur PDF (téléchargement à l'identique, sinon clone métrique, sinon police la plus proche), branche `feat/polices-telechargement-substitution`, moteur 1.0.12.
+Branche `feat/visionneuse` (worktree `Precis-Translator-visionneuse`) : visionneuse (sortie libre, molette = page suivante, vignettes lisibles, re-télécharger l'original), plancher de fidélité de la retraduction compacte, documents originaux côté admin. Étude : `docs/etude-visionneuse.md`. **En attente de la vérification locale par l'utilisateur.**
 
 ## 2. Fait
-- Ticket CD26052553710 : points 1–7 commités (point 8 laissé de côté à la demande).
-- `backend/engines/pdf/polices.py` (nouveau) : `Resolveur` (identique locale / Google Fonts css2 validée famille-pente-graisse-encre / clone `CLONES` / plus proche par largeurs), cache `translations/_polices`, absences 30 j, disjoncteur réseau, verrou par variante en vol, redirections hors `_HOTES` refusées, échéance globale.
-- `backend/engines/pdf/engine.py` : profils de largeur (`_measure_span`, `_font_profiles_from`), chaîne `_full_fallback_font`.
-- `backend/engines/pdf/stream.py:149-153` : profils passés à `_extract_fonts` (sans eux, la couche « proche » était aveugle en production).
-- `backend/scripts/precharger_polices.py` : ~90 familles pré-chargées dans `backend/fonts/catalogue` (gitignoré + dockerignoré) ; lancé au build (`Dockerfile`, non bloquant) ; Carlito/Caladea installés.
-- `backend/tests/test_polices.py` : 20/20 ; `racine.py` pose `PRECIS_FONT_DOWNLOAD/SYSTEM/CATALOGUE=0`.
-- `test_rendu_structure.py` : `fiche_document` simulé (appelait réellement DeepSeek).
-- Commits : c6dfe71, a588a76, 2192374. 9 suites moteur en code 0.
+- `frontend/src/lib/sectionBus.ts` (`goToSection`) + écoute dans `Home.tsx` (après `handleNavClick`) : tout lien `#section` et bouton « voir les forfaits » ferme l'aperçu puis défile (`StorySection.tsx`, `ViewerToolbar.tsx`).
+- Molette en bord de page, vignettes bordure verte + coche, bouton « Original » (`ViewerToolbar.tsx`, `Home.tsx` `handleDownloadOriginal`).
+- `backend/engines/pdf/translate.py` `retranslate_overflows` : version compacte < 60 % de la source rejetée.
+- `backend/app/api/admin_documents.py` + page `/admin/documents`.
+- Vérif : tsc, lint, build OK ; test_retraduction_fidele 3/3, redécoupage 12/12, test_admin_documents 14/14 (test corrigé : l'espace de « attachment; » faisait échouer le contrôle), test_admin_users 10/10.
 
-## 3. Décisions prises
-- Serif détecté par le nom seulement : le drapeau MuPDF n'est pas fiable.
-- Largeurs mesurées prioritaires dans le score « proche » (chasse fixe pénalité 10).
-- Base14 (Helvetica/Times/Courier) gardé en raccourci : métriques identiques à Liberation.
-- Pré-chargement laissé après `COPY backend/` : `engines/__init__.py` importe tous les moteurs.
+## 3. Décisions
+- Analyse « Les 4S en bref » : faite sur la capture d'écran + lecture du code, SANS le fichier original → hypothèse, testée en simulation ; à confirmer en retraduisant 4S_EN.pdf.
+- Ports 3000/8000 imposés (origines autorisées dans la console Google OAuth) : ne pas lancer sur un autre port.
 
-## 4. Reste à faire
-1. FAIT (1.0.11) : liste blanche `backend/fonts/google_familles.txt` (1950 familles, seules interrogées) ; rendu fait réseau dégradé non conservé (`render_cache.marque_polices()` → `store_render(..., marque)`) ; polices système désactivées par défaut (`PRECIS_FONT_SYSTEM=1` pour les activer). test_polices 23/23.
-2. FAIT (1.0.12) : `fsType=2` exclu de l'index ; « Arial Black », « Helvetica-Narrow » et autres chasses gardés dans la famille ; `absences.json` purgé et borné à 5000, plafond de 60 téléchargements par heure (refus noté comme dégradation) ; `PRECIS_FONTS_CACHE` posé par `app/config.py`.
-3. FAIT (1.0.12) : `categorie()` (catalogue Google `Famille	Catégorie`, puis marques du nom) sert aux fiches locales (panose souvent muet) et à la cible ; un changement de catégorie coûte 5.0 dans « proche ». test_polices 28/28, générique 100/100.
-4. Pousser la branche / PR vers main.
+## 4. Plan
+1. [x] Nav depuis l'aperçu : `handleNavClick` ferme l'aperçu puis défile (`Home.tsx`).
+1b. [x] Tout lien / bouton vers une section (pas seulement la barre) — commit local 9dea336.
+2. [x] Molette en bord de page → page suivante / précédente (`Home.tsx`).
+3. [x] Vignettes : bordure verte + coche, anneau bleu = page affichée (`StorySection.tsx`, `index.css`).
+3b. [x] Aperçu : bouton « Original » (re-télécharger son fichier source, chaque utilisateur) dans `ViewerToolbar`.
+4. [x] Plancher de fidélité 60 % dans `retranslate_overflows` + test.
+5. [x] Admin : `/api/admin/documents` (liste, original, traduit, journalisé) + page `/admin/documents` + tests.
+6. [ ] ← Vérif locale PAR L'UTILISATEUR sur http://localhost:3000 (app lancée depuis ce worktree). Tests auto : tous verts.
+7. [ ] Commits a8211d9, f572655, 587f976 déjà poussés (PR #35, par erreur). Commits locaux NON poussés : 9dea336, 688cb08 + PASSATION. Proposer de passer la PR #35 en brouillon ; push seulement après son accord.
+
+**Hors plan** : informer les clients (politique de confidentialité) que l'admin accède à leurs fichiers — à trancher par l'utilisateur.
 
 ## 5. Pièges / contexte
-- Comparatif identité (sans API) : scripts dans le scratchpad de session (`run_corpus.py`, `comparer.py`) ; résultat 1.0.10 = 1.0.9 avec polices livrées ; sans elles, Inter/Oswald/PT Serif retéléchargées.
-- Python lisant des PDF téléchargés : `venv/Scripts/python.exe -I`.
-- Windows verrouille les fichiers ouverts : lire les polices en bytes.
-- Tout changement de rendu : bump `backend/engines/pdf/version.py`.
-- Tests : `cd backend && PYTHONIOENCODING=utf-8 venv/Scripts/python.exe tests/<fichier>`.
+- **Aucun push / PR sans accord explicite de l'utilisateur après sa vérification locale.**
+- Ne pas toucher le dépôt principal (feat/paiement-paddle) ni le worktree invitations.
+- Ne jamais lire ou grep les `.env` (seulement `grep -c` / existence). `backend/.env` est présent dans ce worktree (copié par l'utilisateur).
+- Lancer l'app : à la racine du worktree, en arrière-plan `PYTHONUTF8=1 /c/Users/IBRAH/Documents/Projets/Precis_Translator_backup_2026-06-10_13-10/backend/venv/Scripts/python.exe scripts/dev.py` ; arrêt `npm run stop`. Un seul worktree à la fois sur 3000/8000.
+- Tests : `cd backend && PYTHONUTF8=1 <venv backup>/python.exe tests/<suite>.py` (pas de pytest).
+- Front : `cd frontend && npx tsc --noEmit -p . ; npm run lint --silent ; npm run build --silent | tail -n 5` (`node_modules` = jonction vers le dépôt principal).
+- Certains fichiers front (ex. `StorySection.tsx`) ont des chaînes en mojibake (`Ã©`) : éditer en UTF-8 sans réencoder.

@@ -175,6 +175,7 @@ def create_app() -> FastAPI:
     # Les routeurs sont importés ICI, pas en tête de module : ils tirent les
     # services, qui tirent les moteurs. Au niveau du module, ce chargement
     # partirait au simple `import app`.
+    from app.api.admin_documents import router as admin_documents_router
     from app.api.admin_users import router as admin_users_router
     from app.api.beta import router as beta_router
     from app.api.auth import router as auth_router
