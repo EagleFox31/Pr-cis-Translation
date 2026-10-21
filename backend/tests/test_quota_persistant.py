@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import (                     # noqa: E402
 from sqlalchemy.pool import NullPool                     # noqa: E402
 
 from app.core.database import DATABASE_URL               # noqa: E402
-from app.models import User, UsageRecord, KIND_PLAN      # noqa: E402
+from app.models import User, UsageRecord, KIND_PLAN, KIND_FREE_OFFER      # noqa: E402
 from app.core.security import create_access_token        # noqa: E402
 from app import config as cfg                            # noqa: E402
 from app import create_app                               # noqa: E402

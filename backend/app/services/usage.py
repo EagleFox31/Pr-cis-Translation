@@ -161,7 +161,8 @@ async def usage_summary(db: AsyncSession, user: User) -> dict:
     plan = user.plan
     if plan == "free":
         utilise = await free_pages_used(db, user.id)
-        offert = await free_pages_remaining(db, user)
+        offert = (max(0, get_plan_monthly_pages("free") - utilise)
+                  if user.email_verified else 0)
         return {
             "kind": "free",
             "monthly_pages": get_plan_monthly_pages("free"),
