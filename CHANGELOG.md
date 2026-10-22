@@ -8,6 +8,27 @@ leurs propres numéros internes.
 
 Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 
+## [1.6.2](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.6.1...v1.6.2) (2026-10-21)
+
+
+### Bug Fixes
+
+* **pricing:** remove fee notes from plan cards ([#49](https://github.com/EagleFox31/Pr-cis-Translation/issues/49)) ([3c18341](https://github.com/EagleFox31/Pr-cis-Translation/commit/3c18341272bbff35bb389fe724aaf3a0f3117c7c))
+
+## [1.6.1](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.6.0...v1.6.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* **pricing:** make billing period controls accessible and reliable ([#47](https://github.com/EagleFox31/Pr-cis-Translation/issues/47)) ([46a6392](https://github.com/EagleFox31/Pr-cis-Translation/commit/46a63926bb5d1ab42cace19b414f3217f92037f7))
+
+## [1.6.0](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.5.2...v1.6.0) (2026-10-21)
+
+
+### Features
+
+* **trial:** offer five usable document pages per month ([#45](https://github.com/EagleFox31/Pr-cis-Translation/issues/45)) ([04395f5](https://github.com/EagleFox31/Pr-cis-Translation/commit/04395f59f2bd1da5750c49aec1cc1369c43d2c63))
+
 ## [1.5.2](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.5.1...v1.5.2) (2026-10-20)
 
 

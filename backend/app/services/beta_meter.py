@@ -24,8 +24,11 @@ def word_count(text: str) -> int:
     text = re.sub(r"\[\[/?\d+\]\]", "", text)
     # Unspaced CJK text must not become one unlimited "word".
     text = re.sub(r"([\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af])", r" \1 ", text)
-    return sum(bool(re.search(r"[^\W\d_]", part)) for part in re.findall(
-        r"[^\W_]+(?:['’\-][^\W_]+)*", text, flags=re.UNICODE))
+    # A huge unbroken Latin/base64 string must not count as one free word.
+    # Ordinary words remain unchanged; long runs consume word equivalents.
+    return sum((len(part) + 49) // 50 for part in re.findall(
+        r"[^\W_]+(?:['’\-][^\W_]+)*", text, flags=re.UNICODE)
+        if re.search(r"[^\W\d_]", part))
 
 
 def _texts(node):
@@ -47,7 +50,7 @@ def office_cost(data: bytes, ext: str) -> BetaCost:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             entries = archive.infolist()
             if len(entries) > 10_000 or sum(e.file_size for e in entries) > 128 * 1024 * 1024:
-                raise ValueError("Le document décompressé est trop volumineux pour la bêta.")
+                raise ValueError("Le document décompressé est trop volumineux pour être traité.")
             for entry in entries:
                 path = PurePosixPath(entry.filename.replace("\\", "/"))
                 if path.is_absolute() or ".." in path.parts or entry.flag_bits & 1:

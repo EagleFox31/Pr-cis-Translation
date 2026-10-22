@@ -44,7 +44,7 @@ async def recognized_pages(page_credits):
             await db.commit()
             with patch("app.api.translate.prepare_scanned_pdf", side_effect=fake_ocr):
                 response = await translate_endpoint(request=None,
-                    file=UploadFile(filename="scan.pdf", file=io.BytesIO(scanned_pages(3))),
+                    file=UploadFile(filename="scan.pdf", file=io.BytesIO(scanned_pages(7))),
                     target_lang="en", format_options="{}", quality="fast", precise="", pages="",
                     debug="", covered_only="", x_api_key=config.FRONTEND_API_KEY,
                     current_user=user, db=db)
@@ -76,7 +76,7 @@ async def trial_offer_on_scan():
             await db.commit()
             with patch("app.api.translate.prepare_scanned_pdf", side_effect=fake_ocr):
                 response = await translate_endpoint(request=None,
-                    file=UploadFile(filename="scan.pdf", file=io.BytesIO(scanned_pages(3))),
+                    file=UploadFile(filename="scan.pdf", file=io.BytesIO(scanned_pages(7))),
                     target_lang="en", format_options="{}", quality="fast", precise="", pages="",
                     debug="", covered_only="", x_api_key=config.FRONTEND_API_KEY,
                     current_user=user, db=db)
@@ -92,11 +92,11 @@ async def trial_offer_on_scan():
 async def main():
     try:
         status, body = await trial_offer_on_scan()
-        assert status == 402 and body.get("reason") == "need_credits" and body.get("pages_needed") == 3, (status, body)
+        assert status == 402 and body.get("reason") == "need_credits" and body.get("pages_needed") == 7, (status, body)
         print("PASS: trial on a scan still offers to buy the missing pages")
-        assert await recognized_pages(0) == {1}, "Free trial must only recognize its single page"
-        print("PASS: free trial without purchased pages recognizes one page")
-        assert await recognized_pages(5) == {1, 2, 3}, "Purchased pages must open the whole document"
+        assert await recognized_pages(0) == {1, 2, 3, 4, 5}, "Free trial must only recognize its five pages"
+        print("PASS: free trial without purchased pages recognizes at most five pages")
+        assert await recognized_pages(5) == {1, 2, 3, 4, 5, 6, 7}, "Purchased pages must open the whole document"
         print("PASS: purchased pages make OCR cover the whole document")
     finally:
         await engine.dispose()

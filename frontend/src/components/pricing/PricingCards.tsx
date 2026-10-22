@@ -47,8 +47,6 @@ interface Feature {
 /** Les lignes d'une carte, dans la langue de l'interface. */
 function features(
   plan: PricingPlan,
-  p: { currency: string; decimals: number; page_price: number },
-  locale: string,
   t: TFunction,
 ): Feature[] {
   const stockage = (): Feature => ({
@@ -70,12 +68,9 @@ function features(
 
   if (plan.key === 'free') {
     return [
-      { text: t('pricing.feat_free_page') },
-      // LE point de l'offre gratuite : au-delà de la page offerte, on paie
-      // l'unité, sans s'engager. Le prix est annoncé ici, pas découvert au
-      // moment de payer.
-      { text: t('pricing.feat_free_then', {
-          price: formatMoney(p.page_price, p.currency, p.decimals, locale) }) },
+      { text: t('pricing.feat_free_page', { count: plan.monthly_pages ?? 0 }) },
+      { text: t('pricing.feat_all_formats') },
+      { text: t('pricing.feat_download') },
       vitesse(),
       { text: t('pricing.feat_free_no_storage'), off: true },
     ];
@@ -158,7 +153,8 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
       {pricing.plans.map((plan, idx) => {
         const isActive = user ? user.plan === plan.key : false;
         const isPopular = plan.key === 'pro';
-        const amount = isAnnual ? plan.annual : plan.monthly;
+        const billedTotal = isAnnual ? plan.annual_total : plan.monthly_total;
+        const amount = billedTotal === null ? null : billedTotal / (isAnnual ? 12 : 1);
         const onQuote = amount === null;
         const forSale = plan.for_sale && !onQuote;
         const renew = isActive && forSale && until !== null;
@@ -201,22 +197,17 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
                 <>0<span className="period">{t('pricing.per_month')}</span></>
               ) : (
                 <>
+                  {isAnnual && billedTotal !== null && billedTotal % 12 !== 0 ? '≈ ' : ''}
                   {formatMoney(amount, pricing.currency, pricing.decimals, locale)}
                   <span className="period">{t('pricing.per_month')}</span>
                 </>
               )}
             </div>
 
-            {/* L'engagement annuel se facture à l'année : le dire ici évite de
-                laisser croire qu'on peut résilier au mois à ce prix-là. */}
-            {isAnnual && !onQuote && amount !== 0 && (
-              <p className="pricing-annuel">{t('pricing.billed_annually')}</p>
-            )}
-
             <div className="pricing-divider" />
 
             <ul className="pricing-features">
-              {features(plan, pricing, locale, t).map((f, i) => (
+              {features(plan, t).map((f, i) => (
                 <li key={i} className={f.off ? 'unavailable' : ''}>{f.text}</li>
               ))}
             </ul>

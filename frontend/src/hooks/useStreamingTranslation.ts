@@ -18,6 +18,8 @@ export type PageStatus =
   | 'copied';      // hors sélection : copiée de l'original (déjà affichable)
 
 export interface StreamingState {
+  /** Droit de CE document, confirmé par le serveur après réservation. */
+  canReadClear: boolean;
   isTranslating: boolean;
   totalPages: number | null;
   /** Statut par numéro de page (1-basé). */
@@ -48,6 +50,7 @@ export interface StreamingState {
 }
 
 const EMPTY: StreamingState = {
+  canReadClear: false,
   isTranslating: false,
   totalPages: null,
   pageStatuses: {},
@@ -203,7 +206,8 @@ export function useStreamingTranslation() {
             }));
             throw new Error(detail);
           }
-          const { job_id, ocr_pages } = await startRes.json();
+          const { job_id, ocr_pages, can_download } = await startRes.json();
+          setState((s) => ({ ...s, canReadClear: can_download === true }));
           if (ocr_pages > 0) {
             setState((s) => ({ ...s, notice: t('story.ocr_notice', { count: ocr_pages }) }));
           }

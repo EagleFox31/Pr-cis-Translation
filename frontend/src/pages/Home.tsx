@@ -81,19 +81,20 @@ export default function Home() {
   // Document de la BIBLIOTHÈQUE en cours d'aperçu (null = traduction en direct,
   // qui reçoit ses pages par le flux et n'a rien à redemander).
   const [libraryDocId, setLibraryDocId] = useState<string | null>(null);
+  const [libraryCanReadClear, setLibraryCanReadClear] = useState(false);
 
   // ---- Traduction PROGRESSIVE (page par page) ----
   const stream = useStreamingTranslation();
   const { user, refreshUser } = useAuth();
 
-  // Mode ESSAI : DÉRIVÉ du plan, jamais stocké. C'était un `useState(true)`
-  // dont le setter n'était appelé nulle part — l'aperçu restait donc assombri
-  // et le téléchargement verrouillé pour TOUT LE MONDE, abonnés et admin
-  // compris. Un état qui ne change jamais n'est pas un état : c'est un calcul.
-  const isTrialMode = isTrialFor(user);
-
   // ---- Document library ----
   const { documents, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll } = useDocumentLibrary();
+
+  // Les droits du document viennent du serveur ; une mise à jour de la
+  // bibliothèque après paiement doit aussi débloquer l'aperçu déjà ouvert.
+  const libraryRight = documents.find((doc) => doc.id === libraryDocId)?.paid ?? libraryCanReadClear;
+  const isTrialMode = isTrialFor(user)
+    && !(libraryDocId ? libraryRight : stream.canReadClear);
 
   // ---- Scroll spy ----
   useEffect(() => {
@@ -199,6 +200,7 @@ export default function Home() {
       docId: string;
       filename: string;
       ext: string;
+      paid: boolean;
       source: Promise<Blob | undefined>;
     }) => {
       // Chaque ouverture reçoit un jeton. Sans lui, ouvrir A puis B pendant que
@@ -219,6 +221,7 @@ export default function Home() {
       enSuivi.current = false;
       echecsSuivi.current = 0;
       setLibraryDocId(req.docId);
+      setLibraryCanReadClear(req.paid);
       setCurrentPage(1);
       setPreviewLoading(true);
       setShowLibrary(false);

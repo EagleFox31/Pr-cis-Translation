@@ -11,6 +11,13 @@ import os
 
 from app.config import TRANSLATIONS_DIR, logger
 
+WORDS_PER_PAGE = 500
+
+
+def text_pages(words: int) -> int:
+    """Une page équivalente par tranche commencée de 500 mots."""
+    return max(1, (words + WORDS_PER_PAGE - 1) // WORDS_PER_PAGE)
+
 
 def build_job_paths(file_hash: str, target_lang: str) -> tuple[str, str]:
     """Où vivent les artefacts d'un document : (job_dir, lang_dir).
@@ -61,6 +68,19 @@ def count_pages(file_bytes: bytes, ext: str) -> int:
     sait fabriquer un en-tête invalide. Le vrai refus viendra de l'extraction,
     quelques lignes plus loin, avec un message qui parle.
     """
+    # Office/TXT n'ont pas de pagination fiable sans rendu. Compter le texte
+    # réellement extrait par nos moteurs évite qu'un classeur immense coûte
+    # une seule page. Les formules, nombres et cellules vides ne sont pas des mots.
+    if ext in ("docx", "xlsx"):
+        from app.services.beta_meter import office_cost
+        cost = office_cost(file_bytes, ext)
+        return text_pages(cost.units if ext == "docx" else cost.words)
+    if ext == "txt":
+        from app.services.beta_meter import word_count
+        words = word_count(file_bytes.decode("utf-8-sig", errors="replace"))
+        if words == 0:
+            raise ValueError("Ce fichier ne contient pas de texte à traduire.")
+        return text_pages(words)
     try:
         if ext == "pdf":
             import fitz

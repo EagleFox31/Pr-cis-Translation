@@ -25,7 +25,8 @@ export function isPaidPlan(plan?: string | null): boolean {
  * Le document doit-il être présenté en mode ESSAI (aperçu assombri,
  * téléchargement verrouillé) ?
  *
- * Vrai pour un visiteur non connecté ET pour un compte `free`.
+ * Vrai pour un visiteur ou un compte sans abonnement. Le viewer doit aussi
+ * respecter le droit de chaque document confirmé par le serveur (offre, bêta, achat).
  */
 export function isTrialFor(user?: { plan?: string | null } | null): boolean {
   return !isPaidPlan(user?.plan);
