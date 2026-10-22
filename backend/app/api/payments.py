@@ -81,7 +81,12 @@ async def _document_pages(db: AsyncSession, doc: Document) -> int | None:
         with open(path, "rb") as f:
             return count_pages(f.read(), ext)
 
-    doc.page_count = await run_in_threadpool(_lire)
+    try:
+        doc.page_count = await run_in_threadpool(_lire)
+    except ValueError as exc:
+        # Même réponse qu'au dépôt (`translate.py`) : fichier sans texte ou
+        # Office invalide, rien à chiffrer.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     await db.commit()
     return doc.page_count
 

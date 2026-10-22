@@ -198,12 +198,15 @@ class FreeDocumentTests(unittest.IsolatedAsyncioTestCase):
                         headers={**self.headers, "CF-IPCountry": country},
                         json={"plan": plan["key"], "annual": annual})
                     self.assertEqual(quote.status_code, 200, quote.text)
-                    key = "annual_total" if annual else "monthly_total"
-                    self.assertEqual(plan[key], quote.json()["amount"])
+                    # Les cartes affichent le net : les frais n'apparaissent
+                    # que dans la fenêtre de paiement.
+                    net = plan["annual"] * 12 if annual else plan["monthly"]
+                    self.assertEqual(net, quote.json()["subtotal"])
+                    self.assertNotIn("monthly_total", plan)
             if country == "CM":
                 starter, pro = pricing["plans"][1:3]
-                self.assertEqual((starter["monthly_total"], pro["monthly_total"]), (1545, 4635))
-                self.assertEqual((starter["annual_total"], pro["annual_total"]), (14832, 43260))
+                self.assertEqual((starter["monthly"], pro["monthly"]), (1500, 4500))
+                self.assertEqual((starter["annual"], pro["annual"]), (1200, 3500))
 
 
 class PostgreSQLFreeQuotaRace(unittest.IsolatedAsyncioTestCase):

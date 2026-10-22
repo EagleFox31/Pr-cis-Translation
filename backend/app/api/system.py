@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Request
 
 from app.core.pricing import (CURRENCY, CURRENCY_DECIMALS, PLAN_RANK, PSP_FEE_PERCENT,
                               SELF_SERVE_PLANS, page_price,
-                              plan_price, transaction_fee, zone_for_country)
+                              plan_price, zone_for_country)
 from app.services.documents import WORDS_PER_PAGE
 from app.core.security import require_admin, require_auth
 from app.models import (PLAN_LABELS, User, get_plan_monthly_pages,
@@ -84,13 +84,6 @@ async def pricing(request: Request, country: str | None = None):
     zone = zone_for_country(detected)
     currency = CURRENCY[zone]
 
-    def total(key: str, annual: bool = False):
-        amount = plan_price(key, zone, annual=annual)
-        if amount is None:
-            return None
-        amount *= 12 if annual else 1
-        return amount + transaction_fee(amount)
-
     return {
         "zone": zone,
         "currency": currency,
@@ -105,8 +98,6 @@ async def pricing(request: Request, country: str | None = None):
                 "label": PLAN_LABELS.get(key, key),
                 "monthly": plan_price(key, zone, annual=False),
                 "annual": plan_price(key, zone, annual=True),
-                "monthly_total": total(key),
-                "annual_total": total(key, annual=True),
                 "monthly_pages": get_plan_monthly_pages(key),
                 "storage": get_plan_storage(key),
                 # Niveau de vitesse VENDU (la carte l'affiche). Son application

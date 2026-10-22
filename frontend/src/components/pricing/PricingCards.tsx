@@ -153,8 +153,9 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
       {pricing.plans.map((plan, idx) => {
         const isActive = user ? user.plan === plan.key : false;
         const isPopular = plan.key === 'pro';
-        const billedTotal = isAnnual ? plan.annual_total : plan.monthly_total;
-        const amount = billedTotal === null ? null : billedTotal / (isAnnual ? 12 : 1);
+        // Prix net du forfait : les frais n'apparaissent que dans la fenêtre de paiement.
+        const amount = isAnnual ? plan.annual : plan.monthly;
+        const billedTotal = amount === null ? null : amount * (isAnnual ? 12 : 1);
         const onQuote = amount === null;
         const forSale = plan.for_sale && !onQuote;
         const renew = isActive && forSale && until !== null;
@@ -197,12 +198,19 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
                 <>0<span className="period">{t('pricing.per_month')}</span></>
               ) : (
                 <>
-                  {isAnnual && billedTotal !== null && billedTotal % 12 !== 0 ? '≈ ' : ''}
                   {formatMoney(amount, pricing.currency, pricing.decimals, locale)}
                   <span className="period">{t('pricing.per_month')}</span>
                 </>
               )}
             </div>
+
+            {/* L'engagement annuel se facture à l'année : le dire ici évite de
+                laisser croire qu'on peut résilier au mois à ce prix-là. */}
+            {isAnnual && billedTotal !== null && billedTotal !== 0 && (
+              <p className="pricing-annuel">{t('pricing.billed_annually_total', {
+                total: formatMoney(billedTotal, pricing.currency, pricing.decimals, locale),
+              })}</p>
+            )}
 
             <div className="pricing-divider" />
 
@@ -232,6 +240,8 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
         );
       })}
     </div>
+
+    <p className="pricing-annuel">{t('pricing.equivalence', { count: pricing.words_per_page })}</p>
 
     {/* Payer à la page, sans s'abonner : une offre à part entière, sous la
         grille, et non un lien accroché à la seule carte Gratuit. Les pages

@@ -165,6 +165,8 @@
   "pricing": {
     "feat_free_page_other": "{{count}} equivalent pages free per month",
     "feat_all_formats": "PDF, Word, PowerPoint, Excel and TXT",
+    "billed_annually_total": "{{total}} billed yearly",
+    "equivalence": "PDF: pages · PowerPoint: slides · Word, Excel and TXT: 1 page per {{count}} words, rounded up.",
     "tag": "Our Transparent Pricing",
     "title": "Transparent <strong>pricing</strong>",
     "monthly": "Monthly",

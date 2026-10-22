@@ -191,11 +191,11 @@ def page_price(zone: str) -> int:
 # une page à 75 F seule échouerait chez l'opérateur, APRÈS l'invite USSD.
 # Les autres devises n'ont pas encore de moyen d'encaissement (pas de seuil).
 MIN_PAYMENT_AMOUNT: dict[str, int] = {"XAF": 100}
-# Carte (Paddle) : seuil ÉCONOMIQUE des achats de pages (21/10/2026), pour que
-# la part fixe des frais reste sous ~15 % du net. Bien au-dessus du minimum
-# technique de Paddle (`minimum_payment_amount` : 0,65 €, 0,70 $), que tous
-# les forfaits dépassent : eux ne passent pas par ce seuil.
-MIN_CARD_AMOUNT: dict[str, int] = {"XAF": 3000, "EUR": 500, "USD": 500}
+# Carte (Paddle) : minimum technique de Paddle (`GET /currencies`,
+# `minimum_payment_amount` : 0,65 €, 0,70 $, vérifié le 22/10/2026). La zone A
+# est encaissée en EUR : 0,65 € × 655,957 = 427 F, arrondi supérieur. Seuil
+# posé sur le net : le débit (net + frais) le dépasse toujours.
+MIN_CARD_AMOUNT: dict[str, int] = {"XAF": 427, "EUR": 65, "USD": 70}
 
 
 def min_payment_amount(zone: str, method: str | None = None) -> int:

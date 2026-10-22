@@ -39,9 +39,9 @@ La base garde le montant dans la devise de la zone (XAF en zone A).
 
 **Minimum.** Paddle refuse une transaction sous `minimum_payment_amount`
 (`GET /currencies`) : 0,65 € et 0,70 $. Pour les **achats de pages**, Précis
-applique un seuil économique plus haut, `MIN_CARD_AMOUNT`
-(`backend/app/core/pricing.py`) : 3 000 F, 5 €, 5 $ net (40 / 42 / 27 pages en
-zones A / B / C), pour que la part fixe des frais reste diluée. Sous ce seuil,
+applique ce minimum, `MIN_CARD_AMOUNT` (`backend/app/core/pricing.py`) :
+427 F, 0,65 €, 0,70 $ net (6 / 6 / 4 pages en zones A / B / C ; la zone A est
+encaissée en EUR). Sous ce seuil,
 la fenêtre grise le bouton et indique le nombre de pages minimum
 (`payment.min_pages_card`), sans modifier la quantité. Le serveur applique la
 même règle (`billable_pages(zone, pages, method)`) ; un document payé au-delà

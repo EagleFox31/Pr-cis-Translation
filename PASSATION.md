@@ -1,7 +1,7 @@
-# PASSATION — 21/10/2026
+# PASSATION — 22/10/2026
 
 ## 1. Objectif en cours
-Une seule mise à jour regroupant trois chantiers sur la branche `feat/mise-a-jour-carte-invitations-visionneuse` (depuis `origin/main` 1.5.2) : paiement par carte Paddle, invitations par e-mail, visionneuse + documents admin.
+Audit point par point des apports de main (section 4b, prochain : point 4), puis finaliser la mise à jour unique regroupant trois chantiers sur la branche `feat/mise-a-jour-carte-invitations-visionneuse` (depuis `origin/main` 1.5.2) : paiement par carte Paddle, invitations par e-mail, visionneuse + documents admin.
 
 ## 2. Fait
 - Fusion de `feat/visionneuse`, `feat/invitations`, `feat/paiement-paddle` (branches d'origine conservées, non supprimées).
@@ -23,6 +23,27 @@ Une seule mise à jour regroupant trois chantiers sur la branche `feat/mise-a-jo
 6. [ ] Push + une seule PR vers main (sur accord).
 
 **Hors plan** : rattrapage serveur des paiements Fapshi `PENDING` ; secrets Paddle dans SSM ; informer les clients que l'admin accède à leurs fichiers ; `tests/test_invitations_api.py` (base requise) ; Playwright de la fenêtre d'invitation ; suppression des worktrees invitations / visionneuse une fois la PR fusionnée.
+
+## 4b. Mission en cours : audit des apports de main (EagleFox31, 1.5.2 → 1.6.2)
+Commits #45 (quota gratuit 5 pages équivalentes, comptage Office/TXT par 500 mots, droits par document `paid`/`can_download`), #47 (PlanToggle accessible), #49 (prix frais compris sur les cartes, mentions « Facturé annuellement » et « puis X/page » retirées). Fusion sans conflit (`git merge-tree`).
+1. [x] Inventaire + analyse risque par point (présentée à l'utilisateur).
+2. [x] Revue point par point avec l'utilisateur (décisions ci-dessous).
+3. [x] Fusion de origin/main (commit b42cf32, sans conflit) ; 13 suites backend OK (aiosqlite installé dans le venv via `requirements-test.txt`), tsc + lint + build OK.
+4. [x] Corrections de normalisation (étude `docs/etude-normalisation-main.md`) :
+   a. [x] `_document_pages` : `ValueError` → 422 ; message neutre dans `beta_meter.office_cost`.
+   b. [x] `MIN_CARD_AMOUNT` = minimum Paddle (427 F / 0,65 € / 0,70 $) + tests.
+   c. [x] Retirer `monthly_total`/`annual_total` (API, type, cartes, tests) ; cartes au prix net.
+   d. [x] Rétablir `billed_annually_total` (sans frais) + `equivalence` (fr/en).
+   e. [x] Vérif : suites backend, tsc/lint/build, Playwright page tarifs. Fait 22/10 : 9 suites OK, tsc/lint/build OK, page tarifs vérifiée (annuel « 14 400 FCFA facturés par an », mensuel sans ligne, équivalence affichée).
+5. [ ] ← Liste de modifications de l'utilisateur (à recevoir). Hors plan : page CGU inexistante (liens `#`), mention du comptage à y mettre quand elle sera rédigée.
+
+Décisions de revue :
+- Point 1 (gratuit en clair) : garder le principe de main. Dans cette branche : mention « Traduit avec Précis » en pied des documents gratuits (`KIND_FREE_OFFER`), garde-fous bêta généralisés au gratuit (e-mails jetables, limite IP/appareil), fenêtre « quota épuisé » avec petit pack Mobile Money + bonus premier achat. Branche à part : offre de lancement datée (20 pages le 1er mois, tarif Fondateur) et parrainage (+5 pages chacun, plafonné). Étude `docs/etude-<sujet>.md` avant chaque développement.
+- Point 2 (comptage 500 mots Office/TXT) : garder. À la fusion : intercepter `ValueError` dans `_document_pages` (payments.py) → 422 clair ; message neutre au lieu de « …pour la bêta » ; mention du comptage sur la page tarifs/CGV (avec le point 4).
+- Point 3 (prix frais compris de main, calculés au taux Mobile Money même pour la carte) : décision utilisateur = les frais n'apparaissent QUE dans la fenêtre de paiement. À la fusion : retirer `monthly_total`/`annual_total` des cartes d'offre (PricingCards) et toute autre mention de frais hors PaymentModal (chercher `fee_percent`, `fees_included`, « frais »). Minimum Paddle : le blocage avant ouverture existe déjà (message par défaut `payment.min_pages_card` « x pages minimum requises pour ce moyen de paiement ») → seulement trouver le vrai montant minimum accepté par Paddle et aligner `MIN_CARD_AMOUNT` dessus ; ne pas toucher au message ni à l'UI.
+- Point 4 (#49, mentions sous les cartes retirées) : garder le retrait des frais. À la fusion : rétablir « {{total}} facturés par an » en mode Annuel (sans « frais inclus ») et la ligne d'équivalence (pages / diapositives / 1 page pour N mots), + mention dans les CGV.
+- Point 5 (#47, PlanToggle en boutons accessibles) : garder tel quel ; vérifier le rendu après fusion.
+- Point 6 (#45, droit par document `paid` / `can_download`) : garder tel quel, pas de déblocage rétroactif.
 
 ## 5. Pièges / contexte
 - `backend/.env` en LIVE pour Fapshi : ne jamais valider d'invite réelle. Ne pas afficher les `.env` (`grep -c` seulement). Jamais de clé dans un fichier suivi.

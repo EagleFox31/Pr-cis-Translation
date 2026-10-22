@@ -38,6 +38,7 @@ aperçus non-PDF.
 | [`docs/etude-visionneuse.md`](docs/etude-visionneuse.md) | Étude : visionneuse (navigation, molette, vignettes), fidélité de la retraduction compacte, originaux côté admin |
 | [`docs/etude-invitations.md`](docs/etude-invitations.md) | Étude : inviter des proches par e-mail — choix et points à trancher |
 | [`docs/etude-frais-carte.md`](docs/etude-frais-carte.md) | Étude : frais propres au paiement par carte (Paddle) |
+| [`docs/etude-normalisation-main.md`](docs/etude-normalisation-main.md) | Étude : corrections après fusion de main 1.6.2 (frais hors cartes, minimum carte Paddle, mentions sous les cartes) |
 | [`docs/guide-premiere-mise-en-ligne.md`](docs/guide-premiere-mise-en-ligne.md) | Pas à pas de la toute première mise en ligne |
 | [`infra/aws/README.md`](infra/aws/README.md) | L'infrastructure AWS (CloudFormation, OIDC, secrets) |
 | `docs/api/index.html` | Les 32 opérations HTTP (`npm run docs:api`) |

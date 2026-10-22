@@ -104,5 +104,8 @@ Hors TVA, qui réduit encore le net en zone C et partout où Paddle la collecte.
    Un forfait ne s'arrondit pas : Starter mensuel (1 500 F, 4,90 $) serait
    bloqué par carte. Les forfaits gardent donc le seul minimum technique de
    Paddle (0,65 € / 0,70 $, sous tous les prix) et paient les frais réels.
+   *Révisé le 22/10/2026* : le minimum des achats de pages est ramené au seul
+   minimum Paddle (427 F / 0,65 € / 0,70 $, soit 6 / 6 / 4 pages) ; voir
+   `docs/etude-normalisation-main.md`.
 3. Tarif **5 % + 0,50 $** pris comme référence ; part fixe en EUR fixée à
    0,47 € (309 F) pour couvrir les variations du dollar.

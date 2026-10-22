@@ -45,7 +45,7 @@ def _texts(node):
 
 def office_cost(data: bytes, ext: str) -> BetaCost:
     if ext not in ("docx", "xlsx"):
-        raise ValueError("Unsupported beta Office format")
+        raise ValueError("Ce format n'est pas pris en charge.")
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             entries = archive.infolist()

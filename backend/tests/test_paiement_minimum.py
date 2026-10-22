@@ -95,14 +95,14 @@ def check_calcul(ok):
        billable_pages(ZONE_AFRICA, 1) == 2, str(billable_pages(ZONE_AFRICA, 1)))
     ok("CALCUL  hors XAF : aucun arrondi",
        billable_pages(ZONE_EMERGING, 1) == 1 and billable_pages(ZONE_GLOBAL, 1) == 1)
-    # Carte : minimum économique (3 000 F, 5 $, 5 €) sur le montant net.
+    # Carte : minimum technique de Paddle (427 F, 0,70 $, 0,65 €) sur le montant net.
     juste = all(billable_pages(z, 1, "card") * page_price(z) >= m
                 and (billable_pages(z, 1, "card") - 1) * page_price(z) < m
-                for z, m in ((ZONE_AFRICA, 3000), (ZONE_EMERGING, 500), (ZONE_GLOBAL, 500)))
+                for z, m in ((ZONE_AFRICA, 427), (ZONE_EMERGING, 70), (ZONE_GLOBAL, 65)))
     ok("CALCUL  carte : minimum atteint dans chaque zone, sans page superflue", juste)
-    ok("CALCUL  carte : 40 / 42 / 27 pages minimum (zones A / B / C)",
+    ok("CALCUL  carte : 6 / 6 / 4 pages minimum (zones A / B / C)",
        [billable_pages(z, 1, "card") for z in (ZONE_AFRICA, ZONE_EMERGING, ZONE_GLOBAL)]
-       == [40, 42, 27])
+       == [6, 6, 4])
 
     # Frais carte : après la commission de Paddle (taux + part fixe, arrondis
     # au plus défavorable), il reste au moins le net, et une unité de frais en
@@ -150,10 +150,10 @@ async def check_routes(client, ok):
            and q.get("subtotal") == 150 and q.get("fee") == 5
            and q.get("amount") == 155 and q.get("min_amount") == 100, str(q))
         carte = q.get("card") or {}
-        ok("ROUTE   /quote carte 1 page : 40 facturees, 3 000 F + 484 F de frais, minimum 3 000 F",
-           carte.get("billed_pages") == 40 and carte.get("subtotal") == 3000
-           and carte.get("fee") == 484 and carte.get("amount") == 3484
-           and carte.get("min_amount") == 3000, str(carte))
+        ok("ROUTE   /quote carte 1 page : 6 facturees, 450 F + 349 F de frais, minimum 427 F",
+           carte.get("billed_pages") == 6 and carte.get("subtotal") == 450
+           and carte.get("fee") == 349 and carte.get("amount") == 799
+           and carte.get("min_amount") == 427, str(carte))
 
         r = client.post("/api/payments/collect",
                         json={"pages": 1, "phone": "237670000000"}, headers=ent)
@@ -271,6 +271,24 @@ async def check_credit(ok):
         await _supprimer(u.id)
 
 
+async def check_document_vide(ok):
+    """Un TXT sans mot ne se chiffre pas : 422 clair, pas une erreur 500."""
+    import tempfile
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    with tempfile.TemporaryDirectory() as dossier:
+        chemin = os.path.join(dossier, "vide.txt")
+        with open(chemin, "w", encoding="utf-8") as f:
+            f.write("   \n")
+        doc = SimpleNamespace(page_count=None, original_path=chemin, original_name="vide.txt")
+        try:
+            await route_payments._document_pages(None, doc)
+            statut = None
+        except HTTPException as exc:
+            statut = exc.status_code
+    ok("ROUTE   devis d'un TXT vide : 422", statut == 422, str(statut))
+
+
 async def run():
     checks = []
 
@@ -278,6 +296,7 @@ async def run():
         checks.append((nom, bool(cond), detail))
 
     check_calcul(ok)
+    await check_document_vide(ok)
     await check_credit(ok)
     # The collection transport is replaced by faux_collect above. Its local
     # availability gate must also represent a configured synthetic provider;
