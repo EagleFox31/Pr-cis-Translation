@@ -7,12 +7,12 @@
 
 **Traduire PDF et documents Office avec des moteurs adaptés à chaque format, des aperçus progressifs et une architecture qui respecte le document d'origine.**
 
-[![Formats: PDF DOCX PPTX XLSX](https://img.shields.io/badge/Formats-PDF%20DOCX%20PPTX%20XLSX-2563eb)](#formats-et-maturite)
+[![Formats: PDF DOCX PPTX XLSX](https://img.shields.io/badge/Formats-PDF%20DOCX%20PPTX%20XLSX-2563eb)](#formats-pris-en-charge)
 [![Approche: Fidelite du document](https://img.shields.io/badge/Approche-Fidelite%20du%20document-6d28d9)](#promesse-produit)
 [![API: FastAPI](https://img.shields.io/badge/API-FastAPI-0969da)](#architecture-de-traduction)
-[![Maturite: Beta](https://img.shields.io/badge/Maturite-Beta-orange)](#formats-et-maturite)
+[![Maturite: Beta](https://img.shields.io/badge/Maturite-Beta-orange)](#formats-pris-en-charge)
 
-[**Promesse**](#promesse-produit) · [**Formats**](#formats-et-maturite) · [**Architecture**](#architecture-de-traduction) · [**Limites**](#limites-et-transparence) · [**Démarrer**](backend/README.md) · [**Documentation**](ARCHITECTURE.md)
+[**Promesse**](#promesse-produit) · [**Formats**](#formats-pris-en-charge) · [**Architecture**](#architecture-de-traduction) · [**Limites**](#limites-et-transparence) · [**Démarrer**](backend/README.md) · [**Documentation**](ARCHITECTURE.md)
 
 </div>
 
@@ -25,7 +25,7 @@
 
 La séparation `api → services → engines` permet de tester les moteurs sans importer l'application FastAPI et de corriger les défauts de rendu à l'aide de documents synthétiques. [Consulter la conception](ARCHITECTURE.md).
 
-## Formats et maturité
+## Formats pris en charge
 
 **Maturité déclarée : beta.** Les moteurs PDF, DOCX, PPTX et XLSX possèdent du code et des guides dédiés, mais les cas limites doivent être vérifiés sur les documents représentatifs.
 
