@@ -131,11 +131,11 @@
       },
       {
         "label": "Démarrer",
-        "href": "#démarrer"
+        "href": "backend/README.md"
       },
       {
         "label": "Documentation",
-        "href": "#où-lire-quoi"
+        "href": "ARCHITECTURE.md"
       }
     ]
   }
