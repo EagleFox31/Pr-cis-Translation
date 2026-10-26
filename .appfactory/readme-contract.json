@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "name": "Précis Translator",
+  "stage": "beta",
+  "tagline": "Translate real PDF and Office documents while preserving the structure, formatting and user-visible layout that make them usable.",
+  "problem": "A translated file is often useless when its typography, tables, slides, positioning and page flow are damaged. Generic text-only translation discards the constraints and visual identity of the original PDF or Office document.",
+  "scenario": "A user selects a PDF, DOCX, PPTX or XLSX. A format-specific engine extracts translatable content with layout context, translates it using a bounded provider integration and reinjects the result into the original document structure for preview and download.",
+  "differentiation": "Précis separates API, services and document engines so geometry-sensitive transformations can be tested independently, PDF and slides may render progressively, and translation or font changes invalidate versioned preview caches.",
+  "architecture": "React/Vite user interface -> FastAPI routes -> services/job workers -> versioned PDF, PPTX, DOCX and XLSX engines -> translation provider. Engines are isolated from application state; SSE reports job progress and previews while blocking work stays outside the async event loop.",
+  "limitations": "Digital PDF and Office format handling does not establish universal pixel-perfect equivalence or verified OCR support for scanned pages. The OCR study is a design reference, not proof of a delivered scan translation engine; deployment, billing, provider access and practical document regression cases need independent validation.",
+  "capabilities": [
+    {
+      "name": "Format-aware engines",
+      "description": "Implement dedicated PDF, PPTX, DOCX and XLSX translation paths with versioned rendering logic.",
+      "status": "shipped",
+      "evidence": "ARCHITECTURE.md"
+    },
+    {
+      "name": "Progressive previews",
+      "description": "Document streaming previews for supported progressively rendered PDF and slide operations.",
+      "status": "shipped",
+      "evidence": "ARCHITECTURE.md"
+    },
+    {
+      "name": "Scanned-document OCR",
+      "description": "Study OCR layout extraction and image-safe reinjection without treating this research as a production feature.",
+      "status": "planned"
+    },
+    {
+      "name": "Production readiness",
+      "description": "Verify deployment, end-to-end translated file acceptance and provider-dependent operations.",
+      "status": "in-development"
+    }
+  ],
+  "roadmap": [
+    {
+      "name": "Runtime acceptance",
+      "exitCriteria": "Demonstrate representative format round trips, failure behavior, job isolation and readable final rendered documents."
+    },
+    {
+      "name": "Release verification",
+      "exitCriteria": "Complete the documented deployment checklist with observable customer-flow evidence for the selected release."
+    },
+    {
+      "name": "Scan translation research",
+      "exitCriteria": "Prove OCR extraction and selective image reinjection on synthetic ground-truth scans before advertising scan support."
+    }
+  ],
+  "references": [
+    {
+      "name": "Product architecture",
+      "url": "https://github.com/EagleFox31/Pr-cis-Translation/blob/main/ARCHITECTURE.md",
+      "relevance": "Documents the isolated format engines, progressive delivery and transformation boundaries."
+    },
+    {
+      "name": "AppFactory README assurance",
+      "url": "https://github.com/Trigenys/appfactory/blob/main/docs/product-readme-contract.md",
+      "relevance": "Non-destructive presentation and evidence-based maturity validation."
+    }
+  ],
+  "requiredHeadings": [
+    "Promesse produit",
+    "Formats et maturité",
+    "Architecture de traduction",
+    "Limites et transparence",
+    "Démarrer",
+    "Où lire quoi"
+  ],
+  "requiredTerms": [
+    "PDF",
+    "PPTX",
+    "DOCX",
+    "XLSX",
+    "FastAPI",
+    "OCR",
+    "beta"
+  ],
+  "requiredFiles": [
+    "ARCHITECTURE.md",
+    "backend/README.md",
+    "frontend/README.md",
+    "docs/etude-ocr.md",
+    "docs/feuille-de-route-production.md"
+  ],
+  "presentation": {
+    "variant": "centered",
+    "headline": "La traduction, sans sacrifier la mise en page.",
+    "summary": "Traduire PDF et documents Office avec des moteurs adaptés à chaque format, des aperçus progressifs et une architecture qui respecte le document d'origine.",
+    "badges": [
+      {
+        "label": "Formats",
+        "value": "PDF DOCX PPTX XLSX",
+        "color": "2563eb",
+        "href": "#formats-et-maturite"
+      },
+      {
+        "label": "Approche",
+        "value": "Fidelite du document",
+        "color": "6d28d9",
+        "href": "#promesse-produit"
+      },
+      {
+        "label": "API",
+        "value": "FastAPI",
+        "color": "0969da",
+        "href": "#architecture-de-traduction"
+      },
+      {
+        "label": "Maturite",
+        "value": "Beta",
+        "color": "orange",
+        "href": "#formats-et-maturite"
+      }
+    ],
+    "navigation": [
+      {
+        "label": "Promesse",
+        "href": "#promesse-produit"
+      },
+      {
+        "label": "Formats",
+        "href": "#formats-et-maturite"
+      },
+      {
+        "label": "Architecture",
+        "href": "#architecture-de-traduction"
+      },
+      {
+        "label": "Limites",
+        "href": "#limites-et-transparence"
+      },
+      {
+        "label": "Démarrer",
+        "href": "#démarrer"
+      },
+      {
+        "label": "Documentation",
+        "href": "#où-lire-quoi"
+      }
+    ]
+  }
+}
