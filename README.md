@@ -12,7 +12,7 @@
 [![API: FastAPI](https://img.shields.io/badge/API-FastAPI-0969da)](#architecture-de-traduction)
 [![Maturite: Beta](https://img.shields.io/badge/Maturite-Beta-orange)](#formats-et-maturite)
 
-[**Promesse**](#promesse-produit) · [**Formats**](#formats-et-maturite) · [**Architecture**](#architecture-de-traduction) · [**Limites**](#limites-et-transparence) · [**Démarrer**](#démarrer) · [**Documentation**](#où-lire-quoi)
+[**Promesse**](#promesse-produit) · [**Formats**](#formats-et-maturite) · [**Architecture**](#architecture-de-traduction) · [**Limites**](#limites-et-transparence) · [**Démarrer**](backend/README.md) · [**Documentation**](ARCHITECTURE.md)
 
 </div>
 
