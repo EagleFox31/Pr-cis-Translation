@@ -1,12 +1,65 @@
+<!-- appfactory:hero:start -->
+<div align="center">
+
 # Précis Translator
 
-**Traduire un document sans lui faire perdre sa mise en forme.**
+### La traduction, sans sacrifier la mise en page.
 
-Le texte est relevé avec sa géométrie et ses styles, traduit, puis réinjecté
-dans le document d'origine — jamais reconstruit. PDF, PPTX, DOCX, XLSX.
+**Traduire PDF et documents Office avec des moteurs adaptés à chaque format, des aperçus progressifs et une architecture qui respecte le document d'origine.**
 
-Projet **1.1.0** · backend 1.1.0 · frontend 1.0.0 · moteurs PDF 1.0.0, PPTX
-1.0.0, DOCX 1.0.0, XLSX 1.0.0
+[![Formats: PDF DOCX PPTX XLSX](https://img.shields.io/badge/Formats-PDF%20DOCX%20PPTX%20XLSX-2563eb)](#formats-pris-en-charge)
+[![Approche: Fidelite du document](https://img.shields.io/badge/Approche-Fidelite%20du%20document-6d28d9)](#promesse-produit)
+[![API: FastAPI](https://img.shields.io/badge/API-FastAPI-0969da)](#architecture-de-traduction)
+[![Maturite: Beta](https://img.shields.io/badge/Maturite-Beta-orange)](#formats-pris-en-charge)
+
+[**Promesse**](#promesse-produit) · [**Formats**](#formats-pris-en-charge) · [**Architecture**](#architecture-de-traduction) · [**Limites**](#limites-et-transparence) · [**Démarrer**](backend/README.md) · [**Documentation**](ARCHITECTURE.md)
+
+</div>
+
+---
+<!-- appfactory:hero:end -->
+
+## Promesse produit
+
+**Un fichier traduit doit rester un document utilisable.** Précis Translator recherche la fidélité structurelle : extraction du texte avec sa géométrie et ses styles, traduction, puis réinjection à l'intérieur des conteneurs du document. L'approche ne garantit pas l'identité pixel par pixel de chaque fichier ; la recette dépend de la typographie, des documents et des moteurs.
+
+La séparation `api → services → engines` permet de tester les moteurs sans importer l'application FastAPI et de corriger les défauts de rendu à l'aide de documents synthétiques. [Consulter la conception](ARCHITECTURE.md).
+
+## Formats pris en charge
+
+**Maturité déclarée : beta.** Les moteurs PDF, DOCX, PPTX et XLSX possèdent du code et des guides dédiés, mais les cas limites doivent être vérifiés sur les documents représentatifs.
+
+| Format | Approche | Référence |
+| --- | --- | --- |
+| PDF numérique | Géométrie, polices et rendu progressif | [Moteur PDF](backend/engines/pdf/CONTEXTE.md) |
+| DOCX | Texte et structure Word | [Moteur DOCX](backend/engines/docx/CONTEXTE.md) |
+| PPTX | Texte et objets dans les diapositives | [Moteur PPTX](backend/engines/pptx/CONTEXTE.md) |
+| XLSX | Cellules, graphiques et contraintes de largeur | [Moteur XLSX](backend/engines/xlsx/CONTEXTE.md) |
+| PDF scanné | OCR étudié, non déclaré livré | [Étude OCR](docs/etude-ocr.md) |
+
+**Versions :** le `package.json` de ce dépôt déclare actuellement `1.6.2`. Cette valeur ne prouve pas qu'une release correspondante soit effectivement déployée ; consulter les manifestes des moteurs, le [changelog](CHANGELOG.md) et les étapes de recette.
+
+## Architecture de traduction
+
+```mermaid
+flowchart LR
+  UI[React + Vite] --> API[FastAPI]
+  API --> JOB[Job / services]
+  JOB --> ENG[Engines PDF / DOCX / PPTX / XLSX]
+  ENG --> AI[Provider de traduction]
+  JOB --> SSE[Aperçu et progression SSE]
+```
+
+Les appels lourds ne doivent pas bloquer la boucle asynchrone. Les moteurs sont indépendants de l'API, et les caches de rendu sont versionnés pour éviter de servir d'anciens aperçus après un correctif.
+
+## Limites et transparence
+
+- La traduction de scans et les traitements OCR font l'objet d'une [étude](docs/etude-ocr.md) : ils ne doivent pas être présentés comme livrés.
+- Les conversions peuvent nécessiter **LibreOffice** et des polices de repli ; la géométrie des documents complexes reste un risque de rendu.
+- Une batterie de tests locale n'est pas une garantie de fidélité sur tous les documents réels ; voir la [recette de production](docs/feuille-de-route-production.md).
+- L'utilisation du fournisseur de traduction, le déploiement et les paiements doivent être validés dans l'environnement concerné, sans secrets dans les exemples publics.
+
+**Périmètre du dépôt public :** vitrine et code visible. L'état exact du déploiement doit être vérifié séparément ; la présence d'un autre dépôt de développement n'est pas une preuve de synchronisation.
 
 ## Démarrer
 
