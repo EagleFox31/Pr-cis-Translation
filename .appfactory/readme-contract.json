@@ -60,7 +60,7 @@
   ],
   "requiredHeadings": [
     "Promesse produit",
-    "Formats et maturité",
+    "Formats pris en charge",
     "Architecture de traduction",
     "Limites et transparence",
     "Démarrer",
@@ -91,7 +91,7 @@
         "label": "Formats",
         "value": "PDF DOCX PPTX XLSX",
         "color": "2563eb",
-        "href": "#formats-et-maturite"
+        "href": "#formats-pris-en-charge"
       },
       {
         "label": "Approche",
@@ -109,7 +109,7 @@
         "label": "Maturite",
         "value": "Beta",
         "color": "orange",
-        "href": "#formats-et-maturite"
+        "href": "#formats-pris-en-charge"
       }
     ],
     "navigation": [
@@ -119,7 +119,7 @@
       },
       {
         "label": "Formats",
-        "href": "#formats-et-maturite"
+        "href": "#formats-pris-en-charge"
       },
       {
         "label": "Architecture",
