@@ -130,6 +130,16 @@ def run():
         assert client.post(ORIGIN, content=duplicate_effect,
                            headers=signed(duplicate_effect, event_id=dupe_id)).status_code == 409
 
+        independent = str(uuid.uuid4())
+        other_effect = "confirmed-" + uuid.uuid4().hex
+        separate = body(event_id=independent, effect=other_effect)
+        assert client.post(ORIGIN, content=separate,
+                           headers=signed(separate, event_id=independent)).status_code == 204
+        # Two different unique constraints match two different rows: still 409.
+        cross_collision = body(event_id=EVENT_ID, effect=other_effect)
+        assert client.post(ORIGIN, content=cross_collision,
+                           headers=signed(cross_collision)).status_code == 409
+
         os.environ["PRECIS_ORCHESTRATOR_EVENTS_ENVIRONMENT"] = "live"
         assert client.post(ORIGIN, content=p, headers=signed(p)).status_code == 503
         assert asyncio.run(persisted(EVENT_ID)) is not None
