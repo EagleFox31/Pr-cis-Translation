@@ -32,11 +32,11 @@ def upgrade():
         sa.CheckConstraint("environment IN ('sandbox','live')",
                            name="ck_orchestrator_environment"),
     )
-    op.create_index("ix_orchestrator_payment_project",
+    op.create_index("ix_payment_orchestrator_events_project_id",
                     "payment_orchestrator_events", ["project_id"])
 
 
 def downgrade():
-    op.drop_index("ix_orchestrator_payment_project",
+    op.drop_index("ix_payment_orchestrator_events_project_id",
                   table_name="payment_orchestrator_events")
     op.drop_table("payment_orchestrator_events")
