@@ -74,7 +74,7 @@ async def persist_orchestrator_event(
         await db.commit()
         return False
 
-    prior = (await db.execute(
+    prior_matches = (await db.execute(
         select(OrchestratorPaymentEvent).where(
             or_(
                 OrchestratorPaymentEvent.event_id == event.event_id,
@@ -85,7 +85,10 @@ async def persist_orchestrator_event(
                 )
             )
         )
-    )).scalar_one_or_none()
+    )).scalars().all()
+    # A forged/rotated valid HMAC could otherwise make two distinct unique
+    # constraints match different rows. Never treat that as an internal 500.
+    prior = prior_matches[0] if len(prior_matches) == 1 else None
     if prior is None or prior.event_id != event.event_id or (
         prior.project_id != event.project_id or
         prior.environment != event.environment or
