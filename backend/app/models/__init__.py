@@ -33,6 +33,7 @@ from .user import User
 from .beta import BetaApplication, BetaCampaign, BetaEnrollment, BetaUsage
 from .document import Document
 from .payment import Payment
+from .orchestrator_payment_event import OrchestratorPaymentEvent
 from .usage import (UsageRecord, KIND_CREDITS, KIND_FREE_OFFER, KIND_LEGACY,
                     KIND_PLAN)
 from .auth_tokens import RefreshToken, VerificationCode
@@ -42,7 +43,7 @@ from .support_ticket import (SupportTicket, CATEGORIES,
 
 __all__ = [
     "Base", "new_uuid", "utcnow",
-    "User", "Document", "Payment", "UsageRecord", "BetaApplication", "BetaCampaign", "BetaEnrollment", "BetaUsage",
+    "User", "Document", "Payment", "OrchestratorPaymentEvent", "UsageRecord", "BetaApplication", "BetaCampaign", "BetaEnrollment", "BetaUsage",
     "KIND_CREDITS", "KIND_FREE_OFFER", "KIND_LEGACY", "KIND_PLAN", "RefreshToken", "VerificationCode",
     "ErrorLog", "LEVELS", "SOURCES", "STATUS_HANDLED", "STATUS_NEW",
     "SupportTicket", "CATEGORIES", "STATUS_OPEN", "TICKET_HANDLED",
