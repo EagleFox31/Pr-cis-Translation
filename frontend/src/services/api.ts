@@ -88,7 +88,22 @@ export async function authFetch(path: string, init: RequestInit = {}): Promise<R
   return res;
 }
 
-async function refreshAccessToken(): Promise<string | null> {
+/**
+ * Un seul refresh à la fois. Le backend fait tourner le refresh token : deux
+ * 401 simultanés lançaient deux refresh avec le même jeton, le second était
+ * refusé et déconnectait une session pourtant valide (interface encore
+ * « connectée », appels suivants anonymes → « Authentification requise »).
+ */
+let _refreshing: Promise<string | null> | null = null;
+
+export function refreshAccessToken(): Promise<string | null> {
+  if (!_refreshing) {
+    _refreshing = doRefreshAccessToken().finally(() => { _refreshing = null; });
+  }
+  return _refreshing;
+}
+
+async function doRefreshAccessToken(): Promise<string | null> {
   if (!_refreshToken) return null;
   try {
     const res = await fetch(`${API_BASE}/api/auth/refresh`, {
