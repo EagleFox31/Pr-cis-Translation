@@ -151,8 +151,10 @@ export default function ViewerToolbar({
         <div className="spacer" />
       )}
 
-      {/* Progression du streaming (pages traduites / total) */}
-      {(isTranslating || isComplete) && numPages > 0 && (
+      {/* Progression du streaming (pages traduites / total). Visible pendant
+          TOUTE la traduction : avant le premier aperçu (`numPages` encore à 0),
+          il dit l'étape plutôt que de disparaître. */}
+      {(isTranslating || (isComplete && numPages > 0)) && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: '9px',
           borderLeft: '1px solid var(--color-border-secondary)',
@@ -170,7 +172,9 @@ export default function ViewerToolbar({
               color: isTranslating ? 'var(--blue)' : '#16a34a',
               fontVariantNumeric: 'tabular-nums',
             }}>
-              {isTranslating
+              {isTranslating && numPages === 0
+                ? t('preview.loading', "Préparation de l'aperçu…")
+                : isTranslating
                 ? t('viewer.pages_done', '{{done}}/{{total}} pages', { done: doneCount, total: numPages })
                 : t('viewer.translation_done', 'Traduction terminée')}
             </span>

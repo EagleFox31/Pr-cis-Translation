@@ -595,6 +595,16 @@ async def translation_events(job_id: str, token: str = ""):
                 try:
                     msg = q.get(timeout=0.2)
                 except queue.Empty:
+                    # Le client se RECONNECTE après une coupure : si le flux
+                    # coupé avait déjà consommé l'événement final, la file est
+                    # vide pour toujours. On le reconstitue depuis l'état du job.
+                    etat = job.get("state")
+                    if etat in ("done", "error"):
+                        fin = ({"type": "done", "filename": job.get("result_filename")}
+                               if etat == "done" else
+                               {"type": "error", "message": job.get("error")})
+                        yield f"data: {json.dumps(fin, ensure_ascii=False)}\n\n"
+                        break
                     yield ": keepalive\n\n"
                     await asyncio.sleep(0.1)
                     continue
@@ -656,6 +666,9 @@ async def translation_partial(job_id: str, x_api_key: str = Header(None),
     path = job.get("partial_path")
     if not path or not os.path.exists(path):
         raise HTTPException(status_code=202, detail="Aucune page prête pour l'instant.")
+    # Lue AVANT le fichier : le runner l'écrit après lui, elle ne peut donc
+    # qu'être en retard sur le contenu, jamais annoncer une page absente.
+    pages_pretes = job.get("partial_pages")
     # Lecture et rastérisation HORS de la boucle : appelé à chaque page du
     # flux, un appel bloquant ici figeait toute l'application, SSE compris.
     def _lire() -> bytes:
@@ -675,8 +688,12 @@ async def translation_partial(job_id: str, x_api_key: str = Header(None),
     if not await _droit_au_clair(job, current_user, db):
         data = await run_in_threadpool(rasterize_for_trial, data, job.get("pages"))
 
-    return Response(content=data, media_type="application/pdf",
-                    headers={"Cache-Control": "no-store"})
+    headers = {"Cache-Control": "no-store"}
+    if pages_pretes is not None:
+        # Pages réellement traduites DANS ce fichier (PPTX) : le client n'a
+        # plus à les déduire des événements, qui peuvent se perdre.
+        headers["X-Pages-Pretes"] = ",".join(map(str, pages_pretes))
+    return Response(content=data, media_type="application/pdf", headers=headers)
 
 
 @router.get("/api/translate/result/{job_id}")

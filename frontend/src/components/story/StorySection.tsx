@@ -371,7 +371,12 @@ export default function StorySection({
                   {Array.from({ length: numPages }).map((_, i) => {
                     const pageNo = i + 1;
                     const status = pageStatuses[pageNo];
-                    const isReady = status === 'done' || status === 'copied' || (!isTranslating && !!readyPages[pageNo]) || (!isTranslating && Object.keys(pageStatuses).length === 0);
+                    // Pendant la traduction, « Page traduite » ne s'affiche que si l'aperçu
+                    // MONTRE la traduction (`readyPages`), pas sur le seul statut
+                    // de page : un lot échoué laissait une page « terminée » en
+                    // langue source.
+                    const isReady = isTranslating ? !!readyPages[pageNo]
+                      : status === 'done' || status === 'copied' || !!readyPages[pageNo] || Object.keys(pageStatuses).length === 0;
                     const inProgress = status === 'extracting' || status === 'translating' || status === 'rendering';
                     // État lisible d'un coup d'œil : bordure verte + coche = prête,
                     // spinner bleu = en cours, grisée = en attente. La page affichée

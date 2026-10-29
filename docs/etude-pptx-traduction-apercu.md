@@ -105,3 +105,39 @@ Ordre proposé : P0 (les deux) → P1 → vérification sur le fichier réel du 
 - **Test** : `backend/tests/test_pptx_ordre_diapositives.py` construit un deck
   aux fichiers renommés `slide1001.xml…` et à l'ordre inversé ; 12/12 avec le
   correctif, 5/12 avec l'ancien code (dont « terminé » sans traduction).
+
+## Correctifs de l'aperçu (P2 / P3) — capture « diapositive 20 »
+
+### Ce qui a été vu
+- Diapositive 20 marquée « Page traduite » alors que les deux volets
+  montraient le français.
+- Aucun indicateur pendant que la traduction tournait encore.
+- Les pages déjà traduites clignotaient à chaque nouvel envoi de l'aperçu.
+
+### Causes trouvées
+| Symptôme | Cause |
+|---|---|
+| Page « traduite » encore en français | Le navigateur **devinait** quelles pages étaient prêtes (à partir du nombre de pages du fichier reçu), et une réponse « rien de prêt » (code 202) était lue comme un PDF. Par ailleurs des identifiants de paragraphes abrégés par le modèle n'étaient pas rattachés. |
+| Plus d'indicateur | Une coupure de la connexion de suivi (SSE) était traitée comme la fin ; l'indicateur se cachait dès qu'un nombre de pages était connu. |
+| Clignotement | À chaque envoi, les deux documents étaient rouverts et les deux volets **vidés puis redessinés**. |
+
+### Options étudiées
+| Option | Pour | Contre |
+|---|---|---|
+| Continuer à deviner côté navigateur | Rien à changer côté serveur | C'est la source de l'erreur : impossible à fiabiliser |
+| **Le serveur annonce la liste exacte des pages greffées** (en-tête `X-Pages-Pretes`) | Une page n'est dite traduite que si elle l'est vraiment | Un en-tête de plus à exposer (CORS) |
+| Redessiner directement sur l'écran | Simple | Volet blanc le temps du rendu = clignotement |
+| **Dessiner hors écran puis copier d'un coup**, document ouvert une seule fois par fichier reçu | L'image précédente reste jusqu'à ce que la suivante soit complète ; l'original n'est plus jamais redessiné | Un peu plus de code |
+
+### Choix retenus
+- Liste des pages prêtes fournie par le serveur ; une réponse 202 n'est plus
+  jamais affichée.
+- Connexion de suivi : jusqu'à 5 reconnexions (jeton rafraîchi à chaque fois) ;
+  le serveur renvoie l'événement final si le travail est déjà terminé.
+- Tant qu'une page n'est pas prête : **un chargement avec l'étape en cours**
+  (« Préparation de l'aperçu » / « Traduction en cours »), jamais l'original
+  en repli.
+- Volets original et traduit indépendants ; rendu hors écran ; pas de
+  redimensionnement inutile du canevas (qui l'effacerait).
+- Tests : `test_ids_abreges.py` (4/4), `test_apercu_progressif.py` (23/23,
+  dont la liste exacte des pages).

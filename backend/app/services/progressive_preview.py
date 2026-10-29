@@ -76,6 +76,11 @@ class ProgressivePreview:
         return len(self._pages)
 
     @property
+    def liste_pages(self) -> list[int]:
+        """Pages greffées, donc montrées traduites dans le dernier assemblage."""
+        return sorted(self._pages)
+
+    @property
     def pages_socle(self) -> int:
         """Nombre de pages du document d'origine. 0 tant qu'il n'est pas posé."""
         if self._socle is None:

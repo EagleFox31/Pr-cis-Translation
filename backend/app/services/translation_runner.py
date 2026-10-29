@@ -757,6 +757,7 @@ def run_pptx_progressive_job(
                 brut = f.read()
             pdf = convert_to_pdf_bytes(brut, "pptx", use_cache=True)
             ecrire_atomiquement(partial_path, _apercu.poser_socle(pdf))
+            jobs.set(job_id, partial_pages=_apercu.liste_pages)
 
         def _afficher_slide(slide_num: int):
             """Convertit CETTE diapositive et l'affiche — EN LIGNE, tout de suite.
@@ -791,6 +792,9 @@ def run_pptx_progressive_job(
                     logger.warning("Aperçu Excel diapo %s : %s", slide_num, e)
 
                 ecrire_atomiquement(partial_path, _apercu.greffer([slide_num]))
+                # APRÈS l'écriture : lue avant le fichier par /partial, la
+                # liste peut retarder sur lui, jamais l'annoncer en avance.
+                jobs.set(job_id, partial_pages=_apercu.liste_pages)
                 jobs.emit(job_id, "partial",
                           {"ready": True, "pages": _apercu.pages_traduites})
                 return True
