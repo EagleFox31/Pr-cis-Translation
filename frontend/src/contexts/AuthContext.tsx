@@ -66,6 +66,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     onTokensRefreshed((access, refresh) => saveTokens(access, refresh));
     onForceLogout(() => { clearTokens(); setUser(null); });
 
+    // Un autre onglet fait tourner le refresh token ou se déconnecte : sans
+    // relire ses jetons, celui-ci serait refusé au prochain refresh.
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== TOKENS_KEY) return;
+      const t = loadTokens();
+      if (t) setTokens(t.access, t.refresh);
+      else { setTokens(null, null); setUser(null); }
+    };
+    window.addEventListener('storage', onStorage);
+
     (async () => {
       const tokens = loadTokens();
       if (!tokens) { setLoading(false); return; }
@@ -78,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       setLoading(false);
     })();
+    return () => window.removeEventListener('storage', onStorage);
   }, []);
 
   const login = useCallback(async (email: string) => {
