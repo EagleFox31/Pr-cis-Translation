@@ -379,6 +379,20 @@ async def original_document(
 
 # ── GET /documents/{id}/preview ──────────────────────────────────────────────
 
+def _entetes_pages(job: dict | None) -> dict[str, str]:
+    """Où en est chaque page d'un document EN COURS. Rouvert depuis la
+    bibliothèque, l'aperçu n'a pas le flux de la traduction : sans ces
+    en-têtes, il tenait toutes les pages pour traduites (vertes, et le texte
+    d'origine affiché à la place de la traduction)."""
+    if not job:
+        return {"X-Pages-Pretes": "", "X-Pages-Etats": ""}
+    pretes, etats = jobs.pages_etat(job)
+    return {
+        "X-Pages-Pretes": ",".join(map(str, pretes)),
+        "X-Pages-Etats": ",".join(f"{p}:{s}" for p, s in sorted(etats.items())),
+    }
+
+
 @router.get("/{doc_id}/preview")
 async def preview_document(
     doc_id: str,
@@ -432,15 +446,17 @@ async def preview_document(
             if rendu != "partial":
                 raise HTTPException(status_code=404, detail="Traduction indisponible. Relancez-la depuis la bibliothèque.")
             return Response(status_code=202, headers={"Cache-Control": "no-store",
-                                                      "X-Render": "pending"})
+                                                      "X-Render": "pending",
+                                                      **_entetes_pages(job)})
         data = await run_in_threadpool(_lire, chemin)
         if not _may_read_clear(user, doc):
             # Même règle que /translate/partial : un plan d'essai ne reçoit
             # que des pixels, et seules les pages traduites sont à protéger.
             data = await run_in_threadpool(rasterize_for_trial, data, job.get("pages"))
+        entetes = _entetes_pages(job) if rendu == "partial" else {}
         return Response(content=data, media_type="application/pdf",
                         headers={"Cache-Control": "no-store",
-                                 "X-Render": rendu})
+                                 "X-Render": rendu, **entetes})
 
     # Un plan d'essai ne reçoit que du rastérisé, et seulement pour le PDF : un
     # format non-PDF ne peut pas être filigrané ici sans risque de le livrer en

@@ -1,6 +1,17 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api, { authFetch } from '../services/api';
+import type { PageStatus } from './useStreamingTranslation';
+
+/** Réponse de `/preview`. `pretes` / `etats` ne sont remplis que pour un
+ *  document EN COURS de traduction. */
+export interface PreviewResult {
+  blob: Blob | null;
+  full: boolean;
+  inProgress: boolean;
+  pretes: Record<number, true>;
+  etats: Record<number, PageStatus>;
+}
 
 export interface DocMeta {
   id: string;
@@ -153,7 +164,7 @@ export function useDocumentLibrary() {
    *  qu'un compte gratuit récupérait sa traduction en clair. */
   const getPreviewBlob = useCallback(async (
     id: string, page?: number,
-  ): Promise<{ blob: Blob | null; full: boolean; inProgress: boolean } | undefined> => {
+  ): Promise<PreviewResult | undefined> => {
     if (user) {
       // `page` restreint le RENDU à la page regardée (280 s le document
       // entier contre ~10 s la page seule, mesuré sur 285 pages). Mais si le
@@ -169,14 +180,27 @@ export function useDocumentLibrary() {
       if (!res.ok) return undefined;
       const render = res.headers.get('X-Render');
       const pending = render === 'pending';
+      // En cours : le serveur dit quelles pages le fichier montre VRAIMENT
+      // traduites, et l'étape de chacune — l'aperçu rouvert n'a pas le flux.
+      const pretes: Record<number, true> = {};
+      for (const p of (res.headers.get('X-Pages-Pretes') ?? '').split(',')) {
+        if (p) pretes[Number(p)] = true;
+      }
+      const etats: Record<number, PageStatus> = {};
+      for (const e of (res.headers.get('X-Pages-Etats') ?? '').split(',')) {
+        const [p, s] = e.split(':');
+        if (p && s) etats[Number(p)] = s as PageStatus;
+      }
       return {
         blob: pending ? null : await res.blob(),
         full: render === 'full',
         inProgress: pending || render === 'partial',
+        pretes,
+        etats,
       };
     }
     const blob = documents.find(d => d.id === id)?._blob;
-    return blob ? { blob, full: true, inProgress: false } : undefined;
+    return blob ? { blob, full: true, inProgress: false, pretes: {}, etats: {} } : undefined;
   }, [user, documents]);
 
   /** Le fichier SOURCE tel que déposé — panneau gauche de l'aperçu.

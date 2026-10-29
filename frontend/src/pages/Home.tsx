@@ -14,7 +14,7 @@ import PaymentModal from '../components/payment/PaymentModal';
 import DocumentLibrary from '../components/library/DocumentLibrary';
 import { useAuth } from '../contexts/AuthContext';
 import { useDocumentLibrary } from '../hooks/useDocumentLibrary';
-import { useStreamingTranslation } from '../hooks/useStreamingTranslation';
+import { useStreamingTranslation, type PageStatus } from '../hooks/useStreamingTranslation';
 import { isTrialFor } from '../lib/plans';
 import { subscribeSection } from '../lib/sectionBus';
 import type { TranslateConfig } from '../components/upload/TranslationSection';
@@ -82,6 +82,12 @@ export default function Home() {
   // qui reçoit ses pages par le flux et n'a rien à redemander).
   const [libraryDocId, setLibraryDocId] = useState<string | null>(null);
   const [libraryCanReadClear, setLibraryCanReadClear] = useState(false);
+  // Document de la bibliothèque EN COURS de traduction : l'état des pages vient
+  // du serveur (`/preview`), car la réouverture n'a pas le flux de la
+  // traduction. Sans lui, toutes les pages passaient pour traduites.
+  const [suiviBiblio, setSuiviBiblio] = useState<{
+    pretes: Record<number, true>; etats: Record<number, PageStatus>;
+  } | null>(null);
 
   // ---- Traduction PROGRESSIVE (page par page) ----
   const stream = useStreamingTranslation();
@@ -164,6 +170,7 @@ export default function Home() {
       // continuerait de réclamer les pages du document précédent et les
       // poserait par-dessus celles qui arrivent.
       setLibraryDocId(null);
+      setSuiviBiblio(null);
       setPreviewLoading(false);
       setTranslatedBlob(null);
       setTranslatedFilename('');
@@ -201,6 +208,7 @@ export default function Home() {
       filename: string;
       ext: string;
       paid: boolean;
+      enCours: boolean;
       source: Promise<Blob | undefined>;
     }) => {
       // Chaque ouverture reçoit un jeton. Sans lui, ouvrir A puis B pendant que
@@ -222,6 +230,8 @@ export default function Home() {
       echecsSuivi.current = 0;
       setLibraryDocId(req.docId);
       setLibraryCanReadClear(req.paid);
+      // En cours : rien n'est tenu pour traduit avant la réponse du serveur.
+      setSuiviBiblio(req.enCours ? { pretes: {}, etats: {} } : null);
       setCurrentPage(1);
       setPreviewLoading(true);
       setShowLibrary(false);
@@ -282,6 +292,7 @@ export default function Home() {
     if (!libraryDocId || !showPreview) {
       // Plus d'aperçu de bibliothèque : le suivi en cours n'a plus d'objet.
       enSuivi.current = false; echecsSuivi.current = 0;
+      setSuiviBiblio(null);
       return;
     }
     if (fullDocFor.current === libraryDocId) return;          // niveau 1
@@ -314,6 +325,7 @@ export default function Home() {
         if (!res) { echec(); return; }
         echecsSuivi.current = 0;
         enSuivi.current = res.inProgress;
+        setSuiviBiblio(res.inProgress ? { pretes: res.pretes, etats: res.etats } : null);
         if (res.inProgress) {
           // Document rouvert PENDANT sa traduction : on montre ce qui est
           // traduit (rien en cache, ça change) et on redemande jusqu'au rendu
@@ -570,10 +582,10 @@ export default function Home() {
           zoom={zoom}
           isTrialMode={isTrialMode}
           targetLang={targetLang}
-          isTranslating={stream.isTranslating}
-          pageStatuses={stream.pageStatuses}
+          isTranslating={stream.isTranslating || !!suiviBiblio}
+          pageStatuses={suiviBiblio?.etats ?? stream.pageStatuses}
           queuePosition={stream.queuePosition}
-          readyPages={stream.readyPages}
+          readyPages={suiviBiblio?.pretes ?? stream.readyPages}
           previewRendering={previewLoading}
           translationError={stream.error}
           translationNotice={stream.notice}

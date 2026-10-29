@@ -141,3 +141,28 @@ Ordre proposé : P0 (les deux) → P1 → vérification sur le fichier réel du 
   redimensionnement inutile du canevas (qui l'effacerait).
 - Tests : `test_ids_abreges.py` (4/4), `test_apercu_progressif.py` (23/23,
   dont la liste exacte des pages).
+
+## Aperçu rouvert depuis la bibliothèque pendant la traduction (capture 21)
+
+**Symptôme.** On quitte l'aperçu (bouton retour) pendant une traduction, puis on le rouvre depuis la bibliothèque. Plus aucun indicateur, toutes les vignettes sont vertes, et les pages pas encore traduites montrent le texte d'origine.
+
+**Cause.** La réouverture remet à zéro le suivi de la traduction en direct (`stream.reset()` dans `Home.tsx`). L'écran croit alors qu'aucune traduction n'est en cours : une page sans statut passe pour « prête », donc verte et affichée. De son côté, le serveur renvoie le PDF partiel (`/api/documents/{id}/preview`, `X-Render: partial`) sans dire quelles pages il contient vraiment traduites.
+
+**Options.**
+
+| Option | Pour | Contre |
+|---|---|---|
+| Ne pas remettre à zéro le suivi si c'est le même document | Rien à changer côté serveur | Ne marche pas depuis un autre onglet ni après un rechargement : l'écran ne connaît pas le document du suivi |
+| **Le serveur mémorise l'état de chaque page du job et l'envoie avec l'aperçu** | Même vérité partout (onglet, rechargement, autre appareil) ; même règle que l'aperçu en direct (`X-Pages-Pretes`) | Deux en-têtes de plus à exposer |
+
+**Choix.** C'est la seconde option.
+- Le job garde le dernier état connu de chaque page.
+- `/preview` (partiel ou « rien encore ») envoie :
+  - `X-Pages-Pretes`, les pages réellement traduites dans le fichier envoyé (la liste du greffage pour un PPTX, les pages terminées pour un PDF) ;
+  - `X-Pages-Etats`, l'étape de chaque page.
+- L'écran rouvert s'en sert comme d'une traduction en cours :
+  - l'indicateur s'affiche ;
+  - seules les pages prêtes sont vertes ;
+  - les autres pages montrent le chargement avec leur étape, jamais l'original.
+
+**Risque.** Un en-tête non exposé (CORS) serait invisible pour le navigateur. Les deux en-têtes sont donc ajoutés à `expose_headers`.

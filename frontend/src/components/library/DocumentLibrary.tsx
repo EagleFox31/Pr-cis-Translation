@@ -47,6 +47,8 @@ interface DocumentLibraryProps {
     filename: string;
     ext: string;
     paid: boolean;
+    /** Traduction encore en cours côté serveur. */
+    enCours: boolean;
     source: Promise<Blob | undefined>;
   }) => void;
   onDelete: (id: string) => void;
@@ -91,6 +93,7 @@ export default function DocumentLibrary({
       docId: doc.id, paid: doc.paid,
       filename: doc.filename,
       ext: doc.ext,
+      enCours: doc.status === 'translating',
       source: getOriginalBlob(doc.id, true),
     });
   }, [getOriginalBlob, onPreview]);

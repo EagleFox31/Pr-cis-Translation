@@ -160,7 +160,28 @@ class JobManager:
         """Publie un événement vers le flux SSE du job."""
         job = self.get(job_id)
         if job:
+            if event_type == "page" and payload.get("page") and payload.get("status"):
+                # Dernier état de chaque page, GARDÉ : le flux SSE ne vit que
+                # pour l'onglet qui a lancé la traduction. Un aperçu rouvert
+                # depuis la bibliothèque le relit pour savoir où en est chaque page.
+                with self._lock:
+                    job.setdefault("page_states", {})[int(payload["page"])] = payload["status"]
             job["q"].put({"type": event_type, **payload})
+
+    def pages_etat(self, job: dict) -> tuple[list[int], dict[int, str]]:
+        """(pages réellement traduites dans le partiel, état de chaque page).
+
+        PPTX : la liste du greffage (`partial_pages`) fait foi, plus les
+        diapositives sans texte (`copied`), identiques à l'original. Ailleurs,
+        une page `done` est dans le partiel."""
+        with self._lock:
+            etats = dict(job.get("page_states") or {})
+            greffees = job.get("partial_pages")
+        if greffees is not None:
+            pretes = set(greffees) | {p for p, s in etats.items() if s == "copied"}
+        else:
+            pretes = {p for p, s in etats.items() if s in ("done", "copied")}
+        return sorted(pretes), etats
 
     def progress_callback(self, job_id: str, step: str,
                           total: int | None = None) -> Callable[[str], None]:
