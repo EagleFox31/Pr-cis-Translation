@@ -19,6 +19,51 @@ NAMESPACES = {
     's': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
 }
 
+_SLIDE_REL_TYPE = ("http://schemas.openxmlformats.org/officeDocument/"
+                   "2006/relationships/slide")
+
+
+def _ordre_diapositives(temp_path) -> list[int]:
+    """Numéros de FICHIER des diapositives, dans l'ordre d'AFFICHAGE.
+
+    La diapositive n°1 n'est pas forcément `slide1.xml` : un export Google
+    Slides nomme `slide1000.xml`, `slide1001.xml`…, et réordonner dans
+    PowerPoint ne renomme rien. Le seul ordre qui fait foi est `sldIdLst` de
+    `presentation.xml` (rId → Target dans ses rels). Toute méthode « par
+    diapositive » reçoit donc une POSITION (1..N) et passe par ici.
+
+    Repli sur le tri numérique des fichiers si ces deux parties manquent ou
+    sont illisibles ; une diapositive absente de `sldIdLst` n'est pas affichée
+    par PowerPoint et n'est pas comptée."""
+    temp_path = Path(temp_path)
+    slides_dir = temp_path / "ppt" / "slides"
+    presentes: set[int] = set()
+    if slides_dir.exists():
+        for p in slides_dir.glob("slide*.xml"):
+            m = re.fullmatch(r"slide(\d+)\.xml", p.name)
+            if m:
+                presentes.add(int(m.group(1)))
+
+    ordre: list[int] = []
+    rels_path = temp_path / "ppt" / "_rels" / "presentation.xml.rels"
+    pres_path = temp_path / "ppt" / "presentation.xml"
+    if rels_path.exists() and pres_path.exists():
+        try:
+            rid_to_num: dict[str, int] = {}
+            for rel in etree.parse(str(rels_path)).getroot():
+                if rel.get("Type") == _SLIDE_REL_TYPE:
+                    m = re.search(r"slide(\d+)\.xml$", rel.get("Target", ""))
+                    if m:
+                        rid_to_num[rel.get("Id")] = int(m.group(1))
+            for el in etree.parse(str(pres_path)).getroot().xpath(
+                    "//p:sldIdLst/p:sldId", namespaces=NAMESPACES):
+                num = rid_to_num.get(el.get(f"{{{NAMESPACES['r']}}}id"))
+                if num in presentes and num not in ordre:
+                    ordre.append(num)
+        except etree.XMLSyntaxError:
+            ordre = []
+    return ordre or sorted(presentes)
+
 
 def _find_soffice_engine() -> str | None:
     """Localise l'exécutable LibreOffice (pour régénérer les aperçus OLE).
@@ -257,14 +302,15 @@ class PPTXTranslatorEngine:
             self._cleanup_temp()
             return None, "Le fichier n'est pas un PowerPoint valide."
 
-        slide_files = sorted(slides_dir.glob("slide*.xml"), key=lambda x: int(x.stem.replace("slide", "")))
-        
+        # Ordre d'AFFICHAGE ; `slide_num` = position (cf. _ordre_diapositives).
+        slide_files = [slides_dir / f"slide{n}.xml" for n in _ordre_diapositives(temp_path)]
+
         extraction = {"slides": []}
         element_types_used = defaultdict(set)
         total_slides = len(slide_files)
 
         for i, slide_path in enumerate(slide_files):
-            slide_num = int(slide_path.stem.replace("slide", ""))
+            slide_num = i + 1
             if pages is not None and (i + 1) not in pages:
                 continue
             if progress_callback:
@@ -502,11 +548,11 @@ class PPTXTranslatorEngine:
 
         try:
             slides_dir = temp_path / "ppt" / "slides"
-            slide_files = sorted(slides_dir.glob("slide*.xml"), key=lambda x: int(x.stem.replace("slide", "")))
+            # Même numérotation que l'extraction : la POSITION d'affichage.
+            slide_files = [slides_dir / f"slide{n}.xml" for n in _ordre_diapositives(temp_path)]
             total_slides = len(slide_files)
 
-            for slide_path in slide_files:
-                slide_num = int(slide_path.stem.replace("slide", ""))
+            for slide_num, slide_path in enumerate(slide_files, start=1):
                 if progress_callback:
                     progress_callback(f"Réinjection slide {slide_num}/{total_slides}...")
                 
@@ -706,29 +752,40 @@ class PPTXTranslatorEngine:
 
     # ── Méthodes pour le pipeline PROGRESSIF (slide par slide) ──────────────
 
+    def _fichier_diapo(self, slide_num: int) -> int | None:
+        """Numéro de FICHIER (`slideNNN.xml`) de la diapositive en position N."""
+        ordre = _ordre_diapositives(self._get_temp_dir())
+        return ordre[slide_num - 1] if 1 <= slide_num <= len(ordre) else None
+
     def _slide_path(self, slide_num: int):
-        """Chemin du fichier XML de la slide N dans le dossier temporaire."""
-        return self._get_temp_dir() / "ppt" / "slides" / f"slide{slide_num}.xml"
+        """Chemin du fichier XML de la diapositive en position N (None si absente)."""
+        num = self._fichier_diapo(slide_num)
+        if num is None:
+            return None
+        return self._get_temp_dir() / "ppt" / "slides" / f"slide{num}.xml"
 
     def _rels_path(self, slide_num: int):
-        """Chemin du fichier .rels de la slide N."""
-        return self._get_temp_dir() / "ppt" / "slides" / "_rels" / f"slide{slide_num}.xml.rels"
+        """Chemin du fichier .rels de la diapositive en position N (None si absente)."""
+        num = self._fichier_diapo(slide_num)
+        if num is None:
+            return None
+        return self._get_temp_dir() / "ppt" / "slides" / "_rels" / f"slide{num}.xml.rels"
 
     def slide_count(self) -> int:
-        """Nombre de slides dans le PPTX déjà décompressé."""
-        slides_dir = self._get_temp_dir() / "ppt" / "slides"
-        if not slides_dir.exists():
-            return 0
-        return len(list(slides_dir.glob("slide*.xml")))
+        """Nombre de diapositives affichées du PPTX déjà décompressé."""
+        return len(_ordre_diapositives(self._get_temp_dir()))
 
     def extract_slide(self, slide_num: int, filters: dict | None = None):
-        """Extrait le texte d'une SEULE slide déjà décompressée."""
+        """Extrait le texte d'une SEULE diapositive (position N) déjà décompressée.
+
+        Une diapositive introuvable LÈVE : la confondre avec « rien à traduire »
+        a déclaré terminé un deck dont aucune diapositive n'avait été lue."""
         if filters is None:
             filters = {"shapes": True, "smartarts": True, "tables": True, "connectors": True}
 
         slide_path = self._slide_path(slide_num)
-        if not slide_path.exists():
-            return None, f"Slide {slide_num} introuvable."
+        if slide_path is None or not slide_path.exists():
+            raise ValueError(f"Diapositive {slide_num} introuvable.")
 
         tree = etree.parse(str(slide_path))
         root = tree.getroot()
@@ -824,7 +881,7 @@ class PPTXTranslatorEngine:
     def inject_slide(self, slide_num: int, translation_map: dict):
         """Injecte la traduction dans les XML d'une SEULE slide déjà décompressée."""
         slide_path = self._slide_path(slide_num)
-        if not slide_path.exists():
+        if slide_path is None or not slide_path.exists():
             return False
         modified = self._inject_in_xml(slide_path, slide_num, "p", translation_map)
 
@@ -882,8 +939,8 @@ class PPTXTranslatorEngine:
         """Construit un PPTX partiel depuis le dossier temporaire, SANS JAMAIS
         LE MODIFIER.
 
-        `only_slides` : les seules slides à garder. Par défaut, toutes celles
-        jusqu'à `up_to_slide`. Sert à extraire UNE slide isolée pour la convertir
+        `only_slides` : les seules slides à garder (positions 1..N). Par
+        défaut, toutes celles jusqu'à la position `up_to_slide`. Sert à extraire UNE slide isolée pour la convertir
         seule en PDF — l'aperçu progressif ne peut pas se permettre de reconvertir
         tout le deck à chaque diapositive terminée (cf. app.py).
 
@@ -922,8 +979,12 @@ class PPTXTranslatorEngine:
             if m:
                 toutes.add(int(m.group(1)))
 
-        garder = (set(only_slides) if only_slides is not None
-                  else {n for n in toutes if n <= up_to_slide})
+        # `only_slides` / `up_to_slide` sont des POSITIONS ; tout le reste de
+        # la méthode raisonne en numéros de FICHIER.
+        ordre = _ordre_diapositives(temp_path)
+        positions = (set(only_slides) if only_slides is not None
+                     else range(1, up_to_slide + 1))
+        garder = {ordre[p - 1] for p in positions if 1 <= p <= len(ordre)}
         garder &= toutes
 
         exclus = toutes - garder
@@ -1091,7 +1152,7 @@ class PPTXTranslatorEngine:
         classeur TRADUIT (déjà réinjecté dans le dossier temporaire). À appeler
         APRÈS l'injection, AVANT le repack. Retourne le nombre d'aperçus refaits.
 
-        `only_slides` — ne traiter que ces diapositives. L'aperçu progressif
+        `only_slides` — ne traiter que ces diapositives (positions). L'aperçu progressif
         affiche une diapositive dès qu'elle est traduite : sans ce filtre, il
         faudrait attendre la fin du document pour que les tableaux Excel
         passent en langue cible, et une diapositive « terminée » montrerait
@@ -1109,6 +1170,10 @@ class PPTXTranslatorEngine:
         slides_dir = temp_path / "ppt" / "slides"
         if not slides_dir.exists():
             return 0
+        if only_slides is not None:      # positions → numéros de fichier
+            ordre = _ordre_diapositives(temp_path)
+            only_slides = {ordre[p - 1] for p in only_slides
+                           if 1 <= p <= len(ordre)}
 
         R = NAMESPACES['r']
         # 1. Collecte : pour chaque graphicFrame OLE Excel, le couple

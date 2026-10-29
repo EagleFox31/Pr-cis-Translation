@@ -604,6 +604,11 @@ def _coherence_document(slides_traduites: dict, pptx_eng, target_lang: str,
     return len(a_reprendre)
 
 
+class DeckSansTexte(ValueError):
+    """Présentation dont aucune diapositive n'a livré de texte : échec affiché
+    tel quel à l'utilisateur (il n'a rien à réessayer)."""
+
+
 def run_pptx_progressive_job(
     job_id: str, file_bytes: bytes, original_path: str,
     output_path: str, output_filename: str, partial_path: str,
@@ -946,6 +951,14 @@ def run_pptx_progressive_job(
             for f in futures:
                 f.result()
 
+        # Un deck à diapositives dont AUCUNE n'a livré de texte n'est pas
+        # « traduit » : c'est ainsi qu'un deck illisible (fichiers nommés
+        # slide1000.xml…) passait en succès 38/38 sans un mot traduit. L'échec
+        # du job rembourse le décompte.
+        if slides_to_process and not slides_traduites:
+            raise DeckSansTexte(
+                "Aucun texte à traduire n'a été trouvé dans cette présentation.")
+
         # ── Cohérence terminologique, une fois TOUT le document connu ──────
         # Elle ne peut pas se faire plus tôt : la preuve qu'un terme est
         # traduisible vient des AUTRES slides. Après l'arrêt du convertisseur
@@ -1012,7 +1025,8 @@ def run_pptx_progressive_job(
             pptx_eng._cleanup_temp()
         except Exception:
             pass
-        jobs.error(job_id, "La traduction a rencontré une erreur. Réessayez ou contactez le support.")
+        jobs.error(job_id, str(e) if isinstance(e, DeckSansTexte) else
+                   "La traduction a rencontré une erreur. Réessayez ou contactez le support.")
 
 
 def run_pdf_v2_job(
