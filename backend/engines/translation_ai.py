@@ -511,6 +511,18 @@ class TranslatorAI:
                         b["translated_text"] = res_dict[b["id"]]
                         count += 1
 
+                # Le modèle abrège parfois les identifiants (« slide20_p1 » pour
+                # « slide20_p_p1 »). Autant de résultats orphelins que de blocs
+                # sans traduction : on les apparie dans l'ordre plutôt que de
+                # faire échouer tout le lot.
+                ids_lot = {b["id"] for b in batch}
+                orphelins = [v for k, v in res_dict.items() if k not in ids_lot]
+                sans_trad = [b for b in batch if b["id"] not in res_dict]
+                if sans_trad and len(orphelins) == len(sans_trad):
+                    for b, v in zip(sans_trad, orphelins):
+                        b["translated_text"] = v
+                        count += 1
+
                 if count == 0 and len(batch) > 0:
                     raise ValueError(f"Aucune correspondance d'ID trouvée dans la réponse. Début de la réponse : {content[:200]}")
 
