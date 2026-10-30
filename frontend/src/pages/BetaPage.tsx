@@ -53,9 +53,11 @@ function ApplicationForm({ onSubmitted }: { onSubmitted: () => Promise<void> }) 
         aria-describedby="beta-motivation-count" placeholder={t('beta.application.placeholder')} />
         <span id="beta-motivation-count" className="beta-count">
           {t('beta.application.count', { count: motivation.length })}</span></label>
-      {error && <p role="alert" className="beta-error">{error}</p>}
-      <button className="beta-primary" type="submit">{t(busy ? 'beta.loading' : 'beta.application.submit')}</button>
       <p className="beta-note">{t('beta.application.notice')}</p>
+      {error && <p role="alert" className="beta-error">{error}</p>}
+      <div className="beta-form-actions">
+        <button className="beta-primary" type="submit">{t(busy ? 'beta.loading' : 'beta.application.submit')}</button>
+      </div>
     </fieldset>
   </form>;
 }

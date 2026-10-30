@@ -43,6 +43,11 @@
 /* Hauteurs équilibrées par le contenu : quotas en liste, le reste se répartit sans trou. */
 .beta-layout > .beta-public { display: flex; flex-direction: column; justify-content: space-between; }
 .beta-layout > section { margin-bottom: 0; }
+/* Quotas en lignes « format … valeur » pour occuper toute la largeur. */
+.beta-public .beta-format-copy { flex: 1; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.beta-public .beta-format-copy span { margin-top: 0; text-align: right; font-size: 13px; color: var(--navy); }
+/* Carte candidature : le formulaire remplit la carte, le bouton a sa zone en bas. */
+.beta-layout > .beta-intro { display: flex; flex-direction: column; }
 @media (min-width: 900px) {
   .beta-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
 }
@@ -77,7 +82,9 @@
 .beta-soft:hover:not(:disabled) { filter: brightness(.96); }
 .beta-soft:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
 .beta-soft:disabled { opacity: .5; cursor: not-allowed; }
-.beta-application-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.beta-application-form { display: flex; flex-direction: column; gap: 14px; flex: 1; }
+.beta-intro > form { flex: 1; display: flex; flex-direction: column; }
+.beta-form-actions { margin-top: auto; padding-top: 16px; border-top: 1px solid #e8edf5; display: flex; justify-content: flex-end; }
 .beta-application-form label { display: flex; flex-direction: column; gap: 8px; font-size: 14px; font-weight: 600; color: var(--navy); }
 .beta-format-choice { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .beta-format-choice legend { float: left; margin-right: 4px; padding: 0; font-size: 14px; font-weight: 600; color: var(--navy); }
@@ -88,7 +95,6 @@
 .beta-card .beta-format-choice .beta-note { flex-basis: 100%; margin: 2px 0 0; font-size: 12px; }
 .beta-count { align-self: flex-end; font-size: 12px; font-weight: 400; color: var(--gray-600); font-variant-numeric: tabular-nums; }
 .beta-card .beta-application-form .beta-note { margin: 0; font-size: 12px; }
-.beta-application-form .beta-primary { justify-self: start; }
 .beta-card textarea { border: 1px solid var(--gray-300); border-radius: 9px; padding: 12px; font: inherit; font-size: 14px; line-height: 1.6; color: var(--navy); resize: vertical; width: 100%; box-sizing: border-box; }
 .beta-card textarea:focus-visible { outline: 3px solid var(--blue-light); border-color: var(--blue); }
 @media (max-width: 1200px) {
