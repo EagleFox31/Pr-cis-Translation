@@ -39,14 +39,14 @@
 .pricing-grid--with-beta > .pricing-card { min-width: 0; padding: 28px 18px; }
 .pricing-grid--with-beta .pricing-price { font-size: 1.9rem; line-height: 1.2; }
 /* Page publique : programme à gauche, candidature ou accès à droite dès 900px ; pile en dessous. */
-.beta-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
+.beta-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+/* Hauteurs équilibrées par le contenu : quotas en liste, le reste se répartit sans trou. */
+.beta-layout > .beta-public { display: flex; flex-direction: column; justify-content: space-between; }
 .beta-layout > section { margin-bottom: 0; }
 @media (min-width: 900px) {
   .beta-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
 }
 .beta-program-badges { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 0; padding: 0; }
-.beta-public .beta-program-quotas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
-.beta-public .beta-program-quotas li:nth-last-child(2):nth-child(odd) { border-bottom: 0; }
 .beta-public { padding: 24px; margin-bottom: 24px; border: 1px solid var(--gray-200); border-radius: 16px; background: #fff; color: var(--navy); }
 .beta-offer { border-color: #bfd2fb; background: linear-gradient(160deg, #f0f5ff 0%, #fff 42%); box-shadow: 0 8px 24px rgba(37, 99, 235, .06); justify-content: flex-start; color: var(--navy); }
 .beta-program-tag { display: inline-flex; align-self: flex-start; border-radius: 999px; padding: 5px 9px; background: #e5edff; color: #1d4ed8; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
