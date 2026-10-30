@@ -1,6 +1,11 @@
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'motion/react';
-import { Check, Mail, MessageCircle, Phone } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Check, Mail, MessageCircle, Phone, X } from 'lucide-react';
+
+import { useAuth } from '../../contexts/AuthContext';
+import { openSupport } from '../support/supportBus';
 
 const CONTACT_EMAIL = 'contact@trigenys.com';
 const LINKEDIN_URL = 'https://www.linkedin.com/company/trigenys-group';
@@ -14,6 +19,12 @@ const PLEDGES = ['documents', 'billing', 'payment'] as const;
 
 export default function AboutSection() {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const [contactOpen, setContactOpen] = useState(false);
+
+  // Connecté : la fenêtre d'assistance existante (le ticket porte son compte).
+  // Visiteur : l'assistance exige un compte, on propose donc les canaux directs.
+  const contact = () => (user ? openSupport({ category: 'other' }) : setContactOpen(true));
 
   return (
     <section className="about-section" id="about">
@@ -28,7 +39,6 @@ export default function AboutSection() {
         <div className="story-grid about-grid">
           <div className="about-story">
             <p className="about-text">{t('about.desc')}</p>
-            <p className="about-text about-method">{t('about.method')}</p>
             <ul className="about-pledges">
               {PLEDGES.map((key, i) => (
                 <motion.li
@@ -48,40 +58,90 @@ export default function AboutSection() {
             </ul>
           </div>
 
-          <aside className="about-card" aria-labelledby="about-card-title">
-            <p className="about-card-label">{t('about.card_label')}</p>
-            <h3 id="about-card-title" className="about-card-name">Trigenys Group</h3>
-            <dl className="about-card-facts">
-              <div><dt>{t('about.card_location_label')}</dt><dd>{t('about.card_location')}</dd></div>
-              <div><dt>{t('about.card_founded_label')}</dt><dd>2026</dd></div>
-              <div><dt>{t('about.card_products_label')}</dt><dd>{t('about.card_products')}</dd></div>
-            </dl>
-            <ul className="about-card-contact">
-              <li><Mail size={16} aria-hidden="true" /><a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a></li>
-              {PHONE && (
-                <li><Phone size={16} aria-hidden="true" /><a href={`tel:+${PHONE}`}>+{PHONE}</a></li>
-              )}
-              {WHATSAPP && (
-                <li>
-                  <MessageCircle size={16} aria-hidden="true" />
-                  <a href={`https://wa.me/${WHATSAPP}`} target="_blank" rel="noopener noreferrer">WhatsApp</a>
-                </li>
-              )}
-            </ul>
-            <p className="about-card-social">
-              <a href={LINKEDIN_URL} target="_blank" rel="noopener noreferrer">LinkedIn</a>
-              <span aria-hidden="true">·</span>
-              <a href={FACEBOOK_URL} target="_blank" rel="noopener noreferrer">Facebook</a>
-            </p>
-            <a className="btn-primary about-card-cta" href={`mailto:${CONTACT_EMAIL}`}>
-              {t('about.contact_cta')}
-            </a>
-          </aside>
+          <div className="about-card-wrap">
+            <img src="/Identite Precis.png" alt="" aria-hidden="true" className="about-mascot" />
+            <aside className="about-card" aria-labelledby="about-card-title">
+              <p className="about-card-label">{t('about.card_label')}</p>
+              <h3 id="about-card-title" className="about-card-name">Trigenys Group</h3>
+              <dl className="about-card-facts">
+                <div><dt>{t('about.card_location_label')}</dt><dd>{t('about.card_location')}</dd></div>
+                <div><dt>{t('about.card_founded_label')}</dt><dd>2026</dd></div>
+                <div><dt>{t('about.card_products_label')}</dt><dd>{t('about.card_products')}</dd></div>
+              </dl>
+              <p className="about-card-links">
+                <Mail size={16} aria-hidden="true" />
+                <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
+                <span aria-hidden="true">·</span>
+                <a href={LINKEDIN_URL} target="_blank" rel="noopener noreferrer">LinkedIn</a>
+                <span aria-hidden="true">·</span>
+                <a href={FACEBOOK_URL} target="_blank" rel="noopener noreferrer">Facebook</a>
+              </p>
+              <button type="button" className="btn-primary about-card-cta" onClick={contact}>
+                {t('about.contact_cta')}
+              </button>
+            </aside>
+          </div>
         </div>
       </div>
       {/* Integrated Footer */}
       <FooterSection />
+      <ContactModal open={contactOpen} onClose={() => setContactOpen(false)} />
     </section>
+  );
+}
+
+function ContactModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t } = useTranslation();
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  const channels = [
+    { key: 'email', icon: Mail, label: t('about.contact_email'), value: CONTACT_EMAIL, href: `mailto:${CONTACT_EMAIL}` },
+    ...(WHATSAPP ? [{ key: 'whatsapp', icon: MessageCircle, label: t('about.contact_whatsapp'), value: `+${WHATSAPP}`, href: `https://wa.me/${WHATSAPP}` }] : []),
+    ...(PHONE ? [{ key: 'phone', icon: Phone, label: t('about.contact_phone'), value: `+${PHONE}`, href: `tel:+${PHONE}` }] : []),
+  ];
+
+  // Rendu dans <body> : la section crée son propre empilement et le menu passerait devant.
+  return createPortal(
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          className="contact-overlay"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          onClick={onClose}
+        >
+          <motion.div
+            className="contact-modal"
+            role="dialog" aria-modal="true" aria-labelledby="contact-modal-title"
+            initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button type="button" className="contact-close" onClick={onClose} aria-label={t('about.contact_close')} autoFocus>
+              <X size={18} />
+            </button>
+            <img src="/Identite Precis.png" alt="" aria-hidden="true" className="contact-mascot" />
+            <h3 id="contact-modal-title">{t('about.contact_title')}</h3>
+            <p className="contact-intro">{t('about.contact_intro')}</p>
+            <ul className="contact-channels">
+              {channels.map(({ key, icon: Icon, label, value, href }) => (
+                <li key={key}>
+                  <a href={href} {...(key === 'whatsapp' ? { target: '_blank', rel: 'noopener noreferrer' } : {})}>
+                    <span className="contact-channel-icon"><Icon size={18} aria-hidden="true" /></span>
+                    <span><strong>{label}</strong><small>{value}</small></span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body,
   );
 }
 

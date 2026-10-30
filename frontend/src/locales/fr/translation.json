@@ -228,8 +228,7 @@
   "about": {
     "tag": "À Propos de Trigenys Group",
     "title": "Précis, conçu par <strong>Trigenys Group</strong>",
-    "desc": "Traduire un document professionnel, ce n'est pas remplacer des mots. Les traducteurs de métier lisent tout le document avant d'écrire, fixent une terminologie et la tiennent d'un bout à l'autre, puis rendent un fichier qui garde sa mise en page.",
-    "method": "Précis automatise cette méthode : il analyse le contexte, garde les termes cohérents et préserve la mise en forme d'origine, pour une traduction précise et prête à l'emploi.",
+    "desc": "Un bon traducteur lit tout le document, choisit ses termes et les garde jusqu'au bout. Précis applique cette méthode et vous rend votre fichier traduit, avec sa mise en page intacte.",
     "pledge_documents": "Vos documents restent à vous",
     "pledge_documents_desc": "Bibliothèque privée, que vous videz quand vous voulez.",
     "pledge_billing": "Vous payez ce qui est traduit",
@@ -242,7 +241,13 @@
     "card_founded_label": "Fondée en",
     "card_products_label": "Aussi",
     "card_products": "AgenStudio, Trigenys Insight",
-    "contact_cta": "Nous écrire"
+    "contact_cta": "Nous écrire",
+    "contact_title": "Nous contacter",
+    "contact_intro": "Choisissez le moyen qui vous convient. Nous répondons sous 24 h ouvrées.",
+    "contact_email": "E-mail",
+    "contact_whatsapp": "WhatsApp",
+    "contact_phone": "Téléphone",
+    "contact_close": "Fermer"
   },
   "footer": {
     "rights": "© 2026 Précis by Trigenys Group. Tous droits réservés.",

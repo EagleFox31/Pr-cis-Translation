@@ -228,8 +228,7 @@
   "about": {
     "tag": "About Trigenys Group",
     "title": "Précis, built by <strong>Trigenys Group</strong>",
-    "desc": "Translating a professional document is not swapping words. Professional translators read the whole document before writing, settle on terminology and keep it consistent throughout, then deliver a file that keeps its layout.",
-    "method": "Précis automates this method: it analyses the context, keeps terms consistent and preserves the original formatting, for a precise translation that is ready to use.",
+    "desc": "A good translator reads the whole document, chooses the terms and keeps them to the end. Précis applies this method and returns your translated file with its layout intact.",
     "pledge_documents": "Your documents stay yours",
     "pledge_documents_desc": "A private library you can clear whenever you want.",
     "pledge_billing": "You pay for what is translated",
@@ -242,7 +241,13 @@
     "card_founded_label": "Founded",
     "card_products_label": "Also",
     "card_products": "AgenStudio, Trigenys Insight",
-    "contact_cta": "Contact us"
+    "contact_cta": "Contact us",
+    "contact_title": "Contact us",
+    "contact_intro": "Pick the channel that suits you. We reply within one business day.",
+    "contact_email": "Email",
+    "contact_whatsapp": "WhatsApp",
+    "contact_phone": "Phone",
+    "contact_close": "Close"
   },
   "footer": {
     "rights": "© 2026 Précis by Trigenys Group. All rights reserved.",

@@ -934,9 +934,8 @@ section {
    s'alignent, le dernier engagement et le bouton aussi. */
 .story-grid.about-grid { width: 100%; grid-template-columns: 1.4fr 1fr; gap: 64px; align-items: stretch; }
 .about-story { display: flex; flex-direction: column; }
-.about-text { margin: 0; font-size: 1rem; line-height: 1.7; color: var(--gray-500); max-width: 620px; }
-.about-method { margin-top: 12px; color: var(--gray-700); }
-.about-pledges { list-style: none; margin: auto 0 0; padding: 24px 0 0; display: grid; gap: 16px; }
+.about-text { margin: 0; font-size: 1.05rem; line-height: 1.75; color: var(--gray-700); max-width: 600px; text-align: justify; hyphens: auto; }
+.about-pledges { list-style: none; margin: auto 0 0; padding: 28px 0 0; display: grid; gap: 18px; max-width: 600px; border-top: 1px solid var(--gray-200); }
 .about-pledges li { display: flex; gap: 12px; align-items: flex-start; }
 .about-pledge-icon { flex-shrink: 0; margin-top: 2px; color: var(--navy); }
 .about-pledges strong { display: block; color: var(--navy); font-weight: 700; }
@@ -948,14 +947,34 @@ section {
 .about-card-facts div { display: flex; justify-content: space-between; gap: 12px; font-size: 0.9rem; }
 .about-card-facts dt { color: var(--gray-500); }
 .about-card-facts dd { margin: 0; color: var(--navy); font-weight: 600; text-align: right; }
-.about-card-contact { list-style: none; margin: 0; padding: 14px 0 0; border-top: 1px solid var(--gray-100); display: grid; gap: 8px; font-size: 0.9rem; }
-.about-card-contact li { display: flex; align-items: center; gap: 10px; color: var(--navy); }
-.about-card-contact a, .about-card-social a { color: var(--navy); text-decoration: underline; text-underline-offset: 3px; }
-.about-card-social { display: flex; gap: 8px; font-size: 0.85rem; color: var(--gray-500); }
+.about-card-links { margin: 0; padding-top: 16px; border-top: 1px solid var(--gray-100); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 0.9rem; color: var(--gray-500); }
+.about-card-links svg { color: var(--navy); }
+.about-card-links a { color: var(--navy); text-decoration: underline; text-underline-offset: 3px; }
+/* La mascotte se tient derrière la fiche et passe la tête par-dessus. */
+.about-card-wrap { position: relative; display: flex; }
+.about-card-wrap .about-card { position: relative; z-index: 1; }
+.about-mascot { position: absolute; z-index: 0; right: 32px; top: -92px; height: 150px; width: auto; pointer-events: none; }
+.contact-overlay { position: fixed; inset: 0; z-index: 1200; background: rgba(13,27,62,0.45); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.contact-modal { position: relative; width: min(420px, 100%); background: white; border-radius: 20px; box-shadow: 0 24px 70px rgba(13,27,62,0.28); padding: 28px 24px 24px; text-align: center; }
+.contact-modal h3 { margin: 4px 0 6px; font-size: 1.3rem; color: var(--navy); }
+.contact-mascot { display: block; height: 96px; width: auto; margin: 0 auto; }
+.contact-intro { margin: 0 0 18px; font-size: 0.9rem; color: var(--gray-500); }
+.contact-close { position: absolute; top: 14px; right: 14px; background: none; border: none; cursor: pointer; color: var(--gray-500); }
+.contact-channels { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; text-align: left; }
+.contact-channels a { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border: 1.5px solid var(--gray-200); border-radius: 14px; color: var(--navy); text-decoration: none; transition: border-color .2s, background .2s; }
+.contact-channels a:hover, .contact-channels a:focus-visible { border-color: var(--blue); background: var(--gray-50); }
+.contact-channel-icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; background: var(--gray-100); color: var(--blue); flex-shrink: 0; }
+.contact-channels strong { display: block; font-size: 0.95rem; }
+.contact-channels small { display: block; font-size: 0.82rem; color: var(--gray-500); }
+@media (max-width: 640px) {
+  .contact-overlay { align-items: flex-end; padding: 0; }
+  .contact-modal { width: 100%; border-radius: 20px 20px 0 0; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+}
 .about-card-cta { margin-top: auto; text-align: center; justify-content: center; }
 @media (max-width: 1024px) {
   .story-grid.about-grid { grid-template-columns: 1fr; gap: 32px; }
-  .about-pledges { margin-top: 0; }
+  .about-pledges { margin-top: 24px; }
+  .about-card-wrap { margin-top: 96px; }
 }
 .section-inner {
   max-width: var(--frame-max);
