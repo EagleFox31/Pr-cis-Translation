@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { authHeader, accessToken, refreshAccessToken } from '../services/api';
 import i18n from '../i18n';
+import { deviceHeaders } from '../lib/device';
 
 // Pas de valeur de repli : cf. usePdfPreview.ts — une clé écrite ici part dans
 // le dépôt, et le repli rendait l'oubli de `VITE_API_KEY` invisible.
@@ -46,6 +47,9 @@ export interface StreamingState {
   /** Même 402 : pages que le solde couvre déjà, si le serveur accepte de ne
    *  traduire qu'elles (`covered_only`). `null` = aucun partiel possible. */
   pagesCovered: number | null;
+  /** Même 402, pages offertes refusées par l'anti-abus : motif affiché à la
+   *  place du simple manque. `null` = manque de crédits ordinaire. */
+  creditsReason: string | null;
   /** En file d'attente : aucun worker libre. `null` = pas en file (démarré ou
    *  terminé). Le nombre est une estimation des demandes devant la vôtre. */
   queuePosition: number | null;
@@ -64,12 +68,17 @@ const EMPTY: StreamingState = {
   limitReached: false,
   creditsNeeded: null,
   pagesCovered: null,
+  creditsReason: null,
   queuePosition: null,
 };
 
-export function useStreamingTranslation() {
+// `deviceSignals` : seules les pages OFFERTES passent par l'anti-abus ; un
+// compte payant n'attend pas le calcul de l'empreinte (jusqu'à 1,5 s).
+export function useStreamingTranslation(deviceSignals = true) {
   const { t } = useTranslation();
   const [state, setState] = useState<StreamingState>(EMPTY);
+  const deviceSignalsRef = useRef(deviceSignals);
+  deviceSignalsRef.current = deviceSignals;
   const esRef = useRef<EventSource | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const jobIdRef = useRef<string | null>(null);
@@ -204,24 +213,30 @@ export function useStreamingTranslation() {
           // reste anonyme, comme avant.
           const startRes = await fetch(`${API_BASE}/api/translate`, {
             method: 'POST',
-            headers: { 'X-API-Key': API_KEY, ...authHeader() },
+            headers: { 'X-API-Key': API_KEY, ...authHeader(),
+              ...(deviceSignalsRef.current ? await deviceHeaders() : {}) },
             body: formData,
           });
           if (!startRes.ok) {
             const err = await startRes.json().catch(() => ({}));
             const betaError = String(err.reason || '').startsWith('beta_');
+            // Pages offertes refusées par l'anti-abus : même issue qu'un manque
+            // de crédits (achat), avec son propre message.
+            const deviceLimit = err.reason === 'free_limit_device';
             const detail = err.reason === 'beta_inactive' ? t('beta.inactive_error')
+              : deviceLimit ? t('story.free_limit_device')
               : betaError ? t('beta.translation_error') : err.detail || err.error || t('story.error_default');
             const is402 = startRes.status === 402;
             // 402 « crédits insuffisants » : le serveur dit COMBIEN de pages
             // acheter, et combien sont déjà couvertes si un partiel est possible.
-            const credits = err.reason === 'need_credits' && typeof err.pages_missing === 'number';
+            const credits = (err.reason === 'need_credits' || deviceLimit) && typeof err.pages_missing === 'number';
             const needed = credits ? err.pages_missing as number : null;
             const covered = (credits || betaError) && err.partial_possible === true
               && typeof err.pages_available === 'number' ? err.pages_available as number : null;
             setState((s) => ({
               ...s, isTranslating: false, error: detail,
               limitReached: is402 && !betaError, creditsNeeded: needed, pagesCovered: covered,
+              creditsReason: deviceLimit ? detail : null,
             }));
             throw new Error(detail);
           }

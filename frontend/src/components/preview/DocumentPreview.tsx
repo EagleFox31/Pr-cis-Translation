@@ -31,6 +31,9 @@ interface DocumentPreviewProps {
   onBuyPages?: (pages: number) => void;
   /** Pages déjà couvertes par le solde, si on peut ne traduire qu'elles. */
   pagesCovered?: number | null;
+  /** Motif du refus à afficher au-dessus de l'achat (pages offertes refusées
+   *  par l'anti-abus). `null` = manque de crédits ordinaire. */
+  creditsReason?: string | null;
   /** Relance en ne traduisant que les pages couvertes. */
   onTranslateCovered?: () => void;
   /** Essai : quitter l'aperçu pour les tarifs. */
@@ -59,6 +62,7 @@ export default function DocumentPreview({
   creditsNeeded,
   onBuyPages,
   pagesCovered,
+  creditsReason,
   onTranslateCovered,
   onUnlock,
 }: DocumentPreviewProps) {
@@ -132,6 +136,7 @@ export default function DocumentPreview({
       creditsNeeded={creditsNeeded}
       onBuyPages={onBuyPages}
       pagesCovered={pagesCovered}
+      creditsReason={creditsReason}
       onTranslateCovered={onTranslateCovered}
       onUnlock={onUnlock}
     />

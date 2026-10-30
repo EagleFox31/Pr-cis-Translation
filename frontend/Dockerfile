@@ -48,10 +48,12 @@ COPY frontend/ ./
 ARG VITE_API_KEY
 ARG VITE_API_BASE=""
 ARG VITE_GOOGLE_CLIENT_ID=""
+ARG VITE_TURNSTILE_SITE_KEY=""
 
 ENV VITE_API_KEY=$VITE_API_KEY \
     VITE_API_BASE=$VITE_API_BASE \
-    VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
+    VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID \
+    VITE_TURNSTILE_SITE_KEY=$VITE_TURNSTILE_SITE_KEY
 
 # Échec IMMÉDIAT si la clé manque. Le code n'a plus de valeur de repli (elle
 # masquait l'oubli en faisant marcher l'interface avec la clé publique du
@@ -80,6 +82,7 @@ FROM nginx:1.27-alpine
 # La configuration est montée ici et non dans `docker-compose.yml` : elle décrit
 # comment SERVIR l'application, ce qui appartient à l'image, pas au déploiement.
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+COPY frontend/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 80

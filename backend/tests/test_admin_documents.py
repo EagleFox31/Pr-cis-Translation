@@ -59,6 +59,12 @@ async def _statut(coro) -> int | None:
 
 
 async def main() -> None:
+    # Le routeur doit être monté par l'application, pas seulement importé :
+    # un oubli dans create_app() rendait la page admin Documents vide (404).
+    from app import create_app
+    chemins = {getattr(r, "path", "") for r in create_app().routes}
+    check("/api/admin/documents" in chemins, "routeur monté dans l'application")
+
     tmp = tempfile.mkdtemp(prefix="admindoc_")
     chemin_ok = os.path.join(tmp, "origine.pdf")
     with open(chemin_ok, "wb") as fh:

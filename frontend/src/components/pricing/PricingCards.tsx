@@ -30,6 +30,7 @@ import { usePricing, formatMoney, type PricingPlan } from '../../hooks/usePricin
 import { formatSize } from '../../lib/format';
 import Skeleton from '../ui/Skeleton';
 import BetaOffer from './BetaOffer';
+import { useBetaProgram } from '../../hooks/useBetaProgram';
 import PaymentModal from '../payment/PaymentModal';
 import { openSupport } from '../support/supportBus';
 import type { PlanChoice } from '../../hooks/usePayment';
@@ -112,11 +113,17 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
   // Achat de pages à l'unité, sans forfait.
   const [packOpen, setPackOpen] = useState(false);
   const [packPages, setPackPages] = useState(2);
+  // Offre Bêta seulement quand on peut y candidater : fermée, pleine ou
+  // terminée, elle promettrait 30 jours que personne ne peut obtenir.
+  const { program: betaProgram } = useBetaProgram();
+  const beta = betaProgram?.applications_open ? betaProgram : null;
+  const gridClass = 'pricing-grid' + (beta ? ' pricing-grid--with-beta' : '');
+  const betaOffer = beta && <BetaOffer program={beta} />;
 
   if (loading) {
     return (
-      <div className="pricing-grid pricing-grid--with-beta">
-        <BetaOffer />
+      <div className={gridClass}>
+        {betaOffer}
         {[0, 1, 2, 3].map((i) => (
           <div key={i} className="pricing-card">
             <Skeleton height={260} />
@@ -129,8 +136,8 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
   // Le serveur n'a pas répondu. On le dit, plutôt que d'afficher des prix de
   // secours qui pourraient ne plus être ceux pratiqués.
   if (!pricing) {
-    return <div className="pricing-grid pricing-grid--with-beta">
-      <BetaOffer />
+    return <div className={gridClass}>
+      {betaOffer}
       <p className="pricing-indispo">{t('pricing.unavailable')}</p>
     </div>;
   }
@@ -148,8 +155,8 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
 
   return (
     <>
-    <div className="pricing-grid pricing-grid--with-beta">
-      <BetaOffer />
+    <div className={gridClass}>
+      {betaOffer}
       {pricing.plans.map((plan, idx) => {
         const isActive = user ? user.plan === plan.key : false;
         const isPopular = plan.key === 'pro';
@@ -241,8 +248,6 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
       })}
     </div>
 
-    <p className="pricing-annuel">{t('pricing.equivalence', { count: pricing.words_per_page })}</p>
-
     {/* Payer à la page, sans s'abonner : une offre à part entière, sous la
         grille, et non un lien accroché à la seule carte Gratuit. Les pages
         achetées restent créditées sur le compte jusqu'à leur utilisation. */}
@@ -259,6 +264,20 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
         {t('pricing.buy_pages')}
       </a>
     </div>
+
+    {/* Règle commune aux forfaits et à l'achat à la page : en fin de section,
+        avec un exemple chiffré plutôt qu'une formule. */}
+    <section className="pricing-units" aria-labelledby="pricing-units-title">
+      <h3 id="pricing-units-title">{t('pricing.units.title')}</h3>
+      <ul>
+        <li><strong>PDF</strong> {t('pricing.units.pdf')}</li>
+        <li><strong>PowerPoint</strong> {t('pricing.units.pptx')}</li>
+        <li><strong>{t('pricing.units.text_formats')}</strong> {t('pricing.units.words', { count: pricing.words_per_page })}</li>
+      </ul>
+      <p>{t('pricing.units.example', {
+        words: Math.round(pricing.words_per_page * 2.4).toLocaleString(locale),
+        pages: Math.ceil(Math.round(pricing.words_per_page * 2.4) / pricing.words_per_page) })}</p>
+    </section>
 
     <PaymentModal
       open={payOpen && buying !== null}

@@ -34,6 +34,7 @@ from app.rate_limit import verify_api_key
 from app.services.documents import (build_job_paths, cap_pages_for_plan,
                                     count_pages, pages_avec_texte)
 from app.services import usage
+from app.services import anti_abus
 from app.services import beta
 from app.services.beta_meter import BetaCost, FORMATS as BETA_FORMATS, office_cost
 from app.services.ocr import OCR_VERSION, OCRError, prepare_scanned_pdf
@@ -156,9 +157,21 @@ async def _save_document_for_user(user: "User | None", db: "AsyncSession",
                             detail="Impossible d'enregistrer la traduction. Réessayez.")
 
 
+def qualite_autorisee(quality: str, precise: str, user: "User") -> str:
+    """Mode de traduction effectif. Le mode précis (modèle de raisonnement, plus
+    coûteux, même quota) est réservé aux admins : le serveur ne se fie pas à
+    l'interface, `precise=1` ou `quality=precise` d'un autre compte → rapide."""
+    if precise == "1":
+        quality = "precise"
+    if quality != "precise" or user.plan != "admin":
+        return "fast"
+    return "precise"
+
+
 @router.post("/api/translate")
 async def translate_endpoint(
     request: Request,
+    response: Response,
     file: UploadFile = File(...),
     target_lang: str = Form("en"),
     format_options: str = Form("{}"),
@@ -184,9 +197,7 @@ async def translate_endpoint(
     pour suivre la progression, puis télécharger via /api/translate/result/{job_id}."""
     verify_api_key(x_api_key)
 
-    # Le flag 'precise' du frontend force le mode raisonnement (admin)
-    if precise == "1":
-        quality = "precise"
+    quality = qualite_autorisee(quality, precise, current_user)
 
     filename = file.filename or ""
     ext = filename.split(".")[-1].lower() if "." in filename else ""
@@ -213,7 +224,6 @@ async def translate_endpoint(
     debug_mode = str(debug).strip().lower() in ("1", "true", "yes", "on")
 
     # Mode de traduction (rapide vs précis) → modèle + budget de tokens.
-    quality = quality if quality in ("fast", "precise") else "fast"
     model, max_tokens = resolve_quality(quality)
     # Suffixe de cache : les deux modes produisent des résultats différents, ils
     # ne doivent JAMAIS partager le même translated.json ni le même PDF de sortie.
@@ -250,7 +260,8 @@ async def translate_endpoint(
     beta_preview = (await beta.active_enrollment(db, current_user)
                     if beta_choice not in ("0", "false", "off") and ext in BETA_FORMATS else None)
     beta_mode = beta_preview is not None
-    if beta_choice in ("1", "true") and not beta_mode:
+    # Hors format bêta, la case n'a pas d'objet : traduction ordinaire.
+    if beta_choice in ("1", "true") and not beta_mode and ext in BETA_FORMATS:
         return JSONResponse(status_code=402, content={
             "reason": "beta_inactive",
             "detail": "Votre accès bêta n'est pas actif. Utilisez votre forfait habituel ou consultez votre invitation.",
@@ -376,6 +387,24 @@ async def translate_endpoint(
     # gardent leur drapeau paid=False ; ils ne sont pas débloqués rétroactivement.
     doc_is_paid = False
 
+    # Signaux anti-abus des pages OFFERTES : lus et enregistrés AVANT le verrou
+    # (écritures courtes, validées tout de suite pour qu'un refus ne les perde
+    # pas). Bêta et forfaits payants ne passent pas par ce contrôle.
+    signals = machine_id = None
+    known = True
+    if not beta_mode and current_user.plan == "free":
+        signals = anti_abus.client_signals(request)
+        machine_id, known = await anti_abus.resolve_machine(db, signals)
+        await db.commit()
+        anti_abus.set_cookie(response, signals)
+
+    def avec_cookie(rep):
+        # Une JSONResponse renvoyée telle quelle ignore `response` : le cookie
+        # de l'appareil doit être posé sur elle.
+        if signals is not None:
+            anti_abus.set_cookie(rep, signals)
+        return rep
+
     # Verrou pessimiste sur la ligne User : compter puis insérer est un
     # lire-puis-écrire. Sans lock, deux requêtes simultanées du même compte
     # liraient le même solde et passeraient toutes deux. Le lock tient jusqu'au
@@ -414,22 +443,38 @@ async def translate_endpoint(
             monthly = get_plan_monthly_pages(locked.plan)
             reste_plan = (None if monthly is None else
                           max(0, monthly - await usage.pages_used_this_month(db, locked)))
-        couvert = None if reste_plan is None else reste_plan + solde
         needed = len(pages_set) if pages_set else nb_pages
+        # Pages offertes refusées (abus probable) : seules les pages achetées
+        # restent utilisables.
+        refus_offert = None
+        if gratuit and reste_plan > 0 and signals is not None:
+            refus_offert = await anti_abus.free_risk(
+                db, locked, signals, machine_id, known, min(needed, reste_plan))
+            if refus_offert:
+                reste_plan = 0
+        couvert = None if reste_plan is None else reste_plan + solde
         if couvert is not None and needed > couvert:
             partiel = ext in ("pdf", "pptx") and couvert > 0
             if not (covered_only == "1" and partiel):
+                if refus_offert:
+                    return avec_cookie(JSONResponse(status_code=402, content={
+                        "reason": "free_limit_device", "risk": refus_offert,
+                        "detail": "Les pages offertes ne sont pas disponibles pour ce compte "
+                                  "sur cet appareil. Vous pouvez acheter des pages pour continuer.",
+                        "pages_needed": needed, "pages_available": couvert,
+                        "pages_missing": needed - couvert, "partial_possible": partiel,
+                    }))
                 detail = (f"Crédits insuffisants pour traduire tout le document : "
                           f"il demande {needed} page(s) équivalente(s), {couvert} couverte(s).")
                 _debut, repart = usage.quota_period(locked)
                 detail += f" Le quota du forfait repart le {repart:%d/%m/%Y}."
-                return JSONResponse(status_code=402, content={
+                return avec_cookie(JSONResponse(status_code=402, content={
                     "detail": detail, "reason": "need_credits",
                     "pages_needed": needed, "pages_available": couvert,
                     "pages_missing": needed - couvert,
                     "partial_possible": partiel,
                     "trial": gratuit and reste_plan > 0,
-                })
+                }))
             visees = sorted(pages_set) if pages_set else range(1, nb_pages + 1)
             pages_set = set(list(visees)[:couvert])
             needed = couvert
@@ -438,6 +483,8 @@ async def translate_endpoint(
         du_plan = needed if reste_plan is None else min(needed, reste_plan)
         achetees = needed - du_plan
         locked.page_credits -= achetees
+        if gratuit and du_plan > 0 and signals is not None:
+            anti_abus.record_grant(db, locked, signals, machine_id, du_plan)
         # Réservation atomique avant le worker : effacer un document ne rend
         # aucun quota, et le mécanisme existant rembourse un échec une seule fois.
         kind = KIND_FREE_OFFER if gratuit else KIND_PLAN
@@ -561,7 +608,7 @@ async def translate_endpoint(
         reponse["ocr_review_required"] = True
     if pages_ignorees:
         reponse["pages_ignorees"] = pages_ignorees
-    return JSONResponse(reponse)
+    return avec_cookie(JSONResponse(reponse))
 
 
 @router.get("/api/translate/events/{job_id}")

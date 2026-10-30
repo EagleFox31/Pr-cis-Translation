@@ -16,7 +16,7 @@
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { FolderOpen, LifeBuoy, LogOut, UserPlus, X } from 'lucide-react';
+import { FolderOpen, LifeBuoy, UserPlus, X } from 'lucide-react';
 
 import type { DocMeta } from '../../hooks/useDocumentLibrary';
 import { useAuth } from '../../contexts/AuthContext';
@@ -129,7 +129,8 @@ export default function DocumentLibrary({
     <>
       <Drawer open={isOpen} onClose={onClose} label={t('library.title')}>
         {user && <AccountPanel user={user}
-          refreshKey={documents.map(d => `${d.id}:${d.status}`).join('|')} />}
+          refreshKey={documents.map(d => `${d.id}:${d.status}`).join('|')}
+          onLogout={async () => { onClose(); await logout(); }} />}
 
         <header className="biblio__tete">
           <div>
@@ -193,31 +194,24 @@ export default function DocumentLibrary({
           )}
         </div>
 
-        {/* Pied de panneau — la déconnexion.
-            Elle était au bas du bloc de compte, en gris clair sur blanc : on ne
-            savait pas qu'elle était là. Ici, elle ne défile pas avec la liste
-            et reste visible quel que soit le nombre de documents. Le ton
-            « danger » lui donne sa présence sans en faire l'action principale :
-            c'est une sortie, pas une suppression. */}
+        {/* Pied de panneau : inviter et demander de l'aide. Il ne défile pas
+            avec la liste et reste visible quel que soit le nombre de documents. */}
         {user && (
-          <footer className="biblio__pied" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {/* Aide au-DESSUS de la déconnexion : c'est une action qu'on cherche
-                quand ça coince, elle doit être à portée sans quitter le compte. */}
-            <Button variant="ghost" size="md" block
-              icon={<UserPlus size={15} strokeWidth={2.2} />}
-              onClick={() => { onClose(); openInvite(); }}>
-              {t('invite.open', 'Inviter des proches')}
-            </Button>
-            <Button variant="ghost" size="md" block
-              icon={<LifeBuoy size={15} strokeWidth={2.2} />}
-              onClick={() => { onClose(); openSupport(); }}>
-              {t('support.open', 'Aide & support')}
-            </Button>
-            <Button variant="danger" size="md" block
-              icon={<LogOut size={15} strokeWidth={2.2} />}
-              onClick={async () => { onClose(); await logout(); }}>
-              {t('account.logout')}
-            </Button>
+          <footer className="biblio__pied">
+            {/* Inviter et Aide côte à côte, de même largeur. La déconnexion
+                est montée dans la carte du compte (étude, point 4). */}
+            <nav className="biblio__duo">
+              <button type="button" className="biblio__action"
+                onClick={() => { onClose(); openInvite(); }}>
+                <UserPlus size={16} strokeWidth={2} aria-hidden="true" />
+                {t('invite.open', 'Inviter des proches')}
+              </button>
+              <button type="button" className="biblio__action"
+                onClick={() => { onClose(); openSupport(); }}>
+                <LifeBuoy size={16} strokeWidth={2} aria-hidden="true" />
+                {t('support.open', 'Aide & support')}
+              </button>
+            </nav>
           </footer>
         )}
       </Drawer>

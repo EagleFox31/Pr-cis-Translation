@@ -87,8 +87,7 @@ async def list_documents(
     offset = max(0, offset)
     conds = []
     if q:
-        like = f"%{q}%"
-        conds.append(or_(User.email.ilike(like), Document.original_name.ilike(like)))
+        conds.append(or_(User.email.icontains(q, autoescape=True), Document.original_name.icontains(q, autoescape=True)))
 
     stmt = (select(Document, User.email)
             .join(User, User.id == Document.user_id)

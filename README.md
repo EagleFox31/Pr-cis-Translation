@@ -39,6 +39,17 @@ aperçus non-PDF.
 | [`docs/etude-invitations.md`](docs/etude-invitations.md) | Étude : inviter des proches par e-mail — choix et points à trancher |
 | [`docs/etude-frais-carte.md`](docs/etude-frais-carte.md) | Étude : frais propres au paiement par carte (Paddle) |
 | [`docs/etude-normalisation-main.md`](docs/etude-normalisation-main.md) | Étude : corrections après fusion de main 1.6.2 (frais hors cartes, minimum carte Paddle, mentions sous les cartes) |
+| [`docs/etude-pptx-traduction-apercu.md`](docs/etude-pptx-traduction-apercu.md) | Étude : PPTX non traduit (diapositives `slide1000.xml`, ordre réel) et aperçu qui clignote |
+| [`docs/etude-onglets-beta-pied.md`](docs/etude-onglets-beta-pied.md) | Étude : onglets admin cachés sur `/beta`, offre Bêta masquée si fermée, pied de barre latérale compact |
+| [`docs/etude-audit-beta.md`](docs/etude-audit-beta.md) | Étude : audit du programme bêta (écarts et décisions) |
+| [`docs/etude-anti-abus.md`](docs/etude-anti-abus.md) | Étude : anti-abus du gratuit et de la bêta (machine, cumul, e-mails jetables) |
+| [`docs/etude-interfaces-admin.md`](docs/etude-interfaces-admin.md) | Étude : refonte des interfaces d'administration (gabarit commun, campagne bêta, page /beta) |
+| [`docs/etude-fiche-utilisateur-integree.md`](docs/etude-fiche-utilisateur-integree.md) | Étude : fiche utilisateur à droite de la liste des comptes (plus de panneau latéral) |
+| [`docs/etude-historique-forfaits.md`](docs/etude-historique-forfaits.md) | Étude : historique des forfaits, fiche compte en pleine hauteur, tuiles cliquables |
+| [`docs/etude-menu-admin.md`](docs/etude-menu-admin.md)
+- [Étude — programmes Bêta multiples](docs/etude-programmes-beta.md) | Étude : « Administration » dans le menu principal, onglets admin dans la barre |
+- [Étude — fiche programme Bêta lisible](docs/etude-fiche-programme-beta.md)
+- [Étude — accès Bêta direct et fiche simplifiée](docs/etude-acces-beta-direct.md)
 | [`docs/guide-premiere-mise-en-ligne.md`](docs/guide-premiere-mise-en-ligne.md) | Pas à pas de la toute première mise en ligne |
 | [`infra/aws/README.md`](infra/aws/README.md) | L'infrastructure AWS (CloudFormation, OIDC, secrets) |
 | `docs/api/index.html` | Les 32 opérations HTTP (`npm run docs:api`) |

@@ -20,7 +20,8 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models import User, Document, Payment, get_plan_storage
+from app.models import (EVENT_RENEWAL, EVENT_SUBSCRIPTION, Document, Payment,
+                        PlanEvent, User, get_plan_storage)
 from app.core.security import require_auth
 from app.core.pricing import (zone_for_country, CURRENCY, page_price,
                                billable_pages, min_payment_amount, plan_price,
@@ -457,13 +458,18 @@ async def _apply_plan(db: AsyncSession, payment: Payment) -> None:
         # reste, et la période de quota garde son jour.
         start = user.plan_expires_at
         user.plan_started_at = user.plan_started_at or now
+        kind = EVENT_RENEWAL
     else:
         # Nouveau plan : il commence maintenant, avec le reste de l'ancien.
         start = now + _carry_over(user, payment, now)
         user.plan_started_at = now
+        kind = EVENT_SUBSCRIPTION
     user.plan = payment.plan
     user.plan_expires_at = add_months(start, payment.months or 1)
     user.storage_limit = get_plan_storage(payment.plan)
+    db.add(PlanEvent(user_id=user.id, kind=kind, plan=payment.plan,
+                     months=payment.months or 1, expires_at=user.plan_expires_at,
+                     payment_id=payment.id))
 
 
 async def _apply_credit(db: AsyncSession, payment: Payment) -> None:

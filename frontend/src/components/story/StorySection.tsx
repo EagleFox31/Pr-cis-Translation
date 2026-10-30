@@ -47,6 +47,9 @@ interface StorySectionProps {
   onBuyPages?: (pages: number) => void;
   /** Pages déjà couvertes par le solde, si on peut ne traduire qu'elles. */
   pagesCovered?: number | null;
+  /** Motif du refus à afficher au-dessus de l'achat (pages offertes refusées
+   *  par l'anti-abus). `null` = manque de crédits ordinaire. */
+  creditsReason?: string | null;
   /** Relance en ne traduisant que les pages couvertes. */
   onTranslateCovered?: () => void;
   /** Mode agrandi (focus) actif ? */
@@ -87,6 +90,7 @@ export default function StorySection({
   creditsNeeded = null,
   onBuyPages,
   pagesCovered = null,
+  creditsReason = null,
   onTranslateCovered,
   focus = false,
   onStartTranslate,
@@ -523,6 +527,7 @@ export default function StorySection({
                       creditsNeeded={creditsNeeded}
                       onBuyPages={onBuyPages}
                       pagesCovered={pagesCovered}
+                      creditsReason={creditsReason}
                       onTranslateCovered={onTranslateCovered}
                       onUnlock={onUnlock}
                     />

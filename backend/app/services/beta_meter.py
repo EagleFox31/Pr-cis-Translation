@@ -20,13 +20,20 @@ class BetaCost:
     words: int = 0
 
 
+_UNSPACED = r"[\u0e00-\u0eff\u1000-\u109f\u1780-\u17ff]+"
+
+
 def word_count(text: str) -> int:
     text = re.sub(r"\[\[/?\d+\]\]", "", text)
     # Unspaced CJK text must not become one unlimited "word".
     text = re.sub(r"([\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af])", r" \1 ", text)
+    # Thai, Lao, Myanmar and Khmer are written without spaces and their
+    # combining marks split \w: count one word per five characters instead.
+    unspaced = sum((len(run) + 4) // 5 for run in re.findall(_UNSPACED, text))
+    text = re.sub(_UNSPACED, " ", text)
     # A huge unbroken Latin/base64 string must not count as one free word.
     # Ordinary words remain unchanged; long runs consume word equivalents.
-    return sum((len(part) + 49) // 50 for part in re.findall(
+    return unspaced + sum((len(part) + 49) // 50 for part in re.findall(
         r"[^\W_]+(?:['’\-][^\W_]+)*", text, flags=re.UNICODE)
         if re.search(r"[^\W\d_]", part))
 

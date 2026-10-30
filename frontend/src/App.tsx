@@ -14,6 +14,7 @@ import AdminSupportPage from './pages/AdminSupportPage';
 import AdminDocumentsPage from './pages/AdminDocumentsPage';
 import CardPaymentPage from './pages/CardPaymentPage';
 import './beta.css';
+import ToastContainer from './components/ui/Toast';
 import { authReturnTo } from './lib/authReturn';
 
 const AdminBetaPage = lazy(() => import('./pages/AdminBetaPage'));
@@ -74,6 +75,7 @@ function MainApp() {
           <Route path="/beta" element={<Suspense fallback={null}><BetaPage /></Suspense>} />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
+        <ToastContainer />
       </AuthProvider>
     </BrowserRouter>
     </GoogleOAuthProvider>

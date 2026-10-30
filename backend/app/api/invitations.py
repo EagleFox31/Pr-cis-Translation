@@ -25,6 +25,7 @@ from app.core.database import get_db
 from app.core.security import require_auth
 from app.models import Invitation, User
 from app.models.base import new_uuid
+from app.services import anti_abus
 from app.rate_limit import rate_limit_decorator
 from app.services.invitations import envoyer_invitations
 
@@ -56,6 +57,9 @@ async def inviter(
                 if a != soi]
     if not adresses:
         raise HTTPException(status_code=422, detail="Aucune adresse à inviter.")
+    jetables = [a for a in adresses if anti_abus.is_disposable(a)]
+    if jetables:
+        raise HTTPException(400, f"{anti_abus.DISPOSABLE_MESSAGE} ({', '.join(jetables)})")
 
     if db.bind.dialect.name == "postgresql":
         # Tenu jusqu'au commit : deux envois simultanés du même compte se

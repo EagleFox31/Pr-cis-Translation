@@ -26,7 +26,7 @@ import uuid
 import racine  # noqa: F401  -- met backend/ sur le chemin
 
 import fitz                                              # noqa: E402
-from fastapi import HTTPException, UploadFile            # noqa: E402
+from fastapi import HTTPException, Response, UploadFile            # noqa: E402
 from fastapi.responses import JSONResponse              # noqa: E402
 from sqlalchemy import select                            # noqa: E402
 from sqlalchemy.ext.asyncio import (                     # noqa: E402
@@ -80,7 +80,8 @@ async def _compte(plan: str, credits: int, offre_prise: bool = False,
                   quota_pris: int = 0) -> str:
     async with async_session() as db:
         u = User(email=f"couv-{uuid.uuid4().hex[:10]}@example.com",
-                 plan=plan, email_verified=True, page_credits=credits)
+                 plan=plan, email_verified=True, page_credits=credits,
+                 created_at=racine.compte_ancien())
         db.add(u)
         await db.flush()
         if offre_prise:
@@ -123,7 +124,7 @@ async def _importer(uid: str, data: bytes, nom="doc.pdf", pages="",
                     await autre.commit()
             try:
                 rep = await trmod.translate_endpoint(
-                    request=None, file=UploadFile(filename=nom, file=io.BytesIO(data)),
+                    request=racine.requete_test(), response=Response(), file=UploadFile(filename=nom, file=io.BytesIO(data)),
                     target_lang="en", format_options="{}", quality="fast",
                     precise="", pages=pages, debug="", covered_only=covered_only,
                     x_api_key=cfg.FRONTEND_API_KEY, current_user=user, db=db)

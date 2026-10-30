@@ -23,6 +23,7 @@ import sys
 import uuid
 
 import racine  # noqa: F401  -- met backend/ sur le chemin
+from racine import compte_ancien
 
 import fitz                                              # noqa: E402
 from fastapi.testclient import TestClient                # noqa: E402
@@ -70,11 +71,12 @@ async def run():
 
     comptes = {
         "libre": User(email=f"q-libre-{uuid.uuid4().hex[:8]}@example.com",
-                      plan="free", email_verified=True),
+                      plan="free", email_verified=True, created_at=compte_ancien()),
         "echec": User(email=f"q-echec-{uuid.uuid4().hex[:8]}@example.com",
-                      plan="free", email_verified=True),
+                      plan="free", email_verified=True, created_at=compte_ancien()),
         "credits": User(email=f"q-cred-{uuid.uuid4().hex[:8]}@example.com",
-                        plan="free", email_verified=True, page_credits=2),
+                        plan="free", email_verified=True, page_credits=2,
+                        created_at=compte_ancien()),
         "starter": User(email=f"q-start-{uuid.uuid4().hex[:8]}@example.com",
                         plan="starter", email_verified=True),
     }

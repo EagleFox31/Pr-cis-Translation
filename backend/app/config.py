@@ -196,6 +196,11 @@ BRAND_TAGLINE = os.getenv("BRAND_TAGLINE", "Professional Translation")
 PUBLIC_SITE = os.getenv("PUBLIC_SITE", "precis-translator.trigenys.com")
 
 
+# ── Anti-robots à l'inscription (Cloudflare Turnstile) ───────────────────────
+# Clé secrète du widget ; la clé de site va dans `frontend/.env` sous le nom
+# VITE_TURNSTILE_SITE_KEY. Vide = contrôle désactivé (développement, tests).
+TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY", "")
+
 # ── Journal des erreurs ──────────────────────────────────────────────────────
 # Au-delà de ce nombre de logs NON traités, l'admin reçoit une alerte e-mail —
 # une seule à la fois (throttle), pour signaler qu'il y a du grain à moudre sans

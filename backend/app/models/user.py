@@ -44,6 +44,12 @@ class User(Base):
     # C'est un SOLDE, pas un historique : il est débité au lancement d'une
     # traduction, et les paiements qui l'ont alimenté vivent dans `payments`.
     page_credits:  Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Téléphone vérifié (aucun fournisseur SMS branché pour l'instant) : un numéro
+    # = un seul quota gratuit ; un compte vérifié sort de la zone grise anti-abus.
+    phone_hash:    Mapped[str | None] = mapped_column(String(64), unique=True, index=True,
+                                                      nullable=True)
+    phone_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True),
+                                                               nullable=True)
     created_at:    Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at:    Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow,

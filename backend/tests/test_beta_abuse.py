@@ -3,7 +3,7 @@ import asyncio
 from datetime import timedelta
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from urllib.parse import urlsplit
 import uuid
 
@@ -11,6 +11,7 @@ import test_beta_program as fixtures
 import httpx
 from fastapi import Request, Response
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -37,6 +38,15 @@ class SignalUnitTests(unittest.TestCase):
         self.assertEqual(beta_abuse.canonical_mailbox(" Jane.Doe+beta@GMAIL.COM "), "janedoe@gmail.com")
         self.assertEqual(beta_abuse.canonical_mailbox("j.a.n.e.d.o.e+second@googlemail.com"), "janedoe@gmail.com")
         self.assertEqual(beta_abuse.canonical_mailbox("Jane.Doe+beta@trigenys.com"), "jane.doe+beta@trigenys.com")
+        # Autres grands fournisseurs : le +tag (ou le -suffixe Yahoo) est ignoré.
+        for address in ("Jane+promo@Outlook.com", "jane+x@hotmail.com", "jane+x@icloud.com",
+                        "jane+x@proton.me", "jane+x@protonmail.com", "jane+x@fastmail.com"):
+            domain = address.casefold().rpartition("@")[2]
+            self.assertEqual(beta_abuse.canonical_mailbox(address), "jane@" + domain)
+        self.assertEqual(beta_abuse.canonical_mailbox("jane-promo@yahoo.fr"), "jane@yahoo.fr")
+        # Les points restent significatifs hors Gmail, et un domaine propre garde tout.
+        self.assertEqual(beta_abuse.canonical_mailbox("ja.ne+x@outlook.com"), "ja.ne@outlook.com")
+        self.assertEqual(beta_abuse.canonical_mailbox("jane-promo@outlook.com"), "jane-promo@outlook.com")
         self.assertNotEqual(beta_abuse.canonical_mailbox("jane.doe@trigenys.com"),
                             beta_abuse.canonical_mailbox("janedoe@trigenys.com"))
 
@@ -110,7 +120,7 @@ class AbuseApplicationTests(unittest.IsolatedAsyncioTestCase):
         async with self.fx.sessions() as db:
             self.assertEqual((await db.get(User, a.id)).email, a.email)
             self.assertEqual((await db.get(User, b.id)).email, b.email)
-            self.assertEqual(await beta.capacity_used(db), 1)
+            self.assertEqual(await beta.capacity_used(db, self.fx.campaign_id), 1)
         foreign = await self.client.post("/api/beta/activate", headers=self.fx.headers(b))
         self.assertEqual(foreign.status_code, 404, "Canonicalization must not transfer an invitation")
 
@@ -121,6 +131,48 @@ class AbuseApplicationTests(unittest.IsolatedAsyncioTestCase):
         await self.fx.invite_tester(a)
         self.assertEqual((await self.submit(b)).status_code, 409)
         self.assertEqual((await self.submit(a)).status_code, 409)
+
+    async def test_invitation_is_matched_like_account_emails(self):
+        token = uuid.uuid4().hex[:12]
+        a = await self.person(f"straße{token}@example.com")
+        b = await self.person(f"strasse{token}@example.com")
+        self.assertNotEqual(beta_abuse.canonical_mailbox(a.email), beta_abuse.canonical_mailbox(b.email))
+        # invite_tester() uppercases the address, and "ß".upper() is "SS".
+        invited = await self.client.post("/api/admin/beta/invitations",
+            json={"email": a.email, "primary_format": "xlsx"}, headers=self.fx.admin_headers)
+        self.assertEqual(invited.status_code, 201, invited.text)
+        foreign = await self.client.post("/api/beta/activate", headers=self.fx.headers(b))
+        self.assertEqual(foreign.status_code, 404, "ß and ss are two mailboxes")
+        own = await self.client.post("/api/beta/activate", headers=self.fx.headers(a))
+        self.assertEqual(own.status_code, 200, own.text)
+
+    async def test_database_refuses_two_activated_trials_for_one_mailbox(self):
+        key = f"unique{uuid.uuid4().hex}@example.com"
+        now = beta_abuse.utcnow()
+        async with self.fx.sessions() as db:
+            db.add(BetaEnrollment(campaign_id=self.fx.campaign_id, email="a." + key, mailbox_key=key,
+                                  limits=dict(DEFAULT_LIMITS), activated_at=now))
+            db.add(BetaEnrollment(campaign_id=self.fx.campaign_id, email="b." + key, mailbox_key=key,
+                                  limits=dict(DEFAULT_LIMITS)))
+            await db.commit()
+            db.add(BetaEnrollment(campaign_id=self.fx.campaign_id, email="c." + key, mailbox_key=key,
+                                  limits=dict(DEFAULT_LIMITS), activated_at=now))
+            with self.assertRaises(IntegrityError):
+                await db.commit()
+
+    async def test_concurrent_activation_of_one_mailbox_is_a_clean_409(self):
+        await self.fx.invite_tester()
+        key = beta_abuse.canonical_mailbox(self.fx.tester.email)
+        async with self.fx.sessions() as db:
+            db.add(BetaEnrollment(campaign_id=self.fx.campaign_id, email="twin." + key, mailbox_key=key,
+                                  limits=dict(DEFAULT_LIMITS), activated_at=beta_abuse.utcnow()))
+            await db.commit()
+        # La vérification applicative a lu avant que l'autre activation ne soit
+        # validée : seul l'index unique la voit.
+        with patch.object(beta_abuse, "mailbox_match", AsyncMock(return_value=None)):
+            res = await self.client.post("/api/beta/activate", headers=self.fx.tester_headers)
+        self.assertEqual(res.status_code, 409, res.text)
+        self.assertIn("mailbox_used", res.text)
 
     async def test_shared_network_is_reviewable_and_never_a_denial_by_itself(self):
         first = await self.submit()
@@ -176,7 +228,7 @@ class AbuseApplicationTests(unittest.IsolatedAsyncioTestCase):
         async with self.fx.sessions() as db:
             rows = (await db.execute(select(BetaApplication))).scalars().all()
             self.assertEqual(len(rows), 5)
-            self.assertEqual(await beta.capacity_used(db), 0)
+            self.assertEqual(await beta.capacity_used(db, self.fx.campaign_id), 0)
             self.assertEqual((await db.get(User, self.fx.tester.id)).page_credits, 7)
             for row in rows:
                 row.submitted_at = beta.now_utc() - timedelta(minutes=11)
@@ -191,7 +243,7 @@ class AbuseApplicationTests(unittest.IsolatedAsyncioTestCase):
                 user = User(email=f"burst-{uuid.uuid4().hex}@example.com", email_verified=True)
                 db.add(user)
                 await db.flush()
-                db.add(BetaApplication(campaign_id="pilot", user_id=user.id, email=user.email,
+                db.add(BetaApplication(campaign_id=self.fx.campaign_id, user_id=user.id, email=user.email,
                     primary_format="pdf", motivation="Independent burst fixture",
                     ip_hash=first.ip_hash, device_hash=f"device-{number}"))
             await db.commit()
@@ -224,17 +276,38 @@ class AbuseApplicationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIsNotNone(row.mailbox_key)
             self.assertEqual(enrollment.expires_at.isoformat().replace("+00:00", ""),
                              active["expires_at"].replace("+00:00", ""))
-            self.assertEqual(await beta.capacity_used(db), 1)
+            self.assertEqual(await beta.capacity_used(db, self.fx.campaign_id), 1)
         self.assertEqual((await self.submit(self.fx.other)).status_code, 200)
         dashboard = await self.dashboard()
         self.assertTrue(all(not row["risk"]["flags"] for row in dashboard["applications"]))
+
+    async def test_deleted_account_is_anonymized_but_still_blocks_a_second_trial(self):
+        first = (await self.submit()).json()
+        await self.fx.invite_tester()
+        await self.client.post("/api/beta/activate", headers=self.fx.tester_headers)
+        email = self.fx.tester.email
+        async with self.fx.sessions() as db:
+            application = await db.get(BetaApplication, first["id"])
+            enrollment = (await db.execute(select(BetaEnrollment))).scalar_one()
+            application.user_id = enrollment.user_id = None  # ondelete="SET NULL"
+            await db.commit()
+            await beta_abuse.anonymize_deleted_accounts(db)
+            await db.commit()
+            for model, key in ((BetaApplication, application.id), (BetaEnrollment, enrollment.id)):
+                row = await db.get(model, key, populate_existing=True)
+                self.assertTrue(row.email.startswith(beta_abuse.ANONYMOUS))
+                self.assertTrue(row.mailbox_key.startswith(beta_abuse.ANONYMOUS))
+                self.assertNotIn(email.split("@")[0], row.email + row.mailbox_key)
+            self.assertEqual((await db.get(BetaApplication, application.id)).motivation, "")
+            self.assertIsNotNone(await beta_abuse.mailbox_match(db, BetaEnrollment, email, campaign_id=self.fx.campaign_id))
+        self.assertEqual((await self.submit()).status_code, 409)
 
     async def test_legacy_alias_invitation_cannot_activate_or_restore_a_second_trial(self):
         token = uuid.uuid4().hex
         a = await self.person(f"beta.{token}@gmail.com")
         b = await self.person(f"beta{token}+alias@gmail.com")
         async with self.fx.sessions() as db:
-            entries = [BetaEnrollment(campaign_id="pilot", email=user.email,
+            entries = [BetaEnrollment(campaign_id=self.fx.campaign_id, email=user.email,
                 primary_format="pdf", limits=DEFAULT_LIMITS) for user in (a, b)]
             db.add_all(entries)
             await db.commit()
@@ -250,6 +323,17 @@ class AbuseApplicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(restored.status_code, 409)
         self.assertEqual((await self.client.post("/api/beta/activate",
             headers=self.fx.headers(a))).json()["expires_at"], first.json()["expires_at"])
+
+    async def test_beta_routes_are_rate_limited_per_ip(self):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.fx.app,
+                client=("192.0.2.98", 1234)), base_url="http://test") as client:
+            activations = [(await client.post("/api/beta/activate",
+                headers=self.fx.headers(self.fx.tester))).status_code for _ in range(6)]
+            programs = [(await client.get("/api/beta/program")).status_code for _ in range(31)]
+        self.assertNotIn(429, activations[:5])
+        self.assertEqual(activations[5], 429)
+        self.assertNotIn(429, programs[:30])
+        self.assertEqual(programs[30], 429)
 
     async def test_google_http_route_is_rate_limited_without_calling_google(self):
         with patch.dict(os.environ, {"GOOGLE_CLIENT_ID": "test-client"}), patch(

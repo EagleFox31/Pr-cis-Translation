@@ -11,7 +11,9 @@ import unittest
 from urllib.parse import urlsplit
 import uuid
 
+import racine  # noqa: F401
 import test_beta_program as fixtures
+from fastapi import Response
 from docx import Document as WordDocument
 from pptx import Presentation
 from sqlalchemy import delete, select
@@ -225,13 +227,14 @@ class PostgreSQLFreeQuotaRace(unittest.IsolatedAsyncioTestCase):
         await fx.asyncSetUp()
         fx.sessions = sessions
         async with sessions() as db:
-            user = User(email=f"free-race-{uuid.uuid4().hex}@example.com", email_verified=True, plan="free")
+            user = User(email=f"free-race-{uuid.uuid4().hex}@example.com", email_verified=True, plan="free",
+                        created_at=racine.compte_ancien())
             db.add(user)
             await db.commit()
         async def upload():
             async with sessions() as db:
                 account = await db.get(User, user.id)
-                return await translation.translate_endpoint(request=None,
+                return await translation.translate_endpoint(request=racine.requete_test(), response=Response(),
                     file=fixtures.translation.UploadFile(filename="race.pdf", file=io.BytesIO(fixtures.pdf(3))),
                     target_lang="en", format_options="{}", quality="fast", precise="", pages="",
                     debug="", covered_only="", use_beta="0", x_api_key=fixtures.config.FRONTEND_API_KEY,

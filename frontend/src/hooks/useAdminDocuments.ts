@@ -38,9 +38,28 @@ function filenameFrom(res: Response, fallback: string): string {
   return fallback;
 }
 
-export function useAdminDocuments() {
-  const [q, setQ] = useState('');
-  const [debouncedQ, setDebouncedQ] = useState('');
+/** Télécharge l'original ou la traduction d'un document (fetch authentifié
+ *  puis lien `a.download`). Renvoie le statut HTTP pour le message d'erreur. */
+export async function downloadAdminDocument(
+  doc: AdminDocument, kind: AdminDocKind,
+): Promise<{ ok: boolean; status: number }> {
+  const res = await authFetch(`/api/admin/documents/${encodeURIComponent(doc.id)}/${kind}`);
+  if (!res.ok) return { ok: false, status: res.status };
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filenameFrom(res, doc.original_name);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  return { ok: true, status: res.status };
+}
+
+/** La recherche `q` est fournie par la page (elle vit dans l'adresse). */
+export function useAdminDocuments(q: string) {
+  const [debouncedQ, setDebouncedQ] = useState(q.trim());
   const [items, setItems] = useState<AdminDocument[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -68,25 +87,5 @@ export function useAdminDocuments() {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  /** Télécharge l'original ou la traduction d'un document (fetch authentifié
-   *  puis lien `a.download`). Renvoie le statut HTTP pour le message d'erreur. */
-  const download = useCallback(
-    async (doc: AdminDocument, kind: AdminDocKind): Promise<{ ok: boolean; status: number }> => {
-      const res = await authFetch(`/api/admin/documents/${encodeURIComponent(doc.id)}/${kind}`);
-      if (!res.ok) return { ok: false, status: res.status };
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filenameFrom(res, doc.original_name);
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
-      return { ok: true, status: res.status };
-    },
-    [],
-  );
-
-  return { q, setQ, items, total, loading, error, refresh, download };
+  return { items, total, loading, error, refresh, download: downloadAdminDocument };
 }

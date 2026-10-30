@@ -20,8 +20,13 @@ export interface AdminUser {
   created_at: string | null;
 }
 
-export function useAdminUsers() {
-  const [q, setQ] = useState('');
+/** Change le plan d'un compte (appel brut, sans rafraîchir ni message). */
+export function postUserPlan(userId: string, plan: string) {
+  return api.post(`/api/admin/users/${encodeURIComponent(userId)}/plan`, { plan });
+}
+
+/** La recherche `q` est fournie par la page (elle vit dans l'adresse). */
+export function useAdminUsers(q: string) {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [plans, setPlans] = useState<string[]>([]);
   const [total, setTotal] = useState(0);
@@ -50,12 +55,12 @@ export function useAdminUsers() {
    *  bon message (400 = refus métier, ex. changer son propre plan). */
   const changePlan = useCallback(
     async (userId: string, plan: string): Promise<{ ok: boolean; status: number }> => {
-      const res = await api.post(`/api/admin/users/${encodeURIComponent(userId)}/plan`, { plan });
+      const res = await postUserPlan(userId, plan);
       if (res.ok) await refresh();
       return { ok: res.ok, status: res.status };
     },
     [refresh],
   );
 
-  return { q, setQ, users, plans, total, loading, error, refresh, changePlan };
+  return { users, plans, total, loading, error, refresh, changePlan };
 }

@@ -7,7 +7,7 @@ import FeaturesGrid from '../components/features/FeaturesGrid';
 import StorySection from '../components/story/StorySection';
 import PricingSection from '../components/pricing/PricingSection';
 import AboutSection from '../components/about/AboutSection';
-import ToastContainer, { showToast } from '../components/ui/Toast';
+import { showToast } from '../components/ui/Toast';
 import SupportModal from '../components/support/SupportModal';
 import InviteModal from '../components/invite/InviteModal';
 import PaymentModal from '../components/payment/PaymentModal';
@@ -90,8 +90,8 @@ export default function Home() {
   } | null>(null);
 
   // ---- Traduction PROGRESSIVE (page par page) ----
-  const stream = useStreamingTranslation();
   const { user, refreshUser } = useAuth();
+  const stream = useStreamingTranslation(user?.plan === 'free');
 
   // ---- Document library ----
   const { documents, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll } = useDocumentLibrary();
@@ -526,7 +526,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-white text-gray-900 font-body">
-      <ToastContainer />
       <SupportModal />
       <InviteModal />
 
@@ -593,6 +592,7 @@ export default function Home() {
           creditsNeeded={stream.creditsNeeded}
           onBuyPages={(p) => setPayPages(p)}
           pagesCovered={stream.pagesCovered}
+          creditsReason={stream.creditsReason}
           onTranslateCovered={() => {
             const cfg = lastConfigRef.current;
             if (cfg) handleStartTranslate({ ...cfg, coverOnly: true });

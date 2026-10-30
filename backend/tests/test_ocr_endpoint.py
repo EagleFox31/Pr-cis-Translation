@@ -8,7 +8,7 @@ import uuid
 from unittest.mock import patch
 
 import racine  # noqa: F401
-from fastapi import UploadFile
+from fastapi import Response, UploadFile
 from sqlalchemy import select
 from app.api.translate import translate_endpoint
 from app import config
@@ -29,7 +29,7 @@ async def main():
             db.add(user)
             await db.commit()
             with patch("app.api.translate.scheduler.submit") as submit:
-                response = await translate_endpoint(request=None,
+                response = await translate_endpoint(request=racine.requete_test(), response=Response(),
                     file=UploadFile(filename="scan.pdf", file=io.BytesIO(data)), target_lang="en",
                     format_options="{}", quality="fast", precise="", pages="1", debug="",
                     x_api_key=config.FRONTEND_API_KEY, current_user=user, db=db)
