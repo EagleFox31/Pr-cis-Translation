@@ -926,6 +926,28 @@ section {
   background: rgba(249,247,243,0.75);
   padding: 40px 24px;
 }
+
+/* À propos : récit + engagements à gauche, fiche de l'éditeur à droite. */
+.about-inner { flex: 1; display: flex; align-items: center; width: 100%; }
+.story-grid.about-grid { width: 100%; align-items: center; }
+.about-method { margin-top: 12px; color: var(--gray-700); font-size: 0.95rem; line-height: 1.7; max-width: 560px; }
+.about-pledges { list-style: none; margin: 24px 0 0; padding: 0; display: grid; gap: 14px; }
+.about-pledges li { display: flex; gap: 12px; align-items: flex-start; }
+.about-pledge-icon { flex-shrink: 0; margin-top: 2px; color: var(--navy); }
+.about-pledges strong { display: block; color: var(--navy); font-weight: 700; }
+.about-pledges span { display: block; font-size: 0.85rem; color: var(--gray-500); }
+.about-card { justify-self: center; width: 100%; max-width: 380px; background: white; border: 1px solid var(--gray-100); border-radius: 20px; box-shadow: var(--shadow-lg); padding: 28px; display: flex; flex-direction: column; gap: 16px; }
+.about-card-label { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); }
+.about-card-name { margin: -10px 0 0; font-size: 1.4rem; color: var(--navy); }
+.about-card-facts { margin: 0; display: grid; gap: 8px; }
+.about-card-facts div { display: flex; justify-content: space-between; gap: 12px; font-size: 0.9rem; }
+.about-card-facts dt { color: var(--gray-500); }
+.about-card-facts dd { margin: 0; color: var(--navy); font-weight: 600; text-align: right; }
+.about-card-contact { list-style: none; margin: 0; padding: 14px 0 0; border-top: 1px solid var(--gray-100); display: grid; gap: 8px; font-size: 0.9rem; }
+.about-card-contact li { display: flex; align-items: center; gap: 10px; color: var(--navy); }
+.about-card-contact a, .about-card-social a { color: var(--navy); text-decoration: underline; text-underline-offset: 3px; }
+.about-card-social { display: flex; gap: 8px; font-size: 0.85rem; color: var(--gray-500); }
+.about-card-cta { text-align: center; justify-content: center; }
 .section-inner {
   max-width: var(--frame-max);
   margin: 0 auto;
