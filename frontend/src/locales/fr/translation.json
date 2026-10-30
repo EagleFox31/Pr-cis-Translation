@@ -703,7 +703,8 @@
         "full": "Toutes les places du programme sont engagées.",
         "ended": "La période de recrutement est terminée. Les accès déjà activés conservent leur date de fin.",
         "open": "Les candidatures sont ouvertes."
-      }
+      },
+      "duration": "Accès de {{days}} jours"
     },
     "safety": {
       "review": "Points à vérifier",
@@ -718,11 +719,9 @@
       "rapid_sequence": "{{count}} adresses liées ont candidaté ou activé un accès dans la dernière heure."
     },
     "application": {
-      "privacy_hint": "Un cookie de sécurité et des signaux réseau nous aident à repérer les doublons.",
       "invalid_motivation": "Votre texte contient des caractères invisibles (souvent copiés depuis un autre logiciel). Retapez-le directement ici.",
-      "motivation": "Quels documents souhaitez-vous tester ?",
+      "motivation": "Que souhaitez-vous traduire ?",
       "placeholder": "Par exemple : des classeurs Excel de suivi commercial, en français et en anglais…",
-      "commitment": "Partagez vos retours sur la traduction et la mise en page pendant le test. Déposer une candidature ne réserve pas de place.",
       "submit": "Envoyer ma candidature",
       "login_hint": "Connectez-vous ou créez un compte pour déposer votre candidature et suivre la décision.",
       "verify_email": "Vérifiez votre adresse e-mail avant de déposer votre candidature.",
@@ -745,7 +744,11 @@
         "pending": "Votre candidature a été reçue. Aucune place n’est réservée à ce stade. Retrouvez la décision sur cette page ou dans Mon accès Bêta.",
         "approved": "Votre candidature est approuvée. Actualisez cette page pour retrouver votre invitation et activer votre accès.",
         "declined": "Votre candidature n’a pas été retenue. Votre forfait habituel reste disponible."
-      }
+      },
+      "format_legend": "Je testerai surtout :",
+      "all_formats": "Vous aurez accès aux 4 formats.",
+      "count": "{{count}}/1000 caractères",
+      "notice": "Partagez vos retours pendant le test. Une candidature ne réserve pas de place ; un cookie de sécurité aide à repérer les doublons."
     },
     "campaigns": {
       "count_one": "{{count}} programme",

@@ -133,7 +133,8 @@ export default function AdminShell({ title, count, actions, stats, tabs = true, 
       {/* Contenu : décalé sous la barre fixe, cadré comme le reste du site */}
       <main className="admin-main">
         <div className="admin-frame">
-          <div className="admin-head">
+          {/* Page publique : Retour et titre restent visibles au défilement. */}
+          <div className={'admin-head' + (tabs ? '' : ' admin-head--sticky')}>
             {/* Sans menu (page publique /beta), seul chemin visible vers l'accueil. */}
             {!showTabs && (
               <button onClick={() => navigate('/home')} className="tb-btn ghost admin-btn">

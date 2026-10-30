@@ -7,6 +7,7 @@
 
 /* En-tête */
 .admin-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 20px; }
+.admin-head--sticky { position: sticky; top: var(--nav-h); z-index: 5; margin: -12px 0 8px; padding: 12px 0; background: var(--gray-50, #f9fafb); }
 .admin-head h1 { font-size: 20px; font-weight: 700; color: var(--navy, #0d1b3e); margin: 0; }
 .admin-head__count { font-size: 13px; color: var(--gray-500, #6b7280); }
 .admin-head__actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }

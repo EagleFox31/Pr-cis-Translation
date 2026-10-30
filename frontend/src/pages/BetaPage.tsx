@@ -39,17 +39,23 @@ function ApplicationForm({ onSubmitted }: { onSubmitted: () => Promise<void> }) 
     })();
   }}>
     <fieldset disabled={busy} className="beta-fieldset beta-application-form">
-      <label className="beta-field--short">{t('beta.primary_format')}<select value={format}
-        onChange={event => setFormat(event.target.value as BetaFormat)}>
-        {BETA_FORMATS.map(item => <option key={item} value={item}>{t(`beta.formats.${item}`)}</option>)}
-      </select></label>
-      <label>{t('beta.application.motivation')}<textarea required minLength={10} maxLength={1000} rows={4}
+      {/* Le format ne sert qu'au tri des candidatures : l'accès couvre les 4 formats. */}
+      <fieldset className="beta-format-choice">
+        <legend>{t('beta.application.format_legend')}</legend>
+        {BETA_FORMATS.map(item => <label key={item}>
+          <input type="radio" name="primary_format" value={item} checked={format === item}
+            onChange={() => setFormat(item)} />{t(`beta.formats.${item}`)}
+        </label>)}
+        <p className="beta-note">{t('beta.application.all_formats')}</p>
+      </fieldset>
+      <label>{t('beta.application.motivation')}<textarea required minLength={10} maxLength={1000} rows={3}
         value={motivation} onChange={event => setMotivation(event.target.value)}
-        placeholder={t('beta.application.placeholder')} /></label>
-      <p className="beta-note">{t('beta.application.commitment')}</p>
-      <p className="beta-note">{t('beta.application.privacy_hint')}</p>
+        aria-describedby="beta-motivation-count" placeholder={t('beta.application.placeholder')} />
+        <span id="beta-motivation-count" className="beta-count">
+          {t('beta.application.count', { count: motivation.length })}</span></label>
       {error && <p role="alert" className="beta-error">{error}</p>}
       <button className="beta-primary" type="submit">{t(busy ? 'beta.loading' : 'beta.application.submit')}</button>
+      <p className="beta-note">{t('beta.application.notice')}</p>
     </fieldset>
   </form>;
 }
@@ -64,8 +70,9 @@ export default function BetaPage() {
 
   return (
     <AdminShell title={t('beta.title')} tabs={false}>
+      <div className="beta-layout">
       <section className="beta-public" aria-label={t('beta.title')}>
-        {publicBeta.program ? <BetaProgramDetails program={publicBeta.program} heading="h2" /> : <>
+        {publicBeta.program ? <BetaProgramDetails program={publicBeta.program} heading="h2" badges /> : <>
           <h2>{t('beta.title')}</h2><p role={publicBeta.error ? 'alert' : 'status'}>
             {t(publicBeta.error ? 'beta.error' : 'beta.loading')}</p>
           {publicBeta.error && <button className="tb-btn" onClick={() => void publicBeta.refresh()}>{t('beta.refresh')}</button>}
@@ -126,6 +133,7 @@ export default function BetaPage() {
           </>
         )}
       </section>
+      </div>
       <SupportModal />
     </AdminShell>
   );

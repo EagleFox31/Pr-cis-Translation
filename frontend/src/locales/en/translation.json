@@ -703,7 +703,8 @@
         "full": "All places in this program are taken.",
         "ended": "The recruitment period has ended. Existing active access keeps its expiry date.",
         "open": "Applications are open."
-      }
+      },
+      "duration": "{{days}}-day access"
     },
     "safety": {
       "review": "Review signals",
@@ -718,11 +719,9 @@
       "rapid_sequence": "{{count}} related addresses applied or activated access within the last hour."
     },
     "application": {
-      "privacy_hint": "A security cookie and network signals help us detect duplicate applications.",
       "invalid_motivation": "Your text contains invisible characters (often copied from another app). Please type it directly here.",
-      "motivation": "Which documents would you like to test?",
+      "motivation": "What would you like to translate?",
       "placeholder": "For example: sales tracking Excel workbooks, in French and English…",
-      "commitment": "Share feedback on translation and layout during the test. Submitting an application does not reserve a place.",
       "submit": "Submit my application",
       "login_hint": "Sign in or create an account to apply and track the decision.",
       "verify_email": "Verify your email address before applying.",
@@ -745,7 +744,11 @@
         "pending": "Your application has been received. No place is reserved yet. Check the decision here or in My Beta access.",
         "approved": "Your application is approved. Refresh this page to find your invitation and activate your access.",
         "declined": "Your application was not selected. Your regular plan remains available."
-      }
+      },
+      "format_legend": "I'll mostly test:",
+      "all_formats": "You'll get access to all 4 formats.",
+      "count": "{{count}}/1000 characters",
+      "notice": "Share feedback during the test. Applying does not reserve a place; a security cookie helps detect duplicates."
     },
     "campaigns": {
       "count_one": "{{count}} program",
