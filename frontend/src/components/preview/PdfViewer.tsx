@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
-import { Loader2, Hourglass, Lock } from 'lucide-react';
+import { Loader2, Hourglass, Lock, FileX } from 'lucide-react';
 
 // Largeur du cadre d'aperçu (#scroll) sous laquelle deux volets côte à côte
 // tombent sous ~300 px chacun : texte illisible. C'est le CADRE qui compte, pas
@@ -89,6 +89,11 @@ interface PdfViewerProps {
   onTranslateCovered?: () => void;
   /** Essai : quitter l'aperçu pour les tarifs. */
   onUnlock?: () => void;
+  /** Fichier disparu du serveur : `translation` = la traduction seule,
+   *  `all` = l'original aussi. Remplace le message d'attente. */
+  fileMissing?: 'translation' | 'all' | null;
+  /** Format attendu de la page tant qu'aucun PDF n'est chargé (cadres vides). */
+  formatHint?: 'landscape' | 'portrait';
 }
 
 export default function PdfViewer({
@@ -114,6 +119,8 @@ export default function PdfViewer({
   creditsReason,
   onTranslateCovered,
   onUnlock,
+  fileMissing = null,
+  formatHint = 'portrait',
 }: PdfViewerProps) {
   const { t } = useTranslation();
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
@@ -165,6 +172,13 @@ export default function PdfViewer({
   // l'original, lui, change de document — on ne montre pas le précédent.
   const docOrig = usePdfDoc(sourceFile, false);
   const docTrad = usePdfDoc(translatedBlob, true);
+  // Gabarit sans contenu : donne aux cadres le format du document (16:9 pour
+  // une présentation, A4 sinon) avant l'arrivée du PDF — ou s'il n'arrive pas.
+  const gabaritVide = useMemo(() => {
+    const [w, h] = formatHint === 'landscape' ? [960, 540] : [595, 842];
+    const page = { getViewport: ({ scale }: { scale: number }) => ({ width: w * scale, height: h * scale }) };
+    return { numPages: 1, getPage: async () => page };
+  }, [formatHint]);
 
   // L'original se peint AVANT la traduction : un document rouvert a souvent sa
   // traduction prête avant sa source, et la droite s'affichait seule. Le
@@ -285,7 +299,7 @@ export default function PdfViewer({
   // traduit sinon (un aperçu sans source resterait bloqué sur une page).
   useEffect(() => {
     const pdf = docOrig ?? docTrad;
-    if (!pdf) return;
+    if (!pdf) { setIsLandscape(formatHint === 'landscape'); return; }
     let active = true;
     onPagesLoaded?.(pdf.numPages);
     pdf.getPage(Math.min(Math.max(1, currentPage), pdf.numPages))
@@ -296,7 +310,7 @@ export default function PdfViewer({
       })
       .catch((e) => signaler(active)(e));
     return () => { active = false; };
-  }, [docOrig, docTrad, currentPage, onPagesLoaded]);
+  }, [docOrig, docTrad, currentPage, onPagesLoaded, formatHint]);
 
   // Panneau ORIGINAL : ne dépend que de son document, jamais du traduit.
   useEffect(() => {
@@ -307,15 +321,23 @@ export default function PdfViewer({
         .then((ok) => { if (ok && active) setOrigPeint(docOrig); })
         .catch((e) => signaler(active)(e));
     } else {
-      // Pas de source : panneau VIDE plutôt qu'un document étranger.
+      // Pas de source : panneau VIDE plutôt qu'un document étranger, mais au
+      // format du document.
       const canvas = document.getElementById('pdf-canvas-original') as HTMLCanvasElement | null;
-      canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+      if (canvas) {
+        mesurer(gabaritVide, currentPage, canvas).then((m) => {
+          if (!active) return;
+          dimensionner(canvas, m);
+          const ctx = canvas.getContext('2d');
+          if (ctx) { ctx.fillStyle = '#f8fafc'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+        }).catch((e) => signaler(active)(e));
+      }
     }
     return () => {
       active = false;
       taches.forEach((t) => { try { t.cancel(); } catch { /* déjà fini */ } });
     };
-  }, [docOrig, currentPage, zoom, compact]);
+  }, [docOrig, currentPage, zoom, compact, gabaritVide]);
 
   // Panneau TRADUIT : la page n'y est dessinée que si le serveur l'a déclarée
   // traduite ET qu'elle existe dans le document. Sinon : un fond neutre à la
@@ -332,8 +354,8 @@ export default function PdfViewer({
     } else {
       setTranslatedShown(false);
       const canvas = document.getElementById('pdf-canvas-translated') as HTMLCanvasElement | null;
-      const gabarit = docOrig ?? docTrad;
-      if (canvas && gabarit) {
+      const gabarit = docOrig ?? docTrad ?? gabaritVide;
+      if (canvas) {
         mesurer(gabarit, currentPage, canvas).then((m) => {
           if (!active) return;
           dimensionner(canvas, m);
@@ -346,7 +368,7 @@ export default function PdfViewer({
       active = false;
       taches.forEach((t) => { try { t.cancel(); } catch { /* déjà fini */ } });
     };
-  }, [docTrad, docOrig, currentPage, zoom, compact, translatedPageReady, attendOrig]);
+  }, [docTrad, docOrig, currentPage, zoom, compact, translatedPageReady, attendOrig, gabaritVide]);
 
   const [isHovering, setIsHovering] = useState(false);
 
@@ -529,6 +551,14 @@ export default function PdfViewer({
                       {t('preview.translate_covered', { count: pagesCovered })}
                     </button>
                   ) : null}
+                </>
+              ) : fileMissing ? (
+                /* Fichier disparu du serveur : rien à attendre, on dit quoi faire. */
+                <>
+                  <FileX size={26} strokeWidth={1.8} style={{ opacity: 0.6 }} />
+                  <span style={{ fontSize: '13px', maxWidth: '280px' }}>
+                    {t(fileMissing === 'all' ? 'preview.file_missing' : 'preview.translation_missing')}
+                  </span>
                 </>
               ) : translatedPageStatus || previewLoading ? (
                 /* Traduction en marche : un chargement et l'ÉTAPE, rien d'autre.

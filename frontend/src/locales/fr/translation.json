@@ -278,6 +278,8 @@
     "status_translating": "Traduction en cours…",
     "status_rendering": "Reconstruction de la mise en page…",
     "page_pending": "Cette page est en attente de traduction.",
+    "file_missing": "Les fichiers de ce document ne sont plus disponibles sur le serveur. Redéposez-le pour le traduire à nouveau.",
+    "translation_missing": "La traduction de ce document n'est plus disponible. Relancez-la depuis la bibliothèque.",
     "credits_insufficient": "Crédits insuffisants pour traduire tout le document",
     "credits_needed": "Il manque {{count}} page(s) à votre solde.",
     "translate_covered": "Traduire seulement les {{count}} page(s) couverte(s)",

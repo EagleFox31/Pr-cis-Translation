@@ -24,6 +24,10 @@ interface DocumentPreviewProps {
   targetLabel?: string;
   /** true = chargement en cours (ne PAS afficher la démo). */
   previewLoading?: boolean;
+  /** Fichier disparu du serveur (cf. PdfViewer). */
+  fileMissing?: 'translation' | 'all' | null;
+  /** Format des cadres tant qu'aucun PDF n'est chargé. */
+  formatHint?: 'landscape' | 'portrait';
   /** Manque de crédits (402) : pages à régler pour ce document. Affiché dans le
    *  panneau traduit, à la place du message de progression. */
   creditsNeeded?: number | null;
@@ -59,6 +63,8 @@ export default function DocumentPreview({
   sourceLabel,
   targetLabel,
   previewLoading,
+  fileMissing,
+  formatHint,
   creditsNeeded,
   onBuyPages,
   pagesCovered,
@@ -132,6 +138,8 @@ export default function DocumentPreview({
       translatedPageStatus={translatedPageStatus}
       sourceLabel={sourceLabel}
       previewLoading={previewLoading}
+      fileMissing={fileMissing}
+      formatHint={formatHint}
       targetLabel={targetLabel}
       creditsNeeded={creditsNeeded}
       onBuyPages={onBuyPages}

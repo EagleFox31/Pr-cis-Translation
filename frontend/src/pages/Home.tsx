@@ -80,6 +80,10 @@ export default function Home() {
   // arrive avant l'original (converti en PDF côté serveur). On la retient tant
   // que l'original n'est pas là, pour ne jamais peindre la droite seule.
   const [sourceEnAttente, setSourceEnAttente] = useState(false);
+  // Aperçu de bibliothèque : fichiers absents du serveur (404), pour dire quoi
+  // faire au lieu d'un « en attente » qui n'aboutira jamais.
+  const [traductionManquante, setTraductionManquante] = useState(false);
+  const [sourceManquante, setSourceManquante] = useState(false);
   const enSuivi = useRef(false);
   // Échecs d'affilée PENDANT le suivi : un raté réseau ne doit pas figer
   // l'aperçu, mais un document disparu ne doit pas être redemandé sans fin.
@@ -237,6 +241,8 @@ export default function Home() {
       enSuivi.current = false;
       echecsSuivi.current = 0;
       setLibraryDocId(req.docId);
+      setTraductionManquante(false);
+      setSourceManquante(false);
       setLibraryCanReadClear(req.paid);
       // En cours : rien n'est tenu pour traduit avant la réponse du serveur.
       setSuiviBiblio(req.enCours ? { pretes: {}, etats: {} } : null);
@@ -254,6 +260,8 @@ export default function Home() {
       req.source.then((src) => {
         if (fresh() && src) {
           setSelectedFile(new File([src], req.filename, { type: 'application/pdf' }));
+        } else if (fresh()) {
+          setSourceManquante(true);
         }
       }).catch(() => { /* panneau gauche vide : le viewer le gère */ })
         .finally(() => { if (fresh()) setSourceEnAttente(false); });
@@ -339,6 +347,12 @@ export default function Home() {
         // demandée avant écrase la page rapide demandée après.
         if (pageToken.current !== token) return;
         if (!res) { echec(); return; }
+        if (res.missing) {
+          enSuivi.current = false;
+          setSuiviBiblio(null);
+          setTraductionManquante(true);
+          return;
+        }
         echecsSuivi.current = 0;
         enSuivi.current = res.inProgress;
         setSuiviBiblio(res.inProgress ? { pretes: res.pretes, etats: res.etats } : null);
@@ -650,6 +664,8 @@ export default function Home() {
           queuePosition={stream.queuePosition}
           readyPages={suiviBiblio?.pretes ?? stream.readyPages}
           previewRendering={previewLoading}
+          fileMissing={!libraryDocId || !traductionManquante ? null
+            : sourceManquante ? 'all' : 'translation'}
           translationError={stream.error}
           translationNotice={stream.notice}
           limitReached={stream.limitReached}

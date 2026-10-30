@@ -278,6 +278,8 @@
     "status_translating": "Translating…",
     "status_rendering": "Rebuilding the layout…",
     "page_pending": "This page is waiting to be translated.",
+    "file_missing": "This document's files are no longer available on the server. Upload it again to translate it.",
+    "translation_missing": "This document's translation is no longer available. Run it again from the library.",
     "credits_insufficient": "Not enough credits to translate the whole document",
     "credits_needed": "Your balance is {{count}} page(s) short.",
     "translate_covered": "Translate only the {{count}} covered page(s)",

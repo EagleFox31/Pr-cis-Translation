@@ -36,6 +36,8 @@ interface StorySectionProps {
   /** Aperçu ouvert depuis la bibliothèque, document encore en route. Distinct
    *  de `isTranslating` : rien n'est traduit ici, on attend un rendu. */
   previewRendering?: boolean;
+  /** Aperçu de bibliothèque dont le fichier a disparu du serveur. */
+  fileMissing?: 'translation' | 'all' | null;
   /** Erreur de traduction à afficher en bannière inline (pas de toast). */
   translationError?: string | null;
   translationNotice?: string | null;
@@ -86,6 +88,7 @@ export default function StorySection({
   queuePosition = null,
   readyPages,
   previewRendering = false,
+  fileMissing = null,
   translationError = null,
   translationNotice = null,
   limitReached = false,
@@ -503,6 +506,9 @@ export default function StorySection({
                       zoom={zoom}
                       isTrialMode={isTrialMode}
                       previewLoading={previewRendering}
+                      fileMissing={fileMissing}
+                      // Présentation : cadres 16:9 avant même le premier PDF.
+                      formatHint={['pptx', 'ppt', 'odp', 'key'].includes(previewExt) ? 'landscape' : 'portrait'}
                       onPagesLoaded={onPagesLoaded}
                       translatedPageReady={
                         // `previewRendering` PRIME sur tout le reste. Pendant

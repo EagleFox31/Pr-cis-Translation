@@ -11,6 +11,8 @@ export interface PreviewResult {
   inProgress: boolean;
   pretes: Record<number, true>;
   etats: Record<number, PageStatus>;
+  /** 404 : la traduction n'existe plus sur le serveur. */
+  missing?: boolean;
 }
 
 export interface DocMeta {
@@ -192,6 +194,9 @@ export function useDocumentLibrary() {
       // l'autre ne se garde en cache : l'appelant redemande jusqu'au rendu final.
       const q = page && page > 0 ? `?page=${page}` : '';
       const res = await authFetch(`/api/documents/${id}/preview${q}`);
+      if (res.status === 404) {
+        return { blob: null, full: false, inProgress: false, pretes: {}, etats: {}, missing: true };
+      }
       if (!res.ok) return undefined;
       const render = res.headers.get('X-Render');
       const pending = render === 'pending';

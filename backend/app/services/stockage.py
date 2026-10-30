@@ -122,6 +122,42 @@ def balayer_magasin(references: set[str], version_moteur: str,
     return compte
 
 
+_MARQUE_BASE = ".base"
+
+
+def magasin_appartient_a(base: str, magasin: str = TRANSLATIONS_DIR) -> bool:
+    """Le magasin est-il celui de la base `base` ? Il le note à son premier
+    balayage (`.base`) et, ensuite, refuse tout balayage venu d'une autre.
+
+    Une suite de tests démarrée sur SA base, mais sur le magasin du poste, ne
+    voyait citée aucune racine du poste et les effaçait toutes (21/10/2026 :
+    les 15 documents de dev perdus). Pour rebrancher le magasin sur une autre
+    base volontairement : supprimer `.base`.
+    """
+    marque = os.path.join(magasin, _MARQUE_BASE)
+    try:
+        with open(marque, encoding="utf-8") as f:
+            return f.read().strip() == base
+    except FileNotFoundError:
+        pass
+    except OSError:
+        return False
+    try:
+        os.makedirs(magasin, exist_ok=True)
+        with open(marque, "w", encoding="utf-8") as f:
+            f.write(base)
+    except OSError:
+        return False
+    return True
+
+
+def identite_base(url: str) -> str:
+    """Ce qui désigne une base, sans le mot de passe (qui peut changer)."""
+    from sqlalchemy.engine import make_url
+    u = make_url(url)
+    return f"{u.get_backend_name()}://{u.host or ''}:{u.port or ''}/{u.database or ''}"
+
+
 def _elaguer_dossiers_vides(racine: str) -> None:
     for dossier, _, _ in sorted(os.walk(racine), key=lambda t: -len(t[0])):
         try:
@@ -173,10 +209,17 @@ async def balayer_au_demarrage() -> None:
     import asyncio
     try:
         from sqlalchemy import select
+        from app.config import DATABASE_URL
         from app.core.database import async_session
         from app.models import Document
         from app.services.jobs import STATUTS_REPRENABLES
         from engines.pdf.version import ENGINE_VERSION
+        if not magasin_appartient_a(identite_base(DATABASE_URL)):
+            logger.warning(
+                "Ménage du magasin ignoré : il appartient à une autre base "
+                f"(cf. {os.path.join(TRANSLATIONS_DIR, _MARQUE_BASE)})."
+            )
+            return
         async with async_session() as db:
             lignes = (await db.execute(
                 select(Document.original_path, Document.translated_path)

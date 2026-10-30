@@ -50,6 +50,7 @@ aperçus non-PDF.
 - [Étude — programmes Bêta multiples](docs/etude-programmes-beta.md) | Étude : « Administration » dans le menu principal, onglets admin dans la barre |
 - [Étude — fiche programme Bêta lisible](docs/etude-fiche-programme-beta.md)
 - [Étude — accès Bêta direct et fiche simplifiée](docs/etude-acces-beta-direct.md)
+- [Étude — aperçu d'un document aux fichiers disparus](docs/etude-apercu-fichier-manquant.md)
 | [`docs/guide-premiere-mise-en-ligne.md`](docs/guide-premiere-mise-en-ligne.md) | Pas à pas de la toute première mise en ligne |
 | [`infra/aws/README.md`](infra/aws/README.md) | L'infrastructure AWS (CloudFormation, OIDC, secrets) |
 | `docs/api/index.html` | Les 32 opérations HTTP (`npm run docs:api`) |

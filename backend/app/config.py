@@ -125,7 +125,8 @@ MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 Mo
 ALLOWED_EXTENSIONS = {"txt", "pdf", "docx", "pptx", "xlsx"}
 
 # ── Stockage ─────────────────────────────────────────────────────────────────
-TRANSLATIONS_DIR = str(BACKEND_DIR / "translations")
+# Surchargeable : une suite de tests peut travailler dans un magasin jetable.
+TRANSLATIONS_DIR = os.getenv("TRANSLATIONS_DIR") or str(BACKEND_DIR / "translations")
 os.makedirs(TRANSLATIONS_DIR, exist_ok=True)
 # Cache des polices téléchargées par le moteur PDF : même racine que le reste.
 os.environ.setdefault("PRECIS_FONTS_CACHE", os.path.join(TRANSLATIONS_DIR, "_polices"))
