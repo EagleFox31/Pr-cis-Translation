@@ -3,6 +3,7 @@
     "home": "Home",
     "features": "Features",
     "howItWorks": "How it works",
+    "my_account": "My account",
     "pricing": "Pricing",
     "about": "About",
     "library": "My docs",
@@ -77,6 +78,9 @@
     "row_data_other": "Retained (Outside pro offer)"
   },
   "story": {
+    "stopped_paused": "Translation paused. Resume it from your library: work already done is kept and nothing is charged twice.",
+    "stopped_cancelled": "Translation cancelled. Work already done is kept; you can resume it from your library.",
+    "stop_failed": "Could not stop the translation",
     "tag": "Our Translation Process",
     "title": "How does it <em>work</em> ?",
     "desc": "A simple and transparent workflow to guarantee the best possible quality.",
@@ -142,6 +146,11 @@
     "ocr_notice": "Text recognized on {{count}} scanned page(s). Review the translation: fonts and layout in scanned documents remain approximate."
   },
   "library": {
+    "paused_status": "Paused — your translated pages are kept",
+    "cancelled_status": "Cancelled — your translated pages are kept",
+    "pause": "Pause",
+    "cancel_translation": "Cancel translation",
+    "download_partial": "Download the pages already translated",
     "title": "My documents",
     "count_suffix": "translated document(s)",
     "empty": "Your translated documents will appear here after each translation.",
@@ -161,7 +170,10 @@
     "download_locked": "Pay for this document's pages to download it",
     "unlock_label": "Unlock “{{name}}”",
     "clear_confirm_question": "Clear all documents?",
-    "retry": "Try again"
+    "retry": "Try again",
+    "interrupted_status": "Interrupted — your translated pages are kept",
+    "resume": "Resume",
+    "resumed_status": "Resumed — continued in the restarted translation"
   },
   "pricing": {
     "feat_free_page_other": "{{count}} equivalent pages free per month",
@@ -232,6 +244,9 @@
     "privacy": "Privacy"
   },
   "viewer": {
+    "pause": "Pause",
+    "cancel": "Cancel translation",
+    "stopping": "Stopping…",
     "back": "Back",
     "zoom_in": "Zoom in",
     "zoom_out": "Zoom out",

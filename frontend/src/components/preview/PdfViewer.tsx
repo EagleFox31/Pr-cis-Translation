@@ -166,6 +166,20 @@ export default function PdfViewer({
   const docOrig = usePdfDoc(sourceFile, false);
   const docTrad = usePdfDoc(translatedBlob, true);
 
+  // L'original se peint AVANT la traduction : un document rouvert a souvent sa
+  // traduction prête avant sa source, et la droite s'affichait seule. Le
+  // traduit attend que l'original attendu soit peint — 4 s au plus, pour
+  // qu'une source en échec ne bloque jamais la traduction.
+  const [origPeint, setOrigPeint] = useState<any>(null);
+  const [delaiOrig, setDelaiOrig] = useState(false);
+  useEffect(() => {
+    setDelaiOrig(false);
+    if (!sourceFile) return;
+    const t = setTimeout(() => setDelaiOrig(true), 4000);
+    return () => clearTimeout(t);
+  }, [sourceFile]);
+  const attendOrig = !!sourceFile && !delaiOrig && (!docOrig || origPeint !== docOrig);
+
   // Mesure la page `pageNum` de `pdf` pour le cadre courant.
   const mesurer = async (pdf: any, pageNum: number, canvas: HTMLCanvasElement) => {
     // Borne la page demandée : un document mono-page recevait encore le
@@ -289,7 +303,9 @@ export default function PdfViewer({
     let active = true;
     const taches: any[] = [];
     if (docOrig) {
-      peindre(docOrig, 'pdf-canvas-original', () => active, taches).catch((e) => signaler(active)(e));
+      peindre(docOrig, 'pdf-canvas-original', () => active, taches)
+        .then((ok) => { if (ok && active) setOrigPeint(docOrig); })
+        .catch((e) => signaler(active)(e));
     } else {
       // Pas de source : panneau VIDE plutôt qu'un document étranger.
       const canvas = document.getElementById('pdf-canvas-original') as HTMLCanvasElement | null;
@@ -307,6 +323,7 @@ export default function PdfViewer({
   useEffect(() => {
     let active = true;
     const taches: any[] = [];
+    if (attendOrig) return;
     const pret = !!docTrad && translatedPageReady && currentPage <= docTrad.numPages;
     if (pret) {
       peindre(docTrad, 'pdf-canvas-translated', () => active, taches)
@@ -329,7 +346,7 @@ export default function PdfViewer({
       active = false;
       taches.forEach((t) => { try { t.cancel(); } catch { /* déjà fini */ } });
     };
-  }, [docTrad, docOrig, currentPage, zoom, compact, translatedPageReady]);
+  }, [docTrad, docOrig, currentPage, zoom, compact, translatedPageReady, attendOrig]);
 
   const [isHovering, setIsHovering] = useState(false);
 

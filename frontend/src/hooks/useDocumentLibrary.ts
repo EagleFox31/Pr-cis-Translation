@@ -26,15 +26,28 @@ export interface DocMeta {
   paid: boolean;
   /** Nombre de pages — sert à calculer ce que coûtera son déblocage. */
   pageCount: number;
-  /** `translating` · `done` · `error`. C'est la SEULE source de vérité sur
+  /** `translating` · `done` · `error` · `interrupted` (serveur arrêté en
+   *  cours de route : à reprendre) · `paused` / `cancelled` (arrêt demandé
+   *  par le client : à reprendre aussi) · `resumed` (repris par une autre
+   *  traduction, qui porte la suite). C'est la SEULE source de vérité sur
    *  l'état d'une traduction : elle vit en base, donc elle survit à une
    *  déconnexion comme à un redémarrage du serveur. */
   status: string;
   /** Pages terminées, à comparer à `pageCount`. */
   pagesDone: number;
+  /** Job vivant d'un document `translating` : sert à Pause / Annuler. */
+  jobId?: string | null;
+  /** Réglages d'origine : « Reprendre » relance avec eux, donc sur les pages
+   *  déjà traduites. Absents sur les documents d'avant leur enregistrement. */
+  reglages?: { pages: string; precise: boolean; beta: boolean } | null;
   /** blob dispo uniquement pour les visiteurs (en mémoire) */
   _blob?: Blob;
 }
+
+/** Statuts d'un document arrêté avant la fin (miroir de
+ *  `jobs.STATUTS_REPRENABLES`) : ses pages faites sont gardées et livrées,
+ *  « Reprendre » ne débite que le reste. */
+export const STATUTS_REPRENABLES: readonly string[] = ['interrupted', 'paused', 'cancelled'];
 
 /** UNE traduction de la réponse serveur. Elle existait en double dans ce
  *  fichier : le jour où un champ s'ajoute, une des deux copies l'oublie —
@@ -52,6 +65,8 @@ function toMeta(d: any): DocMeta {
     pageCount: d.page_count ?? 1,
     status: d.status ?? 'done',
     pagesDone: d.pages_done ?? 0,
+    reglages: d.reglages ?? null,
+    jobId: d.job_id ?? null,
     _blob: undefined,
   };
 }

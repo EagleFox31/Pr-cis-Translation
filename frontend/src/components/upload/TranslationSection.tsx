@@ -29,6 +29,8 @@ export interface TranslateConfig {
   /** Après un 402 « crédits insuffisants » : ne traduire que les pages
    *  couvertes par le solde (choix explicite de l'utilisateur). */
   coverOnly?: boolean;
+  /** Reprise d'un document interrompu : ses pages déjà payées ne sont pas redébitées. */
+  resumeOf?: string;
   beta?: boolean;
 }
 

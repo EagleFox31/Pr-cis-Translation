@@ -34,7 +34,7 @@ import engines
 from app.config import logger, note
 from app.services import render_cache
 from engines import runtags
-from app.services.jobs import jobs
+from app.services.jobs import ArretDemande, jobs
 from app.services.office import SOFFICE_PATH, convert_to_pdf_bytes
 from app.services.progressive_preview import (ProgressivePreview,
                                               ecrire_atomiquement)
@@ -134,8 +134,12 @@ def run_translation_job(
                 raise ValueError("Le traducteur IA n'est pas disponible.")
             cb_translate = jobs.progress_callback(job_id, "translate")
             jobs.emit(job_id, "progress", {"step": "translate", "message": "Traduction IA en cours...", "page": 0, "total": None})
-            success, result = ai_translator.translate_json(extraction_path, target_lang=target_lang, progress_callback=cb_translate, model=model, max_tokens=max_tokens)
+            success, result = ai_translator.translate_json(extraction_path, target_lang=target_lang, progress_callback=cb_translate, model=model, max_tokens=max_tokens,
+                                                           should_stop=lambda: bool(jobs.arret_demande(job_id)))
             if not success:
+                # Échec par arrêt demandé : pause/annulation, pas une erreur. Un
+                # travail ARRIVÉ au bout est gardé même si l'arrêt est tombé après.
+                jobs.verifier_arret(job_id)
                 raise ValueError(f"Traduction échouée : {result}")
             if os.path.exists(result) and os.path.abspath(result) != os.path.abspath(translated_path):
                 shutil.move(result, translated_path)
@@ -287,8 +291,12 @@ def run_xlsx_progressive_job(
             ok, res = ai_translator.translate_json(
                 extraction_path, target_lang=target_lang,
                 progress_callback=jobs.progress_callback(job_id, "translate"),
-                model=model, max_tokens=max_tokens)
+                model=model, max_tokens=max_tokens,
+                should_stop=lambda: bool(jobs.arret_demande(job_id)))
             if not ok:
+                # Échec par arrêt demandé : pause/annulation, pas une erreur. Un
+                # travail ARRIVÉ au bout est gardé même si l'arrêt est tombé après.
+                jobs.verifier_arret(job_id)
                 raise ValueError(f"Traduction échouée : {res}")
             if os.path.exists(res) and os.path.abspath(res) != os.path.abspath(
                     translation_path):
@@ -760,7 +768,10 @@ def run_pptx_progressive_job(
             jobs.set(job_id, partial_pages=_apercu.liste_pages)
 
         def _afficher_slide(slide_num: int):
-            """Convertit CETTE diapositive et l'affiche — EN LIGNE, tout de suite.
+            return _afficher_slides([slide_num])
+
+        def _afficher_slides(nums: list[int]):
+            """Convertit CES diapositives et les affiche — EN LIGNE, tout de suite.
 
             C'est le cœur du page-par-page : la conversion se fait DANS la boucle
             de traitement, pas dans un thread séparé. L'aperçu suit donc
@@ -786,12 +797,12 @@ def run_pptx_progressive_job(
                 # plupart des diapositives n'ont aucun objet OLE).
                 try:
                     pptx_eng.regenerate_ole_previews(
-                        soffice_path=SOFFICE_PATH, only_slides={slide_num})
-                    _ole_faits.add(slide_num)
+                        soffice_path=SOFFICE_PATH, only_slides=set(nums))
+                    _ole_faits.update(nums)
                 except Exception as e:
-                    logger.warning("Aperçu Excel diapo %s : %s", slide_num, e)
+                    logger.warning("Aperçu Excel diapo %s : %s", nums, e)
 
-                ecrire_atomiquement(partial_path, _apercu.greffer([slide_num]))
+                ecrire_atomiquement(partial_path, _apercu.greffer(nums))
                 # APRÈS l'écriture : lue avant le fichier par /partial, la
                 # liste peut retarder sur lui, jamais l'annoncer en avance.
                 jobs.set(job_id, partial_pages=_apercu.liste_pages)
@@ -800,15 +811,25 @@ def run_pptx_progressive_job(
                 return True
             except Exception as e:
                 logger.warning("Aperçu progressif diapo %s ignoré : %s",
-                               slide_num, e)
+                               nums, e)
                 return False
+
+        # Extraites par la passe de reprise sans y être entièrement reprises :
+        # une seconde extraction perdrait le gabarit que la première a pris.
+        pre_extraites: dict[int, dict | None] = {}
 
         def _process_one_slide(slide_num: int):
             nonlocal done
+            # Point de contrôle : pause/annulation. Celles en attente
+            # s'arrêtent ici ; celles en vol sont abandonnées (`abandon`).
+            jobs.verifier_arret(job_id)
             jobs.emit(job_id, "page", {"page": slide_num, "status": "extracting",
                          "done": done, "total": total})
             jobs.sync_progress(job_id, done, total)
-            slide_data, info = pptx_eng.extract_slide(slide_num, filters)
+            if slide_num in pre_extraites:
+                slide_data = pre_extraites.pop(slide_num)
+            else:
+                slide_data, _info = pptx_eng.extract_slide(slide_num, filters)
             if not slide_data:
                 with done_lock:
                     done += 1
@@ -854,8 +875,10 @@ def run_pptx_progressive_job(
                 success, result = ai_translator.translate_json(
                     mini_json, target_lang=target_lang,
                     progress_callback=jobs.progress_callback(job_id, "translate"),
-                    fiche=fiche_doc,
+                    fiche=fiche_doc, should_stop=abandon.is_set,
                 )
+                if abandon.is_set():
+                    return
                 if not success:
                     raise ValueError(f"Traduction slide {slide_num} échouée : {result}")
 
@@ -899,6 +922,10 @@ def run_pptx_progressive_job(
             # La traduction (au-dessus) reste parallèle ; SEULE cette zone est
             # exclusive. Chaque thread la traverse à son tour pour SA page.
             with _display_lock:
+                # Arrêt prononcé pendant la traduction : la diapositive n'est
+                # ni gardée, ni mise en reprise, ni comptée (décision du 30/10).
+                if abandon.is_set():
+                    return
                 slides_traduites[slide_num] = slide_data
                 if not debug:
                     _ecrire_reprise(reprise_path, slides_traduites)
@@ -927,7 +954,9 @@ def run_pptx_progressive_job(
         # prendre la suivante. Les traductions se recouvrent ; les affichages
         # sont sérialisés par `_display_lock` (cf. `_process_one_slide`). Le
         # socle est déjà prêt, donc chaque greffe a sa base.
-        from concurrent.futures import ThreadPoolExecutor
+        from concurrent.futures import (FIRST_COMPLETED, ThreadPoolExecutor,
+                                        wait)
+        abandon = threading.Event()
         # FICHE DE DOCUMENT avant la première diapositive : traduites une à
         # une, elles ne verraient sinon jamais le fichier entier.
         # Gardée avec la reprise : une relance ne la paie pas deux fois et
@@ -947,13 +976,60 @@ def run_pptx_progressive_job(
                             f.write(fiche_doc)
                     except OSError:
                         pass
-        with ThreadPoolExecutor(max_workers=_WORKERS) as executor:
-            futures = [executor.submit(_process_one_slide, sn)
-                       for sn in slides_to_process]
-            # `.result()` propage la première exception rencontrée (le job passe
-            # alors en erreur, comportement inchangé).
-            for f in futures:
-                f.result()
+        # REPRISE VISIBLE : les diapositives entièrement reprises passent
+        # directement « traduites », greffées en UNE conversion, au lieu de
+        # rejouer extraction → traduction → rendu une par une.
+        a_traiter = list(slides_to_process)
+        if deja_traduites:
+            reprises: list[int] = []
+            for sn in slides_to_process:
+                if sn not in deja_traduites:
+                    continue
+                slide_data, _info = pptx_eng.extract_slide(sn, filters)
+                if (not slide_data or _reprendre_slide(
+                        slide_data, fragments_repris, deja_vus) is not None):
+                    pre_extraites[sn] = slide_data
+                    continue
+                _memoriser(deja_vus, slide_data)
+                slides_traduites[sn] = slide_data
+                pptx_eng.inject_slide(sn, {
+                    el["id"]: (el.get("translated_text") or el["text"])
+                    for el in _elements_de(slide_data)})
+                reprises.append(sn)
+            if reprises:
+                apercu_ok = _afficher_slides(reprises)
+                for sn in reprises:
+                    done += 1
+                    jobs.emit(job_id, "page", {"page": sn, "status": "done",
+                                 "done": done, "total": total,
+                                 "apercu": apercu_ok})
+                jobs.sync_progress(job_id, done, total)
+                a_traiter = [sn for sn in a_traiter if sn not in reprises]
+        # Arrêt immédiat : la boucle surveille le drapeau pendant l'attente ;
+        # à l'arrêt, les diapositives en vol sont abandonnées (`abandon`) et
+        # le pool est quitté sans attendre leur retour du modèle.
+        executor = ThreadPoolExecutor(max_workers=_WORKERS)
+        futures = [executor.submit(_process_one_slide, sn) for sn in a_traiter]
+        try:
+            restants = set(futures)
+            while restants:
+                finis, restants = wait(restants, timeout=0.3,
+                                       return_when=FIRST_COMPLETED)
+                # `.result()` propage l'exception : le job passe en erreur, ou
+                # en pause / annulé pour un `ArretDemande`.
+                for f in finis:
+                    f.result()
+                if restants:
+                    jobs.verifier_arret(job_id)
+        except ArretDemande:
+            # Sous le verrou d'affichage : une diapositive en train d'être
+            # gardée finit de l'être, aucune autre ne l'est ensuite.
+            with _display_lock:
+                abandon.set()
+            raise
+        finally:
+            executor.shutdown(wait=not abandon.is_set(),
+                              cancel_futures=abandon.is_set())
 
         # Un deck à diapositives dont AUCUNE n'a livré de texte n'est pas
         # « traduit » : c'est ainsi qu'un deck illisible (fichiers nommés
@@ -1022,6 +1098,13 @@ def run_pptx_progressive_job(
         jobs.done(job_id, output_path, output_filename,
                   translation_path=translation_path)
 
+    except ArretDemande:
+        # Arrêt demandé : l'ordonnanceur le consigne ; ici, seulement ranger.
+        try:
+            pptx_eng._cleanup_temp()
+        except Exception:
+            pass
+        raise
     except Exception as e:
         logger.error(f"Job PPTX {job_id} failed: {e}")
         # Plus de thread convertisseur à arrêter (traitement séquentiel).
@@ -1089,6 +1172,7 @@ def run_pdf_v2_job(
             source_path, output_path, target_lang=target_lang,
             pages=pages_set, partial_path=partial_path, on_event=on_event,
             debug=debug, cache_path=translation_path,
+            arret=lambda: jobs.verifier_arret(job_id),
         )
 
         if not os.path.exists(output_path):
@@ -1122,7 +1206,8 @@ def run_pdf_v2_job(
 
 def render_translation_bytes(original_path: str, translation_path: str,
                              ext: str, target_lang: str,
-                             only_pages: set[int] | None = None) -> bytes:
+                             only_pages: set[int] | None = None,
+                             selection: set[int] | None = None) -> bytes:
     """Recalcule le document traduit à partir de l'original + la traduction
     stockée, SANS jamais rappeler DeepSeek. C'est le pilier du nouveau modèle :
     on ne conserve plus le rendu, on le reconstruit à la demande.
@@ -1132,6 +1217,10 @@ def render_translation_bytes(original_path: str, translation_path: str,
     qui le pousserait à traduire les pages manquantes (donc à payer l'API). Une
     page absente du JSON est simplement recopiée de l'original.
     DOCX/PPTX : ré-injection locale de `translated.json` dans l'original.
+    PPTX : `only_pages` ne garde que ces diapositives traduites (traduction
+    partielle livrée, voir `traduction_partielle_du_document`) ; `selection`
+    numérote alors les diapositives d'une traduction finale, rangées dans
+    l'ordre de la sélection du job (toutes si None).
     """
     if not os.path.isfile(original_path) or not os.path.isfile(translation_path):
         raise FileNotFoundError("Original ou traduction manquant pour le rendu.")
@@ -1181,11 +1270,30 @@ def render_translation_bytes(original_path: str, translation_path: str,
             if not ok:
                 raise ValueError(f"Ré-injection DOCX échouée : {msg}")
         elif ext == "pptx" and pptx_available:
+            # Fichier de REPRISE d'un document arrêté (diapositives par numéro) :
+            # remis au format de la traduction finale, les diapositives absentes
+            # restent celles de l'original.
+            source = translation_path
+            faites = None
+            if os.path.basename(translation_path).startswith("reprise_"):
+                faites = _lire_reprise(translation_path)
+            elif only_pages is not None:
+                with open(translation_path, encoding="utf-8") as f:
+                    liste = json.load(f)["slides"]
+                numeros = sorted(selection) if selection else range(1, len(liste) + 1)
+                faites = dict(zip(numeros, liste))
+            if faites is not None:
+                if only_pages is not None:
+                    faites = {n: v for n, v in faites.items() if n in only_pages}
+                source = os.path.join(tmp, "partielle.json")
+                with open(source, "w", encoding="utf-8") as f:
+                    json.dump({"slides": [faites[n] for n in sorted(faites)]},
+                              f, ensure_ascii=False)
             # Moteur NEUF à chaque rendu. Un moteur partagé faisait se recouvrir
             # deux rendus simultanés dans le même dossier temporaire : l'aperçu
             # d'une langue ressortait dans celui d'une autre.
             ok, msg = engines.new_engine("pptx").inject_translation(original_path,
-                                                          translation_path, out)
+                                                          source, out)
             if not ok:
                 raise ValueError(f"Ré-injection PPTX échouée : {msg}")
         else:

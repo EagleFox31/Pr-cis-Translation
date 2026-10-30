@@ -263,3 +263,38 @@ async def refund_for_document(db, document_id, *, refunded=True):
         .with_for_update().execution_options(populate_existing=True))).scalars().all()
     for row in rows:
         row.refunded = refunded
+
+
+async def refund_unfinished(db, document_id, gardees):
+    """Job coupé : un PDF/PPTX (unités = pages) garde `gardees` unités, au
+    prorata de ce qui est traduit ; un DOCX/XLSX, sans travail partiel, est
+    gardé entier s'il a fini et rendu entier sinon."""
+    ids = (await db.execute(select(BetaUsage.enrollment_id).where(
+        BetaUsage.document_key == document_id))).scalars().all()
+    for enrollment_id in sorted(set(ids)):
+        await db.execute(select(BetaEnrollment).where(BetaEnrollment.id == enrollment_id).with_for_update())
+    rows = (await db.execute(select(BetaUsage).where(
+        BetaUsage.document_key == document_id, BetaUsage.refunded.is_(False))
+        .with_for_update().execution_options(populate_existing=True))).scalars().all()
+    for row in rows:
+        if gardees <= 0:
+            row.refunded = True
+        elif row.format in ("pdf", "pptx"):
+            row.units = min(row.units, gardees)
+
+
+async def office_billed(db, document_id) -> bool:
+    """Un DOCX/XLSX bêta de ce document reste débité (traduction écrite :
+    ses unités sont des mots, pas des pages)."""
+    n = (await db.execute(select(func.count()).select_from(BetaUsage).where(
+        BetaUsage.document_key == document_id, BetaUsage.refunded.is_(False),
+        BetaUsage.format.in_(("docx", "xlsx"))))).scalar()
+    return bool(n)
+
+
+async def units_billed(db, document_id):
+    """Pages bêta encore débitées pour ce document (PDF/PPTX seulement)."""
+    n = (await db.execute(select(func.coalesce(func.sum(BetaUsage.units), 0)).where(
+        BetaUsage.document_key == document_id, BetaUsage.refunded.is_(False),
+        BetaUsage.format.in_(("pdf", "pptx"))))).scalar()
+    return int(n or 0)

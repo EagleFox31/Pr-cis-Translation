@@ -90,7 +90,7 @@ export default function Navbar({ activeSection, onNavClick, onLibraryOpen }: Nav
           {user ? (
             <button
               onClick={onLibraryOpen}
-              title="Mon compte"
+              title={t('nav.my_account')}
               style={{
                 width: '34px', height: '34px', borderRadius: '999px',
                 background: 'var(--blue)', color: 'white', border: 'none',

@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 from typing import Callable
 
 import fitz
@@ -183,7 +184,15 @@ def ecrire_atomiquement(chemin: str, donnees: bytes) -> None:
     try:
         with open(tmp, "wb") as f:
             f.write(donnees)
-        os.replace(tmp, chemin)
+        # Windows : remplacement refusé tant qu'un lecteur ou l'antivirus tient
+        # le fichier. L'aperçu se rattrapera à l'écriture suivante ; il ne doit
+        # pas faire échouer la traduction.
+        for _ in range(50):
+            try:
+                os.replace(tmp, chemin)
+                return
+            except PermissionError:
+                time.sleep(0.1)
     except BaseException:
         # Disque plein : le temporaire à moitié écrit ne doit pas rester.
         try:

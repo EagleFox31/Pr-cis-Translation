@@ -12,6 +12,7 @@ import asyncio
 import json
 import os
 import queue
+from typing import Literal
 
 from fastapi import (APIRouter, Depends, File, Form, Header, HTTPException,
                      Request, UploadFile)
@@ -32,19 +33,21 @@ from app.models import (Document, User, get_plan_page_limit,
                         KIND_CREDITS, KIND_FREE_OFFER, KIND_PLAN)
 from app.rate_limit import verify_api_key
 from app.services.documents import (build_job_paths, cap_pages_for_plan,
-                                    count_pages, pages_avec_texte)
+                                    count_pages, pages_avec_texte, pages_faites,
+                                    reglages_de, translation_path_for)
 from app.services import usage
 from app.services import anti_abus
 from app.services import beta
 from app.services.beta_meter import BetaCost, FORMATS as BETA_FORMATS, office_cost
 from app.services.ocr import OCR_VERSION, OCRError, prepare_scanned_pdf
-from app.services.jobs import jobs
+from app.services.jobs import STATUTS_ARRET, STATUTS_REPRENABLES, jobs
 from app.services.office import convert_to_pdf_bytes
 from app.services.scheduler import scheduler
 from app.services.translation_runner import (run_pdf_v2_job,
                                              run_pptx_progressive_job,
                                              run_translation_job,
-                                             run_xlsx_progressive_job)
+                                             run_xlsx_progressive_job,
+                                             _sauver_original)
 from app.services.trial_preview import rasterize_for_trial
 
 router = APIRouter(tags=["Traduction"])
@@ -109,7 +112,8 @@ async def _save_document_for_user(user: "User | None", db: "AsyncSession",
                                   job_id: str, filename: str, target_lang: str,
                                   original_path: str, size: int,
                                   paid: bool = False, page_count: int = 1,
-                                  usages: list[tuple[str, int]] = (), beta_charge=None):
+                                  usages: list[tuple[str, int]] = (), beta_charge=None,
+                                  reglages: dict | None = None):
     """Enregistre un Document pour l'utilisateur connecté.
 
     La consommation (`usages` : une ligne par titre — quota du plan, pages
@@ -136,7 +140,8 @@ async def _save_document_for_user(user: "User | None", db: "AsyncSession",
                        # Le quota mensuel SOMME cette colonne. Laissée à NULL
                        # (son ancien état), elle rendait tout quota de pages
                        # incomptable — donc invendable.
-                       page_count=page_count)
+                       page_count=page_count,
+                       reglages=json.dumps(reglages) if reglages else None)
         db.add(doc)
         user.storage_used += charge
         if usages or beta_charge:
@@ -184,6 +189,9 @@ async def translate_endpoint(
     # refuse le document entier — jamais de troncature silencieuse.
     covered_only: str = Form(""),
     use_beta: str = Form("auto"),
+    # Reprise d'un document arrêté (serveur coupé, pause, annulation) : ses pages déjà
+    # traduites et déjà payées ne sont pas débitées une seconde fois.
+    resume_of: str = Form(""),
     x_api_key: str = Header(None),
     # CONNEXION OBLIGATOIRE (décision produit) : un visiteur ne lance aucune
     # traduction. `optional_auth` laissait passer l'anonyme avec 1 page —
@@ -196,6 +204,8 @@ async def translate_endpoint(
     Le client peut ensuite écouter /api/translate/events/{job_id} (SSE)
     pour suivre la progression, puis télécharger via /api/translate/result/{job_id}."""
     verify_api_key(x_api_key)
+    # Appel direct (tests) : le défaut est l'objet `Form`, pas une chaîne.
+    resume_of = resume_of if isinstance(resume_of, str) else ""
 
     quality = qualite_autorisee(quality, precise, current_user)
 
@@ -266,7 +276,16 @@ async def translate_endpoint(
             "reason": "beta_inactive",
             "detail": "Votre accès bêta n'est pas actif. Utilisez votre forfait habituel ou consultez votre invitation.",
         })
-    if (not beta_mode and current_user.plan == "free"
+    # Reprise PLAUSIBLE (document du compte, interrompu, en pause ou annulé) :
+    # elle peut ne rien coûter, ses contrôles de solde viennent sous le
+    # verrou, une fois le reste connu. Lecture sans verrou : un `resume_of` quelconque ne contourne
+    # aucun contrôle préalable (OCR coûteux compris).
+    if resume_of:
+        _candidat = await db.get(Document, resume_of)
+        if (_candidat is None or _candidat.user_id != current_user.id
+                or _candidat.status not in STATUTS_REPRENABLES):
+            resume_of = ""
+    if (not beta_mode and not resume_of and current_user.plan == "free"
             and not current_user.email_verified and current_user.page_credits <= 0):
         raise HTTPException(403, "Vérifiez votre adresse e-mail pour utiliser les pages offertes.")
     try:
@@ -288,7 +307,10 @@ async def translate_endpoint(
         except ValueError as exc:
             raise HTTPException(422, str(exc))
         try:
-            await beta.check_cost(db, beta_preview, beta_cost)
+            # Une reprise ne paie que son reste, connu sous le verrou
+            # seulement : le contrôle qui fait foi est celui de plus bas.
+            if not resume_of:
+                await beta.check_cost(db, beta_preview, beta_cost)
         except HTTPException as exc:
             remaining = exc.detail["remaining"]
             if covered_only == "1" and ext in ("pdf", "pptx") and remaining > 0:
@@ -418,6 +440,42 @@ async def translate_endpoint(
         select(User).where(User.id == current_user.id).with_for_update()
         .execution_options(populate_existing=True)
     )).scalar_one()
+    # Pages déjà payées par le document arrêté (interrompu, en pause, annulé)
+    # que l'on reprend. Lu SOUS
+    # le verrou du compte : deux reprises simultanées du même document ne
+    # peuvent pas toutes deux profiter de la remise. Le document doit être
+    # celui du compte, reprenable, et du MÊME fichier vers la même langue :
+    # le cache est partagé par fichier entre comptes, la remise, elle, ne vaut
+    # que pour ce qu'on a soi-même payé.
+    deja_payees = 0
+    reprise = None
+    if resume_of and not debug_mode:
+        reprise = await db.get(Document, resume_of, with_for_update=True)
+        file_hash = get_file_hash(file_bytes)
+        if (reprise is None or reprise.user_id != locked.id
+                or reprise.status not in STATUTS_REPRENABLES
+                or reprise.target_lang != target_lang
+                or os.path.basename(os.path.dirname(reprise.original_path or "")) != file_hash
+                or reglages_de(reprise).get("qsuffix", qsuffix) != qsuffix
+                or bool(reglages_de(reprise).get("precise")) != (quality == "precise")):
+            reprise = None
+        else:
+            _job_dir, _lang_dir = build_job_paths(file_hash, target_lang)
+            total = len(pages_set) if pages_set else nb_pages
+            # Payé par ce document ET par ceux qu'il reprenait déjà.
+            payees = (await usage.pages_payees(db, reprise.id)
+                      + int(reglages_de(reprise).get("deja") or 0))
+            if await beta.office_billed(db, reprise.id):
+                payees = total      # DOCX/XLSX bêta payé et écrit : tout est dû
+            deja_payees = min(payees, pages_faites(
+                translation_path_for(_lang_dir, ext, pages_set, qsuffix),
+                ext, pages_set, total))
+            # Consommé : une seconde reprise du même document paiera plein
+            # tarif. Annulé avec la transaction si la reprise est refusée.
+            # Sans remise, le document garde son statut d'arrêt : rien n'a été
+            # transmis à la reprise.
+            if deja_payees > 0:
+                reprise.status = "resumed"
     beta_charge = None
     if beta_mode:
         enrollment = await beta.active_enrollment(db, locked, lock=True)
@@ -426,7 +484,10 @@ async def translate_endpoint(
                 "reason": "beta_inactive", "detail": "Votre accès bêta a expiré ou a été révoqué.",
             })
         if ext in ("pdf", "pptx"):
-            beta_cost = BetaCost(ext, len(pages_set) if pages_set else nb_pages)
+            beta_cost = BetaCost(ext, max(0, (len(pages_set) if pages_set else nb_pages)
+                                          - deja_payees))
+        elif deja_payees:
+            beta_cost = BetaCost(ext, 0)        # traduction déjà écrite : rien à refaire
         try:
             await beta.check_cost(db, enrollment, beta_cost)
         except HTTPException as exc:
@@ -443,7 +504,10 @@ async def translate_endpoint(
             monthly = get_plan_monthly_pages(locked.plan)
             reste_plan = (None if monthly is None else
                           max(0, monthly - await usage.pages_used_this_month(db, locked)))
-        needed = len(pages_set) if pages_set else nb_pages
+        needed = max(0, (len(pages_set) if pages_set else nb_pages) - deja_payees)
+        if (resume_of and needed and gratuit and not locked.email_verified
+                and solde <= 0):
+            raise HTTPException(403, "Vérifiez votre adresse e-mail pour utiliser les pages offertes.")
         # Pages offertes refusées (abus probable) : seules les pages achetées
         # restent utilisables.
         refus_offert = None
@@ -454,7 +518,9 @@ async def translate_endpoint(
                 reste_plan = 0
         couvert = None if reste_plan is None else reste_plan + solde
         if couvert is not None and needed > couvert:
-            partiel = ext in ("pdf", "pptx") and couvert > 0
+            # Pas de reprise tronquée : une autre sélection nommerait un
+            # autre cache, et les pages payées ne seraient pas retrouvées.
+            partiel = ext in ("pdf", "pptx") and couvert > 0 and deja_payees == 0
             if not (covered_only == "1" and partiel):
                 if refus_offert:
                     return avec_cookie(JSONResponse(status_code=402, content={
@@ -509,10 +575,7 @@ async def translate_endpoint(
     # reconstituer. Pour le PDF, c'est le JSON du moteur v2 (texte + décisions
     # de page) ; pour DOCX/PPTX, le JSON de traduction. Le PDF/DOCX rendu, lui,
     # n'est PAS conservé : il se recalcule à la demande depuis ces deux-là.
-    if ext == "pdf":
-        translation_path = os.path.join(lang_dir, f"pages{qsuffix}{psuffix}.json")
-    else:
-        translation_path = os.path.join(lang_dir, f"translated{qsuffix}{psuffix}.json")
+    translation_path = translation_path_for(lang_dir, ext, pages_set, qsuffix)
 
     output_filename = f"{safe_name}_TRADUIT{qsuffix}{psuffix}.{ext}"
     if debug_mode:
@@ -579,15 +642,34 @@ async def translate_endpoint(
     # ses pieds ; (2) un cache-hit terminait le job avant que `document_id` ne
     # soit lié → le Document restait « translating » pour toujours.
     try:
+        # L'original est posé ICI, pas par le worker : un job mis en pause ou
+        # annulé avant de démarrer doit rester reprenable, donc avoir son
+        # original sur disque (la reprise le relit).
+        await run_in_threadpool(_sauver_original, original_path, file_bytes)
         await _save_document_for_user(current_user, db, job_id, filename,
                                       target_lang, original_path, len(file_bytes),
                                       paid=doc_is_paid, page_count=pages_facturees,
-                                      usages=usages, beta_charge=beta_charge)
+                                      usages=usages, beta_charge=beta_charge,
+                                      reglages={
+                                          # Sélection EFFECTIVE (après pages
+                                          # scannées et pages couvertes) : celle
+                                          # qui nomme le cache de reprise.
+                                          "pages": ",".join(map(str, sorted(pages_set)))
+                                                   if pages_set else "",
+                                          "precise": quality == "precise",
+                                          "qsuffix": qsuffix,
+                                          "beta": bool(beta_charge),
+                                          "deja": deja_payees})
     except Exception:
         # Rien ne sera soumis : le job ouvert plus haut resterait « pending »
         # en mémoire, sans document ni worker, jusqu'au ménage.
         jobs.forget(job_id)
         raise
+    # Reposé après l'enregistrement : la suppression par un autre compte d'un
+    # document de même empreinte a pu purger l'original entre-temps (sans effet
+    # s'il est là). Le premier appel reste nécessaire : s'il échoue, aucun
+    # document n'est enregistré.
+    await run_in_threadpool(_sauver_original, original_path, file_bytes)
 
     # File de PRIORITÉ, plus de thread lancé à la volée : l'ordonnanceur place le
     # job selon le niveau du plan (admin > pro > starter > gratuit) et le fait
@@ -613,7 +695,7 @@ async def translate_endpoint(
 
 @router.get("/api/translate/events/{job_id}")
 async def translation_events(job_id: str, token: str = ""):
-    """SSE endpoint : émet les events de progression jusqu'à done/error.
+    """SSE endpoint : émet les events de progression jusqu'à done/error/stopped.
 
     EventSource (navigateur) ne supporte pas les headers custom : le JWT passe
     donc en QUERY (`?token=`). S'appuyer sur le seul job_id laissait le flux
@@ -646,10 +728,12 @@ async def translation_events(job_id: str, token: str = ""):
                     # coupé avait déjà consommé l'événement final, la file est
                     # vide pour toujours. On le reconstitue depuis l'état du job.
                     etat = job.get("state")
-                    if etat in ("done", "error"):
+                    if etat in ("done", "error", *STATUTS_ARRET):
                         fin = ({"type": "done", "filename": job.get("result_filename")}
                                if etat == "done" else
-                               {"type": "error", "message": job.get("error")})
+                               {"type": "error", "message": job.get("error")}
+                               if etat == "error" else
+                               {"type": "stopped", "mode": etat})
                         yield f"data: {json.dumps(fin, ensure_ascii=False)}\n\n"
                         break
                     yield ": keepalive\n\n"
@@ -659,7 +743,7 @@ async def translation_events(job_id: str, token: str = ""):
                 data = json.dumps(msg, ensure_ascii=False)
                 yield f"data: {data}\n\n"
 
-                if msg.get("type") in ("done", "error"):
+                if msg.get("type") in ("done", "error", "stopped"):
                     break
             except asyncio.CancelledError:
                 break
@@ -687,6 +771,30 @@ def _job_of(job_id: str, user: "User"):
     if not job or job.get("user_id") != user.id:
         raise HTTPException(status_code=404, detail="Job introuvable.")
     return job
+
+
+@router.post("/api/translate/{job_id}/{mode}")
+async def translation_stop(job_id: str, mode: Literal["pause", "cancel"],
+                           x_api_key: str = Header(None),
+                           current_user: "User" = Depends(require_auth)):
+    """DEMANDE de pause ou d'annulation d'une traduction, par son propriétaire.
+
+    La réponse confirme la demande, pas l'état final. Un job encore en file
+    s'arrête tout de suite ; un job en cours finit sa page (ou son lot) et
+    s'arrête au point de contrôle suivant. Dans les deux cas le flux émet
+    `stopped`. Les pages traduites restent débitées, le reste est rendu ; le
+    document se reprend sur le cache (« Reprendre » ne débite que le reste)."""
+    verify_api_key(x_api_key)
+    statut = dict(zip(("pause", "cancel"), STATUTS_ARRET))[mode]
+    _job_of(job_id, current_user)
+    ou = jobs.demander_arret(job_id, statut)
+    if ou is None:
+        raise HTTPException(status_code=409,
+                            detail="Traduction déjà terminée ou déjà arrêtée.")
+    if ou == "en_file":
+        # Aucun worker ne le tient : rien à attendre, on le consigne ici.
+        await run_in_threadpool(jobs.arreter, job_id, statut)
+    return {"job_id": job_id, "status": statut}
 
 
 async def _droit_au_clair(job: dict, user: "User", db: AsyncSession) -> bool:
@@ -718,10 +826,8 @@ async def translation_partial(job_id: str, x_api_key: str = Header(None),
     pages_pretes = job.get("partial_pages")
     # Lecture et rastérisation HORS de la boucle : appelé à chaque page du
     # flux, un appel bloquant ici figeait toute l'application, SSE compris.
-    def _lire() -> bytes:
-        with open(path, "rb") as f:
-            return f.read()
-    data = await run_in_threadpool(_lire)
+    from app.api.documents import _lire
+    data = await run_in_threadpool(_lire, path)
 
     # PLAN D'ESSAI : jamais le clair. On envoyait le PDF traduit tel quel et on
     # comptait sur le navigateur pour l'assombrir — mesuré : un compte `free`
@@ -764,6 +870,10 @@ async def translation_result(job_id: str, x_api_key: str = Header(None),
         )
     if job["state"] == "error":
         raise HTTPException(status_code=500, detail="La traduction a échoué. Réessayez ou contactez le support si le problème persiste.")
+    if job["state"] in STATUTS_ARRET:
+        # État final : 202 ferait redemander le client sans fin. Les pages
+        # déjà traduites se récupèrent depuis la bibliothèque.
+        raise HTTPException(status_code=409, detail="Traduction arrêtée : retrouvez les pages déjà traduites dans votre bibliothèque.")
     if job["state"] != "done":
         raise HTTPException(status_code=202, detail="Job en cours.")
     if not job["result_path"] or not os.path.exists(job["result_path"]):

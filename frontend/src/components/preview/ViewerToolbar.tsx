@@ -1,9 +1,12 @@
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
   Download, Loader2, CheckCircle2, ArrowRight, Lock,
-  Maximize2, Minimize2, Flag, FileDown,
+  Maximize2, Minimize2, Flag, FileDown, Pause, X,
 } from 'lucide-react';
+
+import type { StopMode } from '../../hooks/useStreamingTranslation';
 
 import { baseCode } from '../../lib/languages';
 import ProgressBar from '../ui/ProgressBar';
@@ -36,6 +39,8 @@ interface ViewerToolbarProps {
   /** Essai : quitter l'aperçu pour les tarifs (ils sont SOUS la surcouche). */
   onUnlock?: () => void;
   onToggleFocus?: () => void;
+  /** Pause / Annuler la traduction en cours. Absent : pas de job à arrêter. */
+  onStop?: (mode: StopMode) => Promise<void>;
 }
 
 export default function ViewerToolbar({
@@ -56,8 +61,18 @@ export default function ViewerToolbar({
   onDownloadOriginal,
   onUnlock,
   onToggleFocus,
+  onStop,
 }: ViewerToolbarProps) {
   const { t } = useTranslation();
+  // Arrêt demandé : le serveur finit d'abord la page en cours, ce qui peut
+  // prendre quelques secondes. On le dit, et on bloque un second clic.
+  const [arret, setArret] = useState<StopMode | null>(null);
+  useEffect(() => { if (!isTranslating) setArret(null); }, [isTranslating]);
+  const demanderArret = (mode: StopMode) => {
+    if (!onStop || arret) return;
+    setArret(mode);
+    onStop(mode).catch(() => setArret(null));
+  };
 
   const pct = numPages > 0 ? Math.round((doneCount / numPages) * 100) : 0;
   const isComplete = !isTranslating && doneCount > 0 && doneCount >= numPages;
@@ -172,7 +187,9 @@ export default function ViewerToolbar({
               color: isTranslating ? 'var(--blue)' : '#16a34a',
               fontVariantNumeric: 'tabular-nums',
             }}>
-              {isTranslating && numPages === 0
+              {arret
+                ? t('viewer.stopping', 'Arrêt après la page en cours…')
+                : isTranslating && numPages === 0
                 ? t('preview.loading', "Préparation de l'aperçu…")
                 : isTranslating
                 ? t('viewer.pages_done', '{{done}}/{{total}} pages', { done: doneCount, total: numPages })
@@ -184,6 +201,30 @@ export default function ViewerToolbar({
               height={3}
             />
           </div>
+          {isTranslating && onStop && (
+            <>
+              <button
+                onClick={() => demanderArret('pause')}
+                disabled={!!arret}
+                className="tb-btn ghost"
+                aria-label={t('viewer.pause', 'Mettre en pause')}
+                title={t('viewer.pause', 'Mettre en pause')}
+                style={{ display: 'flex', alignItems: 'center', padding: '6px' }}
+              >
+                <Pause size={15} strokeWidth={2.2} />
+              </button>
+              <button
+                onClick={() => demanderArret('cancel')}
+                disabled={!!arret}
+                className="tb-btn ghost"
+                aria-label={t('viewer.cancel', 'Annuler la traduction')}
+                title={t('viewer.cancel', 'Annuler la traduction')}
+                style={{ display: 'flex', alignItems: 'center', padding: '6px' }}
+              >
+                <X size={15} strokeWidth={2.2} />
+              </button>
+            </>
+          )}
         </div>
       )}
 

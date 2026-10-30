@@ -13,8 +13,10 @@ import InviteModal from '../components/invite/InviteModal';
 import PaymentModal from '../components/payment/PaymentModal';
 import DocumentLibrary from '../components/library/DocumentLibrary';
 import { useAuth } from '../contexts/AuthContext';
-import { useDocumentLibrary } from '../hooks/useDocumentLibrary';
-import { useStreamingTranslation, type PageStatus } from '../hooks/useStreamingTranslation';
+import { useDocumentLibrary, STATUTS_REPRENABLES, type DocMeta } from '../hooks/useDocumentLibrary';
+import {
+  useStreamingTranslation, stopTranslation, type PageStatus, type StopMode,
+} from '../hooks/useStreamingTranslation';
 import { isTrialFor } from '../lib/plans';
 import { subscribeSection } from '../lib/sectionBus';
 import type { TranslateConfig } from '../components/upload/TranslationSection';
@@ -74,6 +76,10 @@ export default function Home() {
   // Document rouvert pendant sa traduction : chaque tick redemande l'aperçu.
   // Les relances ne repassent pas l'écran en « chargement » (clignotement).
   const [previewPoll, setPreviewPoll] = useState(0);
+  // Aperçu rouvert depuis la bibliothèque : la traduction (souvent en cache)
+  // arrive avant l'original (converti en PDF côté serveur). On la retient tant
+  // que l'original n'est pas là, pour ne jamais peindre la droite seule.
+  const [sourceEnAttente, setSourceEnAttente] = useState(false);
   const enSuivi = useRef(false);
   // Échecs d'affilée PENDANT le suivi : un raté réseau ne doit pas figer
   // l'aperçu, mais un document disparu ne doit pas être redemandé sans fin.
@@ -158,7 +164,7 @@ export default function Home() {
     (config: TranslateConfig) => {
       // Le catalogue ne propose que des codes de base ('en', 'fr'…) : plus de
       // variante régionale à réduire avant l'envoi.
-      const { file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta } = config;
+      const { file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta, resumeOf } = config;
       // Mémorisé pour rejouer après un achat de pages (402) : en ENTIER, un
       // achat sert à couvrir tout le document, jamais à rejouer une version partielle.
       lastConfigRef.current = { ...config, coverOnly: false };
@@ -178,7 +184,7 @@ export default function Home() {
       setShowPreview(true);
 
       stream
-        .start(file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta)
+        .start(file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta, resumeOf)
         .then((result) => {
           setTranslatedBlob(result.blob);
           setTranslatedIsPdf(false);   // le RÉSULTAT est au format d'origine
@@ -196,9 +202,11 @@ export default function Home() {
         .catch(() => {
           // L'erreur est déjà dans stream.error (et stream.limitReached pour
           // les 402) — on laisse StorySection l'afficher en bannière inline.
+          // Arrêt (pause, annulation) : la bibliothèque doit montrer le statut.
+          refresh();
         });
     },
-    [stream, saveDocument, t],
+    [stream, saveDocument, refresh, t],
   );
 
   // ---- Library preview ----
@@ -242,11 +250,13 @@ export default function Home() {
       // et le viewer la retournait au serveur pour conversion — un aller-retour
       // de plusieurs mégaoctets qui, en échouant, laissait le panneau blanc.
       setSourceIsPdf(true);
+      setSourceEnAttente(true);
       req.source.then((src) => {
         if (fresh() && src) {
           setSelectedFile(new File([src], req.filename, { type: 'application/pdf' }));
         }
-      }).catch(() => { /* panneau gauche vide : le viewer le gère */ });
+      }).catch(() => { /* panneau gauche vide : le viewer le gère */ })
+        .finally(() => { if (fresh()) setSourceEnAttente(false); });
 
       // La traduction est chargée par l'effet ci-dessous, page par page.
     },
@@ -268,12 +278,17 @@ export default function Home() {
       // supprimer d'abord purgeait le dossier du job, et avec lui les pages
       // déjà traduites que la relance aurait reprises. Refusée (quota, 402),
       // la relance laisse l'ancien en place.
+      // Mêmes réglages qu'au départ : ce sont eux qui retrouvent les pages
+      // déjà traduites (sinon tout repart de zéro, et à un autre prix).
       handleStartTranslate({
         file,
         targetLang: doc.targetLang,
-        pages: '',
+        pages: doc.reglages?.pages ?? '',
         debug: false,
-        precise: false,
+        precise: doc.reglages?.precise ?? false,
+        beta: doc.reglages ? doc.reglages.beta : undefined,
+        // Le serveur ne compte la remise que pour un document interrompu.
+        resumeOf: STATUTS_REPRENABLES.includes(doc.status) ? doc.id : undefined,
         onAccepted: () => { deleteDocument(doc.id).catch(() => { /* déjà parti */ }); },
       });
     },
@@ -314,6 +329,7 @@ export default function Home() {
       } else {
         enSuivi.current = false;
         echecsSuivi.current = 0;
+        setSuiviBiblio(null);         // plus de suivi : plus de compteur qui tourne
       }
     };
     getPreviewBlob(libraryDocId, currentPage)
@@ -372,6 +388,40 @@ export default function Home() {
     }
   }, [stream.result, translatedBlob, translatedFilename]);
 
+  // ---- Pause / Annuler ----
+  // Traduction lancée ici : le flux connaît le job. Document rouvert depuis la
+  // bibliothèque pendant sa traduction : c'est la liste qui le nomme.
+  const libraryJobId = libraryDocId
+    ? documents.find((d) => d.id === libraryDocId)?.jobId ?? null : null;
+  const stopJob = useCallback(async (jobId: string, mode: StopMode) => {
+    try {
+      await stopTranslation(jobId, mode);
+    } catch (err) {
+      showToast('error', t('story.stop_failed'), err instanceof Error ? err.message : undefined);
+      throw err;
+    }
+    refresh();
+  }, [refresh, t]);
+  const handleStop = useCallback(async (mode: StopMode) => {
+    if (stream.isTranslating) {
+      // Le flux annonce `stopped` : c'est lui qui fige l'aperçu.
+      await stream.stop(mode).catch((err) => {
+        showToast('error', t('story.stop_failed'), err instanceof Error ? err.message : undefined);
+        throw err;
+      });
+    } else if (libraryJobId) {
+      await stopJob(libraryJobId, mode);
+      // Aperçu rouvert depuis la bibliothèque : pas de flux pour annoncer
+      // l'arrêt. On fige tout de suite, puis on recharge l'état final.
+      enSuivi.current = false;
+      setSuiviBiblio(null);
+      setPreviewPoll((n) => n + 1);
+    }
+  }, [stream, libraryJobId, stopJob, t]);
+  const handleLibraryStop = useCallback(async (doc: DocMeta, mode: StopMode) => {
+    if (doc.jobId) await stopJob(doc.jobId, mode);
+  }, [stopJob]);
+
   // ---- Back from preview ----
   const handleBack = useCallback(() => {
     stream.cancel();
@@ -380,6 +430,19 @@ export default function Home() {
     setLibraryDocId(null);          // plus d'aperçu ouvert : plus rien à charger
     setPreviewLoading(false);
   }, [stream]);
+
+  // Déconnexion (ou session expirée) : l'aperçu et le document courant
+  // appartiennent au compte qui vient de partir, on les ferme.
+  const etaitConnecte = useRef(!!user);
+  useEffect(() => {
+    if (etaitConnecte.current && !user) {
+      handleBack();
+      setSelectedFile(null);
+      setTranslatedBlob(null);
+      setTranslatedFilename('');
+    }
+    etaitConnecte.current = !!user;
+  }, [user, handleBack]);
 
   // « Débloquer » depuis l'essai : les tarifs sont sous la surcouche d'aperçu,
   // il faut la fermer pour les montrer.
@@ -449,7 +512,7 @@ export default function Home() {
 
   // Aperçu du panneau « traduit » : blob final si dispo, sinon PDF partiel
   // (pages déjà prêtes), mis à jour au fil de l'eau pendant le streaming.
-  const previewTranslatedBlob = translatedBlob ?? stream.partialBlob;
+  const previewTranslatedBlob = sourceEnAttente ? null : translatedBlob ?? stream.partialBlob;
   // Le partiel du flux est TOUJOURS un PDF (le backend le convertit avant de
   // le servir), y compris pour un PPTX.
   const previewTranslatedIsPdf = translatedBlob ? translatedIsPdf : true;
@@ -562,6 +625,7 @@ export default function Home() {
         getOriginalBlob={getOriginalBlob}
         onPaid={() => { refresh(); refreshUser(); }}
         onRetry={handleRetry}
+        onStop={handleLibraryStop}
       />
 
       <main>
@@ -602,6 +666,7 @@ export default function Home() {
           onBack={handleBack}
           onUnlock={handleUnlock}
           onToggleFocus={toggleFocus}
+          onStop={stream.isTranslating || (suiviBiblio && libraryJobId) ? handleStop : undefined}
           onZoomChange={setZoom}
           onPageChange={setCurrentPage}
           onDownload={handleDownload}

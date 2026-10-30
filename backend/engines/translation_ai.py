@@ -723,10 +723,11 @@ class TranslatorAI:
             return ""
 
     def translate_json(self, json_path, target_lang="en", progress_callback=None, limit=None,
-                       model=None, max_tokens=8192, fiche=None):
+                       model=None, max_tokens=8192, fiche=None, should_stop=None):
         """`fiche` : fiche de document déjà écrite (PPTX traduit diapositive
         par diapositive : une seule fiche pour tout le fichier). None = l'écrire
-        d'après ce JSON ; "" = s'en passer."""
+        d'après ce JSON ; "" = s'en passer. `should_stop` : vrai si un arrêt
+        est demandé (pause/annulation) ; vérifié avant chaque lot."""
         target_lang = self.lang_name(target_lang)
         if not os.path.exists(json_path):
             return False, "Fichier JSON introuvable."
@@ -849,6 +850,41 @@ class TranslatorAI:
                                           for b in lot])}
                   for lot in batches]
 
+        # Reprise DOCX/XLSX : chaque lot réussi est noté sur disque, si bien
+        # qu'un arrêt (pause, annulation, coupure) ne perd que les lots en vol.
+        # PDF et PPTX ont déjà leur cache par page / diapositive. Le relevé est
+        # celui du lot ENTIER, indexé par sa position : un découpage différent
+        # (relevé refait, autre taille de lot) invalide la reprise.
+        lots_path = (json_path.replace(".json", "_lots.json")
+                     if ("document" in data or "workbook" in data) and not limit else None)
+        faits = {}
+        if lots_path and os.path.exists(lots_path):
+            try:
+                with open(lots_path, "r", encoding="utf-8") as f:
+                    sauves = json.load(f)
+                if sauves.get("tailles") == [len(lot) for lot in batches]:
+                    faits = {int(k): v for k, v in sauves.get("lots", {}).items()}
+            except (OSError, ValueError, AttributeError):
+                faits = {}
+            for idx, textes in faits.items():
+                for b, txt in zip(batches[idx], textes):
+                    b["translated_text"] = txt
+            if faits and progress_callback:
+                progress_callback(f"Reprise : {len(faits)}/{total_batches} lots déjà traduits.")
+        lots_lock = threading.Lock()
+
+        def _noter_lot(idx):
+            if not lots_path:
+                return
+            with lots_lock:
+                faits[idx] = [b.get("translated_text", "") for b in batches[idx]]
+                tmp = lots_path + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump({"tailles": [len(lot) for lot in batches],
+                               "lots": {str(k): v for k, v in faits.items()}},
+                              f, ensure_ascii=False)
+                os.replace(tmp, lots_path)
+
         if progress_callback:
             progress_callback(f"Début de la traduction ({total_batches} lots structurels)...")
 
@@ -859,17 +895,24 @@ class TranslatorAI:
         MAX_WORKERS = min(4, total_batches)
         failed_batch = [None]
         failed_lock = threading.Lock()
-        batches_done = [0]
+        batches_done = [len(faits)]
         done_lock = threading.Lock()
 
         def _run(idx_batch):
             idx, batch = idx_batch
+            if idx in faits:
+                return idx, True
             with failed_lock:
                 if failed_batch[0] is not None:
                     return idx, False
+            if should_stop is not None and should_stop():
+                # Pause/annulation : les lots en attente ne partent pas au modèle.
+                return idx, False
             success = self._translate_batch(batch, target_lang, progress_callback,
                                             model=model, max_tokens=max_tokens,
                                             cadre=cadres[idx])
+            if success:
+                _noter_lot(idx)
             with done_lock:
                 batches_done[0] += 1
                 n = batches_done[0]
@@ -892,6 +935,8 @@ class TranslatorAI:
         output_path = json_path.replace(".json", "_translated.json")
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        if lots_path and os.path.exists(lots_path):
+            os.remove(lots_path)
 
         if progress_callback:
             progress_callback("Traduction terminée avec succès !")

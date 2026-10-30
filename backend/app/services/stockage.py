@@ -175,12 +175,22 @@ async def balayer_au_demarrage() -> None:
         from sqlalchemy import select
         from app.core.database import async_session
         from app.models import Document
+        from app.services.jobs import STATUTS_REPRENABLES
         from engines.pdf.version import ENGINE_VERSION
         async with async_session() as db:
             lignes = (await db.execute(
                 select(Document.original_path, Document.translated_path)
             )).all()
+            # Un document arrêté (interrompu, en pause, annulé) n'a pas de
+            # `translated_path` : sans
+            # ceci, ses pages traduites (et payées) partiraient au bout du
+            # délai de grâce, et la reprise les ferait payer une seconde fois.
+            interrompus = (await db.execute(
+                select(Document).where(Document.status.in_(STATUTS_REPRENABLES))
+            )).scalars().all()
+        from app.services.documents import chemin_traduction_du_document
         refs = {p for ligne in lignes for p in ligne if p}
+        refs |= {p for d in interrompus if (p := chemin_traduction_du_document(d))}
         compte = await asyncio.to_thread(balayer_magasin, refs, ENGINE_VERSION)
         apercus = await asyncio.to_thread(limiter_apercus)
     except Exception as e:

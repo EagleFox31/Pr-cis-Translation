@@ -21,13 +21,15 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
+import time
 
 import racine  # noqa: F401  -- met backend/ sur le chemin
 
 from pptx import Presentation  # noqa: E402
 
 from app.services import translation_runner as tr  # noqa: E402
-from app.services.jobs import jobs  # noqa: E402
+from app.services.jobs import ArretDemande, jobs  # noqa: E402
 
 TEXTES = ["Premier texte", "Deuxieme texte", "Troisieme texte"]
 
@@ -126,7 +128,25 @@ def main() -> int:
 
         # ── 2. Relance : seule la diapo manquante part au modèle ─────────
         trad.echoue_sur, trad.appels = None, []
-        _lancer(dossier, octets, "b")
+        evenements: list[tuple[int, str]] = []
+        emit = jobs.emit
+
+        def _espion(job_id, type_, data=None, *a, **k):
+            if type_ == "page":
+                evenements.append((data["page"], data["status"]))
+            return emit(job_id, type_, data, *a, **k)
+
+        jobs.emit = _espion
+        try:
+            _lancer(dossier, octets, "b")
+        finally:
+            jobs.emit = emit
+        # Reprise visible : une diapo entièrement reprise passe « done » sans
+        # rejouer ses étapes ; celle qui reste à traduire les rejoue.
+        directes = [p for p in (1, 2)
+                    if (p, "done") in evenements and (p, "extracting") not in evenements]
+        ok("2. relance : diapos reprises affichées traduites d'emblée",
+           directes and (3, "extracting") in evenements, str(evenements))
         # Rien de ce qui était déjà traduit ne repart au modèle, et la diapo
         # en échec, elle, y part bien.
         ok("2. relance : seuls les fragments manquants retraduits",
@@ -174,6 +194,97 @@ def main() -> int:
             ok("4. original vide sans octets neufs refusé", False)
         except ValueError:
             ok("4. original vide sans octets neufs refusé", True)
+
+        # ── 5. Pause demandée : aucune diapo ne part au modèle ───────────
+        if os.path.exists(traduction):
+            os.remove(traduction)
+        trad.appels = []
+        job_id = jobs.create()
+        jobs.demander_arret(job_id, "paused")
+        try:
+            tr.run_pptx_progressive_job(
+                job_id, octets, original, os.path.join(dossier, "render_d.pptx"),
+                "d.pptx", os.path.join(dossier, "partial_d.pdf"), traduction, "en")
+            ok("5. pause : l'arrêt remonte au planificateur", False)
+        except ArretDemande as a:
+            ok("5. pause : l'arrêt remonte au planificateur", a.mode == "paused", a.mode)
+        ok("5. pause : aucun fragment traduit", not trad.appels, str(trad.appels))
+        ok("5. pause : pas d'état « erreur »",
+           (jobs.get(job_id) or {}).get("state") != "error",
+           str((jobs.get(job_id) or {}).get("state")))
+        jobs.forget(job_id)
+
+        # ── 5b. Arrêt pendant la traduction : diapos en vol abandonnées ──
+        # Le modèle « ne répond pas » (4 s) : l'arrêt n'attend pas son retour,
+        # et la réponse tardive n'est ni gardée ni mise en reprise.
+        for f in (traduction, reprise):
+            if os.path.exists(f):
+                os.remove(f)
+        entree = threading.Event()
+        vrai = trad.translate_json
+
+        def _lent(*a, **k):
+            entree.set()
+            time.sleep(4)
+            return vrai(*a, **k)
+        trad.translate_json = _lent
+        job_id = jobs.create()
+        issue: dict = {}
+
+        def _job():
+            try:
+                tr.run_pptx_progressive_job(
+                    job_id, octets, original, os.path.join(dossier, "render_g.pptx"),
+                    "g.pptx", os.path.join(dossier, "partial_g.pdf"), traduction, "en")
+            except ArretDemande as a:
+                issue["mode"] = a.mode
+            issue["fin"] = time.monotonic()
+        fil = threading.Thread(target=_job)
+        fil.start()
+        entree.wait(30)
+        debut = time.monotonic()
+        jobs.demander_arret(job_id, "cancelled")
+        fil.join(30)
+        ok("5b. arrêt en vol : remonte sans attendre le modèle",
+           issue.get("mode") == "cancelled" and issue.get("fin", 99) - debut < 2.5,
+           str(issue))
+        time.sleep(4.5)                   # la réponse tardive arrive
+        ok("5b. arrêt en vol : diapo tardive ni gardée ni en reprise",
+           not tr._lire_reprise(reprise) and not os.path.exists(traduction),
+           str(tr._lire_reprise(reprise)))
+        trad.translate_json = vrai
+        jobs.forget(job_id)
+
+        # ── 6. Document arrêté : le fichier de reprise se livre tel quel ──
+        # Les diapositives faites traduites, les autres en langue d'origine.
+        for f in (traduction, reprise):
+            if os.path.exists(f):
+                os.remove(f)
+        trad.echoue_sur = "Deuxieme"
+        _lancer(dossier, octets, "e")
+        trad.echoue_sur = None
+        rendu = os.path.join(dossier, "partiel.pptx")
+        with open(rendu, "wb") as f:
+            f.write(tr.render_translation_bytes(original, reprise, "pptx", "en"))
+        textes = _textes_sortie(rendu)
+        ok("6. partiel : la diapositive faite est livrée traduite",
+           "T:Premier texte" in textes, str(textes))
+        ok("6. partiel : la diapositive manquée reste d'origine",
+           "Deuxieme texte" in textes, str(textes))
+
+        # ── 7. Reprise remplacée par la traduction finale d'un autre compte ──
+        # Le document arrêté n'en reçoit que ses diapositives payées.
+        _lancer(dossier, octets, "f")
+        ok("7. traduction finale écrite, reprise retirée",
+           os.path.isfile(traduction) and not os.path.exists(reprise))
+        with open(rendu, "wb") as f:
+            f.write(tr.render_translation_bytes(original, traduction, "pptx", "en",
+                                                only_pages={1}))
+        textes = _textes_sortie(rendu)
+        ok("7. finale bornée : la diapositive payée est traduite",
+           "T:Premier texte" in textes, str(textes))
+        ok("7. finale bornée : les autres restent d'origine",
+           "Deuxieme texte" in textes and "T:Deuxieme texte" not in textes, str(textes))
     finally:
         shutil.rmtree(dossier, ignore_errors=True)
 

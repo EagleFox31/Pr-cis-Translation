@@ -6,7 +6,7 @@ import TranslationSection from '../upload/TranslationSection';
 import type { TranslateConfig } from '../upload/TranslationSection';
 import ViewerToolbar from '../preview/ViewerToolbar';
 import DocumentPreview from '../preview/DocumentPreview';
-import type { PageStatus } from '../../hooks/useStreamingTranslation';
+import type { PageStatus, StopMode } from '../../hooks/useStreamingTranslation';
 import { baseCode } from '../../lib/languages';
 import { goToSection } from '../../lib/sectionBus';
 
@@ -59,6 +59,8 @@ interface StorySectionProps {
   /** Essai : quitter l'aperçu pour les tarifs. */
   onUnlock?: () => void;
   onToggleFocus?: () => void;
+  /** Pause / Annuler la traduction affichée (barre d'aperçu). */
+  onStop?: (mode: StopMode) => Promise<void>;
   onZoomChange: (z: number) => void;
   onPageChange: (p: number) => void;
   onDownload: () => void;
@@ -97,6 +99,7 @@ export default function StorySection({
   onBack,
   onUnlock,
   onToggleFocus,
+  onStop,
   onZoomChange,
   onPageChange,
   onDownload,
@@ -475,6 +478,7 @@ export default function StorySection({
                     onDownloadOriginal={onDownloadOriginal}
                     onUnlock={onUnlock}
                     onToggleFocus={onToggleFocus}
+                    onStop={onStop}
                   />
 
 
@@ -518,7 +522,10 @@ export default function StorySection({
                           || !!readyPages[currentPage]
                         )
                       }
-                      translatedPageStatus={previewRendering ? 'rendering' : pageStatuses[currentPage]}
+                      // Arrêtée, une page « en attente » ne tourne plus : sablier, pas spinner.
+                      translatedPageStatus={previewRendering ? 'rendering'
+                        : !isTranslating && pageStatuses[currentPage] === 'waiting' ? undefined
+                        : pageStatuses[currentPage]}
                       sourceLabel={t('preview.source_label', 'Document original')}
                       targetLabel={`${baseCode(targetLang ?? 'en').toUpperCase()} — ${t('preview.target_label', 'Traduction')}`}
                       // Manque de crédits (402) : le panneau TRADUIT affiche

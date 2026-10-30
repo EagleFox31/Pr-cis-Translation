@@ -2869,9 +2869,11 @@ html.preview-active .scroll {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 4px;
   margin-bottom: 5px;
 }
 .libdoc__state {
+  flex: 1;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -2898,6 +2900,12 @@ html.preview-active .scroll {
   color: #991b1b;
 }
 .libdoc__error > span { flex: 1; }
+/* Arrêt voulu (pause, annulation) : un état, pas une panne. */
+.libdoc__error--held {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
 /* Barre d'actions : hauteur NATURELLE (celle des boutons `sm`), fond
    transparent. Aucune hauteur imposée — « taille normale » garantie. */
 .libdoc__actions {

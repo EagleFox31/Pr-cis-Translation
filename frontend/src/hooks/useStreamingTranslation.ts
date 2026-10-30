@@ -11,6 +11,22 @@ const API_BASE = import.meta.env.VITE_API_BASE || '';
 /** Reconnexions du flux d'événements avant de déclarer la connexion perdue. */
 const MAX_RECONNEXIONS = 5;
 
+export type StopMode = 'pause' | 'cancel';
+
+/** DEMANDE l'arrêt d'une traduction. Le serveur finit la page en cours, garde
+ *  et débite les pages faites, rend le reste ; le flux émet alors `stopped`.
+ *  Lève une erreur au message du serveur (409 : déjà terminée ou arrêtée). */
+export async function stopTranslation(jobId: string, mode: StopMode): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/translate/${jobId}/${mode}`, {
+    method: 'POST',
+    headers: { 'X-API-Key': API_KEY, ...authHeader() },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || i18n.t('story.stop_failed'));
+  }
+}
+
 /** État d'une page dans le pipeline progressif. */
 export type PageStatus =
   | 'waiting'      // pas encore commencée
@@ -104,6 +120,14 @@ export function useStreamingTranslation(deviceSignals = true) {
     setState((s) => ({ ...s, isTranslating: false }));
   }, []);
 
+  /** Pause ou annulation de la traduction suivie. L'état ne bouge qu'à
+   *  l'événement `stopped` : la page en cours doit d'abord finir. */
+  const stop = useCallback(async (mode: StopMode) => {
+    const jobId = jobIdRef.current;
+    if (!jobId) return;
+    await stopTranslation(jobId, mode);
+  }, []);
+
   const fetchPartial = useCallback(async () => {
     const jobId = jobIdRef.current;
     if (!jobId) return;
@@ -167,6 +191,7 @@ export function useStreamingTranslation(deviceSignals = true) {
       onAccepted?: () => void,
       coverOnly: boolean = false,
       useBeta?: boolean,
+      resumeOf?: string,
     ): Promise<{ blob: Blob; filename: string }> => {
       return new Promise(async (resolve, reject) => {
         // Fermer TOUT flux encore ouvert avant d'en démarrer un nouveau. Relancer
@@ -205,6 +230,7 @@ export function useStreamingTranslation(deviceSignals = true) {
           // pages couvertes. Jamais envoyé d'office.
           if (coverOnly) formData.append('covered_only', '1');
           if (typeof useBeta === 'boolean') formData.append('use_beta', useBeta ? '1' : '0');
+          if (resumeOf) formData.append('resume_of', resumeOf);
 
           // `authHeader()` est INDISPENSABLE ici, pas décoratif : le backend lit
           // l'utilisateur via `optional_auth`. Sans token il voit un visiteur
@@ -393,6 +419,23 @@ export function useStreamingTranslation(deviceSignals = true) {
                 const m = (msg.message as string) || t('story.error_translation_failed');
                 setState((s) => ({ ...s, isTranslating: false, error: m }));
                 reject(new Error(m));
+              } else if (type === 'stopped') {
+                // Pause ou annulation : les pages faites restent à l'écran
+                // (dernier partiel), le document se reprend depuis la
+                // bibliothèque. Ni erreur ni résultat.
+                fini = true;
+                es.close();
+                esRef.current = null;
+                await fetchPartial();
+                // Les pages en vol sont abandonnées par le serveur : elles
+                // repassent « en attente », sans quoi leurs vignettes tournaient.
+                setState((s) => ({
+                  ...s, isTranslating: false, queuePosition: null,
+                  pageStatuses: Object.fromEntries(Object.entries(s.pageStatuses).map(
+                    ([p, st]) => [p, st === 'done' || st === 'copied' ? st : 'waiting'])),
+                  notice: t(msg.mode === 'cancelled' ? 'story.stopped_cancelled' : 'story.stopped_paused'),
+                }));
+                reject(new Error('stopped'));
               }
             };
 
@@ -445,5 +488,5 @@ export function useStreamingTranslation(deviceSignals = true) {
     setState(EMPTY);
   }, []);
 
-  return { ...state, start, cancel, reset };
+  return { ...state, start, cancel, stop, reset };
 }

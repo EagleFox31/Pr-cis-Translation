@@ -131,6 +131,50 @@ async def refund_for_document(db: AsyncSession, document_id: str) -> None:
                 user.page_credits += rec.pages
 
 
+async def refund_unfinished(db: AsyncSession, document_id: str, gardees: int) -> None:
+    """Rend les pages NON traduites d'un job coupé, garde `gardees` débitées.
+
+    Arrêt du serveur, pause ou annulation : les pages livrées restent dues, le reste revient —
+    d'abord les pages ACHETÉES (le titre le plus cher pour le client), puis
+    le quota. Une ligne réduite à zéro passe `refunded` ; les autres gardent
+    leur nombre de pages réduit. Limite : `rebill_for_document` ne rétablit
+    que les lignes remboursées en entier, pas une ligne réduite ; et l'ordre
+    des verrous (Document puis compte, depuis `sync_status`) est l'inverse de
+    celui d'une reprise : interblocage possible, mais seulement avec deux
+    processus simultanés (déploiement à un seul processus)."""
+    from app.services import beta
+    await beta.refund_unfinished(db, document_id, gardees)
+    rows = (await db.execute(
+        select(UsageRecord).where(UsageRecord.document_id == document_id,
+                                  UsageRecord.refunded.is_(False))
+        .with_for_update()
+    )).scalars().all()
+    a_rendre = max(0, sum(r.pages for r in rows) - max(0, gardees))
+    for rec in sorted(rows, key=lambda r: r.kind != KIND_CREDITS):
+        if a_rendre <= 0:
+            break
+        n = min(rec.pages, a_rendre)
+        a_rendre -= n
+        if n == rec.pages:
+            rec.refunded = True
+        else:
+            rec.pages -= n
+        if rec.kind == KIND_CREDITS:
+            user = await db.get(User, rec.user_id, with_for_update=True)
+            if user is not None:
+                user.page_credits += n
+
+
+async def pages_payees(db: AsyncSession, document_id: str) -> int:
+    """Pages encore débitées pour ce document (titres confondus, bêta incluse)."""
+    from app.services import beta
+    n = (await db.execute(
+        select(func.coalesce(func.sum(UsageRecord.pages), 0))
+        .where(UsageRecord.document_id == document_id,
+               UsageRecord.refunded.is_(False)))).scalar()
+    return int(n or 0) + await beta.units_billed(db, document_id)
+
+
 async def rebill_for_document(db: AsyncSession, document_id: str) -> None:
     """Annule le remboursement d'une traduction finalement LIVRÉE.
 

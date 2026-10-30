@@ -19,6 +19,7 @@ import { useNavigate } from 'react-router-dom';
 import { FolderOpen, LifeBuoy, UserPlus, X } from 'lucide-react';
 
 import type { DocMeta } from '../../hooks/useDocumentLibrary';
+import type { StopMode } from '../../hooks/useStreamingTranslation';
 import { useAuth } from '../../contexts/AuthContext';
 import { isTrialFor } from '../../lib/plans';
 import Button from '../ui/Button';
@@ -60,11 +61,13 @@ interface DocumentLibraryProps {
   onPaid?: () => void;
   /** Relance la traduction d'un document en erreur. */
   onRetry?: (doc: DocMeta) => void;
+  /** Pause / Annuler une traduction en cours. */
+  onStop?: (doc: DocMeta, mode: StopMode) => Promise<void>;
 }
 
 export default function DocumentLibrary({
   isOpen, onClose, documents, onPreview, onDelete, onClearAll,
-  getBlob, getOriginalBlob, onPaid, onRetry,
+  getBlob, getOriginalBlob, onPaid, onRetry, onStop,
 }: DocumentLibraryProps) {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
@@ -189,6 +192,7 @@ export default function DocumentLibrary({
                 onDownload={handleDownload}
                 onDelete={onDelete}
                 onRetry={onRetry}
+                onStop={onStop}
               />
             ))
           )}

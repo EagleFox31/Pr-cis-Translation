@@ -3,6 +3,7 @@
     "home": "Accueil",
     "features": "Fonctionnalités",
     "howItWorks": "Fonctionnement",
+    "my_account": "Mon compte",
     "pricing": "Tarifs",
     "about": "À Propos",
     "library": "Mes docs",
@@ -77,6 +78,9 @@
     "row_data_other": "Conservées (Hors offre pro)"
   },
   "story": {
+    "stopped_paused": "Traduction en pause. Reprenez-la depuis votre bibliothèque : le travail déjà fait est gardé et rien n'est facturé deux fois.",
+    "stopped_cancelled": "Traduction annulée. Le travail déjà fait est gardé ; vous pouvez la reprendre depuis votre bibliothèque.",
+    "stop_failed": "Impossible d'arrêter la traduction",
     "tag": "Notre Processus de Traduction",
     "title": "Comment ça <em>marche</em> ?",
     "desc": "Un flux de travail simple et transparent pour garantir la meilleure qualité possible.",
@@ -142,6 +146,11 @@
     "ocr_notice": "Reconnaissance effectuée sur {{count}} page(s) scannée(s). Vérifiez le texte traduit : les polices et la mise en page d’un scan restent approximatives."
   },
   "library": {
+    "paused_status": "En pause — vos pages traduites sont gardées",
+    "cancelled_status": "Annulée — vos pages traduites sont gardées",
+    "pause": "Mettre en pause",
+    "cancel_translation": "Annuler la traduction",
+    "download_partial": "Télécharger les pages déjà traduites",
     "title": "Mes documents",
     "count_suffix": "document(s) traduit(s)",
     "empty": "Vos documents traduits apparaîtront ici après chaque traduction.",
@@ -161,7 +170,10 @@
     "download_locked": "Réglez les pages de ce document pour le télécharger",
     "unlock_label": "Débloquer « {{name}} »",
     "clear_confirm_question": "Effacer tous les documents ?",
-    "retry": "Réessayer"
+    "retry": "Réessayer",
+    "interrupted_status": "Interrompue — vos pages traduites sont gardées",
+    "resume": "Reprendre",
+    "resumed_status": "Reprise — la suite est dans la traduction relancée"
   },
   "pricing": {
     "feat_free_page_other": "{{count}} pages équivalentes offertes par mois",
@@ -232,6 +244,9 @@
     "privacy": "Confidentialité"
   },
   "viewer": {
+    "pause": "Mettre en pause",
+    "cancel": "Annuler la traduction",
+    "stopping": "Arrêt en cours…",
     "back": "Retour",
     "zoom_in": "Zoomer",
     "zoom_out": "Dézoomer",

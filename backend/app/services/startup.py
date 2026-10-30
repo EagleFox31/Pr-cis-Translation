@@ -37,22 +37,33 @@ async def reconcilier_jobs_orphelins():
             r = await db.execute(
                 update(Document)
                 .where(Document.status == "translating")
-                .values(status="error")
+                # « Interrompu » et non « Échec » : la bibliothèque propose de
+                # REPRENDRE, et la reprise retrouve les pages déjà faites.
+                .values(status="interrupted")
                 .returning(Document.id)
             )
             ids = [row[0] for row in r.fetchall()]
             perdus = len(ids)
-            # Même sortie qu'un échec ordinaire (`jobs.error`) : la
-            # consommation est remboursée, sinon l'arrêt du serveur coûterait
-            # au client ses pages achetées ou son offre du mois.
-            from app.services.usage import refund_for_document
+            # Facturation page par page : les pages déjà traduites sur disque
+            # restent débitées (la reprise ne les refera pas), seules les
+            # autres sont rendues — sinon l'arrêt du serveur coûterait au
+            # client ses pages achetées ou son offre du mois.
+            # Une reprise n'a payé que son reste (`deja` : pages payées par
+            # le document repris) : seules les pages au-delà sont les siennes.
+            from app.services.documents import pages_faites_du_document, reglages_de
+            from app.services.usage import refund_unfinished
             for doc_id in ids:
-                await refund_for_document(db, doc_id)
+                doc = await db.get(Document, doc_id)
+                deja = int(reglages_de(doc).get("deja") or 0) if doc else 0
+                faites = pages_faites_du_document(doc)
+                if doc:
+                    doc.pages_done = faites
+                await refund_unfinished(db, doc_id, max(0, faites - deja))
             await db.commit()
         if perdus:
             logger.warning(
                 f"{perdus} traduction(s) interrompue(s) par un arrêt précédent : "
-                f"marquée(s) en erreur."
+                f"marquée(s) interrompue(s)."
             )
     except Exception as e:
         # Ne JAMAIS empêcher le serveur de démarrer pour un ménage.
