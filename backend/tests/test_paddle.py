@@ -164,6 +164,11 @@ async def check_client(ok):
         os.environ["PADDLE_ENV"] = sauve
     ok("CLIENT  live seulement sur PADDLE_ENV=LIVE",
        live == pg.PADDLE_LIVE_HOST and autre == pg.PADDLE_SANDBOX_HOST)
+    inco = PaddleClient.cle_incoherente
+    ok("CLIENT  clé et environnement incohérents signalés",
+       inco("pdl_sdbx_x", True) and inco("pdl_live_x", False)
+       and not inco("pdl_live_x", True) and not inco("pdl_sdbx_x", False)
+       and not inco("", True))
 
     corps = b'{"event_type":"transaction.paid","data":{"id":"txn_1"}}'
     maintenant = int(time.time())

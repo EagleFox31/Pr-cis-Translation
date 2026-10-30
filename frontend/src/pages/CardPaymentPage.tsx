@@ -11,7 +11,11 @@ import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { CARD_HEIGHT_MSG } from '../lib/cardPayment';
 
 const PADDLE_JS = 'https://cdn.paddle.com/paddle/v2/paddle.js';
-const PADDLE_ENV = import.meta.env.VITE_PADDLE_ENV as string | undefined;
+// `sandbox` / `production`, ou `SANDBOX` / `LIVE` : la production construit
+// l'image avec le MÊME `PADDLE_ENV` que le backend, pour qu'ils ne puissent pas
+// viser deux environnements différents.
+const PADDLE_ENV = ({ sandbox: 'sandbox', production: 'production', live: 'production' } as Record<string, string>)[
+  ((import.meta.env.VITE_PADDLE_ENV as string | undefined) ?? '').toLowerCase()];
 const PADDLE_TOKEN = import.meta.env.VITE_PADDLE_CLIENT_TOKEN as string | undefined;
 const FRAME_CLASS = 'paddle-checkout-frame';
 

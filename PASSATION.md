@@ -1,55 +1,75 @@
-# PASSATION — 22/10/2026
+# PASSATION — 30/10/2026
 
 ## 1. Objectif en cours
-Audit point par point des apports de main (section 4b, prochain : point 4), puis finaliser la mise à jour unique regroupant trois chantiers sur la branche `feat/mise-a-jour-carte-invitations-visionneuse` (depuis `origin/main` 1.5.2) : paiement par carte Paddle, invitations par e-mail, visionneuse + documents admin.
+Mission reprise / pause / annulation (étude `docs/etude-reprise-pause-annulation.md`, branche `fix/pptx-numerotation-diapositives`) : g2 codé et testé (facturation page par page à l'arrêt serveur + reprise qui ne débite que le reste) ; revue et contre-revue closes (g2b) ; g3 reprise visible fait ; g4 pause/annulation fait (écarts 16-32 clos, contre-revue passe 2 close) ; g5 boutons front faits ; g6 sauvegarde par lot DOCX/XLSX faite ; g7/g8 vérif navigateur + écarts corrigés → g9 fait (étapes 3–6 rejouées en Playwright) → **h : retours utilisateur du 30/10** (5 points, plan § 4 h), puis commits.
 
-## 2. Fait
-- Fusion de `feat/visionneuse`, `feat/invitations`, `feat/paiement-paddle` (branches d'origine conservées, non supprimées).
-- Conflits résolus en gardant les deux côtés : routeurs `backend/app/__init__.py` (beta + invitations), `README.md`, locales fr/en (`beta` + `invite`), imports `frontend/src/App.tsx` (pages beta + `CardPaymentPage` hors `AuthProvider`).
-- Migration invitations renumérotée `0013_invitations` après `0012_beta_abuse_guards` (deux têtes `0010` sinon) ; une seule tête Alembic.
-- Docs par chantier : `docs/paiement-carte-paddle.md`, `docs/etude-frais-carte.md`, `docs/etude-invitations.md`, `docs/etude-visionneuse.md`.
+## 2. Fait (non commité)
+- `backend/app/models/document.py` : colonne `reglages` (Text, JSON pages/precise/beta) ; migration `backend/migrations/versions/0018_document_reglages.py` (appliquée base dev, avec 0017).
+- `backend/app/api/translate.py` : `_save_document_for_user(..., reglages=)` ; appel avec la sélection effective (pages scannées/couvertes retirées).
+- `backend/app/api/documents.py` : `_doc_response` renvoie `reglages`.
+- `backend/app/services/startup.py` `reconcilier_jobs_orphelins` : statut `interrupted`, ne rend que les pages non faites (`refund_unfinished`, offset `deja`).
+- g2 : `services/documents.py` (`translation_path_for`, `pages_faites`, `pages_faites_du_document`, `reglages_de`), `services/usage.py` (`refund_unfinished`, `pages_payees`), `services/beta.py` (`refund_unfinished`, `units_billed`), `api/translate.py` (`resume_of` ; doc repris → `resumed` ; reglages `deja`), front `resumeOf` (Home/useStreamingTranslation/TranslationSection), i18n admin `status_interrupted`/`status_resumed`.
+- Front : `useDocumentLibrary.ts` (`reglages`, statut interrupted), `Home.tsx` `handleRetry` relance avec les réglages d'origine, `DocumentCard.tsx` « Interrompue — vos pages traduites sont gardées » + bouton « Reprendre » ; clés fr/en `library.interrupted_status`, `library.resume`. tsc + lint OK, build non lancé.
+- g2b : `services/jobs.py` `sync_status` (doc `resumed` intouché ; échec d'une reprise → `interrupted` + remise partielle), `services/beta.py` `office_billed`, `services/documents.py` `_selection_du_document`/`chemin_traduction_du_document` (`qsuffix` enregistré), `services/stockage.py` (garde le partiel des `interrupted`), `api/translate.py` (pré-contrôle reprise valide l.278, contrôle e-mail après `needed`, `partiel` l.520), `DocumentCard.tsx` statut `resumed` + clé `library.resumed_status`.
+- Test `backend/tests/test_reprise_reglages.py` 18/18 (ménage appelé via `client.portal.call`). Suites quota/bêta/essai/couverture/scannés OK ; tsc + lint OK.
+- g4 : `services/jobs.py` (`STATUTS_REPRENABLES`, `ArretDemande`, `demander_arret/verifier_arret/arreter`, branche paused/cancelled de `sync_status`), `scheduler.py` `_worker`, `translation_runner.py` (points de contrôle 4 formats), `engines/pdf/stream.py` (`arret=`), `engines/translation_ai.py` (`should_stop=`), `api/translate.py` (route `/api/translate/{job}/{pause|cancel}`, SSE `stopped`), `stockage.py`. Tests : `tests/test_arret_job.py` (nouveau, 21/21), étape 5 de `test_reprise_pptx.py` (15/15).
+- g5 : `jobs.py` `id_for_document`, `api/documents.py` `_doc_response` → `job_id` ; front `useStreamingTranslation.ts` (`stopTranslation`, `stop`, SSE `stopped`), `ViewerToolbar.tsx`, `StorySection.tsx`, `Home.tsx` (`handleStop`, `handleLibraryStop`, `STATUTS_REPRENABLES`), `useDocumentLibrary.ts`, `DocumentCard.tsx`, `DocumentLibrary.tsx`, `index.css` `.libdoc__error--held`, locales fr/en.
+- g6 : `engines/translation_ai.py` `translate_json` (`_lots.json`, `_noter_lot`) ; test `tests/test_reprise_lots.py`.
+- **Commit g2 différé** : migration 0018 dépend de 0017 (bêta non commitée) et `translate.py` mêle l'anti-abus → commiter après 5/5i.
 
-## 3. Décisions
-- Un seul worktree à lancer : les trois occupaient les ports 3000/8000 (imposés par l'OAuth Google) et se coupaient mutuellement.
-- Paiement carte : zone A en EUR (XAF / 655,957), crédit seulement après relecture API, minimum par moyen (`MIN_CARD_AMOUNT`).
-- Invitations : réponses génériques (pas d'oracle de comptes), expéditeur = marque, `Reply-To` = inviteur, quotas anti-abus.
+## 3. Décisions (utilisateur, 30/10)
+- A. Annuler : on finit la page en cours, pages faites débitées, reste rendu (bêta au prorata unités/mots).
+- B. Un document repris est facturé une fois au total.
+- C. Coupure client : le serveur continue, résultat à la reconnexion ; pas de pause auto (boutons explicites).
+- D. Arrêt serveur (précisée) : **débit page par page** — pages traduites restent débitées, seules les non terminées sont rendues, document en pause « Interrompue » ; la reprise ne débite que les pages restantes ; page en cours refaite entièrement.
+- E (30/10) : document annulé → fichier partiel livré (aperçu + téléchargement) et reprise possible ; le client a payé ses pages faites, il doit les recevoir. À coder avec l'écart 20 (`api/documents.py:443` sert déjà le partiel en cours : s'appuyer dessus).
+- F (30/10) : arrêt immédiat — pages en vol abandonnées (ni livrées ni facturées), parallélisme gardé ; l'utilisateur ne veut pas attendre leur fin ni repasser en page unique.
+- La remise « pages déjà payées » ne vaut que pour la reprise du propre document interrompu (contrôle serveur propriétaire + statut) : le cache est partagé par fichier (`build_job_paths(hash, lang)`), un autre compte paie normalement.
 
 ## 4. Plan
-1. [x] Fusion des trois branches + conflits + chaîne de migrations.
-2. [x] Vérif : suites backend (paddle, paiement_minimum, fapshi, verrous_plan, invitations, emails, admin_documents, retraduction_fidele), tsc + lint + build.
-3. [x] Base locale : marquage corrigé (0009 → upgrade 0012 → stamp 0013, table invitations déjà présente) ; `alembic current` = `0013_invitations`.
-4. [ ] ← Vérif locale par l'utilisateur sur http://localhost:3000 (visionneuse, invitations, carte sandbox).
-5. [ ] Passage en live Paddle : checklist de `docs/paiement-carte-paddle.md` (MCP `paddle-live` sur demande explicite).
-6. [ ] Push + une seule PR vers main (sur accord).
+1–7. Missions précédentes : 1–4 [x] ; 5 / 5i [x] vérifiés par l'utilisateur le 30/10 ; commits faits (f0b6d72, 64f5ffb) ; 6 [ ] Paddle live (voir 9) ; 7 [x] push + PR #53 (30/10).
+9. Paddle live (étude `docs/etude-paddle-live.md`, branche `feat/paddle-live`, base PR #53) :
+   a. [x] Build front : `VITE_PADDLE_ENV` / `VITE_PADDLE_CLIENT_TOKEN` passés par `docker-compose.yml` (même `PADDLE_ENV` que le service) et `frontend/Dockerfile` ; `CardPaymentPage` accepte `SANDBOX`/`LIVE`.
+   b. [x] nginx : `location = /paiement/carte` (sert l'appli, cadre `'self'` seulement, noindex).
+   c. [x] Service : clé API incohérente avec `PADDLE_ENV` signalée au démarrage (+ test).
+   d. [x] Docs : `.env.example` x2, README, `docs/paiement-carte-paddle.md`.
+   e. [x] Vérif : tsc + lint + build OK (jeton présent dans le bundle), test_paddle 23/23, `nginx -t` OK ; en-têtes mesurés : `/paiement/carte` cadre `'self'`, `/home` reste `DENY`.
+   f. [ ] Commit local ; push sur accord.
+   g. [ ] Propriétaire du compte : étapes 1–6 de l'étude (tableau de bord Paddle, SSM, paiement réel + remboursement).
+8. Correctif PPTX : a–e2 [x] (commits 20915db, 95b9598, a16ba54, 77d91d5, e7ae9a5) ; e3 [ ] vérif utilisateur aperçu rouvert depuis la barre latérale ; f [ ] P3 optionnel.
+   g0. [x] Décisions. g1. [x] Mesure (PDF reprend sur cache ; PPTX seulement même sélection ; DOCX/XLSX sans cache partiel).
+   g2. [x] codé + testé (voir § 2) ; commit après 5/5i.
+   g2b. [x] Écarts de la revue corrigés (registre `docs/revues/reprise-pause-annulation.md`) ; test_reprise_reglages 18/18, suites quota/bêta/essai/couverture/admin/stockage/pptx vertes. Contre-revue (passe 2) close : écarts 12-15 corrigés (resumed affiché, contrôles préalables limités aux reprises valides, `partiel`, note verrous). test_ocr_endpoint échoue faute de Tesseract sur le poste (environnement, pas une régression).
+      - Différés : FreeGrant anti-abus non réduite au remboursement (pas de lien document, défaut préexistant) ; `rebill_for_document` ne rétablit pas une ligne réduite (multi-processus seulement).
+   g3. [x] Reprise visible : PDF déjà OK (stream.py:194) ; PPTX `translation_runner.py` passe de reprise avant le pool (diapos entièrement reprises injectées, greffe groupée `_afficher_slides`, « done » direct ; partiellement reprises → `pre_extraites`, pas de 2e extraction). test_reprise_pptx 12/12 (+ contrôle d'événements), test_pptx_preview 47/47. Commit avec g2.
+   g4. [x] Arrêt : drapeau `jobs.demander_arret/verifier_arret/arreter` (`ArretDemande(BaseException)`), contrôlé avant démarrage, par page PDF, par diapo PPTX, par lot DOCX/XLSX ; route POST /api/translate/{job}/pause|cancel (propriétaire, 409 si fini) ; SSE `stopped` ; `arreter` écrit la base AVANT d'annoncer. Décision E : partiel `_PARTIEL` livré, borné aux pages payées, jamais mis en cache. Écarts 16-32 clos (21 en g5). Différés : arrêt bêta et moteurs DOCX/XLSX réels non testés (fournisseur réel).
+   g5. [x] Pause/Annuler dans la barre de l'aperçu (ViewerToolbar, `stream.stop` ou job nommé par la bibliothèque) et sur la carte en cours (DocumentCard) ; « Arrêt après la page en cours… » pendant l'attente ; SSE `stopped` → avis + aperçu partiel gardé + bibliothèque rafraîchie. Carte arrêtée : statut ambre (pause/annulée), « Reprendre », aperçu + téléchargement du partiel si pages faites. La liste expose `job_id` (`jobs.id_for_document`) ; reprise des 3 statuts (`STATUTS_REPRENABLES` front). i18n fr/en (+ admin status_paused/cancelled). tsc + check-i18n + build OK, test_arret_job 40/40. Non vérifié au navigateur (g7).
+   g6. [x] `translate_json` note chaque lot réussi dans `<relevé>_lots.json` (DOCX/XLSX seulement, écriture atomique, indexé par position + tailles des lots : un autre découpage invalide la note) ; relancé, il ne renvoie que les lots manquants ; note effacée au succès. test_reprise_lots 7/7 ; régression contexte 29/29, ids 4/4, reprise_pptx 20/20, arret_job 40/40, mémoire 3/3. Facturation DOCX/XLSX arrêté inchangée (tout rendu) : un lot n'est pas une page, rien de fiable à débiter.
+   g7. [x] Vérif navigateur (30/10, Chromium visible) : PDF pause aperçu → reprise (8 p. au total) ; PDF annuler → carte « Annulée », partiel, reprise (4+2=6 p.) ; DOCX pause (6/10 lots notés, rien débité) → reprise « 6/10 lots déjà traduits », 4 lots envoyés ; pause depuis la carte en cours (3 p. débitées, 5 rendues).
+      - Corrigé : `engines/pdf/stream.py` `_save_partial` réessaie `os.replace` (Windows refusait de remplacer le partiel lu par l'aperçu → job en échec, WinError 5). arret_job 40/40, reprise_reglages 18/18.
+   g8. [x] Écarts g7 : (a) aperçu page 1 bloqué = ARTEFACT du banc (navigateur piloté par CDP : les Web Workers pdf.js restent en pause) ; dans un Chromium neuf, visible ou non, la page 1 se peint d'emblée, aucun code changé. (b) `sync_status` (arrêt) et `reconcilier_jobs_orphelins` recalent `pages_done` sur les pages faites sur disque. (c) libellés `story.stopped_paused/cancelled` FR/EN corrigés (« rien n'est facturé deux fois »). Vérifs : tsc OK, lint OK, test_arret_job 40/40, test_reprise_reglages 18/18, test_reprise_pptx 20/20. Reste : vérif utilisateur 5/5i, puis commits g2–g8.
+   g9. [ ] ← Vérif manuelle utilisateur (guide pas à pas remis le 30/10, navigateur habituel, http://localhost:3000) : 1 aperçu page 1 immédiat ; 2 PDF 8 p. pause depuis l'aperçu → avis (c), carte « En pause » avec pages = pages débitées (b), reprise → 8 p. au total ; 3 PDF 6 p. annuler → « Annulée », partiel téléchargeable, reprise → 6 p. ; 4 DOCX pause (rien débité, nouvel avis) → reprise sans tout refaire ; 5 pause depuis la carte de la bibliothèque ; 6 avis en anglais. Fichiers : scratchpad `dsh_8p_b.pdf`, `dsh_6p.pdf`, `test_lots.docx`. Résultat OK/KO par étape → corriger les KO, puis commits g2–g8 (sans push).
+      - KO étape 2 (pauses/reprises répétées → « erreur de traduction ») : remplacement du partiel refusé par Windows > 3 s → job en échec. Corrigé : `stream.py` `_save_partial` et `progressive_preview.ecrire_atomiquement` réessaient 5 s puis renoncent sans faire échouer le job (aperçu rattrapé à la page suivante) ; lecteurs `/partial` réessaient (`documents._lire`, réutilisé par `translate.py`). arret_job 40/40, reprise_reglages 18/18, reprise_pptx 20/20 ; serveur relancé (tâche dev en arrière-plan). Étapes 1–2 passées par l'utilisateur → en cours : étape 3.
+      - Étape 3 (annuler un PDF puis télécharger) : 2 KO corrigés. (a) Le téléchargement d'un arrêt contenait aussi les pages non traduites → `documents._garder_pages` ne garde que les `livrables` (PDF ; l'aperçu reste complet). `test_arret_job` 40/40 (assertion mise à jour). Vérifié sur le doc réel 7d5eac64 : 7 p. au lieu de 8. (b) Le clic sur Télécharger allumait le chargement sur Reprendre (`busy` partagé) → `DocumentCard` retient le bouton cliqué (`clic`). tsc + lint OK.
+      - Étapes 3–6 rejouées en navigateur automatisé (Chromium neuf, 30/10) : 3 annuler 2/6 p. → téléchargement 2 p., reprise 6 p. (4 débitées) ; 4 DOCX pause 5/10 lots, 0 débité, avis OK, reprise complète (480 §) ; 5 pause carte 4/8 p. = 4 débitées, reprise 8 p. ; 6 avis anglais OK. Corrigé : titre du bouton compte non traduit (`Navbar.tsx`, clé `nav.my_account`). Scripts : scratchpad session 64bec42a (`commun.py`, `etape*.py`, `reprise.py`). g9 [x]. Reste : 5/5i (vérif bêta/admin/tarifs par l'utilisateur), puis commits g2–g8.
 
-**Hors plan** : rattrapage serveur des paiements Fapshi `PENDING` ; secrets Paddle dans SSM ; informer les clients que l'admin accède à leurs fichiers ; `tests/test_invitations_api.py` (base requise) ; Playwright de la fenêtre d'invitation ; suppression des worktrees invitations / visionneuse une fois la PR fusionnée.
+   h. [x] Retours utilisateur du 30/10 après sa vérif (bêta/admin/tarifs VÉRIFIÉS par l'utilisateur → 5/5i [x]). Tester soi-même en interface (Playwright, scripts scratchpad session 64bec42a `commun.py`), puis bilan.
+      h0. [x] Section « Retours du 30/10 » écrite (causes mesurées).
+      h1. [x] `Home.tsx` : effet sur `user` (connecté → déconnecté) ⇒ `handleBack()` + document vidé. Playwright : 0 canevas après déconnexion.
+      h2. [x] `Home.tsx` `sourceEnAttente` (traduit retenu tant que la source n'est pas reçue) + `PdfViewer.tsx` `attendOrig` (traduit peint après l'original, repli 4 s). Playwright : original 1274/1359 ms, traduction 3089/1723 ms.
+      h3. [x] `useStreamingTranslation` `stopped` : pages non finies → `waiting` ; `StorySection` : `waiting` arrêtée → sablier ; `Home.tsx` : `setSuiviBiblio(null)` à l'abandon du suivi et au clic Arrêter (bibliothèque). Playwright : 0 vignette / panneau qui tourne après arrêt.
+      h4. [x] PDF `_sans_attendre` (fil abandonné, sondage 0,3 s, cache/partiel dans le fil principal) ; PPTX `wait(FIRST_COMPLETED)` + `abandon` + `shutdown(wait=False, cancel_futures=True)`. Libellé `viewer.stopping` FR/EN → « Arrêt en cours… ». Tests : arret_job 42/42, reprise_pptx 22/22, reprise_reglages 18/18, reprise_lots 7/7. Playwright : arrêt visible en 2,1 s.
+      h5. [x] Playwright : annuler puis Retour → doc `cancelled`, pages_done 7/8, débit 7, carte « Annulée », aperçu rouvert sans spinner.
+      h6. [ ] tsc/lint/build OK. Bêta 30/10 avec Postgres jetable 5433 (CI=true, tests de course compris) : beta_program 27/27, beta_abuse 18/18, beta_applications 10/10 (test de course corrigé : `self.fx` inexistant → `'pilot'`), quota_persistant 16/16. [x] Commits locaux (30/10, sans push) : f0b6d72 (bêta, anti-abus, historique forfaits, console admin) puis 64f5ffb (reprise/pause/annulation g2–h). Vérifs : A seul en worktree (tsc, i18n, 67 suites OK ; test_ocr/test_ocr_endpoint KO = OCR absent du poste) ; B : lint OK, arret_job, reprise_lots/reglages/pptx, polices, mode_precis, anti_abus, beta_program OK. Reste : push + PR sur accord (point 7).
 
-## 4b. Mission en cours : audit des apports de main (EagleFox31, 1.5.2 → 1.6.2)
-Commits #45 (quota gratuit 5 pages équivalentes, comptage Office/TXT par 500 mots, droits par document `paid`/`can_download`), #47 (PlanToggle accessible), #49 (prix frais compris sur les cartes, mentions « Facturé annuellement » et « puis X/page » retirées). Fusion sans conflit (`git merge-tree`).
-1. [x] Inventaire + analyse risque par point (présentée à l'utilisateur).
-2. [x] Revue point par point avec l'utilisateur (décisions ci-dessous).
-3. [x] Fusion de origin/main (commit b42cf32, sans conflit) ; 13 suites backend OK (aiosqlite installé dans le venv via `requirements-test.txt`), tsc + lint + build OK.
-4. [x] Corrections de normalisation (étude `docs/etude-normalisation-main.md`) :
-   a. [x] `_document_pages` : `ValueError` → 422 ; message neutre dans `beta_meter.office_cost`.
-   b. [x] `MIN_CARD_AMOUNT` = minimum Paddle (427 F / 0,65 € / 0,70 $) + tests.
-   c. [x] Retirer `monthly_total`/`annual_total` (API, type, cartes, tests) ; cartes au prix net.
-   d. [x] Rétablir `billed_annually_total` (sans frais) + `equivalence` (fr/en).
-   e. [x] Vérif : suites backend, tsc/lint/build, Playwright page tarifs. Fait 22/10 : 9 suites OK, tsc/lint/build OK, page tarifs vérifiée (annuel « 14 400 FCFA facturés par an », mensuel sans ligne, équivalence affichée).
-5. [ ] ← Liste de modifications de l'utilisateur (à recevoir). Hors plan : page CGU inexistante (liens `#`), mention du comptage à y mettre quand elle sera rédigée.
-
-Décisions de revue :
-- Point 1 (gratuit en clair) : garder le principe de main. Dans cette branche : mention « Traduit avec Précis » en pied des documents gratuits (`KIND_FREE_OFFER`), garde-fous bêta généralisés au gratuit (e-mails jetables, limite IP/appareil), fenêtre « quota épuisé » avec petit pack Mobile Money + bonus premier achat. Branche à part : offre de lancement datée (20 pages le 1er mois, tarif Fondateur) et parrainage (+5 pages chacun, plafonné). Étude `docs/etude-<sujet>.md` avant chaque développement.
-- Point 2 (comptage 500 mots Office/TXT) : garder. À la fusion : intercepter `ValueError` dans `_document_pages` (payments.py) → 422 clair ; message neutre au lieu de « …pour la bêta » ; mention du comptage sur la page tarifs/CGV (avec le point 4).
-- Point 3 (prix frais compris de main, calculés au taux Mobile Money même pour la carte) : décision utilisateur = les frais n'apparaissent QUE dans la fenêtre de paiement. À la fusion : retirer `monthly_total`/`annual_total` des cartes d'offre (PricingCards) et toute autre mention de frais hors PaymentModal (chercher `fee_percent`, `fees_included`, « frais »). Minimum Paddle : le blocage avant ouverture existe déjà (message par défaut `payment.min_pages_card` « x pages minimum requises pour ce moyen de paiement ») → seulement trouver le vrai montant minimum accepté par Paddle et aligner `MIN_CARD_AMOUNT` dessus ; ne pas toucher au message ni à l'UI.
-- Point 4 (#49, mentions sous les cartes retirées) : garder le retrait des frais. À la fusion : rétablir « {{total}} facturés par an » en mode Annuel (sans « frais inclus ») et la ligne d'équivalence (pages / diapositives / 1 page pour N mots), + mention dans les CGV.
-- Point 5 (#47, PlanToggle en boutons accessibles) : garder tel quel ; vérifier le rendu après fusion.
-- Point 6 (#45, droit par document `paid` / `can_download`) : garder tel quel, pas de déblocage rétroactif.
+**Hors plan** : fournisseur SMS ; sessions simultanées ; page CGU/confidentialité (liens `#`) ; rattrapage Fapshi `PENDING`  ; `tests/test_invitations_api.py` ; `FreeGrant.user_id` CASCADE ; décision règle anti-abus `new_account` (A garder sans effet, recommandé / B bloquer 24 h) ; mention « Traduit avec Précis », pack Mobile Money, parrainage.
 
 ## 5. Pièges / contexte
-- `backend/.env` en LIVE pour Fapshi : ne jamais valider d'invite réelle. Ne pas afficher les `.env` (`grep -c` seulement). Jamais de clé dans un fichier suivi.
-- Lancer : `npm run stop`, puis en arrière-plan `PYTHONUTF8=1 <venv backup>/python.exe scripts/dev.py` à la racine. Ne lancer aucun autre worktree en même temps.
-- venv : `C:\Users\IBRAH\Documents\Projets\Precis_Translator_backup_2026-06-10_13-10\backend\venv\Scripts\python.exe`. Tests : `cd backend && PYTHONUTF8=1 <venv>/python.exe tests/<suite>.py` (pas de pytest).
+- `backend/.env` LIVE pour Fapshi : jamais valider d'invite réelle ; ne pas afficher les `.env` (`grep -c` seulement) ; jamais de clé dans un fichier suivi.
+- Arbre de travail mêlé : anti-abus, bêta, admin non commités dans les mêmes fichiers → indexer par hunks. Commits sans aucune mention d'IA. Pas de push sans vérif utilisateur.
+- Serveur dev EN MARCHE (http://localhost:3000) au 30/10 ; s'il ne répond plus : `npm run stop`, puis en arrière-plan `PYTHONUTF8=1 <venv>/python.exe scripts/dev.py` à la racine. Uvicorn peut servir un code périmé : vérifier `/openapi.json`.
+- venv : `C:/Users/IBRAH/Documents/Projets/Precis_Translator_backup_2026-06-10_13-10/backend/venv/Scripts/python.exe`. Tests : `cd backend && PYTHONUTF8=1 <venv> tests/<suite>.py` (pas de pytest) ; lancer les longs en arrière-plan.
+- `reconcilier_jobs_orphelins` dans un test touche aussi les vieux documents « translating » de la base dev (accepté).
 - Front : `cd frontend && npx tsc --noEmit -p . ; npm run lint --silent ; npm run build --silent | tail -n 8`.
-- Autre base marquée `0010_invitations` (révision disparue) : `stamp --purge 0009_abonnements`, `upgrade 0012_beta_abuse_guards`, `stamp 0013_invitations`.
-- Certains fichiers front ont des chaînes en mojibake (`Ã©`) : éditer en UTF-8 sans réencoder.
-- Produit Paddle sandbox `pro_01m5cza0wrhn34kss0tk9zxg4j`. Remote `origin` = EagleFox31.
+- CRLF : `Home.tsx`, `useDocumentLibrary.ts`, `DocumentCard.tsx`, `DocumentLibrary.tsx`, `documents.py`, `AdminBetaPage.tsx`, `BetaAllowances.tsx`, `nginx.conf`, `Dockerfile` ; éditer par script Python en préservant CRLF. Mojibake `beta_abuse.py` : UTF-8 sans réencoder.
+- Tests OCR échouent sans Tesseract (environnement). Tests de course : Postgres Docker port 5433, jamais la base dev. Disque C: presque plein.

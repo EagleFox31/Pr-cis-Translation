@@ -85,6 +85,10 @@ services:
         VITE_API_BASE: ""
         VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
         VITE_TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+        # Le MÊME PADDLE_ENV que le service (SANDBOX / LIVE) : interface et
+        # service ne peuvent pas viser deux environnements Paddle différents.
+        VITE_PADDLE_ENV: ${PADDLE_ENV:-}
+        VITE_PADDLE_CLIENT_TOKEN: ${PADDLE_CLIENT_TOKEN:-}
     restart: unless-stopped
     ports:
       # Le seul port ouvert sur l'extérieur. À l'étape 4, le 443 (HTTPS) le
