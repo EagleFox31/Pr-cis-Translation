@@ -18,15 +18,17 @@ export default function AboutSection() {
   return (
     <section className="about-section" id="about">
       <div className="section-inner about-inner">
+        <header className="about-head">
+          <span className="section-tag">{t('about.tag')}</span>
+          <h2
+            className="section-title"
+            dangerouslySetInnerHTML={{ __html: t('about.title') }}
+          />
+        </header>
         <div className="story-grid about-grid">
-          <div>
-            <span className="section-tag">{t('about.tag')}</span>
-            <h2
-              className="section-title"
-              dangerouslySetInnerHTML={{ __html: t('about.title') }}
-            />
-            <p className="section-desc">{t('about.desc')}</p>
-            <p className="about-method">{t('about.method')}</p>
+          <div className="about-story">
+            <p className="about-text">{t('about.desc')}</p>
+            <p className="about-text about-method">{t('about.method')}</p>
             <ul className="about-pledges">
               {PLEDGES.map((key, i) => (
                 <motion.li
