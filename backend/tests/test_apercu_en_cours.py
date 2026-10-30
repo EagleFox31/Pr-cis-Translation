@@ -120,7 +120,7 @@ async def run():
     job_libre = jobs.create()
     try:
         with TestClient(create_app()) as client:
-            # Le lifespan vient de passer les `translating` en erreur (job
+            # Le lifespan vient de passer les `translating` en `interrupted` (job
             # perdu par construction) : on remet les nôtres en vol, comme un
             # job lancé APRÈS le démarrage.
             async with async_session() as db:
@@ -129,8 +129,8 @@ async def run():
                 for cle in ("vol", "vol_libre", "vol_pptx"):
                     (await db.get(Document, docs[cle])).status = "translating"
                 await db.commit()
-            ok("REDEMARRAGE : traduction interrompue en erreur et remboursee",
-               statut_coupe == "error" and solde == 2,
+            ok("REDEMARRAGE : traduction interrompue et remboursee",
+               statut_coupe == "interrupted" and solde == 2,
                f"statut={statut_coupe} solde={solde}")
             # Le job n'était pas mort (autre processus) : il aboutit.
             job_coupe = jobs.create()
