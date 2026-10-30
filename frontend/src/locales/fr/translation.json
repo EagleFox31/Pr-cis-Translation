@@ -228,14 +228,14 @@
   "about": {
     "tag": "À Propos de Trigenys Group",
     "title": "Propulsé par <strong>Trigenys Group</strong>",
-    "desc": "Trigenys Group est un leader dans le domaine des technologies de traduction et de l'intelligence artificielle.",
-    "mission": "Notre mission est de briser les barrières de la langue grâce à l'alliance de l'intelligence artificielle avancée et de l'expertise humaine. Précis est le fruit de plusieurs années de recherche en traitement automatique du langage naturel, visant à offrir aux entreprises une solution de traduction fiable, rapide et respectueuse du contexte culturel.",
-    "val_innovation": "Innovation",
-    "val_innovation_desc": "IA de pointe",
-    "val_quality": "Qualité",
-    "val_quality_desc": "Rigueur humaine",
+    "desc": "Trigenys Group conçoit et construit des produits, plateformes et systèmes numériques qui transforment des problèmes complexes en solutions technologiques concrètes. Basée à Douala, au Cameroun.",
+    "mission": "Nous travaillons à la croisée du génie logiciel, du cloud, de l'automatisation, des données et de l'expérience produit, avec une exigence : construire des logiciels et des systèmes qui tiennent au-delà de la démo. Notre écosystème réunit Précis, AgenStudio, notre studio de produits numériques, et Trigenys Insight, notre publication consacrée à la technologie, la cybersécurité, l'entreprise et les systèmes numériques.",
+    "val_innovation": "Ingénierie",
+    "val_innovation_desc": "Logiciel, cloud et données",
+    "val_quality": "Fiabilité",
+    "val_quality_desc": "Au-delà de la démo",
     "val_security": "Sécurité",
-    "val_security_desc": "Confidentialité totale"
+    "val_security_desc": "Cybersécurité intégrée"
   },
   "footer": {
     "rights": "© 2026 Précis by Trigenys Group. Tous droits réservés.",
