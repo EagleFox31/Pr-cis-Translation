@@ -1,12 +1,14 @@
 import { useTranslation } from 'react-i18next';
 import { motion, useScroll, useTransform } from 'motion/react';
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
+import { Check } from 'lucide-react';
 import TranslationSection from '../upload/TranslationSection';
 import type { TranslateConfig } from '../upload/TranslationSection';
 import ViewerToolbar from '../preview/ViewerToolbar';
 import DocumentPreview from '../preview/DocumentPreview';
-import type { PageStatus } from '../../hooks/useStreamingTranslation';
+import type { PageStatus, StopMode } from '../../hooks/useStreamingTranslation';
 import { baseCode } from '../../lib/languages';
+import { goToSection } from '../../lib/sectionBus';
 
 
 interface StorySectionProps {
@@ -34,6 +36,8 @@ interface StorySectionProps {
   /** Aperçu ouvert depuis la bibliothèque, document encore en route. Distinct
    *  de `isTranslating` : rien n'est traduit ici, on attend un rendu. */
   previewRendering?: boolean;
+  /** Aperçu de bibliothèque dont le fichier a disparu du serveur. */
+  fileMissing?: 'translation' | 'all' | null;
   /** Erreur de traduction à afficher en bannière inline (pas de toast). */
   translationError?: string | null;
   translationNotice?: string | null;
@@ -45,6 +49,9 @@ interface StorySectionProps {
   onBuyPages?: (pages: number) => void;
   /** Pages déjà couvertes par le solde, si on peut ne traduire qu'elles. */
   pagesCovered?: number | null;
+  /** Motif du refus à afficher au-dessus de l'achat (pages offertes refusées
+   *  par l'anti-abus). `null` = manque de crédits ordinaire. */
+  creditsReason?: string | null;
   /** Relance en ne traduisant que les pages couvertes. */
   onTranslateCovered?: () => void;
   /** Mode agrandi (focus) actif ? */
@@ -54,9 +61,12 @@ interface StorySectionProps {
   /** Essai : quitter l'aperçu pour les tarifs. */
   onUnlock?: () => void;
   onToggleFocus?: () => void;
+  /** Pause / Annuler la traduction affichée (barre d'aperçu). */
+  onStop?: (mode: StopMode) => Promise<void>;
   onZoomChange: (z: number) => void;
   onPageChange: (p: number) => void;
   onDownload: () => void;
+  onDownloadOriginal?: () => void;
   onPagesLoaded: (n: number) => void;
   onLibraryOpen?: () => void;
 }
@@ -78,21 +88,25 @@ export default function StorySection({
   queuePosition = null,
   readyPages,
   previewRendering = false,
+  fileMissing = null,
   translationError = null,
   translationNotice = null,
   limitReached = false,
   creditsNeeded = null,
   onBuyPages,
   pagesCovered = null,
+  creditsReason = null,
   onTranslateCovered,
   focus = false,
   onStartTranslate,
   onBack,
   onUnlock,
   onToggleFocus,
+  onStop,
   onZoomChange,
   onPageChange,
   onDownload,
+  onDownloadOriginal,
   onPagesLoaded,
   onLibraryOpen,
 }: StorySectionProps) {
@@ -102,6 +116,21 @@ export default function StorySection({
   ).length;
   const { t } = useTranslation();
   const storyRef = useRef<HTMLElement>(null);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+
+  // La vignette de la page affichée reste visible dans la colonne : on fait
+  // défiler la colonne seule (scrollIntoView bougerait aussi la page).
+  useEffect(() => {
+    const bar = sidebarRef.current;
+    const thumb = bar?.children[currentPage - 1] as HTMLElement | undefined;
+    if (!bar || !thumb) return;
+    const haut = thumb.getBoundingClientRect().top - bar.getBoundingClientRect().top + bar.scrollTop;
+    const bas = haut + thumb.offsetHeight;
+    if (haut < bar.scrollTop) bar.scrollTo({ top: haut - 8, behavior: 'smooth' });
+    else if (bas > bar.scrollTop + bar.clientHeight) {
+      bar.scrollTo({ top: bas - bar.clientHeight + 8, behavior: 'smooth' });
+    }
+  }, [currentPage]);
 
   // Format du document à prévisualiser : déterminé d'abord par le fichier
   // traduit (toujours présent), sinon par l'original. Les formats non-PDF sont
@@ -327,10 +356,7 @@ export default function StorySection({
                 <span style={{ flex: 1 }}>{translationError}</span>
                 {limitReached && (
                   <button
-                    onClick={() => {
-                      const el = document.getElementById('pricing');
-                      if (el) el.scrollIntoView({ behavior: 'smooth' });
-                    }}
+                    onClick={() => goToSection('pricing')}
                     style={{
                       padding: '8px 16px',
                       borderRadius: '8px',
@@ -351,14 +377,21 @@ export default function StorySection({
 
             <div className="app">
               <div className="body">
-                <div className="sidebar">
+                <div className="sidebar" ref={sidebarRef}>
                   {Array.from({ length: numPages }).map((_, i) => {
                     const pageNo = i + 1;
                     const status = pageStatuses[pageNo];
-                    const isReady = status === 'done' || status === 'copied' || (!isTranslating && !!readyPages[pageNo]) || (!isTranslating && Object.keys(pageStatuses).length === 0);
+                    // Pendant la traduction, « Page traduite » ne s'affiche que si l'aperçu
+                    // MONTRE la traduction (`readyPages`), pas sur le seul statut
+                    // de page : un lot échoué laissait une page « terminée » en
+                    // langue source.
+                    const isReady = isTranslating ? !!readyPages[pageNo]
+                      : status === 'done' || status === 'copied' || !!readyPages[pageNo] || Object.keys(pageStatuses).length === 0;
                     const inProgress = status === 'extracting' || status === 'translating' || status === 'rendering';
-                    // Pastille d'état : vert = prête, bleu animé = en cours, gris = en attente.
-                    const dotColor = isReady ? '#16a34a' : inProgress ? '#2563eb' : 'var(--gray-300)';
+                    // État lisible d'un coup d'œil : bordure verte + coche = prête,
+                    // spinner bleu = en cours, grisée = en attente. La page affichée
+                    // porte un anneau bleu, qui se cumule avec la bordure verte.
+                    const isCurrent = currentPage === pageNo;
                     return (
                       <div
                         key={i}
@@ -373,10 +406,12 @@ export default function StorySection({
                         <div
                           className="thumb-frame"
                           style={{
-                            borderColor:
-                              currentPage === pageNo ? '#2563eb' : 'var(--color-border-primary)',
+                            borderColor: isReady ? '#16a34a'
+                              : isCurrent ? '#2563eb' : 'var(--color-border-primary)',
+                            borderWidth: isReady ? 2 : undefined,
+                            boxShadow: isCurrent ? '0 0 0 2px #2563eb' : 'none',
                             position: 'relative',
-                            opacity: isReady || currentPage === pageNo ? 1 : 0.55,
+                            opacity: isReady || isCurrent ? 1 : 0.55,
                           }}
                         >
                           <div className="tl" style={{ width: '55%', height: '3px' }} />
@@ -387,16 +422,20 @@ export default function StorySection({
                           <div className="tl muted" style={{ width: '80%' }} />
                           <div className="tl muted" style={{ width: '65%' }} />
                           <div className="tl accent" style={{ width: '100%', margin: '3px 0' }} />
-                          {/* Pastille de statut */}
-                          <span
-                            style={{
-                              position: 'absolute', top: '3px', right: '3px',
-                              width: '8px', height: '8px', borderRadius: '50%',
-                              background: dotColor,
-                              boxShadow: inProgress ? '0 0 0 0 rgba(37,99,235,0.5)' : 'none',
-                              animation: inProgress ? 'thumb-pulse 1.2s infinite' : 'none',
-                            }}
-                          />
+                          {isReady && (
+                            <span
+                              aria-hidden="true"
+                              style={{
+                                position: 'absolute', top: '3px', right: '3px',
+                                width: '16px', height: '16px', borderRadius: '50%',
+                                background: '#16a34a', color: '#fff',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                boxShadow: '0 0 0 2px #fff',
+                              }}
+                            >
+                              <Check size={11} strokeWidth={3.2} />
+                            </span>
+                          )}
                           {/* Voile « en cours » sur la vignette active du travail */}
                           {inProgress && (
                             <span style={{
@@ -439,7 +478,10 @@ export default function StorySection({
                     onPageChange={onPageChange}
                     onBack={onBack}
                     onDownload={onDownload}
+                    onDownloadOriginal={onDownloadOriginal}
+                    onUnlock={onUnlock}
                     onToggleFocus={onToggleFocus}
+                    onStop={onStop}
                   />
 
 
@@ -464,6 +506,9 @@ export default function StorySection({
                       zoom={zoom}
                       isTrialMode={isTrialMode}
                       previewLoading={previewRendering}
+                      fileMissing={fileMissing}
+                      // Présentation : cadres 16:9 avant même le premier PDF.
+                      formatHint={['pptx', 'ppt', 'odp', 'key'].includes(previewExt) ? 'landscape' : 'portrait'}
                       onPagesLoaded={onPagesLoaded}
                       translatedPageReady={
                         // `previewRendering` PRIME sur tout le reste. Pendant
@@ -483,7 +528,10 @@ export default function StorySection({
                           || !!readyPages[currentPage]
                         )
                       }
-                      translatedPageStatus={previewRendering ? 'rendering' : pageStatuses[currentPage]}
+                      // Arrêtée, une page « en attente » ne tourne plus : sablier, pas spinner.
+                      translatedPageStatus={previewRendering ? 'rendering'
+                        : !isTranslating && pageStatuses[currentPage] === 'waiting' ? undefined
+                        : pageStatuses[currentPage]}
                       sourceLabel={t('preview.source_label', 'Document original')}
                       targetLabel={`${baseCode(targetLang ?? 'en').toUpperCase()} — ${t('preview.target_label', 'Traduction')}`}
                       // Manque de crédits (402) : le panneau TRADUIT affiche
@@ -492,6 +540,7 @@ export default function StorySection({
                       creditsNeeded={creditsNeeded}
                       onBuyPages={onBuyPages}
                       pagesCovered={pagesCovered}
+                      creditsReason={creditsReason}
                       onTranslateCovered={onTranslateCovered}
                       onUnlock={onUnlock}
                     />

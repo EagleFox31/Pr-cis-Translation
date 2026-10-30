@@ -14,6 +14,7 @@ import { Mail, User, ArrowRight } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import AuthLayout from '../components/auth/AuthLayout';
 import CodeStep from '../components/auth/CodeStep';
+import Turnstile, { turnstileActif } from '../components/auth/Turnstile';
 import Alert from '../components/ui/Alert';
 import Button from '../components/ui/Button';
 import Field from '../components/ui/Field';
@@ -34,10 +35,14 @@ export default function RegisterPage() {
   const [step, setStep] = useState<'form' | 'code'>('form');
   const [code, setCode] = useState(CODE_VIDE);
   const [resent, setResent] = useState(false);
+  const [robotToken, setRobotToken] = useState('');
+  const [robotReset, setRobotReset] = useState(0);
+  const [robotKo, setRobotKo] = useState(false);
 
   async function handleRegister(e: FormEvent) {
     e.preventDefault(); setError(''); setBusy(true);
-    const res = await register(email, name || undefined); setBusy(false);
+    const res = await register(email, name || undefined, robotToken || undefined); setBusy(false);
+    setRobotReset((n) => n + 1);
     if (res.ok) setStep('code');
     else setError(res.error || t('auth.err_generic'));
   }
@@ -100,7 +105,10 @@ export default function RegisterPage() {
           onChange={(e) => setEmail(e.target.value)}
         />
 
+        <Turnstile onToken={setRobotToken} onUnavailable={() => setRobotKo(true)} resetKey={robotReset} />
+
         <Button type="submit" variant="primary" size="lg" block
+          disabled={turnstileActif && !robotToken && !robotKo}
           loading={busy} icon={<ArrowRight size={15} />}>
           {t('auth.get_code')}
         </Button>

@@ -15,7 +15,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Crown, HardDrive, Languages } from 'lucide-react';
+import { Crown, HardDrive, Languages, LogOut } from 'lucide-react';
 
 import { useAuth, type AuthUser } from '../../contexts/AuthContext';
 import api from '../../services/api';
@@ -29,6 +29,8 @@ interface AccountPanelProps {
   user: AuthUser;
   /** Change quand la liste des documents change : la consommation est relue. */
   refreshKey?: string;
+  /** Déconnexion : rangée avec l'identité, là où on la cherche (cf. étude point 4). */
+  onLogout?: () => void;
 }
 
 /** Réponse de `/api/auth/me/usage` — calculée par le module qui FAIT
@@ -43,7 +45,7 @@ interface Usage {
   resets_at: string;
 }
 
-export default function AccountPanel({ user, refreshKey }: AccountPanelProps) {
+export default function AccountPanel({ user, refreshKey, onLogout }: AccountPanelProps) {
   const { t, i18n } = useTranslation();
   const { refreshUser } = useAuth();
   const beta = useBeta(refreshKey);
@@ -79,9 +81,19 @@ export default function AccountPanel({ user, refreshKey }: AccountPanelProps) {
           <p className="compte__nom">{user.name || t('account.default_name')}</p>
           <p className="compte__email" title={user.email}>{user.email}</p>
         </div>
-        <span className={`compte__forfait compte__forfait--${user.plan === 'free' ? 'base' : 'paye'}`}>
-          {t(`plans.${user.plan}`, user.plan)}
-        </span>
+        {/* Forfait et sortie empilés à droite : tout ce qui concerne le
+            compte tient dans sa carte, comme chez Google ou GitHub. */}
+        <div className="compte__droite">
+          <span className={`compte__forfait compte__forfait--${user.plan === 'free' ? 'base' : 'paye'}`}>
+            {t(`plans.${user.plan}`, user.plan)}
+          </span>
+          {onLogout && (
+            <button type="button" className="compte__sortie" onClick={onLogout}>
+              <LogOut size={14} strokeWidth={2} aria-hidden="true" />
+              {t('account.logout')}
+            </button>
+          )}
+        </div>
       </div>
 
       {usage && (

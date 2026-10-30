@@ -1,6 +1,19 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api, { authFetch } from '../services/api';
+import type { PageStatus } from './useStreamingTranslation';
+
+/** Réponse de `/preview`. `pretes` / `etats` ne sont remplis que pour un
+ *  document EN COURS de traduction. */
+export interface PreviewResult {
+  blob: Blob | null;
+  full: boolean;
+  inProgress: boolean;
+  pretes: Record<number, true>;
+  etats: Record<number, PageStatus>;
+  /** 404 : la traduction n'existe plus sur le serveur. */
+  missing?: boolean;
+}
 
 export interface DocMeta {
   id: string;
@@ -15,15 +28,28 @@ export interface DocMeta {
   paid: boolean;
   /** Nombre de pages — sert à calculer ce que coûtera son déblocage. */
   pageCount: number;
-  /** `translating` · `done` · `error`. C'est la SEULE source de vérité sur
+  /** `translating` · `done` · `error` · `interrupted` (serveur arrêté en
+   *  cours de route : à reprendre) · `paused` / `cancelled` (arrêt demandé
+   *  par le client : à reprendre aussi) · `resumed` (repris par une autre
+   *  traduction, qui porte la suite). C'est la SEULE source de vérité sur
    *  l'état d'une traduction : elle vit en base, donc elle survit à une
    *  déconnexion comme à un redémarrage du serveur. */
   status: string;
   /** Pages terminées, à comparer à `pageCount`. */
   pagesDone: number;
+  /** Job vivant d'un document `translating` : sert à Pause / Annuler. */
+  jobId?: string | null;
+  /** Réglages d'origine : « Reprendre » relance avec eux, donc sur les pages
+   *  déjà traduites. Absents sur les documents d'avant leur enregistrement. */
+  reglages?: { pages: string; precise: boolean; beta: boolean } | null;
   /** blob dispo uniquement pour les visiteurs (en mémoire) */
   _blob?: Blob;
 }
+
+/** Statuts d'un document arrêté avant la fin (miroir de
+ *  `jobs.STATUTS_REPRENABLES`) : ses pages faites sont gardées et livrées,
+ *  « Reprendre » ne débite que le reste. */
+export const STATUTS_REPRENABLES: readonly string[] = ['interrupted', 'paused', 'cancelled'];
 
 /** UNE traduction de la réponse serveur. Elle existait en double dans ce
  *  fichier : le jour où un champ s'ajoute, une des deux copies l'oublie —
@@ -41,6 +67,8 @@ function toMeta(d: any): DocMeta {
     pageCount: d.page_count ?? 1,
     status: d.status ?? 'done',
     pagesDone: d.pages_done ?? 0,
+    reglages: d.reglages ?? null,
+    jobId: d.job_id ?? null,
     _blob: undefined,
   };
 }
@@ -153,7 +181,7 @@ export function useDocumentLibrary() {
    *  qu'un compte gratuit récupérait sa traduction en clair. */
   const getPreviewBlob = useCallback(async (
     id: string, page?: number,
-  ): Promise<{ blob: Blob | null; full: boolean; inProgress: boolean } | undefined> => {
+  ): Promise<PreviewResult | undefined> => {
     if (user) {
       // `page` restreint le RENDU à la page regardée (280 s le document
       // entier contre ~10 s la page seule, mesuré sur 285 pages). Mais si le
@@ -166,17 +194,33 @@ export function useDocumentLibrary() {
       // l'autre ne se garde en cache : l'appelant redemande jusqu'au rendu final.
       const q = page && page > 0 ? `?page=${page}` : '';
       const res = await authFetch(`/api/documents/${id}/preview${q}`);
+      if (res.status === 404) {
+        return { blob: null, full: false, inProgress: false, pretes: {}, etats: {}, missing: true };
+      }
       if (!res.ok) return undefined;
       const render = res.headers.get('X-Render');
       const pending = render === 'pending';
+      // En cours : le serveur dit quelles pages le fichier montre VRAIMENT
+      // traduites, et l'étape de chacune — l'aperçu rouvert n'a pas le flux.
+      const pretes: Record<number, true> = {};
+      for (const p of (res.headers.get('X-Pages-Pretes') ?? '').split(',')) {
+        if (p) pretes[Number(p)] = true;
+      }
+      const etats: Record<number, PageStatus> = {};
+      for (const e of (res.headers.get('X-Pages-Etats') ?? '').split(',')) {
+        const [p, s] = e.split(':');
+        if (p && s) etats[Number(p)] = s as PageStatus;
+      }
       return {
         blob: pending ? null : await res.blob(),
         full: render === 'full',
         inProgress: pending || render === 'partial',
+        pretes,
+        etats,
       };
     }
     const blob = documents.find(d => d.id === id)?._blob;
-    return blob ? { blob, full: true, inProgress: false } : undefined;
+    return blob ? { blob, full: true, inProgress: false, pretes: {}, etats: {} } : undefined;
   }, [user, documents]);
 
   /** Le fichier SOURCE tel que déposé — panneau gauche de l'aperçu.

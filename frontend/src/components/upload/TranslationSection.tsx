@@ -12,7 +12,8 @@ import LanguagePicker from './LanguagePicker';
 import { useAuth } from '../../contexts/AuthContext';
 import { findLang, isLangAvailable } from '../../lib/languages';
 import { Link } from 'react-router-dom';
-import { useBeta } from '../../hooks/useBeta';
+import { useBeta, type BetaFormat } from '../../hooks/useBeta';
+import { BETA_FORMATS } from '../library/BetaAllowances';
 
 export interface TranslateConfig {
   file: File;
@@ -28,6 +29,8 @@ export interface TranslateConfig {
   /** Après un 402 « crédits insuffisants » : ne traduire que les pages
    *  couvertes par le solde (choix explicite de l'utilisateur). */
   coverOnly?: boolean;
+  /** Reprise d'un document interrompu : ses pages déjà payées ne sont pas redébitées. */
+  resumeOf?: string;
   beta?: boolean;
 }
 
@@ -77,6 +80,9 @@ export default function TranslationSection({
   const { user } = useAuth();
   const betaAccess = useBeta(file?.name);
   const [useBetaCredits, setUseBetaCredits] = useState(true);
+  // La case ne sert que pour un accès actif et un format couvert par la bêta.
+  const betaUsable = betaAccess.data?.enrollment?.state === 'active'
+    && BETA_FORMATS.includes(file?.name.split('.').pop()?.toLowerCase() as BetaFormat);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [preciseMode, setPreciseMode] = useState(false);
   const [justReset, setJustReset] = useState(false);
@@ -123,7 +129,7 @@ export default function TranslationSection({
       pages: supportsPages ? pages.trim() : '',
       debug: supportsStructure && structureMode,
       precise: supportsPrecise && preciseMode,
-      beta: betaAccess.data ? Boolean(betaAccess.data.enrollment && useBetaCredits) : undefined,
+      beta: betaAccess.data ? betaUsable && useBetaCredits : undefined,
       onAccepted: () => { void betaAccess.refresh(); },
     });
   };
@@ -145,11 +151,11 @@ export default function TranslationSection({
     >
       {betaAccess.data?.enrollment && (
         <div className="beta-upload">
-          <label><input type="checkbox" checked={useBetaCredits} disabled={isTranslating}
+          {betaUsable && <label><input type="checkbox" checked={useBetaCredits} disabled={isTranslating}
             onChange={event => setUseBetaCredits(event.target.checked)} />
-            {t('beta.use_credits')}</label>
+            {t('beta.use_credits')}</label>}
           <p>{t(`beta.states.${betaAccess.data.enrollment.state}`)} · <Link to="/beta">{t('beta.my_access')}</Link></p>
-          <p>{t('beta.choice_hint')}</p>
+          {betaUsable && <p>{t('beta.choice_hint')}</p>}
         </div>
       )}
       {/* En-tête — ancre le formulaire : le titre reste fixe quel que soit

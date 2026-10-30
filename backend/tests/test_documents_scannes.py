@@ -209,7 +209,7 @@ async def _verifier_endpoint(scan: bytes) -> int:
     import uuid
     from datetime import datetime, timezone
 
-    from fastapi import UploadFile
+    from fastapi import Response, UploadFile
     from sqlalchemy import select
 
     from app import config as cfg
@@ -223,7 +223,8 @@ async def _verifier_endpoint(scan: bytes) -> int:
         # (sinon la route emprunte la branche « offerte », qui ne débite rien —
         # et le test passerait sans rien prouver).
         u = User(email=email, name="Essai scan", plan="free",
-                 email_verified=True, page_credits=25)
+                 email_verified=True, page_credits=25,
+                 created_at=racine.compte_ancien())
         db.add(u)
         await db.flush()
         db.add(Document(user_id=u.id, original_name="deja.pdf",
@@ -241,7 +242,7 @@ async def _verifier_endpoint(scan: bytes) -> int:
         from app.services.ocr import OCRError
         with patch("app.api.translate.prepare_scanned_pdf", side_effect=OCRError("Scan illisible. Aucune page decomptee.")):
             reponse = await translate_endpoint(
-                request=None, file=televerse, target_lang="en",
+                request=racine.requete_test(), response=Response(), file=televerse, target_lang="en",
                 format_options="{}", quality="fast", precise="", pages="",
                 debug="", x_api_key=cfg.FRONTEND_API_KEY,
                 current_user=u, db=db)

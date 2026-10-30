@@ -8,7 +8,7 @@ from unittest.mock import patch
 import fitz
 
 import racine  # noqa: F401
-from fastapi import UploadFile
+from fastapi import Response, UploadFile
 from sqlalchemy import select
 from app.api.translate import translate_endpoint
 from app import config
@@ -39,11 +39,11 @@ async def recognized_pages(page_credits):
     try:
         async with async_session() as db:
             user = User(email=email, name="OCR credits", plan="free", email_verified=True,
-                        page_credits=page_credits)
+                        page_credits=page_credits, created_at=racine.compte_ancien())
             db.add(user)
             await db.commit()
             with patch("app.api.translate.prepare_scanned_pdf", side_effect=fake_ocr):
-                response = await translate_endpoint(request=None,
+                response = await translate_endpoint(request=racine.requete_test(), response=Response(),
                     file=UploadFile(filename="scan.pdf", file=io.BytesIO(scanned_pages(7))),
                     target_lang="en", format_options="{}", quality="fast", precise="", pages="",
                     debug="", covered_only="", x_api_key=config.FRONTEND_API_KEY,
@@ -71,11 +71,12 @@ async def trial_offer_on_scan():
 
     try:
         async with async_session() as db:
-            user = User(email=email, name="OCR trial", plan="free", email_verified=True, page_credits=0)
+            user = User(email=email, name="OCR trial", plan="free", email_verified=True, page_credits=0,
+                        created_at=racine.compte_ancien())
             db.add(user)
             await db.commit()
             with patch("app.api.translate.prepare_scanned_pdf", side_effect=fake_ocr):
-                response = await translate_endpoint(request=None,
+                response = await translate_endpoint(request=racine.requete_test(), response=Response(),
                     file=UploadFile(filename="scan.pdf", file=io.BytesIO(scanned_pages(7))),
                     target_lang="en", format_options="{}", quality="fast", precise="", pages="",
                     debug="", covered_only="", x_api_key=config.FRONTEND_API_KEY,

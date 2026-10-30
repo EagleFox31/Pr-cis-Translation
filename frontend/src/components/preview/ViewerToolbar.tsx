@@ -1,13 +1,17 @@
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
   Download, Loader2, CheckCircle2, ArrowRight, Lock,
-  Maximize2, Minimize2, Flag,
+  Maximize2, Minimize2, Flag, FileDown, Pause, X,
 } from 'lucide-react';
+
+import type { StopMode } from '../../hooks/useStreamingTranslation';
 
 import { baseCode } from '../../lib/languages';
 import ProgressBar from '../ui/ProgressBar';
 import { openSupport } from '../support/supportBus';
+import { goToSection } from '../../lib/sectionBus';
 
 // Le badge de langue passait par une table `LANG_LABELS` codée à la main —
 // dix entrées, à tenir à jour à chaque langue ajoutée, et un doublon de ce que
@@ -30,7 +34,13 @@ interface ViewerToolbarProps {
   onPageChange: (page: number) => void;
   onBack: () => void;
   onDownload: () => void;
+  /** Récupérer le fichier d'origine tel qu'il a été déposé. */
+  onDownloadOriginal?: () => void;
+  /** Essai : quitter l'aperçu pour les tarifs (ils sont SOUS la surcouche). */
+  onUnlock?: () => void;
   onToggleFocus?: () => void;
+  /** Pause / Annuler la traduction en cours. Absent : pas de job à arrêter. */
+  onStop?: (mode: StopMode) => Promise<void>;
 }
 
 export default function ViewerToolbar({
@@ -48,9 +58,21 @@ export default function ViewerToolbar({
   onPageChange,
   onBack,
   onDownload,
+  onDownloadOriginal,
+  onUnlock,
   onToggleFocus,
+  onStop,
 }: ViewerToolbarProps) {
   const { t } = useTranslation();
+  // Arrêt demandé : le serveur finit d'abord la page en cours, ce qui peut
+  // prendre quelques secondes. On le dit, et on bloque un second clic.
+  const [arret, setArret] = useState<StopMode | null>(null);
+  useEffect(() => { if (!isTranslating) setArret(null); }, [isTranslating]);
+  const demanderArret = (mode: StopMode) => {
+    if (!onStop || arret) return;
+    setArret(mode);
+    onStop(mode).catch(() => setArret(null));
+  };
 
   const pct = numPages > 0 ? Math.round((doneCount / numPages) * 100) : 0;
   const isComplete = !isTranslating && doneCount > 0 && doneCount >= numPages;
@@ -144,8 +166,10 @@ export default function ViewerToolbar({
         <div className="spacer" />
       )}
 
-      {/* Progression du streaming (pages traduites / total) */}
-      {(isTranslating || isComplete) && numPages > 0 && (
+      {/* Progression du streaming (pages traduites / total). Visible pendant
+          TOUTE la traduction : avant le premier aperçu (`numPages` encore à 0),
+          il dit l'étape plutôt que de disparaître. */}
+      {(isTranslating || (isComplete && numPages > 0)) && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: '9px',
           borderLeft: '1px solid var(--color-border-secondary)',
@@ -163,7 +187,11 @@ export default function ViewerToolbar({
               color: isTranslating ? 'var(--blue)' : '#16a34a',
               fontVariantNumeric: 'tabular-nums',
             }}>
-              {isTranslating
+              {arret
+                ? t('viewer.stopping', 'Arrêt après la page en cours…')
+                : isTranslating && numPages === 0
+                ? t('preview.loading', "Préparation de l'aperçu…")
+                : isTranslating
                 ? t('viewer.pages_done', '{{done}}/{{total}} pages', { done: doneCount, total: numPages })
                 : t('viewer.translation_done', 'Traduction terminée')}
             </span>
@@ -173,6 +201,30 @@ export default function ViewerToolbar({
               height={3}
             />
           </div>
+          {isTranslating && onStop && (
+            <>
+              <button
+                onClick={() => demanderArret('pause')}
+                disabled={!!arret}
+                className="tb-btn ghost"
+                aria-label={t('viewer.pause', 'Mettre en pause')}
+                title={t('viewer.pause', 'Mettre en pause')}
+                style={{ display: 'flex', alignItems: 'center', padding: '6px' }}
+              >
+                <Pause size={15} strokeWidth={2.2} />
+              </button>
+              <button
+                onClick={() => demanderArret('cancel')}
+                disabled={!!arret}
+                className="tb-btn ghost"
+                aria-label={t('viewer.cancel', 'Annuler la traduction')}
+                title={t('viewer.cancel', 'Annuler la traduction')}
+                style={{ display: 'flex', alignItems: 'center', padding: '6px' }}
+              >
+                <X size={15} strokeWidth={2.2} />
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -208,11 +260,28 @@ export default function ViewerToolbar({
         <Flag size={15} strokeWidth={2.2} />
       </button>
 
+      {/* Original — toujours disponible : c'est le fichier de l'utilisateur,
+          ni l'essai ni une traduction en cours ne le retiennent. */}
+      {onDownloadOriginal && (
+        <button
+          onClick={onDownloadOriginal}
+          className="tb-btn ghost"
+          aria-label={t('viewer.download_original', 'Télécharger l’original')}
+          title={t('viewer.download_original', 'Télécharger l’original')}
+          style={{ display: 'flex', alignItems: 'center', padding: '6px' }}
+        >
+          <FileDown size={15} strokeWidth={2.2} />
+        </button>
+      )}
+
       {/* Téléchargement — indisponible tant que la traduction n'est pas finie */}
       <button
         onClick={() => {
           if (isTrialMode) {
-            document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' });
+            // Défiler vers #pricing sans fermer l'aperçu ne montrait rien :
+            // la grille est sous la surcouche fixe.
+            if (onUnlock) onUnlock();
+            else goToSection('pricing');
             return;
           }
           onDownload();

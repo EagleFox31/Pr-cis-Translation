@@ -258,7 +258,7 @@ jobs:
           mkdir -p /tmp/precis-seo
           cp -R frontend/public/. /tmp/precis-seo/
           cp frontend/index.html /tmp/precis-seo/index.html
-          docker run -d --name precis-seo --add-host backend:127.0.0.1 -p 8081:80 -v "$PWD/frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro" -v /tmp/precis-seo:/usr/share/nginx/html:ro nginx:1.27-alpine
+          docker run -d --name precis-seo --add-host backend:127.0.0.1 -p 8081:80 -v "$PWD/frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro" -v "$PWD/frontend/security-headers.conf:/etc/nginx/snippets/security-headers.conf:ro" -v /tmp/precis-seo:/usr/share/nginx/html:ro nginx:1.27-alpine
           docker exec precis-seo nginx -t
       - name: Verify crawlable landing, exclusions, redirects and discovery files
         run: python3 scripts/ci/verify_public_seo.py http://127.0.0.1:8081

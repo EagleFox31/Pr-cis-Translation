@@ -21,6 +21,7 @@ Endpoints (relevés dans le SDK officiel v1.1.0, 19/07/2026) :
 from __future__ import annotations
 
 import functools
+import hashlib
 import hmac
 import logging
 import os
@@ -444,3 +445,170 @@ class FapshiClient:
 
 
 fapshi = FapshiClient()
+
+
+# ── Paddle Billing — carte bancaire (Visa prépayée comprise) ─────────────────
+#
+#   POST /transactions        {items: [{quantity, price: {…non-catalogue…}}],
+#                              custom_data}            → {data: {id, status, checkout: {url}}}
+#   GET  /transactions/<id>   Authorization: Bearer <clé API>
+#                                                      → {data: {id, status, …}}
+#
+# Le client paie sur notre page `/paiement/carte`, déclarée comme « Default
+# payment link » chez Paddle : `checkout.url` = ce lien + `?_ptxn=txn_…`, et
+# Paddle.js y ouvre le formulaire de carte.
+
+PADDLE_SANDBOX_HOST = "https://sandbox-api.paddle.com"
+PADDLE_LIVE_HOST = "https://api.paddle.com"
+
+# Paddle ne connaît pas le franc CFA. La parité XAF/EUR est fixe : la zone A
+# est facturée en euros, arrondis au centime SUPÉRIEUR (un arrondi vers le bas
+# serait payé par nous).
+XAF_PER_EUR = 655.957
+PADDLE_CURRENCIES = frozenset({"EUR", "USD"})
+
+# draft · ready · billed : en cours ; paid = capturé, completed = traité (l'un
+# ou l'autre suffit) ; past_due ne concerne que la facturation manuelle.
+PADDLE_STATUS = {"draft": "PENDING", "ready": "PENDING", "billed": "PENDING",
+                 "past_due": "PENDING", "paid": "SUCCESSFUL",
+                 "completed": "SUCCESSFUL", "canceled": "FAILED"}
+
+# Âge maximal d'une notification signée. Le rejeu d'un webhook ne crédite rien
+# (le statut est relu chez Paddle), la limite borne seulement le bruit ; elle
+# reste large pour tolérer une horloge serveur un peu décalée.
+PADDLE_WEBHOOK_MAX_AGE = 300
+
+
+def paddle_amount(amount: int, currency: str) -> tuple[int, str]:
+    """(montant en unités mineures, devise) tel que Paddle sait l'encaisser.
+    Le franc CFA (sans décimales) devient des centimes d'euro."""
+    if currency in PADDLE_CURRENCIES:
+        return int(amount), currency
+    if currency == SUPPORTED_CURRENCY:
+        # Entiers seulement : 655.957 en flottant ferait rater un centime pile.
+        return -(-int(amount) * 100_000 // 655_957), "EUR"
+    raise ValueError(f"devise non encaissable par Paddle : {currency}")
+
+
+class PaddleError(ProviderError):
+    """Échec d'un appel Paddle (voir `CampayError` pour les deux messages)."""
+
+
+def _as_paddle_error(fn):
+    """Même rôle que `_as_campay_error`."""
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await fn(*args, **kwargs)
+        except PaddleError:
+            raise
+        except httpx.HTTPError as e:
+            raise PaddleError(
+                f"{type(e).__name__} vers Paddle : {e}",
+                "Le service de paiement ne répond pas. Réessayez dans un instant.",
+            ) from e
+        except ValueError as e:
+            raise PaddleError(f"réponse Paddle illisible : {e}") from e
+    return wrapper
+
+
+class PaddleClient:
+    def __init__(self) -> None:
+        self.api_key = os.getenv("PADDLE_API_KEY", "")
+        # Tout prix envoyé est rattaché à ce produit (`pro_…`) : le catalogue
+        # Paddle ne porte aucun prix, `pricing.py` reste la seule source.
+        self.product_id = os.getenv("PADDLE_PRODUCT_ID", "")
+        # Live sur demande EXPLICITE, comme Campay et Fapshi.
+        self.host = (PADDLE_LIVE_HOST if os.getenv("PADDLE_ENV", "").upper() == "LIVE"
+                     else PADDLE_SANDBOX_HOST)
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.api_key and self.product_id)
+
+    def _headers(self) -> dict:
+        return {"Authorization": f"Bearer {self.api_key}"}
+
+    @staticmethod
+    def _error(res: httpx.Response, what: str) -> PaddleError:
+        try:
+            err = res.json().get("error") or {}
+            detail = f"{err.get('code', '')} {err.get('detail', '')}"[:200]
+        except (ValueError, AttributeError):
+            detail = res.text[:200]
+        if res.status_code in (401, 403):
+            logger.error("Paddle refuse l'accès (%s) : clé API invalide ou "
+                         "permission manquante", res.status_code)
+        return PaddleError(f"{what} refusé ({res.status_code}) : {detail}")
+
+    @_as_paddle_error
+    async def create_transaction(self, *, amount: int, currency: str,
+                                 description: str, reference: str,
+                                 user_id: str | None = None) -> dict:
+        """Transaction prête à payer, au prix donné (non-catalogue). Rend
+        `data` : `id` (txn_…) et `checkout.url`."""
+        if not self.configured:
+            raise PaddleError("PADDLE_API_KEY / PADDLE_PRODUCT_ID absents")
+        minor, code = paddle_amount(amount, currency)
+        body = {
+            "items": [{"quantity": 1, "price": {
+                "description": description, "name": description,
+                "product_id": self.product_id,
+                # Taxes COMPRISES : le client paie le montant annoncé, pas un
+                # montant majoré de la TVA de son pays.
+                "tax_mode": "internal",
+                "unit_price": {"amount": str(minor), "currency_code": code},
+            }}],
+            "currency_code": code,
+            # Notre identifiant : retrouver le paiement si la réponse se perd.
+            "custom_data": {"payment_id": reference, "user_id": user_id},
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            res = await client.post(f"{self.host}/transactions", json=body,
+                                    headers=self._headers())
+            if res.status_code not in (200, 201):
+                raise self._error(res, "transactions")
+            data = res.json().get("data") or {}
+        if not data.get("id") or not (data.get("checkout") or {}).get("url"):
+            # `checkout.url` est nul tant que le « Default payment link » n'est
+            # pas défini (et, en live, son domaine approuvé).
+            raise PaddleError("transaction sans id ou sans checkout.url")
+        return data
+
+    @_as_paddle_error
+    async def transaction(self, txn_id: str) -> dict:
+        if not self.configured:
+            raise PaddleError("PADDLE_API_KEY / PADDLE_PRODUCT_ID absents")
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            res = await client.get(f"{self.host}/transactions/{txn_id}",
+                                   headers=self._headers())
+            if res.status_code != 200:
+                raise self._error(res, "transaction")
+            return res.json().get("data") or {}
+
+    @staticmethod
+    def verify_webhook_signature(header: str | None, raw_body: bytes,
+                                 now: float | None = None) -> bool:
+        """En-tête `Paddle-Signature: ts=…;h1=…` : HMAC-SHA256 du secret de la
+        destination sur `ts:corps brut`. Plusieurs h1 possibles (rotation du
+        secret). Sans `PADDLE_WEBHOOK_SECRET`, on refuse."""
+        secret = os.getenv("PADDLE_WEBHOOK_SECRET", "")
+        if not secret or not header:
+            return False
+        ts, signatures = "", []
+        for part in header.split(";"):
+            key, _, value = part.strip().partition("=")
+            if key == "ts":
+                ts = value
+            elif key == "h1":
+                signatures.append(value)
+        if not ts.isdigit() or not signatures:
+            return False
+        if abs((now if now is not None else time.time()) - int(ts)) > PADDLE_WEBHOOK_MAX_AGE:
+            return False
+        expected = hmac.new(secret.encode(), ts.encode() + b":" + raw_body,
+                            hashlib.sha256).hexdigest()
+        return any(hmac.compare_digest(expected, s) for s in signatures)
+
+
+paddle = PaddleClient()

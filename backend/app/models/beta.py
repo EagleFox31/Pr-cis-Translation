@@ -1,13 +1,18 @@
 """Invitation-only beta allowances, independent of subscription credits."""
 from datetime import datetime
-from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 from .base import Base, new_uuid, utcnow
 
 
 class BetaCampaign(Base):
     __tablename__ = "beta_campaigns"
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default="pilot")
+    __table_args__ = (
+        # One program open to applications at a time.
+        Index("uq_beta_campaign_open", "state", unique=True,
+              postgresql_where=text("state = 'open'"), sqlite_where=text("state = 'open'")),
+    )
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_uuid)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
     capacity: Mapped[int] = mapped_column(Integer, nullable=False, default=40)
@@ -25,6 +30,10 @@ class BetaEnrollment(Base):
         UniqueConstraint("campaign_id", "email", name="uq_beta_campaign_email"),
         UniqueConstraint("campaign_id", "user_id", name="uq_beta_campaign_user"),
         Index("ix_beta_enrollment_mailbox", "campaign_id", "mailbox_key"),
+        # One activated trial per mailbox, enforced by the database as well.
+        Index("uq_beta_enrollment_activated_mailbox", "campaign_id", "mailbox_key", unique=True,
+              postgresql_where=text("activated_at IS NOT NULL"),
+              sqlite_where=text("activated_at IS NOT NULL")),
     )
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_uuid)
     campaign_id: Mapped[str] = mapped_column(String(32), ForeignKey("beta_campaigns.id"), nullable=False, index=True)

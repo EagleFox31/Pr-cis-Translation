@@ -204,6 +204,7 @@ button { font-family: inherit; cursor: pointer; border: none; }
   transform: translateX(-50%);
 }
 .nav-links a {
+  white-space: nowrap;
   font-size: 14px;
   font-weight: 500;
   color: var(--gray-700);
@@ -504,12 +505,6 @@ button { font-family: inherit; cursor: pointer; border: none; }
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.5; transform: scale(0.8); }
-}
-/* Pastille « page en cours de traduction » dans la sidebar de l'aperçu. */
-@keyframes thumb-pulse {
-  0%   { box-shadow: 0 0 0 0 rgba(37,99,235,0.5); }
-  70%  { box-shadow: 0 0 0 6px rgba(37,99,235,0); }
-  100% { box-shadow: 0 0 0 0 rgba(37,99,235,0); }
 }
 .hero-title {
   font-family: var(--font-display);
@@ -1393,6 +1388,16 @@ section {
 }
 .pricing-payg__title { margin: 0 0 4px; font-weight: 700; font-size: 15px; color: var(--navy); }
 .pricing-payg__text { margin: 0; font-size: 13.5px; color: var(--gray-600); line-height: 1.5; }
+.pricing-units { margin-top: 20px; padding: 18px 24px; border-radius: 14px; background: var(--gray-50); color: var(--gray-600); font-size: 13.5px; line-height: 1.6; }
+.pricing-units h3 { margin: 0 0 12px; font-size: 14px; font-weight: 700; color: var(--navy); }
+.pricing-units ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.pricing-units strong { display: block; color: var(--navy); font-weight: 600; }
+@media (min-width: 720px) {
+  .pricing-units ul { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 48px; }
+  .pricing-units li { position: relative; }
+  .pricing-units li + li::before { content: ''; position: absolute; left: -24px; top: 0; bottom: 0; border-left: 1px solid var(--gray-200); }
+}
+.pricing-units p { margin: 14px 0 0; font-size: 13px; color: var(--gray-500); }
 .pricing-payg__btn { flex-shrink: 0; padding: 11px 22px; background: var(--white); }
 @media (max-width: 640px) {
   .pricing-payg { flex-direction: column; align-items: stretch; text-align: center; }
@@ -1726,9 +1731,16 @@ footer {
   .footer-grid { grid-template-columns: 1fr 1fr; }
   .testimonials-grid { grid-template-columns: repeat(2, 1fr); }
 }
-@media (max-width: 768px) {
+/* Le menu central (5 à 6 liens) chevauchait logo et FR/EN sous ~1100 px : hamburger dès là. */
+@media (max-width: 1100px) {
   .nav-links { display: none; }
   .hamburger { display: flex; }
+}
+@media (max-width: 420px) {
+  .nav-inner { gap: 12px; }
+  .nav-inner:has(.hamburger) .animated-logo-text { display: none; }
+}
+@media (max-width: 768px) {
   .pricing-grid { grid-template-columns: 1fr; }
   .pricing-card.popular { transform: none; }
   .comparison-row { grid-template-columns: 130px 1fr 1fr; }
@@ -2648,6 +2660,31 @@ html.preview-active .scroll {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.compte__droite {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.compte__sortie {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  background: var(--white);
+  color: var(--gray-700);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+/* Rouge au survol seulement : c'est une sortie, pas une suppression. */
+.compte__sortie:hover { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
+.compte__sortie:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .compte__forfait {
   flex-shrink: 0;
   padding: 3px 9px;
@@ -2700,9 +2737,38 @@ html.preview-active .scroll {
    panneau qui reste à l'écran quel que soit le nombre de documents. */
 .biblio__pied {
   flex-shrink: 0;
-  padding: 12px 16px;
+  padding: 8px 10px;
   border-top: 1px solid var(--gray-100);
   background: var(--white);
+}
+/* Deux actions d'égale largeur côte à côte : le bloc reste symétrique. */
+.biblio__duo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
+.biblio__action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 1px solid var(--gray-200);
+  border-radius: 10px;
+  background: var(--white);
+  color: var(--gray-700);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.biblio__action svg { flex-shrink: 0; color: var(--gray-500); }
+.biblio__action:hover { background: var(--gray-50); border-color: var(--gray-300); color: var(--gray-900); }
+.biblio__action:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+/* Mobile : « Inviter des proches » passait sur deux lignes et cassait la
+   symétrie ; on resserre plutôt que de raccourcir le libellé. */
+@media (max-width: 420px) {
+  .biblio__action { gap: 6px; padding: 6px 6px; font-size: 13px; white-space: nowrap; }
 }
 
 /* ── En-tête de la bibliothèque ─────────────────────────────────────────── */
@@ -2803,9 +2869,11 @@ html.preview-active .scroll {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 4px;
   margin-bottom: 5px;
 }
 .libdoc__state {
+  flex: 1;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -2832,6 +2900,12 @@ html.preview-active .scroll {
   color: #991b1b;
 }
 .libdoc__error > span { flex: 1; }
+/* Arrêt voulu (pause, annulation) : un état, pas une panne. */
+.libdoc__error--held {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
 /* Barre d'actions : hauteur NATURELLE (celle des boutons `sm`), fond
    transparent. Aucune hauteur imposée — « taille normale » garantie. */
 .libdoc__actions {
@@ -3036,6 +3110,10 @@ html.preview-active .scroll {
   transition: color .15s ease;
 }
 .auth-lien-discret:hover { color: var(--blue); }
+
+/* Turnstile : invisible tant que Cloudflare ne demande rien. */
+.auth-turnstile { display: flex; justify-content: center; }
+.auth-turnstile:empty { display: none; }
 
 .auth-separateur {
   display: flex;

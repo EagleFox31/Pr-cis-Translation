@@ -5,6 +5,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useBeta, type BetaFormat } from '../hooks/useBeta';
 import { useBetaProgram } from '../hooks/useBetaProgram';
 import api from '../services/api';
+import { deviceHeaders } from '../lib/device';
+import { betaError } from '../lib/betaError';
 import AdminShell from '../components/admin/AdminShell';
 import BetaAllowances, { BETA_FORMATS } from '../components/library/BetaAllowances';
 import BetaProgramDetails from '../components/pricing/BetaProgramDetails';
@@ -21,18 +23,23 @@ function ApplicationForm({ onSubmitted }: { onSubmitted: () => Promise<void> }) 
     event.preventDefault(); setBusy(true); setError('');
     void (async () => {
       try {
-        const result = await api.post('/api/beta/applications', { primary_format: format, motivation });
+        const result = await api.post('/api/beta/applications',
+          { primary_format: format, motivation }, await deviceHeaders());
         if (result.ok) await onSubmitted();
         else {
           const detail = (result.data as { detail?: unknown })?.detail;
-          setError(typeof detail === 'string' ? detail : t('beta.error'));
+          // A value_error on the motivation is the server's hidden-character check.
+          const hidden = Array.isArray(detail) && detail.some((item: { type?: string; loc?: unknown[] }) =>
+            item?.type === 'value_error' && item.loc?.includes('motivation'));
+          setError(hidden ? t('beta.application.invalid_motivation')
+            : betaError(t, result.data));
         }
       } catch { setError(t('beta.error')); }
       finally { setBusy(false); }
     })();
   }}>
     <fieldset disabled={busy} className="beta-fieldset beta-application-form">
-      <label>{t('beta.primary_format')}<select value={format}
+      <label className="beta-field--short">{t('beta.primary_format')}<select value={format}
         onChange={event => setFormat(event.target.value as BetaFormat)}>
         {BETA_FORMATS.map(item => <option key={item} value={item}>{t(`beta.formats.${item}`)}</option>)}
       </select></label>
@@ -52,23 +59,11 @@ export default function BetaPage() {
   const { user, loading } = useAuth();
   const { data, error, refresh } = useBeta();
   const publicBeta = useBetaProgram();
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
   const enrollment = data?.enrollment;
   const application = data?.application;
 
-  const activate = async () => {
-    setBusy(true); setMessage('');
-    try {
-      const result = await api.post('/api/beta/activate');
-      if (result.ok) await refresh();
-      else setMessage(String((result.data as { detail?: string })?.detail || t('beta.error')));
-    } catch { setMessage(t('beta.error')); }
-    finally { setBusy(false); }
-  };
-
   return (
-    <AdminShell title={t('beta.title')}>
+    <AdminShell title={t('beta.title')} tabs={false}>
       <section className="beta-public" aria-label={t('beta.title')}>
         {publicBeta.program ? <BetaProgramDetails program={publicBeta.program} heading="h2" /> : <>
           <h2>{t('beta.title')}</h2><p role={publicBeta.error ? 'alert' : 'status'}>
@@ -94,7 +89,7 @@ export default function BetaPage() {
             : !publicBeta.program.applications_open ? <p>{t(`beta.public.closed_hint.${publicBeta.program.availability}`)}</p>
             : !data.email_verified ? <>
               <p>{t('beta.application.verify_email')}</p>
-              <Link className="beta-primary" to={'/verify-email?email=' + encodeURIComponent(user?.email || '') + '&next=%2Fbeta'}>
+              <Link className="beta-primary" to="/verify-email?next=%2Fbeta">
                 {t('auth.verify')}
               </Link>
             </> : <>
@@ -107,19 +102,21 @@ export default function BetaPage() {
               {t(`beta.states.${enrollment.state}`)}
             </span></p>
             <p>{t('beta.bound_email', { email: user?.email })}</p>
+            {/* Accès direct : l'invitation s'ouvre seule à la lecture du statut ; elle ne reste
+                « envoyée » que si l'e-mail n'est pas vérifié ou si les inscriptions sont closes. */}
             {enrollment.state === 'invited' && <>
               <p>{t('beta.activation_hint', { days: data.access_days })}</p>
-              {!data.email_verified && <p role="alert">{t('beta.verify_email')}</p>}
-              {!data.can_activate && <p>{t('beta.activation_closed')}</p>}
-              <button className="beta-primary" disabled={busy || !data.can_activate || !data.email_verified}
-                onClick={() => void activate()}>{t(busy ? 'beta.loading' : 'beta.activate')}</button>
+              {!data.email_verified ? <>
+                <p role="alert">{t('beta.verify_email')}</p>
+                <Link className="beta-primary" to="/verify-email?next=%2Fbeta">{t('auth.verify')}</Link>
+              </> : !data.can_activate ? <p>{t('beta.activation_closed')}</p>
+                : <button className="tb-btn" onClick={() => void refresh()}>{t('beta.refresh')}</button>}
             </>}
             {enrollment.expires_at && <p>{t('beta.expires', {
               date: new Date(enrollment.expires_at).toLocaleString(i18n.language),
             })}</p>}
             <BetaAllowances enrollment={enrollment} />
             <p className="beta-note">{t('beta.quota_hint')}</p>
-            {message && <p role="alert" className="beta-error">{message}</p>}
             <div className="beta-actions">
               <Link className="beta-primary" to="/home">{t('beta.translate')}</Link>
               <button className="tb-btn ghost" onClick={() => openSupport({

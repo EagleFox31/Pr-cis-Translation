@@ -16,7 +16,8 @@ import racine  # noqa: F401  -- met backend/ sur le chemin
 
 from app.config import TRADUCTION_ORPHELINE_GRACE_S          # noqa: E402
 from app.services.stockage import (                           # noqa: E402
-    balayer_magasin, limiter_apercus, purger_racine,
+    balayer_magasin, identite_base, limiter_apercus, magasin_appartient_a,
+    purger_racine,
 )
 
 V = "v9.9.9"
@@ -112,6 +113,19 @@ def run() -> int:
            and os.path.isfile(c), f"effacés={n}")
         ok("APERÇUS  sous le plafond, rien ne bouge",
            limiter_apercus(max_octets=250, dossier=prev) == 0)
+
+        # Marque de base : un balayage venu d'une AUTRE base est refusé.
+        dev = identite_base("postgresql+asyncpg://u:secret@localhost:5432/precis")
+        test = identite_base("postgresql+asyncpg://u:secret@localhost:5433/precis")
+        mag2 = j("_magasin_marque")
+        ok("BASE  premier balayage : le magasin adopte la base",
+           magasin_appartient_a(dev, mag2) and os.path.isfile(os.path.join(mag2, ".base")))
+        ok("BASE  même base : balayage permis", magasin_appartient_a(dev, mag2))
+        ok("BASE  autre base (tests sur 5433) : balayage refusé",
+           not magasin_appartient_a(test, mag2))
+        ok("BASE  le mot de passe n'entre pas dans l'identité",
+           "secret" not in dev
+           and dev == identite_base("postgresql+asyncpg://u:autre@localhost:5432/precis"))
     finally:
         shutil.rmtree(magasin, ignore_errors=True)
 

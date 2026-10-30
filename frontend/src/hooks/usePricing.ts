@@ -15,8 +15,6 @@ export interface PricingPlan {
   /** Montant en unités MINEURES (centimes, ou francs pour le XAF). `null` = sur devis. */
   monthly: number | null;
   annual: number | null;
-  monthly_total: number | null;
-  annual_total: number | null;
   monthly_pages: number | null;   // null = illimité
   storage: number;                // octets
   /** Niveau de VITESSE vendu : 0 = file standard, 1 = prioritaire, 2 = max,

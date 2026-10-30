@@ -2,6 +2,7 @@
 Routes documents — CRUD par utilisateur.
 """
 from __future__ import annotations
+import json
 import os
 import time
 
@@ -14,8 +15,9 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import TRANSLATIONS_DIR, logger
-from app.services import render_cache, stockage
-from app.services.jobs import jobs
+from app.services import render_cache, stockage, usage
+from app.services.documents import reglages_de, traduction_partielle_du_document
+from app.services.jobs import STATUTS_ARRET, STATUTS_REPRENABLES, jobs
 from app.services.office import convert_to_pdf_bytes
 from app.services.translation_runner import render_translation_bytes
 from app.core.database import get_db
@@ -51,8 +53,23 @@ def _lire(chemin: str) -> bytes:
     (registre de jobs en mémoire) et les fichiers vont jusqu'à MAX_FILE_SIZE :
     un téléchargement de 100 Mo suspendait les aperçus de tous les autres.
     """
-    with open(chemin, "rb") as fh:
-        return fh.read()
+    # Windows : ouverture refusée pendant que le runner remplace le partiel.
+    for essai in range(20):
+        try:
+            with open(chemin, "rb") as fh:
+                return fh.read()
+        except PermissionError:
+            if essai == 19:
+                raise
+            time.sleep(0.05)
+
+
+def _garder_pages(pdf: bytes, pages: set[int]) -> bytes:
+    """Ne garde du PDF que les `pages` (numéros 1-basés), dans l'ordre."""
+    import fitz
+    with fitz.open(stream=pdf, filetype="pdf") as d:
+        d.select([p - 1 for p in sorted(pages) if 0 < p <= len(d)])
+        return d.tobytes(garbage=3, deflate=True)
 
 
 def _inside_store(path: str) -> bool:
@@ -159,26 +176,53 @@ def _prune_empty_dirs(start: str) -> None:
 
 
 def _render_or_404(doc: Document, ext: str,
-                   only_pages: set[int] | None = None) -> bytes:
+                   only_pages: set[int] | None = None,
+                   trad: str | None = None) -> bytes:
     """Recalcule le document traduit depuis l'original + la traduction stockée.
 
     Le rendu est un SERVICE (`app.services.translation_runner`), pas
     l'application. Cette fonction faisait auparavant `import app` en paresseux
     pour contourner le cycle que creait `include_router` ; la fabrique
     `create_app()` ayant supprime le cycle, l'import est redevenu normal.
+
+    `trad` : la traduction à rendre, `doc.translated_path` par défaut (une
+    traduction partielle pour un document arrêté, voir `_traduction`).
+    `only_pages` borne alors les pages traduites livrées ; la sélection du
+    job numérote les diapositives d'une traduction PPTX finale.
     """
+    trad = trad or doc.translated_path
     if (not doc.original_path or not os.path.isfile(doc.original_path)
-            or not doc.translated_path or not os.path.isfile(doc.translated_path)):
+            or not trad or not os.path.isfile(trad)):
         raise HTTPException(status_code=404,
                             detail="Le fichier n'est plus disponible. Réessayez ou rechargez la page.")
+    selection = {int(p) for p in str(reglages_de(doc).get("pages") or "").split(",")
+                 if p.strip().isdigit()}
     try:
         return render_translation_bytes(
-            doc.original_path, doc.translated_path, ext, doc.target_lang,
-            only_pages=only_pages)
+            doc.original_path, trad, ext, doc.target_lang,
+            only_pages=only_pages, selection=selection or None)
     except Exception:
         logger.exception("Rendu impossible (doc %s, %s)", getattr(doc, "id", "?"), ext)
         raise HTTPException(status_code=500,
                             detail="Le rendu du document a échoué. Réessayez dans quelques instants.")
+
+
+async def _traduction(db: AsyncSession, doc: Document) -> tuple[str | None, set[int] | None]:
+    """(traduction à livrer, pages livrables : None si elle est complète).
+
+    Un document arrêté avant la fin (interrompu, en pause, annulé) n'a pas de
+    `translated_path` mais ses pages traduites sont payées : il les reçoit, au
+    plus autant qu'il en a payé, le reste en langue d'origine. Ce rendu
+    partiel n'est jamais mis en cache : le cache est indexé par le fichier,
+    partagé entre comptes, et un autre document y prendrait d'autres pages."""
+    if doc.translated_path:
+        return doc.translated_path, None
+    if doc.status not in STATUTS_REPRENABLES:
+        return None, None
+    payees = (await usage.pages_payees(db, doc.id)
+              + int(reglages_de(doc).get("deja") or 0))
+    partielle = await run_in_threadpool(traduction_partielle_du_document, doc, payees)
+    return partielle or (None, None)
 
 
 def _may_read_clear(user: User, doc: Document) -> bool:
@@ -207,6 +251,10 @@ def _doc_response(doc: Document) -> dict:
         "status": doc.status,
         "page_count": doc.page_count,
         "pages_done": doc.pages_done,
+        "reglages": json.loads(doc.reglages) if doc.reglages else None,
+        # Pause / Annuler depuis la bibliothèque. Le propriétaire est revérifié
+        # par la route d'arrêt : la liste ne fait que nommer le job.
+        "job_id": jobs.id_for_document(doc.id) if doc.status == "translating" else None,
         "created_at": doc.created_at.isoformat() if doc.created_at else None,
         "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
     }
@@ -268,8 +316,9 @@ async def download_document(
     if doc is None or doc.user_id != user.id:
         raise HTTPException(status_code=404, detail="Document introuvable.")
 
+    trad, livrables = await _traduction(db, doc)
     # Liste d'AUTORISATION : un plan inconnu est traité comme non payant.
-    if doc.translated_path and not _may_read_clear(user, doc):
+    if trad and not _may_read_clear(user, doc):
         raise HTTPException(
             status_code=402,
             detail="Cette traduction n'est pas payée. Réglez ses pages pour "
@@ -279,7 +328,7 @@ async def download_document(
     ext = os.path.splitext(doc.original_name)[1].lstrip(".").lower()
 
     # Pas encore de traduction : on rend l'original (le fichier de l'utilisateur).
-    if not doc.translated_path:
+    if not trad:
         if not doc.original_path or not os.path.isfile(doc.original_path):
             raise HTTPException(status_code=404, detail="Le fichier n'est plus disponible. Réessayez ou rechargez la page.")
         data = await run_in_threadpool(_lire, doc.original_path)
@@ -301,21 +350,27 @@ async def download_document(
     # pas) et, pour le PDF, on CONSERVE le résultat — la lenteur ne se paie
     # qu'une fois.
     def _build() -> bytes:
+        if livrables is not None:       # partiel : jamais le cache, voir `_traduction`
+            data = _render_or_404(doc, ext, only_pages=livrables, trad=trad)
+            # Le TÉLÉCHARGEMENT d'un arrêt ne livre que les pages traduites :
+            # les autres, recopiées de l'original pour l'aperçu côte à côte,
+            # ne sont pas la traduction que le client a payée.
+            return _garder_pages(data, livrables) if ext == "pdf" else data
         if ext == "pdf":
-            cached = render_cache.cache_valid(doc.translated_path)
+            cached = render_cache.cache_valid(trad)
             if cached:
                 with open(cached, "rb") as f:
                     return f.read()
-            marque = render_cache.marque_polices()
-            data = _render_or_404(doc, ext)
-            render_cache.store_render(data, doc.translated_path, marque)
+            marque, avant = render_cache.marque_polices(), render_cache.mtime_de(trad)
+            data = _render_or_404(doc, ext, trad=trad)
+            render_cache.store_render(data, trad, marque, avant)
             return data
         # Format natif non-PDF : jamais le cache d'aperçu.
-        return _render_or_404(doc, ext)
+        return _render_or_404(doc, ext, trad=trad)
 
     data = await run_in_threadpool(_build)
     base = os.path.splitext(doc.original_name)[0]
-    dl_name = f"{base}_TRADUIT.{ext}"
+    dl_name = f"{base}_TRADUIT{'_PARTIEL' if livrables is not None else ''}.{ext}"
     media = "application/pdf" if ext == "pdf" else "application/octet-stream"
     return Response(content=data, media_type=media,
                     headers={"Content-Disposition": f'attachment; filename="{dl_name}"'})
@@ -379,6 +434,20 @@ async def original_document(
 
 # ── GET /documents/{id}/preview ──────────────────────────────────────────────
 
+def _entetes_pages(job: dict | None) -> dict[str, str]:
+    """Où en est chaque page d'un document EN COURS. Rouvert depuis la
+    bibliothèque, l'aperçu n'a pas le flux de la traduction : sans ces
+    en-têtes, il tenait toutes les pages pour traduites (vertes, et le texte
+    d'origine affiché à la place de la traduction)."""
+    if not job:
+        return {"X-Pages-Pretes": "", "X-Pages-Etats": ""}
+    pretes, etats = jobs.pages_etat(job)
+    return {
+        "X-Pages-Pretes": ",".join(map(str, pretes)),
+        "X-Pages-Etats": ",".join(f"{p}:{s}" for p, s in sorted(etats.items())),
+    }
+
+
 @router.get("/{doc_id}/preview")
 async def preview_document(
     doc_id: str,
@@ -410,7 +479,8 @@ async def preview_document(
     # montrait original/original et n'avançait plus. On sert désormais le PDF
     # PARTIEL du job (les pages déjà traduites), ou « rien encore » — jamais
     # l'original déguisé en traduction. `X-Render` dit au client de redemander.
-    if not doc.translated_path:
+    trad, livrables = await _traduction(db, doc)
+    if not trad:
         job = jobs.for_document(doc.id)
         etat = job.get("state") if job else None
         # Job FINI mais base pas à jour (report `sync_status` échoué) : servir
@@ -424,7 +494,7 @@ async def preview_document(
             chemin, rendu = job["result_path"], "full"
         elif etat == "done" and time.time() - job.get("finished_at", 0) < 60:
             chemin, rendu = job.get("partial_path"), "partial"
-        elif etat in ("done", "error") or doc.status != "translating":
+        elif etat in ("done", "error", *STATUTS_ARRET) or doc.status != "translating":
             chemin, rendu = None, None
         else:
             chemin, rendu = job.get("partial_path") if job else None, "partial"
@@ -432,15 +502,17 @@ async def preview_document(
             if rendu != "partial":
                 raise HTTPException(status_code=404, detail="Traduction indisponible. Relancez-la depuis la bibliothèque.")
             return Response(status_code=202, headers={"Cache-Control": "no-store",
-                                                      "X-Render": "pending"})
+                                                      "X-Render": "pending",
+                                                      **_entetes_pages(job)})
         data = await run_in_threadpool(_lire, chemin)
         if not _may_read_clear(user, doc):
             # Même règle que /translate/partial : un plan d'essai ne reçoit
             # que des pixels, et seules les pages traduites sont à protéger.
             data = await run_in_threadpool(rasterize_for_trial, data, job.get("pages"))
+        entetes = _entetes_pages(job) if rendu == "partial" else {}
         return Response(content=data, media_type="application/pdf",
                         headers={"Cache-Control": "no-store",
-                                 "X-Render": rendu})
+                                 "X-Render": rendu, **entetes})
 
     # Un plan d'essai ne reçoit que du rastérisé, et seulement pour le PDF : un
     # format non-PDF ne peut pas être filigrané ici sans risque de le livrer en
@@ -481,8 +553,8 @@ async def preview_document(
     # le lui dit). Réservé au CLAIR : la version d'essai est rastérisée à la
     # demande, et rastériser 285 pages par requête coûterait plus que ce qu'on
     # évite.
-    if clear:
-        cached = render_cache.cache_valid(doc.translated_path)
+    if clear and livrables is None:
+        cached = render_cache.cache_valid(trad)
         if cached:
             data = await run_in_threadpool(_lire, cached)
             return Response(content=data, media_type="application/pdf",
@@ -496,17 +568,21 @@ async def preview_document(
         d'aperçu simultanées construisaient le même rendu en parallèle — deux
         réinjections PPTX dans deux moteurs, deux conversions LibreOffice, pour
         un seul résultat. Le second entrant retrouve ici le cache déjà écrit.
+        Un partiel, lui, n'est ni lu ni écrit dans le cache (voir `_traduction`).
         """
-        with render_cache.build_lock(doc.translated_path):
-            cached = render_cache.cache_valid(doc.translated_path)
+        if livrables is not None:
+            data = _render_or_404(doc, ext, only_pages=livrables, trad=trad)
+            return convert_to_pdf_bytes(data, ext) if ext != "pdf" else data
+        with render_cache.build_lock(trad):
+            cached = render_cache.cache_valid(trad)
             if cached:
                 with open(cached, "rb") as f:
                     return f.read()
-            marque = render_cache.marque_polices()
-            data = _render_or_404(doc, ext, only_pages=None)
+            marque, avant = render_cache.marque_polices(), render_cache.mtime_de(trad)
+            data = _render_or_404(doc, ext, only_pages=None, trad=trad)
             if ext != "pdf":
-                        data = convert_to_pdf_bytes(data, ext)
-            render_cache.store_render(data, doc.translated_path, marque)
+                data = convert_to_pdf_bytes(data, ext)
+            render_cache.store_render(data, trad, marque, avant)
             return data
 
     if fenetre is None:
@@ -522,12 +598,14 @@ async def preview_document(
     # reste celle du document — le lecteur n'a rien à recalculer. En tâche de
     # fond, on construit UNE fois le rendu complet : quelques minutes plus tard,
     # la navigation est instantanée et ne redemande plus rien.
-    if clear:
+    if clear and livrables is None:
         render_cache.ensure_background_build(
-            doc.original_path, doc.translated_path, ext, doc.target_lang)
+            doc.original_path, trad, ext, doc.target_lang)
+    if livrables is not None:
+        fenetre &= livrables        # page non payée : celle de l'original
 
     def _build_page() -> bytes:
-        data = _render_or_404(doc, ext, only_pages=fenetre)
+        data = _render_or_404(doc, ext, only_pages=fenetre, trad=trad)
         if not clear:
             data = rasterize_for_trial(data)      # ext == "pdf" garanti ici
         return data

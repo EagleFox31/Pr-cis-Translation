@@ -47,10 +47,14 @@ python seed_admin.py
 # recevrait « inconnu », et son flux SSE se fermerait sur une traduction
 # pourtant en cours. Le parallélisme se règle par TRANSLATION_WORKERS, à
 # l'intérieur de ce processus unique.
+#
+# X-Forwarded-For n'est cru que s'il vient du réseau Docker (nginx, qui l'écrase
+# avec l'adresse réelle). Avec '*', n'importe quel émetteur pourrait choisir son
+# adresse et contourner les limites par IP.
 exec uvicorn main:app \
     --host 0.0.0.0 \
     --port 8000 \
     --workers 1 \
     --proxy-headers \
-    --forwarded-allow-ips '*' \
+    --forwarded-allow-ips "${FORWARDED_ALLOW_IPS:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}" \
     --timeout-keep-alive 65
