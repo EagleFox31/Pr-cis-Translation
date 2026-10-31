@@ -1,10 +1,13 @@
-import { useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { LEGAL_FR, LEGAL_UPDATED as UPDATED_FR } from '../content/legal/fr';
 import { LEGAL_EN, LEGAL_UPDATED as UPDATED_EN } from '../content/legal/en';
 import type { LegalDoc } from '../content/legal/types';
+import MobileMenu from '../components/navbar/MobileMenu';
+import '../components/admin/admin.css';
 import '../legal.css';
 
 const CONTACT_EMAIL = 'contact@trigenys.com';
@@ -16,41 +19,69 @@ export default function LegalPage({ slug }: { slug: LegalDoc['slug'] }) {
   const updated = fr ? UPDATED_FR : UPDATED_EN;
   const doc = docs.find((d) => d.slug === slug) ?? docs[0];
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const links = docs.map((d) => ({ id: `/${d.slug}`, href: `/${d.slug}`, label: d.title }));
+
   useEffect(() => {
     document.title = `${doc.title} · Précis`;
-    window.scrollTo(0, 0);
+    scrollRef.current?.scrollTo(0, 0);
   }, [doc.title, slug]);
 
   return (
     <div className="legal-page">
-      <header className="legal-topbar">
-        <div className="legal-topbar__inner">
-          <Link to="/" className="legal-back">{t('legal.back')}</Link>
-          <span className="legal-topbar__title">Trigenys Group</span>
-        </div>
-      </header>
+      {/* Même barre que l'administration : logo, documents au centre, FR/EN. */}
+      <nav className="navbar scrolled">
+        <div className="nav-inner">
+          <Link to="/" className="nav-logo" title={t('legal.back')}>
+            <img src="/Logo.png" alt="P" style={{ height: '46px', width: 'auto' }} />
+            <span className="animated-logo-text">
+              {'récis'.split('').map((c, i) => (
+                <span key={i} style={{ animationDelay: `${i / 10}s` }}>{c}</span>
+              ))}
+            </span>
+          </Link>
 
-      <div className="legal-shell">
-        <div className="legal-layout">
-          <nav className="legal-nav" aria-label={t('legal.nav_label')}>
-            {docs.map((d) => (
-              <Link
-                key={d.slug}
-                to={`/${d.slug}`}
-                aria-current={d.slug === doc.slug ? 'page' : undefined}
-              >
-                {d.title}
-              </Link>
+          <ul className="nav-links" aria-label={t('legal.nav_label')}>
+            {links.map((l) => (
+              <li key={l.id}><NavLink to={l.href}>{l.label}</NavLink></li>
             ))}
-          </nav>
+          </ul>
 
-          <div className="legal-main">
-            <div className="legal-head">
-              <div className="section-tag">{t('legal.tag')}</div>
-              <h1>{doc.title}</h1>
-              <p className="legal-updated">{t('legal.updated', { date: updated })}</p>
-              <p className="legal-intro">{doc.intro}</p>
-            </div>
+          <div className="lang-toggle">
+            <button className={fr ? 'active' : ''} onClick={() => i18n.changeLanguage('fr')}>FR</button>
+            <button className={fr ? '' : 'active'} onClick={() => i18n.changeLanguage('en')}>EN</button>
+          </div>
+
+          <button className="hamburger" onClick={() => setMenuOpen((v) => !v)} aria-label="Toggle menu" aria-expanded={menuOpen}>
+            <span style={{ transform: menuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' }} />
+            <span style={{ opacity: menuOpen ? 0 : 1 }} />
+            <span style={{ transform: menuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none' }} />
+          </button>
+        </div>
+      </nav>
+
+      <MobileMenu
+        isOpen={menuOpen} links={links} activeSection={`/${doc.slug}`}
+        onNavClick={(to) => { setMenuOpen(false); navigate(to); }} onClose={() => setMenuOpen(false)}
+      />
+
+      {/* La page tient dans l'écran : Retour et titre restent fixes, seul le texte défile. */}
+      <main className="legal-main">
+        <div className="legal-head">
+          <div className="legal-head__inner">
+            <Link to="/" className="tb-btn ghost admin-btn legal-back">
+              <ArrowLeft size={15} strokeWidth={2.2} /> <span>{t('admin.back', 'Retour')}</span>
+            </Link>
+            <h1>{doc.title}</h1>
+            <span className="legal-updated">{t('legal.updated', { date: updated })}</span>
+          </div>
+        </div>
+
+        <div className="legal-scroll" ref={scrollRef}>
+          <div className="legal-body">
+            <p className="legal-intro">{doc.intro}</p>
             <article className="legal-article">
               {doc.sections.map((section, i) => (
                 <section key={section.heading} className="legal-section">
@@ -77,7 +108,7 @@ export default function LegalPage({ slug }: { slug: LegalDoc['slug'] }) {
             </article>
           </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
