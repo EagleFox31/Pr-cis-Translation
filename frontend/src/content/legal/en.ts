@@ -60,8 +60,8 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'The service',
         paragraphs: [
-          'Précis translates documents in txt, pdf, docx, pptx and xlsx formats, up to 100 MB per document. The original layout is preserved as far as possible, without any guarantee of perfect fidelity.',
-          'The translation is automated and may contain errors. You remain responsible for checking the result before any official, legal, medical or contractual use.',
+          'Précis translates documents in txt, pdf, docx, pptx and xlsx formats, up to 100 MB per document, with care taken to faithfully render the meaning and the original layout. Some complex documents (nested tables, unusual layouts) may show minor differences in presentation.',
+          'Translation relies on an automated process that we continuously improve. Like any translation, it may occasionally contain inaccuracies: if you notice one, report it to contact@trigenys.com so that we can correct it and improve the service. For official, legal, medical or contractual use, we recommend having the result reviewed before using it.',
         ],
       },
       {
@@ -69,7 +69,6 @@ export const LEGAL_EN: LegalDoc[] = [
         paragraphs: ['To use the service, you agree to the following.'],
         list: [
           'provide accurate information and keep it up to date;',
-          'be at least 18 years old, or have the consent of a parent or legal guardian;',
           'open only one account, for your own use;',
           'keep your password secret and tell us if it is compromised;',
           'verify your e-mail address: this verification is required to use the free pages.',
@@ -80,6 +79,8 @@ export const LEGAL_EN: LegalDoc[] = [
         paragraphs: [
           'Précis offers a free plan of 5 pages per month, a Starter plan of 100 pages per month and a Pro plan of 500 pages per month. The beta program has its own quotas and a limited duration, stated when you join the program.',
           'Current prices are shown on the site before any payment. They are not listed in these terms because they may change.',
+          'The free plan and the beta programme are partly funded by a promotional mention of Précis, included in translation previews. It is shown to free accounts and to beta testers; a paid account taking part in the beta programme only sees it on translations made with its beta credits. This mention involves no advertising network and uses none of your data.',
+          'On the free plan, the translation can be viewed as a preview. Downloading the translated document is available with paid plans, pages bought one by one and to beta programme participants.',
         ],
       },
       {
@@ -127,20 +128,20 @@ export const LEGAL_EN: LegalDoc[] = [
         heading: 'Your documents',
         paragraphs: [
           'You keep all your rights over your documents and their translations. You grant us only the rights needed to translate them, store them and show them to you.',
-          'Our team may open a document to answer a support request, or to identify translation errors that Précis does not yet handle well and improve its precision. This access is restricted to the team, each access is logged, and the document is never published, sold or shared outside the service providers listed in the privacy policy. Deleting the document ends this access.',
+          'Our team may open a document to answer a support request, or to identify possible translation inaccuracies so that we can correct them and improve the service. This access is restricted to the team, each access is logged, and the document is never published, sold or shared outside the service providers listed in the privacy policy. Deleting the document ends this access.',
           'Do not upload documents that you are not allowed to share.',
         ],
       },
       {
         heading: 'Availability',
         paragraphs: [
-          'Précis is a beta service and is still evolving. It may be interrupted, in particular for maintenance. We do not guarantee uninterrupted availability.',
+          'Précis is a beta service that we regularly enrich and improve. We do what is needed to keep it available at all times; it may however be briefly interrupted, in particular for maintenance or updates. If an incident occurs, we act as quickly as possible to restore the service.',
         ],
       },
       {
         heading: 'Liability',
         paragraphs: [
-          'To the extent permitted by law, the liability of Trigenys Group is limited to the amounts you paid over the last 12 months. Trigenys Group is not liable for the use of a translation that has not been reviewed.',
+          'To the extent permitted by law, the liability of Trigenys Group is limited to the amounts you paid over the last 12 months. For the sensitive uses mentioned above, the recommended review remains your responsibility: Trigenys Group cannot be held liable for the use of a translation that has not been reviewed.',
         ],
       },
       {
@@ -239,8 +240,10 @@ export const LEGAL_EN: LegalDoc[] = [
         ],
       },
       {
-        heading: 'No sale of data, no advertising',
-        paragraphs: ['We do not sell your data and we do not display any advertising.'],
+        heading: 'No sale of data, no targeted advertising',
+        paragraphs: [
+          'We do not sell your data and we use no advertising network. Previews on the free plan and the beta programme carry a promotional mention of Précis, identical for everyone: it uses no personal data and no tracker.',
+        ],
       },
       {
         heading: 'Changes',
@@ -263,7 +266,7 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'What we use',
         paragraphs: [
-          'Précis only uses what is necessary for the service to work and to stay secure. We use no advertising and no audience measurement, so no consent banner is displayed.',
+          'Précis only uses what is necessary for the service to work and to stay secure. We use no advertising cookies and no audience measurement (the promotional mention on free and beta previews is part of the image and sets no cookie), so no consent banner is displayed.',
         ],
       },
       {

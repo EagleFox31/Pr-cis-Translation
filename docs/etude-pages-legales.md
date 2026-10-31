@@ -38,7 +38,7 @@ Routes `/mentions-legales`, `/conditions`, `/confidentialite`, `/cookies`, un co
 3. **Relecture des documents** : l'équipe peut ouvrir un document pour l'assistance ou pour repérer les erreurs de traduction et améliorer le service ; accès réservé, journalisé, jamais publié ni revendu ; supprimer le document y met fin.
 4. **Conservation** : documents gardés jusqu'à leur suppression par l'utilisateur ; compte supprimé sur demande par e-mail.
 5. **Âge** : 18 ans, ou accord d'un parent.
-6. **Cookies** : uniquement nécessaires (sécurité, anti-abus, session) ; pas de publicité ni de mesure d'audience, donc pas de bandeau de consentement.
+6. **Cookies** : uniquement nécessaires (sécurité, anti-abus, session) ; ni régie publicitaire ni mesure d'audience, donc pas de bandeau de consentement. La seule « publicité » est une mention promotionnelle de Précis (filigrane « PRÉCIS · Professional Translation · site ») intégrée à l'image des aperçus : comptes gratuits, bêta-testeurs, et comptes payants uniquement sur les traductions faites avec des crédits bêta. Identique pour tous, elle n'utilise aucune donnée personnelle ni cookie.
 7. **Droit** : droit camerounais (loi n° 2010/012 sur la cybersécurité, loi n° 2024/017 sur les données personnelles), règlement amiable puis tribunaux de Douala.
 
 ## 6. Impacts et risques

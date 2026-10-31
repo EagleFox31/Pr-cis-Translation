@@ -60,8 +60,8 @@ export const LEGAL_FR: LegalDoc[] = [
       {
         heading: 'Le service',
         paragraphs: [
-          'Précis traduit des documents aux formats txt, pdf, docx, pptx et xlsx, dans la limite de 100 Mo par document. La mise en page d\'origine est conservée au mieux, sans garantie de fidélité parfaite.',
-          'La traduction est réalisée automatiquement et peut contenir des erreurs. Vous restez responsable de vérifier le résultat avant tout usage officiel, juridique, médical ou contractuel.',
+          'Précis traduit des documents aux formats txt, pdf, docx, pptx et xlsx, dans la limite de 100 Mo par document, en s\'attachant à restituer fidèlement le sens et la mise en page d\'origine. Certains documents complexes (tableaux imbriqués, mises en page atypiques) peuvent présenter de légers écarts de présentation.',
+          'La traduction repose sur un traitement automatisé que nous améliorons en continu. Comme toute traduction, elle peut ponctuellement comporter des imprécisions : si vous en constatez une, signalez-la à contact@trigenys.com afin que nous puissions la corriger et améliorer le service. Pour un usage officiel, juridique, médical ou contractuel, nous vous recommandons de faire relire le résultat avant de l\'utiliser.',
         ],
       },
       {
@@ -69,7 +69,6 @@ export const LEGAL_FR: LegalDoc[] = [
         paragraphs: ['Pour utiliser le service, vous vous engagez à respecter les points suivants.'],
         list: [
           'fournir des informations exactes et les tenir à jour ;',
-          'avoir au moins 18 ans, ou disposer de l\'accord d\'un parent ou représentant légal ;',
           'n\'ouvrir qu\'un seul compte, pour votre usage personnel ;',
           'garder votre mot de passe secret et nous prévenir en cas de compromission ;',
           'vérifier votre adresse e-mail : cette vérification est requise pour utiliser les pages gratuites.',
@@ -80,6 +79,8 @@ export const LEGAL_FR: LegalDoc[] = [
         paragraphs: [
           'Précis propose une offre gratuite de 5 pages par mois, une offre Starter de 100 pages par mois et une offre Pro de 500 pages par mois. Le programme bêta dispose de quotas propres et d\'une durée limitée, précisés lors de l\'inscription au programme.',
           'Les prix en vigueur sont affichés sur le site avant tout paiement. Ils ne figurent pas dans ces conditions, car ils peuvent évoluer.',
+          'L\'offre gratuite et le programme bêta sont financés en partie par une mention promotionnelle de Précis, intégrée à l\'aperçu des traductions. Elle s\'affiche pour les comptes gratuits et pour les bêta-testeurs ; un compte payant qui participe au programme bêta la voit uniquement sur les traductions réalisées avec ses crédits bêta. Cette mention ne fait appel à aucune régie publicitaire et n\'utilise aucune de vos données.',
+          'Avec l\'offre gratuite, la traduction se consulte en aperçu. Le téléchargement du document traduit est ouvert aux offres payantes, aux pages achetées à l\'unité et aux participants du programme bêta.',
         ],
       },
       {
@@ -127,20 +128,20 @@ export const LEGAL_FR: LegalDoc[] = [
         heading: 'Vos documents',
         paragraphs: [
           'Vous conservez tous vos droits sur vos documents et sur leurs traductions. Vous nous accordez uniquement les droits nécessaires pour les traduire, les conserver et vous les afficher.',
-          'Notre équipe peut ouvrir un document pour répondre à une demande d\'assistance, ou pour repérer des erreurs de traduction que Précis ne traite pas encore bien et en améliorer la précision. Cet accès est réservé à l\'équipe, chaque accès est journalisé, et le document n\'est jamais publié, vendu ni transmis en dehors des prestataires listés dans la politique de confidentialité. La suppression du document met fin à cet accès.',
+          'Notre équipe peut ouvrir un document pour répondre à une demande d\'assistance, ou pour repérer d\'éventuelles imprécisions de traduction afin de les corriger et d\'améliorer le service. Cet accès est réservé à l\'équipe, chaque accès est journalisé, et le document n\'est jamais publié, vendu ni transmis en dehors des prestataires listés dans la politique de confidentialité. La suppression du document met fin à cet accès.',
           'Ne transmettez pas de documents que vous n\'avez pas le droit de partager.',
         ],
       },
       {
         heading: 'Disponibilité',
         paragraphs: [
-          'Précis est un service en bêta, appelé à évoluer. Il peut être interrompu, notamment pour maintenance. Nous ne garantissons pas une disponibilité ininterrompue.',
+          'Précis est un service en bêta, que nous enrichissons et améliorons régulièrement. Nous faisons le nécessaire pour qu\'il reste accessible en permanence ; il peut toutefois être brièvement interrompu, notamment pour maintenance ou mise à jour. En cas d\'incident, nous intervenons dans les meilleurs délais pour rétablir le service.',
         ],
       },
       {
         heading: 'Responsabilité',
         paragraphs: [
-          'Dans la mesure permise par la loi, la responsabilité de Trigenys Group est limitée aux sommes que vous avez versées au cours des 12 derniers mois. Trigenys Group n\'est pas responsable de l\'utilisation d\'une traduction qui n\'a pas été relue.',
+          'Dans la mesure permise par la loi, la responsabilité de Trigenys Group est limitée aux sommes que vous avez versées au cours des 12 derniers mois. Pour les usages sensibles évoqués plus haut, la relecture recommandée reste de votre ressort : Trigenys Group ne peut être tenu responsable de l\'utilisation d\'une traduction qui n\'a pas été relue.',
         ],
       },
       {
@@ -241,9 +242,9 @@ export const LEGAL_FR: LegalDoc[] = [
         ],
       },
       {
-        heading: 'Pas de vente de données, pas de publicité',
+        heading: 'Pas de vente de données, pas de publicité ciblée',
         paragraphs: [
-          'Nous ne vendons pas vos données et n\'affichons aucune publicité.',
+          'Nous ne vendons pas vos données et ne faisons appel à aucune régie publicitaire. Les aperçus de l\'offre gratuite et du programme bêta portent une mention promotionnelle de Précis, identique pour tous : elle n\'utilise aucune donnée personnelle ni aucun traceur.',
         ],
       },
       {
@@ -267,7 +268,7 @@ export const LEGAL_FR: LegalDoc[] = [
       {
         heading: 'Ce que nous utilisons',
         paragraphs: [
-          'Précis n\'utilise que ce qui est nécessaire au fonctionnement et à la sécurité du service. Nous n\'utilisons ni publicité ni mesure d\'audience : aucun bandeau de consentement n\'est donc affiché.',
+          'Précis n\'utilise que ce qui est nécessaire au fonctionnement et à la sécurité du service. Nous n\'utilisons ni cookie publicitaire ni mesure d\'audience (la mention promotionnelle des aperçus gratuits et bêta est intégrée à l\'image et ne dépose aucun cookie) : aucun bandeau de consentement n\'est donc affiché.',
         ],
       },
       {
