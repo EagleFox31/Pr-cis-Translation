@@ -80,7 +80,7 @@ export const LEGAL_FR: LegalDoc[] = [
           'Précis propose une offre gratuite de 5 pages par mois, une offre Starter de 100 pages par mois et une offre Pro de 500 pages par mois. Le programme bêta dispose de quotas propres et d\'une durée limitée, précisés lors de l\'inscription au programme.',
           'Les prix en vigueur sont affichés sur le site avant tout paiement. Ils ne figurent pas dans ces conditions, car ils peuvent évoluer.',
           'L\'offre gratuite et le programme bêta sont financés en partie par une mention promotionnelle de Précis, intégrée à l\'aperçu des traductions. Elle s\'affiche pour les comptes gratuits et pour les bêta-testeurs ; un compte payant qui participe au programme bêta la voit uniquement sur les traductions réalisées avec ses crédits bêta. Cette mention ne fait appel à aucune régie publicitaire et n\'utilise aucune de vos données.',
-          'Avec l\'offre gratuite, la traduction se consulte en aperçu. Le téléchargement du document traduit est ouvert aux offres payantes, aux pages achetées à l\'unité et aux participants du programme bêta.',
+          'Les traductions réalisées avec les pages gratuites se consultent en aperçu. Toutes les autres, qu\'elles proviennent d\'une offre payante, de pages achetées à l\'unité ou de crédits bêta, peuvent être téléchargées.',
         ],
       },
       {

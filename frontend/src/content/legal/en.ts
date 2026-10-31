@@ -80,7 +80,7 @@ export const LEGAL_EN: LegalDoc[] = [
           'Précis offers a free plan of 5 pages per month, a Starter plan of 100 pages per month and a Pro plan of 500 pages per month. The beta program has its own quotas and a limited duration, stated when you join the program.',
           'Current prices are shown on the site before any payment. They are not listed in these terms because they may change.',
           'The free plan and the beta programme are partly funded by a promotional mention of Précis, included in translation previews. It is shown to free accounts and to beta testers; a paid account taking part in the beta programme only sees it on translations made with its beta credits. This mention involves no advertising network and uses none of your data.',
-          'On the free plan, the translation can be viewed as a preview. Downloading the translated document is available with paid plans, pages bought one by one and to beta programme participants.',
+          'Translations made with free pages can be viewed as a preview. All others, whether they come from a paid plan, pages bought one by one or beta credits, can be downloaded.',
         ],
       },
       {
