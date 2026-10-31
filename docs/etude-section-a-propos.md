@@ -80,7 +80,8 @@ Sources : [NN/g, cité par Data & Design](https://dataanddesign.substack.com/p/l
 3. **Visage humain** : aucun nom. L'entreprise reste anonyme.
 4. **Confidentialité** : rien dans la section sur le prestataire de traduction. Ce point ira dans la future page Confidentialité, et la section ne promet rien de contraire.
 5. **Liens** : LinkedIn et Facebook de Trigenys Group. AgenStudio et Trigenys Insight sont cités sans lien, faute de site en ligne trouvé.
-6. **Finition (retour après la première version)** : texte en une phrase de méthode, justifié ; e-mail · LinkedIn · Facebook sur une ligne ; la mascotte revient, la tête au-dessus de la fiche ; « Nous écrire » ouvre une fenêtre. Utilisateur connecté : la fenêtre d'assistance existante. Visiteur : l'assistance exige un compte, donc une fenêtre de contact (e-mail, WhatsApp et téléphone si renseignés), en panneau bas sur mobile.
+6. **Rien qui dessert** : pas d'année de création, pas de délai de réponse promis.
+7. **Finition (retour après la première version)** : texte en une phrase de méthode, justifié ; e-mail · LinkedIn · Facebook sur une ligne ; la mascotte revient, la tête au-dessus de la fiche ; « Nous écrire » ouvre une fenêtre. Utilisateur connecté : la fenêtre d'assistance existante. Visiteur : l'assistance exige un compte, donc une fenêtre de contact (e-mail, WhatsApp et téléphone si renseignés), en panneau bas sur mobile.
 
 ## 8. Hors périmètre, à prévoir
 Pages Mentions légales, CGU et Confidentialité, à créer sur une branche dédiée, avec une validation juridique. Elles devraient exister avant l'ouverture publique.

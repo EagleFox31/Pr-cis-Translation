@@ -65,7 +65,6 @@ export default function AboutSection() {
               <h3 id="about-card-title" className="about-card-name">Trigenys Group</h3>
               <dl className="about-card-facts">
                 <div><dt>{t('about.card_location_label')}</dt><dd>{t('about.card_location')}</dd></div>
-                <div><dt>{t('about.card_founded_label')}</dt><dd>2026</dd></div>
                 <div><dt>{t('about.card_products_label')}</dt><dd>{t('about.card_products')}</dd></div>
               </dl>
               <p className="about-card-links">
