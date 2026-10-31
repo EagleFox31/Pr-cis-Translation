@@ -35,7 +35,7 @@ La séparation `api → services → engines` permet de tester les moteurs sans 
 | DOCX | Texte et structure Word | [Moteur DOCX](backend/engines/docx/CONTEXTE.md) |
 | PPTX | Texte et objets dans les diapositives | [Moteur PPTX](backend/engines/pptx/CONTEXTE.md) |
 | XLSX | Cellules, graphiques et contraintes de largeur | [Moteur XLSX](backend/engines/xlsx/CONTEXTE.md) |
-| PDF scanné | OCR étudié, non déclaré livré | [Étude OCR](docs/etude-ocr.md) |
+| PDF scanné | OCR étudié, non déclaré livré | [Étude OCR](docs/etude-ocr.md), [v2](docs/etude-ocr-v2.md) |
 
 **Versions :** le `package.json` de ce dépôt déclare actuellement `1.6.2`. Cette valeur ne prouve pas qu'une release correspondante soit effectivement déployée ; consulter les manifestes des moteurs, le [changelog](CHANGELOG.md) et les étapes de recette.
 
@@ -88,6 +88,8 @@ aperçus non-PDF.
 | [`docs/feuille-de-route-production.md`](docs/feuille-de-route-production.md) | **Aller en production** : les 6 étapes dans l'ordre, qui fait quoi, et la preuve de chacune |
 | [`docs/deploiement.md`](docs/deploiement.md) | **Mettre en ligne** : machine AWS, configuration, HTTPS, limites connues |
 | [`docs/etude-ocr.md`](docs/etude-ocr.md) | Étude : traduire des PDF **scannés** (OCR) — feature à venir |
+| [`docs/etude-ocr-v2.md`](docs/etude-ocr-v2.md) | Étude : OCR v2 — lire, effacer et réécrire le texte d'une image (fonds chargés, japonais) |
+| [`docs/etude-extension-navigateur.md`](docs/etude-extension-navigateur.md) | Étude : extension navigateur traduisant une page entière, images comprises après accord |
 | [`docs/guide-premiere-mise-en-ligne.md`](docs/guide-premiere-mise-en-ligne.md) | Pas à pas de la toute première mise en ligne |
 | [`infra/aws/README.md`](infra/aws/README.md) | L'infrastructure AWS (CloudFormation, OIDC, secrets) |
 | `docs/api/index.html` | Les 32 opérations HTTP (`npm run docs:api`) |
