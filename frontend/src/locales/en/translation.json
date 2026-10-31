@@ -249,9 +249,10 @@
   },
   "footer": {
     "rights": "© 2026 Précis by Trigenys Group. All rights reserved.",
-    "legal": "Legal Mentions",
-    "terms": "T&C",
-    "privacy": "Privacy"
+    "legal": "Legal notice",
+    "terms": "Terms of use",
+    "privacy": "Privacy",
+    "cookies": "Cookies"
   },
   "viewer": {
     "pause": "Pause",
@@ -340,6 +341,7 @@
     "or": "or",
     "no_account": "No account yet?",
     "have_account": "Already have an account?",
+    "accept_terms": "By creating an account, you accept the <terms>Terms of use</terms> and the <privacy>Privacy policy</privacy>.",
     "signing_in": "Signing in…",
     "email_verified": "Email verified — please sign in.",
     "verification": "Verification",
@@ -786,6 +788,13 @@
     },
     "participants": "Participants",
     "invite_by_email": "Invite by email"
+  },
+  "legal": {
+    "tag": "Legal",
+    "updated": "Last updated: {{date}}",
+    "back": "← Précis",
+    "nav_label": "Legal documents",
+    "question": "A question?"
   },
   "invite": {
     "open": "Invite friends",

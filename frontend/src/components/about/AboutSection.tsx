@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Check, Mail, MessageCircle, Phone, X } from 'lucide-react';
 
@@ -172,16 +173,19 @@ function FooterSection() {
         }}
       >
         <p>{t('footer.rights')}</p>
-        <div style={{ display: 'flex', gap: '16px' }}>
-          <a href="#" style={{ color: 'inherit' }}>
+        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+          <Link to="/mentions-legales" style={{ color: 'inherit' }}>
             {t('footer.legal')}
-          </a>
-          <a href="#" style={{ color: 'inherit' }}>
+          </Link>
+          <Link to="/conditions" style={{ color: 'inherit' }}>
             {t('footer.terms')}
-          </a>
-          <a href="#" style={{ color: 'inherit' }}>
+          </Link>
+          <Link to="/confidentialite" style={{ color: 'inherit' }}>
             {t('footer.privacy')}
-          </a>
+          </Link>
+          <Link to="/cookies" style={{ color: 'inherit' }}>
+            {t('footer.cookies')}
+          </Link>
         </div>
       </div>
     </div>

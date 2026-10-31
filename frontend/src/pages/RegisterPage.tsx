@@ -8,7 +8,7 @@
  */
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 import { Mail, User, ArrowRight } from 'lucide-react';
 
 import { useAuth } from '../contexts/AuthContext';
@@ -112,6 +112,16 @@ export default function RegisterPage() {
           loading={busy} icon={<ArrowRight size={15} />}>
           {t('auth.get_code')}
         </Button>
+
+        <p style={{ margin: 0, textAlign: 'center', fontSize: '0.8rem', lineHeight: 1.5, color: 'var(--gray-500)' }}>
+          <Trans
+            i18nKey="auth.accept_terms"
+            components={{
+              terms: <Link to="/conditions" style={{ color: 'inherit', textDecoration: 'underline' }} />,
+              privacy: <Link to="/confidentialite" style={{ color: 'inherit', textDecoration: 'underline' }} />,
+            }}
+          />
+        </p>
       </form>
 
       <p className="auth-pied">

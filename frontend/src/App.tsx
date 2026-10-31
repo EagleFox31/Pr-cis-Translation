@@ -19,6 +19,7 @@ import { authReturnTo } from './lib/authReturn';
 
 const AdminBetaPage = lazy(() => import('./pages/AdminBetaPage'));
 const BetaPage = lazy(() => import('./pages/BetaPage'));
+const LegalPage = lazy(() => import('./pages/LegalPage'));
 
 /** Redirige vers /home si déjà connecté ( pages auth ). */
 function GuestRoute({ children }: { children: React.ReactNode }) {
@@ -73,6 +74,10 @@ function MainApp() {
           <Route path="/admin/support" element={<AdminRoute><AdminSupportPage /></AdminRoute>} />
           <Route path="/admin/beta" element={<AdminRoute><Suspense fallback={null}><AdminBetaPage /></Suspense></AdminRoute>} />
           <Route path="/beta" element={<Suspense fallback={null}><BetaPage /></Suspense>} />
+          <Route path="/mentions-legales" element={<Suspense fallback={null}><LegalPage slug="mentions-legales" /></Suspense>} />
+          <Route path="/conditions" element={<Suspense fallback={null}><LegalPage slug="conditions" /></Suspense>} />
+          <Route path="/confidentialite" element={<Suspense fallback={null}><LegalPage slug="confidentialite" /></Suspense>} />
+          <Route path="/cookies" element={<Suspense fallback={null}><LegalPage slug="cookies" /></Suspense>} />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
         <ToastContainer />
