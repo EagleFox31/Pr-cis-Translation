@@ -215,3 +215,10 @@ et images envoyés seulement sur action de l'utilisateur, non conservés.
    installation manuelle pour un groupe d'essai ?
 4. **Page du cours** : fournir une sauvegarde de la page (Ctrl+S) ou les
    `outerHTML` des cadres pour valider l'approche avant le développement.
+
+### Décisions (31/10/2026)
+
+1. Prix : 1 crédit par image remplacée, 0 si non remplacée ; texte traduit par le navigateur gratuit ; texte « qualité Précis » au volume (règle des documents).
+2. Navigateurs : Edge et Chrome au lancement ; Firefox plus tard.
+3. Publication : installation manuelle pour un groupe d'essai d'abord, stores ensuite.
+4. Page du cours : sauvegarde demandée à l'utilisateur ; en attendant, l'OCR v2 avance.

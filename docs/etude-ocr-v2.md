@@ -335,3 +335,8 @@ Chaque étape est mesurée sur le banc avant la suivante.
 2. **Japonais** : langue *source* officielle du produit (affichée sur le
    site), ou seulement pour l'extension au début ?
 3. **Prix d'une image traduite** : voir l'étude extension.
+
+### Décisions (31/10/2026)
+
+1. Poids accepté : OpenCV contrib, SciPy, ONNX Runtime, PP-OCRv6 *small*, Noto Sans. LaMa non retenu.
+2. Japonais : d'abord pour l'extension (images de pages web) ; il ne sera annoncé comme langue source des documents qu'après mesure sur le banc.
