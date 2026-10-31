@@ -9,6 +9,7 @@ import { openSupport } from '../support/supportBus';
 
 const CONTACT_EMAIL = 'contact@trigenys.com';
 const LINKEDIN_URL = 'https://www.linkedin.com/company/trigenys-group';
+const INSIGHT_URL = 'https://insight.trigenys.com/fr';
 const FACEBOOK_URL = 'https://www.facebook.com/p/Trigenys-Group-61594499048324/';
 // Numéros au format international, chiffres seuls (ex. 2376XXXXXXXX). Vides =
 // lignes masquées : rien d'inventé ne s'affiche.
@@ -65,7 +66,7 @@ export default function AboutSection() {
               <h3 id="about-card-title" className="about-card-name">Trigenys Group</h3>
               <dl className="about-card-facts">
                 <div><dt>{t('about.card_location_label')}</dt><dd>{t('about.card_location')}</dd></div>
-                <div><dt>{t('about.card_products_label')}</dt><dd>{t('about.card_products')}</dd></div>
+                <div><dt>{t('about.card_products_label')}</dt><dd>AgenStudio, <a href={INSIGHT_URL} target="_blank" rel="noopener noreferrer">Trigenys Insight</a></dd></div>
               </dl>
               <p className="about-card-links">
                 <Mail size={16} aria-hidden="true" />

@@ -79,7 +79,7 @@ Sources : [NN/g, cité par Data & Design](https://dataanddesign.substack.com/p/l
 2. **Pourquoi Précis** : pas d'angle français / anglais. Le texte décrit le vrai défi : Précis reprend la méthode des traducteurs de métier (lire tout le document, fixer une terminologie, garder la mise en page) et l'automatise.
 3. **Visage humain** : aucun nom. L'entreprise reste anonyme.
 4. **Confidentialité** : rien dans la section sur le prestataire de traduction. Ce point ira dans la future page Confidentialité, et la section ne promet rien de contraire.
-5. **Liens** : LinkedIn et Facebook de Trigenys Group. AgenStudio et Trigenys Insight sont cités sans lien, faute de site en ligne trouvé.
+5. **Liens** : LinkedIn et Facebook de Trigenys Group. Trigenys Insight renvoie vers insight.trigenys.com ; AgenStudio reste sans lien (pas de site en ligne). Téléphone et WhatsApp : la ligne MTN, renseignée dans `frontend/.env`.
 6. **Rien qui dessert** : pas d'année de création, pas de délai de réponse promis.
 7. **Finition (retour après la première version)** : texte en une phrase de méthode, justifié ; e-mail · LinkedIn · Facebook sur une ligne ; la mascotte revient, la tête au-dessus de la fiche ; « Nous écrire » ouvre une fenêtre. Utilisateur connecté : la fenêtre d'assistance existante. Visiteur : l'assistance exige un compte, donc une fenêtre de contact (e-mail, WhatsApp et téléphone si renseignés), en panneau bas sur mobile.
 
