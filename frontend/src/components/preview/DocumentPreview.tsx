@@ -24,6 +24,10 @@ interface DocumentPreviewProps {
   targetLabel?: string;
   /** true = chargement en cours (ne PAS afficher la démo). */
   previewLoading?: boolean;
+  /** Fichier disparu du serveur (cf. PdfViewer). */
+  fileMissing?: 'translation' | 'all' | null;
+  /** Format des cadres tant qu'aucun PDF n'est chargé. */
+  formatHint?: 'landscape' | 'portrait';
   /** Manque de crédits (402) : pages à régler pour ce document. Affiché dans le
    *  panneau traduit, à la place du message de progression. */
   creditsNeeded?: number | null;
@@ -31,6 +35,9 @@ interface DocumentPreviewProps {
   onBuyPages?: (pages: number) => void;
   /** Pages déjà couvertes par le solde, si on peut ne traduire qu'elles. */
   pagesCovered?: number | null;
+  /** Motif du refus à afficher au-dessus de l'achat (pages offertes refusées
+   *  par l'anti-abus). `null` = manque de crédits ordinaire. */
+  creditsReason?: string | null;
   /** Relance en ne traduisant que les pages couvertes. */
   onTranslateCovered?: () => void;
   /** Essai : quitter l'aperçu pour les tarifs. */
@@ -56,9 +63,12 @@ export default function DocumentPreview({
   sourceLabel,
   targetLabel,
   previewLoading,
+  fileMissing,
+  formatHint,
   creditsNeeded,
   onBuyPages,
   pagesCovered,
+  creditsReason,
   onTranslateCovered,
   onUnlock,
 }: DocumentPreviewProps) {
@@ -128,10 +138,13 @@ export default function DocumentPreview({
       translatedPageStatus={translatedPageStatus}
       sourceLabel={sourceLabel}
       previewLoading={previewLoading}
+      fileMissing={fileMissing}
+      formatHint={formatHint}
       targetLabel={targetLabel}
       creditsNeeded={creditsNeeded}
       onBuyPages={onBuyPages}
       pagesCovered={pagesCovered}
+      creditsReason={creditsReason}
       onTranslateCovered={onTranslateCovered}
       onUnlock={onUnlock}
     />

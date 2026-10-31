@@ -24,17 +24,32 @@ IP_SUBMISSIONS = 20
 _COOKIE = re.compile(r"[A-Za-z0-9_-]{32}\.[a-f0-9]{64}")
 
 
+# Fournisseurs où `local+tag@domaine` arrive dans la boîte `local@domaine`.
+_PLUS_DOMAINS = frozenset({
+    "outlook.com", "hotmail.com", "live.com", "msn.com", "icloud.com", "me.com",
+    "mac.com", "proton.me", "protonmail.com", "pm.me", "fastmail.com",
+})
+# Yahoo : le suffixe d'une adresse jetable se sépare par un tiret (`local-suffixe`).
+_DASH_DOMAINS = frozenset({"yahoo.com", "yahoo.fr", "ymail.com"})
+
+
 def canonical_mailbox(email: str) -> str:
     """A beta deduplication key, never a replacement for the login email.
 
-    Gmail personal addresses ignore dots and +tags. Other domains, including
-    Google Workspace custom domains, retain their original local part.
+    Gmail personal addresses ignore dots and +tags. Other large providers ignore
+    the +tag (Outlook, iCloud, Proton, Fastmail) or the -suffix (Yahoo). Other
+    domains, including Google Workspace custom domains, retain their original
+    local part.
     """
-    address = email.strip().casefold()
+    address = email.strip().lower()
     local, separator, domain = address.rpartition("@")
     if separator and domain in ("gmail.com", "googlemail.com"):
         local = local.split("+", 1)[0].replace(".", "")
         return local + "@gmail.com"
+    if separator and domain in _PLUS_DOMAINS:
+        return local.split("+", 1)[0] + "@" + domain
+    if separator and domain in _DASH_DOMAINS:
+        return local.split("-", 1)[0] + "@" + domain
     return address
 
 
@@ -46,22 +61,31 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
-async def mailbox_match(db, model, email, *, exclude_id=None, activated_only=False):
+async def mailbox_match(db, model, email, *, campaign_id, exclude_id=None, activated_only=False):
     key = canonical_mailbox(email)
-    query = select(model).where(model.campaign_id == "pilot",
-        or_(model.mailbox_key == key, model.mailbox_key.is_(None)))
+    hidden = anonymous_mailbox(key)
+    query = select(model).where(model.campaign_id == campaign_id,
+        or_(model.mailbox_key.in_((key, hidden)), model.mailbox_key.is_(None)))
     if exclude_id is not None:
         query = query.where(model.id != exclude_id)
     if activated_only:
         query = query.where(model.activated_at.is_not(None))
     # NULL supports pre-existing/test rows without inventing identity metadata.
     rows = (await db.execute(query)).scalars().all()
-    return next((row for row in rows if canonical_mailbox(row.email) == key), None)
+    return next((row for row in rows
+                 if row.mailbox_key == hidden or canonical_mailbox(row.email) == key), None)
 
 
 def _digest(purpose: str, value: str) -> str:
     return hmac.new(JWT_SECRET.encode(), ("precis-beta:" + purpose + ":" + value).encode(),
                     hashlib.sha256).hexdigest()
+
+
+ANONYMOUS = "h:"
+
+
+def anonymous_mailbox(key: str) -> str:
+    return ANONYMOUS + _digest("mailbox", key)
 
 
 @dataclass(frozen=True)
@@ -71,14 +95,28 @@ class ClientSignals:
     new_cookie: str | None = None
 
 
+def network_key(peer: str) -> str | None:
+    """IPv4 address, or the /64 prefix of an IPv6 address.
+
+    A subscriber usually owns a whole IPv6 /64: hashing the full address
+    would let them rotate within it to escape the per-IP limits.
+    """
+    try:
+        address = ipaddress.ip_address(peer)
+    except ValueError:
+        return None
+    if address.version == 6 and address.ipv4_mapped:
+        address = address.ipv4_mapped
+    if address.version == 6:
+        return ipaddress.ip_network(f"{address}/64", strict=False).compressed
+    return address.compressed
+
+
 def client_signals(request: Request) -> ClientSignals:
     # The ASGI peer is resolved by the existing trusted deployment proxy.
     # Never accept client-supplied X-Forwarded-For / X-Real-IP here.
     peer = request.client.host if request.client else ""
-    try:
-        address = ipaddress.ip_address(peer).compressed
-    except ValueError:
-        address = None
+    address = network_key(peer)
     raw = request.cookies.get(COOKIE_NAME, "")
     valid = bool(_COOKIE.fullmatch(raw))
     if valid:
@@ -101,7 +139,7 @@ def set_cookie(response: Response, signals: ClientSignals):
             path="/api/beta", secure=IS_PRODUCTION, httponly=True, samesite="lax")
 
 
-async def check_submission_rate(db, signals: ClientSignals | None, *, now=None):
+async def check_submission_rate(db, signals: ClientSignals | None, *, campaign_id, now=None):
     """Campaign lock held by caller: concurrent admissions share the counters."""
     if signals is None:
         return
@@ -111,11 +149,11 @@ async def check_submission_rate(db, signals: ClientSignals | None, *, now=None):
         if value is None:
             continue
         count = (await db.execute(select(func.count()).select_from(BetaApplication).where(
-            BetaApplication.campaign_id == "pilot", getattr(BetaApplication, field) == value,
+            BetaApplication.campaign_id == campaign_id, getattr(BetaApplication, field) == value,
             BetaApplication.submitted_at >= cutoff))).scalar() or 0
         if count >= maximum:
-            raise HTTPException(429,
-                "Plusieurs candidatures viennent d'être envoyées. Réessayez dans quelques minutes.",
+            raise HTTPException(429, {"code": "too_many_applications", "message":
+                "Plusieurs candidatures viennent d'être envoyées. Réessayez dans quelques minutes."},
                 headers={"Retry-After": str(WINDOW_SECONDS)})
 
 
@@ -130,7 +168,7 @@ def admin_risks(applications, enrollments, *, now=None):
     recent = {kind: defaultdict(set) for kind in ("same_ip", "same_browser")}
     identities = {}
     for source, row, recorded_at in entries:
-        email = row.email.strip().casefold()
+        email = row.email.strip().lower()
         identities[email] = {"email": row.email}
         groups["same_mailbox"][canonical_mailbox(row.email)][email] = row.email
         if recorded_at is None or aware(recorded_at) < cutoff:
@@ -144,7 +182,7 @@ def admin_risks(applications, enrollments, *, now=None):
 
     result = {}
     for source, row, recorded_at in entries:
-        own_email = row.email.strip().casefold()
+        own_email = row.email.strip().lower()
         flags, related, rapid = [], set(), set()
         keys = [("same_mailbox", canonical_mailbox(row.email))]
         if recorded_at is not None and aware(recorded_at) >= cutoff:
@@ -177,18 +215,41 @@ async def purge_signals(db, *, now=None):
             .values(ip_hash=None, device_hash=None).execution_options(synchronize_session=False))
 
 
+async def anonymize_deleted_accounts(db):
+    """Compte supprimé (`user_id` passé à NULL) : l'e-mail et la motivation
+    disparaissent. Seule une empreinte de la boîte reste, pour qu'un même
+    e-mail ne rouvre pas un second essai. Une invitation jamais activée n'a pas
+    de compte : elle garde son e-mail."""
+    for model, extra in ((BetaApplication, BetaApplication.user_id.is_(None)),
+                         (BetaEnrollment, BetaEnrollment.activated_at.is_not(None))):
+        rows = (await db.execute(select(model).where(
+            model.user_id.is_(None), extra,
+            model.email.not_like(ANONYMOUS + "%")))).scalars().all()
+        for row in rows:
+            row.mailbox_key = anonymous_mailbox(row.mailbox_key or canonical_mailbox(row.email))
+            row.email = ANONYMOUS + _digest("email", row.email.strip().lower())
+            if model is BetaApplication:
+                row.motivation = ""
+                if row.state == "pending":
+                    row.state = "declined"
+
+
 async def cleanup_loop():
     import asyncio
     import logging
     from app.core.database import async_session
+    from app.services import anti_abus
 
+    # Chaque tâche a sa propre transaction : l'échec de l'une ne bloque pas les autres.
+    tasks = (purge_signals, anonymize_deleted_accounts, anti_abus.purge)
     while True:
-        try:
-            async with async_session() as db:
-                await purge_signals(db)
-                await db.commit()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logging.getLogger(__name__).exception("Bêta : purge des signaux expirés impossible")
+        for task in tasks:
+            try:
+                async with async_session() as db:
+                    await task(db)
+                    await db.commit()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logging.getLogger(__name__).exception("Bêta : nettoyage %s impossible", task.__name__)
         await asyncio.sleep(86400)

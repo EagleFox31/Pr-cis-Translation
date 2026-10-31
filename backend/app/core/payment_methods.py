@@ -19,7 +19,8 @@ from __future__ import annotations
 import os
 import re
 
-from app.core.payment_gateway import (campay, fapshi, FAPSHI_STATUS,
+from app.core.payment_gateway import (campay, fapshi, paddle, FAPSHI_STATUS,
+                                      PADDLE_CURRENCIES, PADDLE_STATUS,
                                       SUPPORTED_CURRENCY)
 
 MTN_MOMO = "mtn_momo"
@@ -107,7 +108,48 @@ class FapshiProvider:
         return FAPSHI_STATUS.get(res.get("status"), "PENDING")
 
 
-PROVIDERS = {p.name: p for p in (CampayProvider(), FapshiProvider())}
+class PaddleProvider:
+    """Carte bancaire, saisie sur notre page `/paiement/carte` où Paddle.js
+    affiche son formulaire. Le franc CFA y est converti en euros (Paddle ne le
+    connaît pas) ; la base garde le montant dans la devise de la zone."""
+    name = "paddle"
+    needs_phone = False
+    currencies = frozenset({SUPPORTED_CURRENCY}) | PADDLE_CURRENCIES
+    methods = frozenset({CARD})
+
+    @property
+    def configured(self) -> bool:
+        return paddle.configured
+
+    async def start(self, *, amount: int, currency: str, phone: str | None,
+                    description: str, reference: str,
+                    email: str | None = None, user_id: str | None = None) -> dict:
+        data = await paddle.create_transaction(amount=amount, currency=currency,
+                                               description=description,
+                                               reference=reference, user_id=user_id)
+        return {"provider_ref": data["id"], "ussd_code": None, "operator": None,
+                "checkout_url": self._checkout_url(data)}
+
+    @staticmethod
+    def _checkout_url(data: dict) -> str | None:
+        # Paddle refuse `localhost` comme « Default payment link » : en local,
+        # PADDLE_CHECKOUT_URL pointe vers notre page à la place de son lien.
+        local = os.getenv("PADDLE_CHECKOUT_URL", "").strip()
+        if local:
+            return f"{local}?_ptxn={data['id']}"
+        return (data.get("checkout") or {}).get("url")
+
+    async def status(self, provider_ref: str) -> str:
+        res = await paddle.transaction(provider_ref)
+        return PADDLE_STATUS.get(res.get("status"), "PENDING")
+
+    async def resume(self, provider_ref: str) -> tuple[str, str | None]:
+        """État d'une transaction et lien pour la reprendre, en un appel."""
+        res = await paddle.transaction(provider_ref)
+        return PADDLE_STATUS.get(res.get("status"), "PENDING"), self._checkout_url(res)
+
+
+PROVIDERS = {p.name: p for p in (CampayProvider(), FapshiProvider(), PaddleProvider())}
 
 
 def routing() -> dict[str, str]:

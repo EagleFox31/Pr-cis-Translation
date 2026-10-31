@@ -26,7 +26,7 @@ import uuid
 import racine  # noqa: F401  -- met backend/ sur le chemin
 
 import fitz                                              # noqa: E402
-from fastapi import HTTPException, UploadFile            # noqa: E402
+from fastapi import HTTPException, Response, UploadFile            # noqa: E402
 from fastapi.responses import JSONResponse              # noqa: E402
 from sqlalchemy import select                            # noqa: E402
 from sqlalchemy.ext.asyncio import (                     # noqa: E402
@@ -80,7 +80,8 @@ async def _compte(plan: str, credits: int, offre_prise: bool = False,
                   quota_pris: int = 0) -> str:
     async with async_session() as db:
         u = User(email=f"couv-{uuid.uuid4().hex[:10]}@example.com",
-                 plan=plan, email_verified=True, page_credits=credits)
+                 plan=plan, email_verified=True, page_credits=credits,
+                 created_at=racine.compte_ancien())
         db.add(u)
         await db.flush()
         if offre_prise:
@@ -123,7 +124,7 @@ async def _importer(uid: str, data: bytes, nom="doc.pdf", pages="",
                     await autre.commit()
             try:
                 rep = await trmod.translate_endpoint(
-                    request=None, file=UploadFile(filename=nom, file=io.BytesIO(data)),
+                    request=racine.requete_test(), response=Response(), file=UploadFile(filename=nom, file=io.BytesIO(data)),
                     target_lang="en", format_options="{}", quality="fast",
                     precise="", pages=pages, debug="", covered_only=covered_only,
                     x_api_key=cfg.FRONTEND_API_KEY, current_user=user, db=db)
@@ -180,8 +181,8 @@ async def run():
         r = await _importer(uid, _pdf(7), covered_only="1")
         ok("GRATUIT-ESSAI  choix « couvertes » : pages 1 à 5 traduites",
            r["statut"] == 200 and r["soumis"] == {1, 2, 3, 4, 5}, f"{r['statut']} {r['soumis']}")
-        ok("GRATUIT-ESSAI  offre consommée, résultat accessible",
-           r["registre"] == [(KIND_FREE_OFFER, 5)] and r["doc"].paid is True,
+        ok("GRATUIT-ESSAI  offre consommée, aperçu seul (non téléchargeable)",
+           r["registre"] == [(KIND_FREE_OFFER, 5)] and r["doc"].paid is False,
            f"{r['registre']} paid={r['doc'] and r['doc'].paid}")
 
         # ── Gratuit, document d'une page, offre libre : passe sans question ─
@@ -211,7 +212,7 @@ async def run():
         r = await _importer(uid, _pdf(3))
         ok("GRATUIT-SOLDE  offre disponible : utilisée avant les crédits achetés",
            r["statut"] == 200 and r["soumis"] is None and r["solde"] == 5
-           and r["registre"] == [(KIND_FREE_OFFER, 3)] and r["doc"].paid,
+           and r["registre"] == [(KIND_FREE_OFFER, 3)] and r["doc"].paid is False,
            f"{r['statut']} {r['soumis']} solde={r['solde']} {r['registre']}")
 
         # ── Solde modifié entre l'authentification et le verrou ────────────
@@ -229,13 +230,13 @@ async def run():
         # ── Gratuit, autres formats : les pages achetées y donnent droit ───
         uid = await compte("free", 0)
         r = await _importer(uid, _docx(), nom="d.docx")
-        ok("GRATUIT-DOCX  sans solde : couvert par l'offre et exportable",
-           r["statut"] == 200 and r["registre"] == [(KIND_FREE_OFFER, 1)] and r["doc"].paid, f"{r['statut']} {r['corps']}")
+        ok("GRATUIT-DOCX  sans solde : couvert par l'offre, aperçu seul",
+           r["statut"] == 200 and r["registre"] == [(KIND_FREE_OFFER, 1)] and r["doc"].paid is False, f"{r['statut']} {r['corps']}")
         uid = await compte("free", 4)
         r = await _importer(uid, _docx(), nom="d.docx")
         ok("GRATUIT-DOCX  offre disponible : crédits achetés conservés",
            r["statut"] == 200 and r["registre"] == [(KIND_FREE_OFFER, 1)]
-           and r["solde"] == 4 and r["doc"].paid,
+           and r["solde"] == 4 and r["doc"].paid is False,
            f"{r['statut']} {r['corps'] if r['statut'] != 200 else ''} "
            f"solde={r['solde']} {r['registre']}")
 

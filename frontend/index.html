@@ -68,6 +68,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Urbanist:ital,wght@0,300;0,400;0,600;0,700;0,900;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <!-- Le texte de présentation du #root sert aux robots sans JavaScript. Avec JavaScript,
+         l'écran d'accueil blanc arrive : on le cache pour qu'il ne clignote pas avant. -->
+    <script>document.documentElement.classList.add('js')</script>
+    <style>html.js #root > main { display: none } body { margin: 0; background: #fff }</style>
   </head>
   <body>
     <div id="root">

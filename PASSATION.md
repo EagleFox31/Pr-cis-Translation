@@ -1,33 +1,51 @@
-# PASSATION
+# PASSATION — 31/10/2026
 
 ## 1. Objectif en cours
-Résolution des polices non embarquées dans le moteur PDF (téléchargement à l'identique, sinon clone métrique, sinon police la plus proche), branche `feat/polices-telechargement-substitution`, moteur 1.0.12.
+Pages légales livrées (commit 60ffdfa sur `feat/pages-legales`, non poussée). En attente : retour de l'utilisateur sur les choix par défaut (§5 de `docs/etude-pages-legales.md`), puis push + PR sur accord. Relecture par un juriste avant l'ouverture publique.
 
 ## 2. Fait
-- Ticket CD26052553710 : points 1–7 commités (point 8 laissé de côté à la demande).
-- `backend/engines/pdf/polices.py` (nouveau) : `Resolveur` (identique locale / Google Fonts css2 validée famille-pente-graisse-encre / clone `CLONES` / plus proche par largeurs), cache `translations/_polices`, absences 30 j, disjoncteur réseau, verrou par variante en vol, redirections hors `_HOTES` refusées, échéance globale.
-- `backend/engines/pdf/engine.py` : profils de largeur (`_measure_span`, `_font_profiles_from`), chaîne `_full_fallback_font`.
-- `backend/engines/pdf/stream.py:149-153` : profils passés à `_extract_fonts` (sans eux, la couche « proche » était aveugle en production).
-- `backend/scripts/precharger_polices.py` : ~90 familles pré-chargées dans `backend/fonts/catalogue` (gitignoré + dockerignoré) ; lancé au build (`Dockerfile`, non bloquant) ; Carlito/Caladea installés.
-- `backend/tests/test_polices.py` : 20/20 ; `racine.py` pose `PRECIS_FONT_DOWNLOAD/SYSTEM/CATALOGUE=0`.
-- `test_rendu_structure.py` : `fiche_document` simulé (appelait réellement DeepSeek).
-- Commits : c6dfe71, a588a76, 2192374. 9 suites moteur en code 0.
+- Page Bêta : `docs/etude-page-beta.md` ; `pages/BetaPage.tsx` (deux colonnes, formulaire allégé), `BetaProgramDetails.tsx` (option `badges`), `AdminShell.tsx` (`.admin-head--sticky`), `beta.css`. Commits 59b2af1, 535c6a6, 3fa501a.
+- À propos : `docs/etude-section-a-propos.md` (référencée dans `README.md`, §7 = décisions).
+  - `components/about/AboutSection.tsx` : à gauche, titre, méthode en une phrase (justifiée) et 3 engagements prouvés ; à droite, mascotte derrière la fiche éditeur (siège, autres produits, e-mail · LinkedIn · Facebook sur une ligne, bouton « Nous écrire »).
+  - « Nous écrire » : connecté → `openSupport({category:'other'})` ; visiteur → `ContactModal` (même fichier, portail dans `body`, Échap, panneau bas ≤ 640 px ; tél./WhatsApp si renseignés). `POST /api/support` exige un compte.
+  - `index.css` : classes `about-*` et `contact-*` (après `.about-section`), sélecteur `.story-grid.about-grid` pour ne pas étirer la carte.
+  - Locales fr/en : `about.*` réécrit (`pledge_*`, `card_*`, `contact_cta`) ; `mission` et `val_*` supprimés.
+  - `frontend/.env.example` : `VITE_CONTACT_PHONE`, `VITE_CONTACT_WHATSAPP` (chiffres, format international).
+- Texte À propos remplacé (règles des traducteurs expérimentés, commit 1dd2736).
+- Contact : ligne MTN (appel + WhatsApp) dans `frontend/.env` ; lien Trigenys Insight dans la fiche (commit 3a1c408).
+- Pages légales (60ffdfa) : `pages/LegalPage.tsx`, `content/legal/{types,fr,en}.ts` (textes), `legal.css`, 4 routes dans `App.tsx`, 4 liens `Link` dans `FooterSection`, ligne d'acceptation `auth.accept_terms` dans `RegisterPage.tsx`, clés `footer.*` et `legal.*`. tsc, lint, build, Playwright 1266/390 verts.
+- Rien n'est poussé.
 
-## 3. Décisions prises
-- Serif détecté par le nom seulement : le drapeau MuPDF n'est pas fiable.
-- Largeurs mesurées prioritaires dans le score « proche » (chasse fixe pénalité 10).
-- Base14 (Helvetica/Times/Courier) gardé en raccourci : métriques identiques à Liberation.
-- Pré-chargement laissé après `COPY backend/` : `engines/__init__.py` importe tous les moteurs.
+## 3. Décisions
+- Bêta : format gardé en léger, pas de champ langues, aucune modification serveur.
+- À propos : contact `contact@trigenys.com` ; entreprise anonyme (aucun nom) ; pas d'angle FR/EN, mais la méthode des traducteurs de métier ; prestataire de traduction non mentionné (future page Confidentialité) ; Insight lié (insight.trigenys.com/fr), AgenStudio sans lien (pas de site). Numéro Orange non utilisé (dernier chiffre illisible sur la photo ; un seul champ téléphone).
+- Ni année de création ni délai de réponse affichés (jouent contre la confiance).
+- Numéros en variables `VITE_*` (publiques dans le bundle, c'est voulu) pour ne pas les figer dans le code.
 
-## 4. Reste à faire
-1. FAIT (1.0.11) : liste blanche `backend/fonts/google_familles.txt` (1950 familles, seules interrogées) ; rendu fait réseau dégradé non conservé (`render_cache.marque_polices()` → `store_render(..., marque)`) ; polices système désactivées par défaut (`PRECIS_FONT_SYSTEM=1` pour les activer). test_polices 23/23.
-2. FAIT (1.0.12) : `fsType=2` exclu de l'index ; « Arial Black », « Helvetica-Narrow » et autres chasses gardés dans la famille ; `absences.json` purgé et borné à 5000, plafond de 60 téléchargements par heure (refus noté comme dégradation) ; `PRECIS_FONTS_CACHE` posé par `app/config.py`.
-3. FAIT (1.0.12) : `categorie()` (catalogue Google `Famille	Catégorie`, puis marques du nom) sert aux fiches locales (panose souvent muet) et à la cible ; un changement de catégorie coûte 5.0 dans « proche ». test_polices 28/28, générique 100/100.
-4. Pousser la branche / PR vers main.
+## 4. Plan
+1. [x] Étude page Bêta + choix validés.
+2. [x] Mise en page deux colonnes + en-tête collé.
+3. [x] Formulaire allégé + compteur + mention unique.
+4. [x] Équilibrage des cartes + zone d'action du bouton.
+5. [x] Vérif Bêta : tsc, lint, build, Playwright 1266×900 et 390.
+6. [x] Section À propos, première version (texte fr/en).
+7. [x] Étude À propos + refonte option B ; tsc, lint, build ; Playwright 1266×900 (tout sur un écran, pied de page compris) et 390 (empilé, sans débordement).
+8. [x] Finition À propos (texte court justifié, liens sur une ligne, mascotte, fenêtre de contact) ; tsc, lint, build, Playwright bureau/mobile + ouverture/fermeture de la fenêtre.
+9. [x] Vérif locale par l'utilisateur ; numéros MTN dans `frontend/.env`, lien Insight ; tsc, lint, build, Playwright (3 canaux, lien Insight).
+10. [ ] Push + PR de `feat/page-beta-candidature` (sur accord, pas encore donné) ; rebaser après fusion de la PR #53.
+11. [x] Pages légales : étude, pages, routes, pied de page, inscription ; tsc, lint, build, Playwright.
+11b. [x] Mise en page des pages légales (6f8f26f) : barre de navigation comme l'administration (4 documents au centre, hamburger en mobile), page à hauteur d'écran, Retour et titre fixes, seul le texte défile (`.legal-scroll`). Vérifié avec Playwright à 1266 et 390 px.
+12. [ ] ← Retour utilisateur sur les choix §5 de l'étude, corrections éventuelles dans `content/legal/*.ts` ; push + PR sur accord.
+13. [x] Source des crédits : étude, pages gratuites en aperçu seul, bêta téléchargeable avec aperçu filigrané ; tests ciblés OK (37).
+
+**Hors plan** : `frontend/tsconfig.tsbuildinfo` non suivi (à ignorer).
 
 ## 5. Pièges / contexte
-- Comparatif identité (sans API) : scripts dans le scratchpad de session (`run_corpus.py`, `comparer.py`) ; résultat 1.0.10 = 1.0.9 avec polices livrées ; sans elles, Inter/Oswald/PT Serif retéléchargées.
-- Python lisant des PDF téléchargés : `venv/Scripts/python.exe -I`.
-- Windows verrouille les fichiers ouverts : lire les polices en bytes.
-- Tout changement de rendu : bump `backend/engines/pdf/version.py`.
-- Tests : `cd backend && PYTHONIOENCODING=utf-8 venv/Scripts/python.exe tests/<fichier>`.
+- `backend/.env` en LIVE pour Fapshi : ne jamais valider d'invite réelle. Ne pas afficher les `.env` (`grep -c` seulement). Jamais de clé dans un fichier suivi.
+- Lancer : `npm run stop`, puis en arrière-plan `PYTHONUTF8=1 <venv>/python.exe scripts/dev.py` à la racine. Un seul worktree à la fois (ports 3000/8000).
+- venv : `C:\Users\IBRAH\Documents\Projets\Precis_Translator_backup_2026-06-10_13-10\backend\venv\Scripts\python.exe`. Tests backend sur Postgres 5433, jamais la base dev 5432.
+- Front : `cd frontend && npx tsc --noEmit -p . ; npm run lint --silent ; npm run build --silent | tail -n 8`.
+- Jetons gris disponibles : 50/100/200/300/500/700/900 (pas de `--gray-600`).
+- `.story-grid` force `align-items: stretch` plus loin dans `index.css` : surcharger avec un sélecteur composé.
+- Changer de variable `VITE_*` impose de relancer le serveur front.
+- Éditer les locales en UTF-8 sans réencoder. Remote `origin` = EagleFox31.

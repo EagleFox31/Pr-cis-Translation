@@ -1,12 +1,31 @@
 import { useState, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { authHeader, accessToken } from '../services/api';
+import { authHeader, accessToken, refreshAccessToken } from '../services/api';
 import i18n from '../i18n';
+import { deviceHeaders } from '../lib/device';
 
 // Pas de valeur de repli : cf. usePdfPreview.ts — une clé écrite ici part dans
 // le dépôt, et le repli rendait l'oubli de `VITE_API_KEY` invisible.
 const API_KEY = import.meta.env.VITE_API_KEY || '';
 const API_BASE = import.meta.env.VITE_API_BASE || '';
+/** Reconnexions du flux d'événements avant de déclarer la connexion perdue. */
+const MAX_RECONNEXIONS = 5;
+
+export type StopMode = 'pause' | 'cancel';
+
+/** DEMANDE l'arrêt d'une traduction. Le serveur finit la page en cours, garde
+ *  et débite les pages faites, rend le reste ; le flux émet alors `stopped`.
+ *  Lève une erreur au message du serveur (409 : déjà terminée ou arrêtée). */
+export async function stopTranslation(jobId: string, mode: StopMode): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/translate/${jobId}/${mode}`, {
+    method: 'POST',
+    headers: { 'X-API-Key': API_KEY, ...authHeader() },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || i18n.t('story.stop_failed'));
+  }
+}
 
 /** État d'une page dans le pipeline progressif. */
 export type PageStatus =
@@ -44,6 +63,9 @@ export interface StreamingState {
   /** Même 402 : pages que le solde couvre déjà, si le serveur accepte de ne
    *  traduire qu'elles (`covered_only`). `null` = aucun partiel possible. */
   pagesCovered: number | null;
+  /** Même 402, pages offertes refusées par l'anti-abus : motif affiché à la
+   *  place du simple manque. `null` = manque de crédits ordinaire. */
+  creditsReason: string | null;
   /** En file d'attente : aucun worker libre. `null` = pas en file (démarré ou
    *  terminé). Le nombre est une estimation des demandes devant la vôtre. */
   queuePosition: number | null;
@@ -62,13 +84,19 @@ const EMPTY: StreamingState = {
   limitReached: false,
   creditsNeeded: null,
   pagesCovered: null,
+  creditsReason: null,
   queuePosition: null,
 };
 
-export function useStreamingTranslation() {
+// `deviceSignals` : seules les pages OFFERTES passent par l'anti-abus ; un
+// compte payant n'attend pas le calcul de l'empreinte (jusqu'à 1,5 s).
+export function useStreamingTranslation(deviceSignals = true) {
   const { t } = useTranslation();
   const [state, setState] = useState<StreamingState>(EMPTY);
+  const deviceSignalsRef = useRef(deviceSignals);
+  deviceSignalsRef.current = deviceSignals;
   const esRef = useRef<EventSource | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const jobIdRef = useRef<string | null>(null);
   // Évite les fetch de partiel concurrents (une page peut terminer pendant
   // qu'on télécharge encore le partiel de la précédente).
@@ -87,7 +115,17 @@ export function useStreamingTranslation() {
   const cancel = useCallback(() => {
     esRef.current?.close();
     esRef.current = null;
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    reconnectTimerRef.current = null;
     setState((s) => ({ ...s, isTranslating: false }));
+  }, []);
+
+  /** Pause ou annulation de la traduction suivie. L'état ne bouge qu'à
+   *  l'événement `stopped` : la page en cours doit d'abord finir. */
+  const stop = useCallback(async (mode: StopMode) => {
+    const jobId = jobIdRef.current;
+    if (!jobId) return;
+    await stopTranslation(jobId, mode);
   }, []);
 
   const fetchPartial = useCallback(async () => {
@@ -103,21 +141,33 @@ export function useStreamingTranslation() {
     // Relevée après, une page finie pendant le transfert serait déclarée
     // prête sur un fichier qui la montre encore en langue source.
     const ready: Record<number, true> = {};
+    const copied: Record<number, true> = {};
     for (const [p, st] of Object.entries(statusesRef.current)) {
       const n = Number(p);
       if ((st === 'done' || st === 'copied') && !noPreviewRef.current.has(n)) ready[n] = true;
+      if (st === 'copied') copied[n] = true;
     }
     try {
       const res = await fetch(`${API_BASE}/api/translate/partial/${jobId}`, {
         headers: { 'X-API-Key': API_KEY, ...authHeader() },
       });
-      if (res.ok) {
+      if (res.status === 200) {
+        // PPTX : le serveur DIT quelles pages ce fichier montre traduites.
+        // On ne devine plus d'après les événements (un lot échoué laissait une
+        // diapositive « terminée » encore en langue source). Les diapositives
+        // sans texte (`copied`) ne sont jamais greffées : l'original les montre
+        // déjà telles quelles.
+        const header = res.headers.get('X-Pages-Pretes');
+        const exact: Record<number, true> | null = header === null ? null : { ...copied };
+        if (exact && header) {
+          for (const p of header.split(',')) exact[Number(p)] = true;
+        }
         const blob = await res.blob();
         lastPartialRef.current = blob;   // repli si /result est refusé (essai)
         setState((s) => ({
           ...s,
           partialBlob: blob,
-          readyPages: { ...s.readyPages, ...ready },
+          readyPages: exact ?? { ...s.readyPages, ...ready },
         }));
       }
     } catch {
@@ -141,6 +191,7 @@ export function useStreamingTranslation() {
       onAccepted?: () => void,
       coverOnly: boolean = false,
       useBeta?: boolean,
+      resumeOf?: string,
     ): Promise<{ blob: Blob; filename: string }> => {
       return new Promise(async (resolve, reject) => {
         // Fermer TOUT flux encore ouvert avant d'en démarrer un nouveau. Relancer
@@ -151,6 +202,8 @@ export function useStreamingTranslation() {
         // (voulu) ; seul son SUIVI est abandonné proprement.
         esRef.current?.close();
         esRef.current = null;
+        if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
 
         setState({ ...EMPTY, isTranslating: true });
         // Sans ça, un 402 survenant avant le premier partiel du NOUVEAU
@@ -177,6 +230,7 @@ export function useStreamingTranslation() {
           // pages couvertes. Jamais envoyé d'office.
           if (coverOnly) formData.append('covered_only', '1');
           if (typeof useBeta === 'boolean') formData.append('use_beta', useBeta ? '1' : '0');
+          if (resumeOf) formData.append('resume_of', resumeOf);
 
           // `authHeader()` est INDISPENSABLE ici, pas décoratif : le backend lit
           // l'utilisateur via `optional_auth`. Sans token il voit un visiteur
@@ -185,24 +239,30 @@ export function useStreamingTranslation() {
           // reste anonyme, comme avant.
           const startRes = await fetch(`${API_BASE}/api/translate`, {
             method: 'POST',
-            headers: { 'X-API-Key': API_KEY, ...authHeader() },
+            headers: { 'X-API-Key': API_KEY, ...authHeader(),
+              ...(deviceSignalsRef.current ? await deviceHeaders() : {}) },
             body: formData,
           });
           if (!startRes.ok) {
             const err = await startRes.json().catch(() => ({}));
             const betaError = String(err.reason || '').startsWith('beta_');
+            // Pages offertes refusées par l'anti-abus : même issue qu'un manque
+            // de crédits (achat), avec son propre message.
+            const deviceLimit = err.reason === 'free_limit_device';
             const detail = err.reason === 'beta_inactive' ? t('beta.inactive_error')
+              : deviceLimit ? t('story.free_limit_device')
               : betaError ? t('beta.translation_error') : err.detail || err.error || t('story.error_default');
             const is402 = startRes.status === 402;
             // 402 « crédits insuffisants » : le serveur dit COMBIEN de pages
             // acheter, et combien sont déjà couvertes si un partiel est possible.
-            const credits = err.reason === 'need_credits' && typeof err.pages_missing === 'number';
+            const credits = (err.reason === 'need_credits' || deviceLimit) && typeof err.pages_missing === 'number';
             const needed = credits ? err.pages_missing as number : null;
             const covered = (credits || betaError) && err.partial_possible === true
               && typeof err.pages_available === 'number' ? err.pages_available as number : null;
             setState((s) => ({
               ...s, isTranslating: false, error: detail,
               limitReached: is402 && !betaError, creditsNeeded: needed, pagesCovered: covered,
+              creditsReason: deviceLimit ? detail : null,
             }));
             throw new Error(detail);
           }
@@ -216,149 +276,198 @@ export function useStreamingTranslation() {
           // dépendait de son existence peut maintenant se faire.
           onAccepted?.();
 
-          // Le JWT passe en query : EventSource ne porte pas de header, et le
-          // backend n'accepte plus un flux anonyme (la file d'événements est à
-          // consommateur unique — un tiers la viderait).
-          const es = new EventSource(
-            `${API_BASE}/api/translate/events/${job_id}?token=${encodeURIComponent(accessToken() ?? '')}`,
-          );
-          esRef.current = es;
+          // Une coupure du flux (veille, réseau, jeton expiré) n'arrête PAS le
+          // travail côté serveur : les événements restent dans sa file. On se
+          // reconnecte donc avant de conclure à l'échec — sinon l'indicateur
+          // disparaissait et l'aperçu se figeait sur une traduction en cours.
+          let tentatives = 0;
+          let fini = false;          // done/error reçu : plus de reconnexion
 
-          es.onmessage = async (e) => {
-            if (!e.data || e.data.startsWith(':')) return;
-            let msg: Record<string, unknown>;
-            try { msg = JSON.parse(e.data); } catch { return; }
-            const type = msg.type as string;
+          const ouvrir = () => {
+            // Le JWT passe en query : EventSource ne porte pas de header, et le
+            // backend n'accepte plus un flux anonyme (la file d'événements est à
+            // consommateur unique — un tiers la viderait).
+            const es = new EventSource(
+              `${API_BASE}/api/translate/events/${job_id}?token=${encodeURIComponent(accessToken() ?? '')}`,
+            );
+            esRef.current = es;
+            // Reconnecté : rattraper l'aperçu produit pendant la coupure.
+            es.onopen = () => { if (tentatives > 0) fetchPartial(); };
 
-            if (type === 'queued') {
-              // Aucun worker libre : le job attend son tour dans la file de
-              // priorité. On l'affiche sans rien changer d'autre.
-              const ahead = (msg.ahead as number) ?? 0;
-              setState((s) => ({ ...s, queuePosition: ahead }));
-              return;
-            }
-            // Tout autre événement veut dire que le job a QUITTÉ la file (un
-            // worker l'a pris) : on efface l'état d'attente une bonne fois.
-            setState((s) => (s.queuePosition === null ? s : { ...s, queuePosition: null }));
+            es.onmessage = async (e) => {
+              if (!e.data || e.data.startsWith(':')) return;
+              tentatives = 0;
+              let msg: Record<string, unknown>;
+              try { msg = JSON.parse(e.data); } catch { return; }
+              const type = msg.type as string;
 
-            if (type === 'start') {
-              const total = (msg.total as number) ?? null;
-              setState((s) => {
-                const statuses: Record<number, PageStatus> = {};
-                if (total) for (let i = 1; i <= total; i++) statuses[i] = 'waiting';
-                return { ...s, totalPages: total, pageStatuses: statuses };
-              });
-            } else if (type === 'page') {
-              const page = msg.page as number;
-              const status = msg.status as PageStatus;
-              statusesRef.current[page] = status;
-              if (status === 'done' && msg.apercu === false) noPreviewRef.current.add(page);
-              setState((s) => ({
-                ...s,
-                pageStatuses: { ...s.pageStatuses, [page]: status },
-                totalPages: (msg.total as number) ?? s.totalPages,
-              }));
-              if (status === 'done' || status === 'copied') {
-                fetchPartial();
+              if (type === 'queued') {
+                // Aucun worker libre : le job attend son tour dans la file de
+                // priorité. On l'affiche sans rien changer d'autre.
+                const ahead = (msg.ahead as number) ?? 0;
+                setState((s) => ({ ...s, queuePosition: ahead }));
+                return;
               }
-            } else if (type === 'partial') {
-              // PPTX PROGRESSIF : le backend signale qu'un nouveau PDF partiel
-              // est PRÊT à être récupéré — d'abord le SOCLE (le document
-              // d'origine, `pages: 0`), puis chaque lot de diapositives
-              // greffées. C'est LE signal d'affichage progressif.
-              //
-              // Sans ce handler, l'aperçu ne se rafraîchissait que sur les
-              // événements `page`. En traduction IA (lente), ça suffisait par
-              // hasard : les `page` s'espaçaient assez pour laisser le partiel
-              // se préparer. Mais en mode STRUCTURE (sans IA), toutes les pages
-              // « terminent » en quelques millisecondes — AVANT que LibreOffice
-              // ait converti la moindre diapositive. Les `fetchPartial` de ces
-              // `page` tombaient dans le vide, et les partiels réellement prêts
-              // (émis APRÈS, en `partial`) étaient ignorés : on ne voyait donc
-              // RIEN jusqu'à la fin. En écoutant `partial`, l'original apparaît
-              // dès que le socle est prêt, puis l'aperçu se remplit au rythme
-              // réel des conversions — quelle que soit la vitesse de traduction.
-              fetchPartial();
-            } else if (type === 'done') {
-              es.close();
-              esRef.current = null;
-              try {
-                const dlRes = await fetch(`${API_BASE}/api/translate/result/${job_id}`, {
-                  headers: { 'X-API-Key': API_KEY, ...authHeader() },
-                });
-                const filename = (msg.filename as string) ||
-                  file.name.replace(/\.[^/.]+$/, '') + '_TRADUIT.' + file.name.split('.').pop();
+              // Tout autre événement veut dire que le job a QUITTÉ la file (un
+              // worker l'a pris) : on efface l'état d'attente une bonne fois.
+              setState((s) => (s.queuePosition === null ? s : { ...s, queuePosition: null }));
 
-                // 402 = le FORFAIT parle, ce n'est pas une panne. Un plan
-                // d'essai n'a pas droit au résultat téléchargeable ; il a droit
-                // à l'aperçu (partiel rastérisé et filigrané). Traiter ce refus
-                // comme une erreur laissait la traduction bloquée sur « page en
-                // attente » alors qu'elle avait parfaitement abouti.
-                //
-                // On REDEMANDE le partiel ICI, maintenant qu'il est GARANTI
-                // complet côté serveur. Indispensable pour le PPTX : son partiel
-                // est converti en PDF de façon asynchrone (LibreOffice, ~10 s) et
-                // n'était souvent pas encore prêt au dernier événement `page` —
-                // `lastPartialRef` restait alors vide et l'essai voyait une
-                // erreur au lieu de son aperçu.
-                if (dlRes.status === 402) {
-                  let blob = lastPartialRef.current;
-                  try {
-                    const pr = await fetch(`${API_BASE}/api/translate/partial/${job_id}`, {
-                      headers: { 'X-API-Key': API_KEY, ...authHeader() },
-                    });
-                    if (pr.ok) blob = await pr.blob();
-                  } catch {
-                    // réseau : on se rabat sur le dernier partiel connu
-                  }
-                  if (blob) {
-                    // Partiel complet côté serveur : toutes les pages terminées
-                    // y sont, sauf celles dont la greffe a échoué.
-                    const ready: Record<number, true> = {};
-                    for (const p of Object.keys(statusesRef.current).map(Number)) {
-                      if (!noPreviewRef.current.has(p)) ready[p] = true;
-                    }
-                    setState((s) => ({ ...s, isTranslating: false, partialBlob: blob, readyPages: ready, result: { blob, filename } }));
-                    resolve({ blob, filename });
-                    return;
-                  }
-                }
-                if (!dlRes.ok) {
-                  const err = await dlRes.json().catch(() => ({}));
-                  throw new Error(err.detail || i18n.t('common.download_failed'));
-                }
-                const blob = await dlRes.blob();
+              if (type === 'start') {
+                const total = (msg.total as number) ?? null;
                 setState((s) => {
-                  // Résultat final : toutes les pages sont traduites.
-                  const ready: Record<number, true> = {};
-                  for (let p = 1; p <= (s.totalPages ?? 0); p++) ready[p] = true;
-                  return { ...s, isTranslating: false, partialBlob: blob, readyPages: ready, result: { blob, filename } };
+                  const statuses: Record<number, PageStatus> = {};
+                  if (total) for (let i = 1; i <= total; i++) statuses[i] = 'waiting';
+                  return { ...s, totalPages: total, pageStatuses: statuses };
                 });
-                resolve({ blob, filename });
-              } catch (dlErr) {
-                const m = dlErr instanceof Error ? dlErr.message : t('story.error_translation_failed');
+              } else if (type === 'page') {
+                const page = msg.page as number;
+                const status = msg.status as PageStatus;
+                statusesRef.current[page] = status;
+                if (status === 'done' && msg.apercu === false) noPreviewRef.current.add(page);
+                setState((s) => ({
+                  ...s,
+                  pageStatuses: { ...s.pageStatuses, [page]: status },
+                  totalPages: (msg.total as number) ?? s.totalPages,
+                }));
+                if (status === 'done' || status === 'copied') {
+                  fetchPartial();
+                }
+              } else if (type === 'partial') {
+                // PPTX PROGRESSIF : le backend signale qu'un nouveau PDF partiel
+                // est PRÊT à être récupéré — d'abord le SOCLE (le document
+                // d'origine, `pages: 0`), puis chaque lot de diapositives
+                // greffées. C'est LE signal d'affichage progressif.
+                //
+                // Sans ce handler, l'aperçu ne se rafraîchissait que sur les
+                // événements `page`. En traduction IA (lente), ça suffisait par
+                // hasard : les `page` s'espaçaient assez pour laisser le partiel
+                // se préparer. Mais en mode STRUCTURE (sans IA), toutes les pages
+                // « terminent » en quelques millisecondes — AVANT que LibreOffice
+                // ait converti la moindre diapositive. Les `fetchPartial` de ces
+                // `page` tombaient dans le vide, et les partiels réellement prêts
+                // (émis APRÈS, en `partial`) étaient ignorés : on ne voyait donc
+                // RIEN jusqu'à la fin. En écoutant `partial`, l'original apparaît
+                // dès que le socle est prêt, puis l'aperçu se remplit au rythme
+                // réel des conversions — quelle que soit la vitesse de traduction.
+                fetchPartial();
+              } else if (type === 'done') {
+                fini = true;
+                es.close();
+                esRef.current = null;
+                try {
+                  const dlRes = await fetch(`${API_BASE}/api/translate/result/${job_id}`, {
+                    headers: { 'X-API-Key': API_KEY, ...authHeader() },
+                  });
+                  const filename = (msg.filename as string) ||
+                    file.name.replace(/\.[^/.]+$/, '') + '_TRADUIT.' + file.name.split('.').pop();
+
+                  // 402 = le FORFAIT parle, ce n'est pas une panne. Un plan
+                  // d'essai n'a pas droit au résultat téléchargeable ; il a droit
+                  // à l'aperçu (partiel rastérisé et filigrané). Traiter ce refus
+                  // comme une erreur laissait la traduction bloquée sur « page en
+                  // attente » alors qu'elle avait parfaitement abouti.
+                  //
+                  // On REDEMANDE le partiel ICI, maintenant qu'il est GARANTI
+                  // complet côté serveur. Indispensable pour le PPTX : son partiel
+                  // est converti en PDF de façon asynchrone (LibreOffice, ~10 s) et
+                  // n'était souvent pas encore prêt au dernier événement `page` —
+                  // `lastPartialRef` restait alors vide et l'essai voyait une
+                  // erreur au lieu de son aperçu.
+                  if (dlRes.status === 402) {
+                    let blob = lastPartialRef.current;
+                    try {
+                      const pr = await fetch(`${API_BASE}/api/translate/partial/${job_id}`, {
+                        headers: { 'X-API-Key': API_KEY, ...authHeader() },
+                      });
+                      if (pr.status === 200) blob = await pr.blob();
+                    } catch {
+                      // réseau : on se rabat sur le dernier partiel connu
+                    }
+                    if (blob) {
+                      // Partiel complet côté serveur : toutes les pages terminées
+                      // y sont, sauf celles dont la greffe a échoué.
+                      const ready: Record<number, true> = {};
+                      for (const p of Object.keys(statusesRef.current).map(Number)) {
+                        if (!noPreviewRef.current.has(p)) ready[p] = true;
+                      }
+                      setState((s) => ({ ...s, isTranslating: false, partialBlob: blob, readyPages: ready, result: { blob, filename } }));
+                      resolve({ blob, filename });
+                      return;
+                    }
+                  }
+                  if (!dlRes.ok) {
+                    const err = await dlRes.json().catch(() => ({}));
+                    throw new Error(err.detail || i18n.t('common.download_failed'));
+                  }
+                  const blob = await dlRes.blob();
+                  setState((s) => {
+                    // Résultat final : toutes les pages sont traduites.
+                    const ready: Record<number, true> = {};
+                    for (let p = 1; p <= (s.totalPages ?? 0); p++) ready[p] = true;
+                    return { ...s, isTranslating: false, partialBlob: blob, readyPages: ready, result: { blob, filename } };
+                  });
+                  resolve({ blob, filename });
+                } catch (dlErr) {
+                  const m = dlErr instanceof Error ? dlErr.message : t('story.error_translation_failed');
+                  setState((s) => ({ ...s, isTranslating: false, error: m }));
+                  reject(new Error(m));
+                }
+              } else if (type === 'error') {
+                fini = true;
+                es.close();
+                esRef.current = null;
+                const m = (msg.message as string) || t('story.error_translation_failed');
                 setState((s) => ({ ...s, isTranslating: false, error: m }));
                 reject(new Error(m));
+              } else if (type === 'stopped') {
+                // Pause ou annulation : les pages faites restent à l'écran
+                // (dernier partiel), le document se reprend depuis la
+                // bibliothèque. Ni erreur ni résultat.
+                fini = true;
+                es.close();
+                esRef.current = null;
+                await fetchPartial();
+                // Les pages en vol sont abandonnées par le serveur : elles
+                // repassent « en attente », sans quoi leurs vignettes tournaient.
+                setState((s) => ({
+                  ...s, isTranslating: false, queuePosition: null,
+                  pageStatuses: Object.fromEntries(Object.entries(s.pageStatuses).map(
+                    ([p, st]) => [p, st === 'done' || st === 'copied' ? st : 'waiting'])),
+                  notice: t(msg.mode === 'cancelled' ? 'story.stopped_cancelled' : 'story.stopped_paused'),
+                }));
+                reject(new Error('stopped'));
               }
-            } else if (type === 'error') {
-              es.close();
-              esRef.current = null;
-              const m = (msg.message as string) || t('story.error_translation_failed');
-              setState((s) => ({ ...s, isTranslating: false, error: m }));
-              reject(new Error(m));
-            }
-          };
+            };
 
-          es.onerror = () => {
-            es.close();
-            esRef.current = null;
-            setState((s) => {
-              // Une coupure APRÈS le done final n'est pas une erreur.
-              if (!s.isTranslating) return s;
-              return { ...s, isTranslating: false, error: t('story.error_connection_lost') };
-            });
-            reject(new Error(t('story.error_connection_lost')));
+            es.onerror = () => {
+              es.close();
+              if (esRef.current !== es) return;   // annulé ou remplacé entre-temps
+              esRef.current = null;
+              if (fini) return;
+              if (tentatives < MAX_RECONNEXIONS) {
+                const delai = 1000 * 2 ** tentatives;   // 1, 2, 4, 8, 16 s
+                tentatives += 1;
+                const minuterie = setTimeout(async () => {
+                  // Le jeton a pu expirer pendant la traduction : le serveur
+                  // refuserait alors le flux, indéfiniment.
+                  await refreshAccessToken().catch(() => null);
+                  // Annulé pendant le rafraîchissement : ne pas rouvrir.
+                  if (reconnectTimerRef.current !== minuterie) return;
+                  reconnectTimerRef.current = null;
+                  if (jobIdRef.current === job_id && !fini) ouvrir();
+                }, delai);
+                reconnectTimerRef.current = minuterie;
+                return;
+              }
+              setState((s) => {
+                // Une coupure APRÈS le done final n'est pas une erreur.
+                if (!s.isTranslating) return s;
+                return { ...s, isTranslating: false, error: t('story.error_connection_lost') };
+              });
+              reject(new Error(t('story.error_connection_lost')));
+            };
           };
+          ouvrir();
         } catch (err) {
           const m = err instanceof Error ? err.message : t('story.error_unknown');
           setState((s) => ({ ...s, isTranslating: false, error: m }));
@@ -372,10 +481,12 @@ export function useStreamingTranslation() {
   const reset = useCallback(() => {
     esRef.current?.close();
     esRef.current = null;
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    reconnectTimerRef.current = null;
     jobIdRef.current = null;
     lastPartialRef.current = null;
     setState(EMPTY);
   }, []);
 
-  return { ...state, start, cancel, reset };
+  return { ...state, start, cancel, stop, reset };
 }

@@ -14,6 +14,10 @@ ETAT A LA 1.0.0
   glossaire de document, layouts et masques extraits une seule fois, apercus OLE
   Excel regeneres depuis le classeur traduit et rendus TRANSPARENTS, apercu
   progressif diapositive par diapositive.
+
+1.0.1 -- diapositives numerotees par leur POSITION dans presentation.xml
+  (sldIdLst), plus par le nom de fichier slideN.xml (exports Google Slides
+  en slide1000.xml, decks reordonnes).
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"

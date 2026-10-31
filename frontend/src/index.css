@@ -204,6 +204,7 @@ button { font-family: inherit; cursor: pointer; border: none; }
   transform: translateX(-50%);
 }
 .nav-links a {
+  white-space: nowrap;
   font-size: 14px;
   font-weight: 500;
   color: var(--gray-700);
@@ -504,12 +505,6 @@ button { font-family: inherit; cursor: pointer; border: none; }
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.5; transform: scale(0.8); }
-}
-/* Pastille « page en cours de traduction » dans la sidebar de l'aperçu. */
-@keyframes thumb-pulse {
-  0%   { box-shadow: 0 0 0 0 rgba(37,99,235,0.5); }
-  70%  { box-shadow: 0 0 0 6px rgba(37,99,235,0); }
-  100% { box-shadow: 0 0 0 0 rgba(37,99,235,0); }
 }
 .hero-title {
   font-family: var(--font-display);
@@ -930,6 +925,57 @@ section {
 .about-section {
   background: rgba(249,247,243,0.75);
   padding: 40px 24px;
+}
+
+/* À propos : récit + engagements à gauche, fiche de l'éditeur à droite. */
+.about-inner { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 32px; width: 100%; }
+.about-head .section-title { margin-bottom: 0; }
+/* Deux colonnes de même hauteur : le haut du récit et le haut de la fiche
+   s'alignent, le dernier engagement et le bouton aussi. */
+.story-grid.about-grid { width: 100%; grid-template-columns: 1.4fr 1fr; gap: 64px; align-items: stretch; }
+.about-story { display: flex; flex-direction: column; }
+.about-text { margin: 0; font-size: 1.05rem; line-height: 1.75; color: var(--gray-700); max-width: 600px; text-align: justify; hyphens: auto; }
+.about-pledges { list-style: none; margin: auto 0 0; padding: 28px 0 0; display: grid; gap: 18px; max-width: 600px; border-top: 1px solid var(--gray-200); }
+.about-pledges li { display: flex; gap: 12px; align-items: flex-start; }
+.about-pledge-icon { flex-shrink: 0; margin-top: 2px; color: var(--navy); }
+.about-pledges strong { display: block; color: var(--navy); font-weight: 700; }
+.about-pledges span { display: block; font-size: 0.85rem; color: var(--gray-500); }
+.about-card { width: 100%; box-sizing: border-box; background: white; border: 1px solid var(--gray-100); border-radius: 20px; box-shadow: var(--shadow-lg); padding: 28px; display: flex; flex-direction: column; gap: 16px; }
+.about-card-label { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); }
+.about-card-name { margin: -10px 0 0; font-size: 1.4rem; color: var(--navy); }
+.about-card-facts { margin: 0; display: grid; gap: 8px; }
+.about-card-facts div { display: flex; justify-content: space-between; gap: 12px; font-size: 0.9rem; }
+.about-card-facts dt { color: var(--gray-500); }
+.about-card-facts dd { margin: 0; color: var(--navy); font-weight: 600; text-align: right; }
+.about-card-facts dd a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.about-card-links { margin: 0; padding-top: 16px; border-top: 1px solid var(--gray-100); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 0.9rem; color: var(--gray-500); }
+.about-card-links svg { color: var(--navy); }
+.about-card-links a { color: var(--navy); text-decoration: underline; text-underline-offset: 3px; }
+/* La mascotte se tient derrière la fiche et passe la tête par-dessus. */
+.about-card-wrap { position: relative; display: flex; }
+.about-card-wrap .about-card { position: relative; z-index: 1; }
+.about-mascot { position: absolute; z-index: 0; right: 32px; top: -92px; height: 150px; width: auto; pointer-events: none; }
+.contact-overlay { position: fixed; inset: 0; z-index: 1200; background: rgba(13,27,62,0.45); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.contact-modal { position: relative; width: min(420px, 100%); background: white; border-radius: 20px; box-shadow: 0 24px 70px rgba(13,27,62,0.28); padding: 28px 24px 24px; text-align: center; }
+.contact-modal h3 { margin: 4px 0 6px; font-size: 1.3rem; color: var(--navy); }
+.contact-mascot { display: block; height: 96px; width: auto; margin: 0 auto; }
+.contact-intro { margin: 0 0 18px; font-size: 0.9rem; color: var(--gray-500); }
+.contact-close { position: absolute; top: 14px; right: 14px; background: none; border: none; cursor: pointer; color: var(--gray-500); }
+.contact-channels { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; text-align: left; }
+.contact-channels a { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border: 1.5px solid var(--gray-200); border-radius: 14px; color: var(--navy); text-decoration: none; transition: border-color .2s, background .2s; }
+.contact-channels a:hover, .contact-channels a:focus-visible { border-color: var(--blue); background: var(--gray-50); }
+.contact-channel-icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; background: var(--gray-100); color: var(--blue); flex-shrink: 0; }
+.contact-channels strong { display: block; font-size: 0.95rem; }
+.contact-channels small { display: block; font-size: 0.82rem; color: var(--gray-500); }
+@media (max-width: 640px) {
+  .contact-overlay { align-items: flex-end; padding: 0; }
+  .contact-modal { width: 100%; border-radius: 20px 20px 0 0; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+}
+.about-card-cta { margin-top: auto; text-align: center; justify-content: center; }
+@media (max-width: 1024px) {
+  .story-grid.about-grid { grid-template-columns: 1fr; gap: 32px; }
+  .about-pledges { margin-top: 24px; }
+  .about-card-wrap { margin-top: 96px; }
 }
 .section-inner {
   max-width: var(--frame-max);
@@ -1393,6 +1439,16 @@ section {
 }
 .pricing-payg__title { margin: 0 0 4px; font-weight: 700; font-size: 15px; color: var(--navy); }
 .pricing-payg__text { margin: 0; font-size: 13.5px; color: var(--gray-600); line-height: 1.5; }
+.pricing-units { margin-top: 20px; padding: 18px 24px; border-radius: 14px; background: var(--gray-50); color: var(--gray-600); font-size: 13.5px; line-height: 1.6; }
+.pricing-units h3 { margin: 0 0 12px; font-size: 14px; font-weight: 700; color: var(--navy); }
+.pricing-units ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.pricing-units strong { display: block; color: var(--navy); font-weight: 600; }
+@media (min-width: 720px) {
+  .pricing-units ul { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 48px; }
+  .pricing-units li { position: relative; }
+  .pricing-units li + li::before { content: ''; position: absolute; left: -24px; top: 0; bottom: 0; border-left: 1px solid var(--gray-200); }
+}
+.pricing-units p { margin: 14px 0 0; font-size: 13px; color: var(--gray-500); }
 .pricing-payg__btn { flex-shrink: 0; padding: 11px 22px; background: var(--white); }
 @media (max-width: 640px) {
   .pricing-payg { flex-direction: column; align-items: stretch; text-align: center; }
@@ -1726,9 +1782,16 @@ footer {
   .footer-grid { grid-template-columns: 1fr 1fr; }
   .testimonials-grid { grid-template-columns: repeat(2, 1fr); }
 }
-@media (max-width: 768px) {
+/* Le menu central (5 à 6 liens) chevauchait logo et FR/EN sous ~1100 px : hamburger dès là. */
+@media (max-width: 1100px) {
   .nav-links { display: none; }
   .hamburger { display: flex; }
+}
+@media (max-width: 420px) {
+  .nav-inner { gap: 12px; }
+  .nav-inner:has(.hamburger) .animated-logo-text { display: none; }
+}
+@media (max-width: 768px) {
   .pricing-grid { grid-template-columns: 1fr; }
   .pricing-card.popular { transform: none; }
   .comparison-row { grid-template-columns: 130px 1fr 1fr; }
@@ -2648,6 +2711,31 @@ html.preview-active .scroll {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.compte__droite {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.compte__sortie {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  background: var(--white);
+  color: var(--gray-700);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+/* Rouge au survol seulement : c'est une sortie, pas une suppression. */
+.compte__sortie:hover { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
+.compte__sortie:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .compte__forfait {
   flex-shrink: 0;
   padding: 3px 9px;
@@ -2700,9 +2788,38 @@ html.preview-active .scroll {
    panneau qui reste à l'écran quel que soit le nombre de documents. */
 .biblio__pied {
   flex-shrink: 0;
-  padding: 12px 16px;
+  padding: 8px 10px;
   border-top: 1px solid var(--gray-100);
   background: var(--white);
+}
+/* Deux actions d'égale largeur côte à côte : le bloc reste symétrique. */
+.biblio__duo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
+.biblio__action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 1px solid var(--gray-200);
+  border-radius: 10px;
+  background: var(--white);
+  color: var(--gray-700);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.biblio__action svg { flex-shrink: 0; color: var(--gray-500); }
+.biblio__action:hover { background: var(--gray-50); border-color: var(--gray-300); color: var(--gray-900); }
+.biblio__action:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+/* Mobile : « Inviter des proches » passait sur deux lignes et cassait la
+   symétrie ; on resserre plutôt que de raccourcir le libellé. */
+@media (max-width: 420px) {
+  .biblio__action { gap: 6px; padding: 6px 6px; font-size: 13px; white-space: nowrap; }
 }
 
 /* ── En-tête de la bibliothèque ─────────────────────────────────────────── */
@@ -2803,9 +2920,11 @@ html.preview-active .scroll {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 4px;
   margin-bottom: 5px;
 }
 .libdoc__state {
+  flex: 1;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -2832,6 +2951,12 @@ html.preview-active .scroll {
   color: #991b1b;
 }
 .libdoc__error > span { flex: 1; }
+/* Arrêt voulu (pause, annulation) : un état, pas une panne. */
+.libdoc__error--held {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
 /* Barre d'actions : hauteur NATURELLE (celle des boutons `sm`), fond
    transparent. Aucune hauteur imposée — « taille normale » garantie. */
 .libdoc__actions {
@@ -3036,6 +3161,10 @@ html.preview-active .scroll {
   transition: color .15s ease;
 }
 .auth-lien-discret:hover { color: var(--blue); }
+
+/* Turnstile : invisible tant que Cloudflare ne demande rien. */
+.auth-turnstile { display: flex; justify-content: center; }
+.auth-turnstile:empty { display: none; }
 
 .auth-separateur {
   display: flex;

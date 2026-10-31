@@ -47,7 +47,7 @@ class ApplicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.json()['availability'], 'closed')
         await self.fx.start_campaign()
         await self.submit()
-        changed = await self.client.patch('/api/admin/beta/campaign', headers=self.fx.admin_headers,
+        changed = await self.client.patch(f'/api/admin/beta/campaigns/{self.fx.campaign_id}', headers=self.fx.admin_headers,
             json={'access_days': 45, 'limits': {**DEFAULT_LIMITS, 'xlsx': 3, 'xlsx_words': 400}})
         self.assertEqual(changed.status_code, 200)
         public = (await self.client.get('/api/beta/program')).json()
@@ -60,7 +60,10 @@ class ApplicationTests(unittest.IsolatedAsyncioTestCase):
         response = await self.client.post('/api/beta/applications', json={
             'primary_format': 'pdf', 'motivation': 'Mon document de test'})
         self.assertEqual(response.status_code, 401)
-        self.assertEqual((await self.submit()).status_code, 409)
+        closed = await self.submit()
+        self.assertEqual(closed.status_code, 409)
+        # A stable code lets the page translate the refusal.
+        self.assertEqual(closed.json()['detail']['code'], 'applications_closed')
         await self.fx.start_campaign()
         async with self.fx.sessions() as db:
             (await db.get(User, self.fx.tester.id)).email_verified = False
@@ -68,7 +71,11 @@ class ApplicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.submit()).status_code, 403)
         self.assertEqual((await self.submit(self.fx.other, email=self.fx.tester.email)).status_code, 422)
         self.assertEqual((await self.submit(self.fx.other, motivation='    ')).status_code, 422)
-        own = (await self.submit(self.fx.other)).json()
+        # Invisible characters that reorder or hide text are refused.
+        for trap in ('Contrat signé ‮gnp.exe', 'Classeur\x00 de suivi', 'Rapport ⁦annuel⁩'):
+            self.assertEqual((await self.submit(self.fx.other, motivation=trap)).status_code, 422)
+        # Line breaks and emoji joiners stay allowed.
+        own = (await self.submit(self.fx.other, motivation='Rapport annuel\r\nÉquipe 👨‍👩‍👧')).json()
         denied = await self.review(own['id'], headers=self.fx.headers(self.fx.other))
         self.assertEqual(denied.status_code, 403)
         self.assertEqual((await self.client.get('/api/admin/beta', headers=self.fx.tester_headers)).status_code, 403)
@@ -86,41 +93,58 @@ class ApplicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(own['can_activate'])
         other = (await self.client.get('/api/beta/me', headers=self.fx.headers(self.fx.other))).json()
         self.assertIsNone(other['application'])
-        self.assertEqual((await self.client.post('/api/beta/activate', headers=self.fx.tester_headers)).status_code, 404)
+        missing = await self.client.post('/api/beta/activate', headers=self.fx.tester_headers)
+        self.assertEqual((missing.status_code, missing.json()['detail']['code']), (404, 'no_invitation'))
         async with self.fx.sessions() as db:
-            self.assertEqual(await beta.capacity_used(db), 0)
+            self.assertEqual(await beta.capacity_used(db, self.fx.campaign_id), 0)
             self.assertEqual((await db.get(User, self.fx.tester.id)).page_credits, 7)
             self.assertEqual((await db.get(User, self.fx.tester.id)).plan, 'free')
 
-    async def test_approval_invites_then_activation_starts_access_once(self):
+    async def test_approval_starts_access_directly_once(self):
         await self.fx.start_campaign()
         application = (await self.submit()).json()
         approved = await self.review(application['id'])
         self.assertEqual(approved.status_code, 200, approved.text)
         async with self.fx.sessions() as db:
             enrollment = await beta.enrollment_for(db, self.fx.tester)
-            self.assertIsNotNone(enrollment)
-            self.assertIsNone(enrollment.activated_at)
-            self.assertIsNone(enrollment.expires_at)
-        active = await self.client.post('/api/beta/activate', headers=self.fx.tester_headers)
-        self.assertEqual(active.status_code, 200, active.text)
+            self.assertEqual(enrollment.user_id, self.fx.tester.id)
+            self.assertIsNotNone(enrollment.activated_at)
+            self.assertIsNotNone(enrollment.ip_hash)
+            expires_at = enrollment.expires_at
+        own = (await self.client.get('/api/beta/me', headers=self.fx.tester_headers)).json()
+        self.assertEqual(own['enrollment']['state'], 'active')
         self.assertEqual((await self.review(application['id'])).status_code, 200)
         again = await self.client.post('/api/beta/activate', headers=self.fx.tester_headers)
-        self.assertEqual(active.json()['expires_at'], again.json()['expires_at'])
+        self.assertEqual(again.status_code, 200, again.text)
+        async with self.fx.sessions() as db:
+            self.assertEqual((await beta.enrollment_for(db, self.fx.tester)).expires_at, expires_at)
         self.assertEqual((await self.review(application['id'], 'declined')).status_code, 409)
         async with self.fx.sessions() as db:
-            self.assertEqual(await beta.capacity_used(db), 1)
+            self.assertEqual(await beta.capacity_used(db, self.fx.campaign_id), 1)
+
+    async def test_refused_direct_access_waits_for_the_next_visit(self):
+        await self.fx.start_campaign()
+        application = (await self.submit()).json()
+        async with self.fx.sessions() as db:
+            (await db.get(User, self.fx.tester.id)).email_verified = False; await db.commit()
+        self.assertEqual((await self.review(application['id'])).status_code, 200)
+        own = (await self.client.get('/api/beta/me', headers=self.fx.tester_headers)).json()
+        self.assertEqual((own['application']['state'], own['enrollment']['state']), ('approved', 'invited'))
+        async with self.fx.sessions() as db:
+            (await db.get(User, self.fx.tester.id)).email_verified = True; await db.commit()
+        own = (await self.client.get('/api/beta/me', headers=self.fx.tester_headers)).json()
+        self.assertEqual(own['enrollment']['state'], 'active')
 
     async def test_decline_and_manual_invitation_keep_status_consistent(self):
         await self.fx.start_campaign()
         row = (await self.submit()).json()
         self.assertEqual((await self.review(row['id'], 'declined')).json()['state'], 'declined')
         async with self.fx.sessions() as db:
-            self.assertEqual(await beta.capacity_used(db), 0)
+            self.assertEqual(await beta.capacity_used(db, self.fx.campaign_id), 0)
         await self.fx.invite_tester()
         own = (await self.client.get('/api/beta/me', headers=self.fx.tester_headers)).json()
         self.assertEqual(own['application']['state'], 'approved')
-        self.assertEqual(own['enrollment']['state'], 'invited')
+        self.assertEqual(own['enrollment']['state'], 'active')
 
     async def test_waiting_applications_do_not_bypass_wave_or_total_capacity(self):
         await self.fx.start_campaign(capacity=2, first_wave_capacity=1)
@@ -129,7 +153,7 @@ class ApplicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.review(row['id'])).status_code, 409)
         async with self.fx.sessions() as db:
             self.assertEqual((await db.get(BetaApplication, row['id'])).state, 'pending')
-            (await db.get(BetaCampaign, 'pilot')).starts_at = beta.now_utc() - timedelta(days=35)
+            (await db.get(BetaCampaign, self.fx.campaign_id)).starts_at = beta.now_utc() - timedelta(days=35)
             await db.commit()
         self.assertEqual((await self.review(row['id'])).status_code, 200)
         public = (await self.client.get('/api/beta/program')).json()
@@ -141,7 +165,7 @@ class ApplicationTests(unittest.IsolatedAsyncioTestCase):
         await self.fx.start_campaign()
         row = (await self.submit()).json()
         async with self.fx.sessions() as db:
-            (await db.get(BetaCampaign, 'pilot')).recruitment_ends_at = beta.now_utc() - timedelta(seconds=1)
+            (await db.get(BetaCampaign, self.fx.campaign_id)).recruitment_ends_at = beta.now_utc() - timedelta(seconds=1)
             await db.commit()
         self.assertEqual((await self.submit(self.fx.other)).status_code, 409)
         self.assertEqual((await self.review(row['id'])).status_code, 409)
@@ -206,7 +230,7 @@ class ApprovalConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                             json={'decision': 'approved'}) for key in application_ids]), timeout=20)
             self.assertEqual(sorted(r.status_code for r in responses), [200, 409])
             async with sessions() as db:
-                self.assertEqual(await beta.capacity_used(db), 1)
+                self.assertEqual(await beta.capacity_used(db, 'pilot'), 1)
                 states = (await db.execute(select(BetaApplication.state))).scalars().all()
                 self.assertEqual(sorted(states), ['approved', 'pending'])
         finally:

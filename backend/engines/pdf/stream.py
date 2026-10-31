@@ -21,6 +21,8 @@ traduction) pour que la pagination du partiel suive celle du document.
 
 import json
 import os
+import threading
+import time
 
 import fitz
 
@@ -44,7 +46,46 @@ def _save_partial(out_doc, partial_path):
         return
     tmp = partial_path + ".tmp"
     out_doc.save(tmp, garbage=2, deflate=True)
-    os.replace(tmp, partial_path)
+    # Windows refuse de remplacer un fichier ouvert (lecture de l'aperçu,
+    # antivirus qui inspecte le fichier neuf) : on réessaie, puis on renonce.
+    # L'aperçu n'est qu'une vitrine : en retard d'une page, il se rattrape à
+    # la suivante ; il ne doit JAMAIS faire échouer la traduction (mesuré :
+    # blocage de plus de 3 s après plusieurs pauses/reprises, job en échec).
+    for _ in range(50):
+        try:
+            os.replace(tmp, partial_path)
+            return
+        except PermissionError:
+            time.sleep(0.1)
+
+
+def _sans_attendre(travail, arret, pas=0.3):
+    """Exécute `travail` (la traduction d'une page) sans bloquer un arrêt.
+
+    Sans `arret`, appel direct. Sinon le travail tourne dans un fil à part et
+    `arret()` est consulté pendant l'attente : s'il lève, la page en vol est
+    ABANDONNÉE sur-le-champ — son résultat n'atteint ni le cache, ni le
+    partiel, ni le décompte des pages faites (décision du 30/10 : on n'attend
+    pas le retour du modèle). Le fil orphelin finit seul, sans effet."""
+    if arret is None:
+        return travail()
+    issue = {}
+
+    def _fil():
+        try:
+            issue["ok"] = travail()
+        except BaseException as e:      # relancée dans le fil appelant
+            issue["err"] = e
+
+    fil = threading.Thread(target=_fil, name="page-pdf", daemon=True)
+    fil.start()
+    while fil.is_alive():
+        fil.join(pas)
+        if fil.is_alive():
+            arret()
+    if "err" in issue:
+        raise issue["err"]
+    return issue.get("ok")
 
 
 def _alleger_images(pages) -> bool:
@@ -63,7 +104,8 @@ def _alleger_images(pages) -> bool:
 
 def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                               pages=None, partial_path=None, on_event=None,
-                              debug=False, cache_path=None, engine=None):
+                              debug=False, cache_path=None, engine=None,
+                              arret=None):
     """Traduit `pdf_path` page par page vers `output_path`.
 
     pages        : ensemble de numéros 1-basés à traduire (None = toutes) ; les
@@ -192,6 +234,12 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                     cached_pages[human] = page_data
                     _ecrire_cache()
             if not has_translation:
+                # Pause/annulation : contrôlée seulement avant une page À
+                # TRADUIRE. Les pages hors sélection ou déjà au cache se
+                # recopient sans frais ; s'arrêter dessus perdrait un travail
+                # fini (la page précédente, elle, est déjà au cache).
+                if arret is not None:
+                    arret()
                 _emit(on_event, {"type": "page", "page": human,
                                  "status": "extracting",
                                  "done": human - 1, "total": total})
@@ -204,26 +252,35 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                                      "done": human - 1, "total": total})
                     one = {"pages": [page_data], "fonts": {}}
                     cle_fiche = str(target_lang).lower()
+                    # Lue ici, pas dans le fil : `src` est fermé dès l'arrêt,
+                    # et un fil abandonné ne doit plus y toucher.
+                    matiere = None
                     if cle_fiche not in fiches:
-                        from engines.translation_ai import TranslatorAI
                         try:
                             matiere = translate.matiere_fiche_pdf(src)
                         except Exception:       # page illisible : sans fiche
                             matiere = ([], [])
-                        fiches[cle_fiche] = TranslatorAI().fiche_document(
-                            *matiere, target_lang)
-                    translate.translate_extraction(one, target_lang=target_lang,
-                                                   doc_memory=doc_memory,
-                                                   fiche=fiches[cle_fiche])
+
+                    def _traduire_page():
+                        if matiere is not None:
+                            from engines.translation_ai import TranslatorAI
+                            fiches[cle_fiche] = TranslatorAI().fiche_document(
+                                *matiere, target_lang)
+                        translate.translate_extraction(
+                            one, target_lang=target_lang,
+                            doc_memory=doc_memory, fiche=fiches[cle_fiche])
+                        # Recalcule l'expansion puis retraduction compacte de
+                        # la page (paragraphes qui ne tiendraient pas sans
+                        # compression visible).
+                        try:
+                            translate.retranslate_overflows(
+                                one, eng, target_lang=target_lang,
+                                fiche=fiches[cle_fiche])
+                        except Exception:
+                            pass
+
+                    _sans_attendre(_traduire_page, arret)
                     nouvelles += 1
-                    # Recalcule l'expansion puis retraduction compacte de la page
-                    # (paragraphes qui ne tiendraient pas sans compression visible).
-                    try:
-                        translate.retranslate_overflows(
-                            one, eng, target_lang=target_lang,
-                            fiche=fiches[cle_fiche])
-                    except Exception:
-                        pass
                 # Reprise : la page traduite rejoint le cache immédiatement.
                 if cache_path:
                     cached_pages[human] = page_data

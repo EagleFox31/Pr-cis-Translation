@@ -125,7 +125,8 @@ MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 Mo
 ALLOWED_EXTENSIONS = {"txt", "pdf", "docx", "pptx", "xlsx"}
 
 # ── Stockage ─────────────────────────────────────────────────────────────────
-TRANSLATIONS_DIR = str(BACKEND_DIR / "translations")
+# Surchargeable : une suite de tests peut travailler dans un magasin jetable.
+TRANSLATIONS_DIR = os.getenv("TRANSLATIONS_DIR") or str(BACKEND_DIR / "translations")
 os.makedirs(TRANSLATIONS_DIR, exist_ok=True)
 # Cache des polices téléchargées par le moteur PDF : même racine que le reste.
 os.environ.setdefault("PRECIS_FONTS_CACHE", os.path.join(TRANSLATIONS_DIR, "_polices"))
@@ -195,6 +196,11 @@ BRAND_NAME = os.getenv("BRAND_NAME", "PRÉCIS")
 BRAND_TAGLINE = os.getenv("BRAND_TAGLINE", "Professional Translation")
 PUBLIC_SITE = os.getenv("PUBLIC_SITE", "precis-translator.trigenys.com")
 
+
+# ── Anti-robots à l'inscription (Cloudflare Turnstile) ───────────────────────
+# Clé secrète du widget ; la clé de site va dans `frontend/.env` sous le nom
+# VITE_TURNSTILE_SITE_KEY. Vide = contrôle désactivé (développement, tests).
+TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY", "")
 
 # ── Journal des erreurs ──────────────────────────────────────────────────────
 # Au-delà de ce nombre de logs NON traités, l'admin reçoit une alerte e-mail —

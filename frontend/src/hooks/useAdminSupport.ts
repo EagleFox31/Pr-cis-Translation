@@ -36,8 +36,8 @@ function buildQuery(f: TicketFilters): string {
   return s ? `?${s}` : '';
 }
 
-export function useAdminSupport() {
-  const [filters, setFilters] = useState<TicketFilters>({});
+/** Les filtres sont fournis par la page (ils vivent dans l'adresse). */
+export function useAdminSupport(filters: TicketFilters) {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [total, setTotal] = useState(0);
   const [openCount, setOpenCount] = useState(0);
@@ -71,5 +71,5 @@ export function useAdminSupport() {
     [refresh],
   );
 
-  return { filters, setFilters, tickets, total, openCount, loading, refresh, handle, remove };
+  return { tickets, total, openCount, loading, refresh, handle, remove };
 }

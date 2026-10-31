@@ -12,18 +12,22 @@
  * La carte a trois états mutuellement exclusifs sous l'en-tête :
  *   • EN COURS  -> barre d'avancement (pages faites / total) ;
  *   • EN ERREUR -> ligne d'alerte, et le bouton central devient « Réessayer » ;
+ *   • ARRÊTÉ    -> (interrompu, en pause, annulé) ligne d'état, « Reprendre »,
+ *                  et les pages déjà faites restent lisibles et téléchargeables ;
  *   • terminé   -> Aperçu + Télécharger.
  * Le bouton Supprimer reste à sa place dans tous les cas.
  */
+import { useState } from 'react';
 import { motion } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import {
-  Eye, Download, Trash2, Lock, AlertTriangle, Loader2, RotateCcw, Flag,
+  Eye, Download, Trash2, Lock, AlertTriangle, Loader2, RotateCcw, Flag, Pause, X,
   FileType2, FileText, Presentation, Sheet, File as FileIcon,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
-import type { DocMeta } from '../../hooks/useDocumentLibrary';
+import { STATUTS_REPRENABLES, type DocMeta } from '../../hooks/useDocumentLibrary';
+import type { StopMode } from '../../hooks/useStreamingTranslation';
 import { baseCode } from '../../lib/languages';
 import { formatDate, formatSize, percent } from '../../lib/format';
 import Button from '../ui/Button';
@@ -45,15 +49,36 @@ interface DocumentCardProps {
   onDownload: (doc: DocMeta) => void;
   onDelete: (id: string) => void;
   onRetry?: (doc: DocMeta) => void;
+  onStop?: (doc: DocMeta, mode: StopMode) => Promise<void>;
 }
 
 export default function DocumentCard({
-  doc, trial, busy, onPreview, onDownload, onDelete, onRetry,
+  doc, trial, busy, onPreview, onDownload, onDelete, onRetry, onStop,
 }: DocumentCardProps) {
   const { t, i18n } = useTranslation();
+  // Arrêt demandé : il prend effet après la page en cours, d'où l'attente.
+  const [arret, setArret] = useState<StopMode | null>(null);
+  // `busy` vaut pour toute la carte : on retient le bouton cliqué pour que
+  // le chargement s'affiche sur LUI (télécharger le partiel ≠ reprendre).
+  const [clic, setClic] = useState<'retry' | 'download' | null>(null);
 
   const enCours = doc.status === 'translating';
-  const enErreur = doc.status === 'error';
+  // Arrêté (serveur coupé, pause, annulation) : même place et même bouton
+  // qu'un échec, mais « Reprendre » — les pages faites ne sont pas perdues.
+  const arrete = STATUTS_REPRENABLES.includes(doc.status);
+  const enErreur = doc.status === 'error' || arrete;
+  // Le serveur livre le fichier partiel d'un document arrêté.
+  const livrable = arrete && doc.pagesDone > 0;
+  const enAttente = doc.status === 'paused' || doc.status === 'cancelled';
+
+  const demanderArret = (mode: StopMode) => {
+    if (!onStop) return;
+    setArret(mode);
+    onStop(doc, mode).catch(() => setArret(null));
+  };
+  // Repris par une autre traduction (qui porte la suite) : rien à lire ici —
+  // sans traduction, le téléchargement servirait l'original.
+  const reprise = doc.status === 'resumed';
   // Le droit tient au DOCUMENT, pas au forfait : un compte gratuit qui a réglé
   // ses pages télécharge comme un abonné.
   const verrouille = trial && !doc.paid;
@@ -92,9 +117,21 @@ export default function DocumentCard({
           <div className="libdoc__progress-row">
             <span className="libdoc__state">
               <Loader2 size={12} strokeWidth={2.4} className="ui-spin" aria-hidden />
-              {t('library.translating')}
+              {arret ? t('viewer.stopping') : t('library.translating')}
             </span>
             <span className="libdoc__count">{doc.pagesDone}/{doc.pageCount}</span>
+            {doc.jobId && onStop && (
+              <>
+                <IconButton label={t('library.pause')} variant="ghost" size="sm"
+                  disabled={arret !== null} onClick={() => demanderArret('pause')}>
+                  <Pause size={13} strokeWidth={2.2} />
+                </IconButton>
+                <IconButton label={t('library.cancel_translation')} variant="ghost" size="sm"
+                  disabled={arret !== null} onClick={() => demanderArret('cancel')}>
+                  <X size={13} strokeWidth={2.2} />
+                </IconButton>
+              </>
+            )}
           </div>
           <ProgressBar
             value={percent(doc.pagesDone, doc.pageCount)}
@@ -105,10 +142,14 @@ export default function DocumentCard({
 
       {/* EN ERREUR — ligne d'alerte ; le « Réessayer » est dans la barre d'actions
           (à la place du Télécharger), pas ici. */}
-      {enErreur && (
-        <div className="libdoc__error" role="alert">
-          <AlertTriangle size={14} strokeWidth={2.4} aria-hidden />
-          <span>{t('library.error_status')}</span>
+      {(enErreur || reprise) && (
+        <div className={enAttente ? 'libdoc__error libdoc__error--held' : 'libdoc__error'}
+          role={enAttente ? 'status' : 'alert'}>
+          {doc.status === 'paused'
+            ? <Pause size={14} strokeWidth={2.4} aria-hidden />
+            : <AlertTriangle size={14} strokeWidth={2.4} aria-hidden />}
+          <span>{t(reprise ? 'library.resumed_status'
+            : arrete ? `library.${doc.status}_status` : 'library.error_status')}</span>
         </div>
       )}
 
@@ -118,7 +159,7 @@ export default function DocumentCard({
       <div className="libdoc__actions" style={{ background: 'transparent' }}>
         <Button variant="secondary" size="sm" block
           icon={<Eye size={13} strokeWidth={2.2} />}
-          disabled={busy || enErreur}
+          disabled={busy || (enErreur && !livrable) || reprise}
           onClick={() => onPreview(doc)}>
           {t('library.preview')}
         </Button>
@@ -127,22 +168,31 @@ export default function DocumentCard({
         {enErreur && onRetry ? (
           <Button variant="primary" size="sm" block
             icon={<RotateCcw size={13} strokeWidth={2.2} />}
-            loading={busy}
-            onClick={() => onRetry(doc)}>
-            {t('library.retry')}
+            loading={busy && clic === 'retry'}
+            disabled={busy}
+            onClick={() => { setClic('retry'); onRetry(doc); }}>
+            {t(arrete ? 'library.resume' : 'library.retry')}
           </Button>
         ) : (
           <Button variant="primary" size="sm" block
             icon={verrouille ? <Lock size={13} strokeWidth={2.2} />
               : <Download size={13} strokeWidth={2.2} />}
             loading={busy}
-            disabled={enCours || enErreur}
+            disabled={enCours || enErreur || reprise}
             title={titreTelechargement}
-            onClick={() => onDownload(doc)}>
+            onClick={() => { setClic('download'); onDownload(doc); }}>
             {enCours ? t('library.in_progress')
               : verrouille ? t('library.unlock')
               : t('library.download')}
           </Button>
+        )}
+
+        {/* Pages déjà traduites d'un document arrêté (fichier `_PARTIEL`). */}
+        {livrable && !verrouille && (
+          <IconButton label={t('library.download_partial')} variant="neutral" size="md"
+            disabled={busy} onClick={() => { setClic('download'); onDownload(doc); }}>
+            <Download size={14} strokeWidth={2.2} />
+          </IconButton>
         )}
 
         {/* Signaler un problème SUR CE document : le document est référencé

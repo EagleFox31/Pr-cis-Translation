@@ -88,7 +88,22 @@ export async function authFetch(path: string, init: RequestInit = {}): Promise<R
   return res;
 }
 
-async function refreshAccessToken(): Promise<string | null> {
+/**
+ * Un seul refresh à la fois. Le backend fait tourner le refresh token : deux
+ * 401 simultanés lançaient deux refresh avec le même jeton, le second était
+ * refusé et déconnectait une session pourtant valide (interface encore
+ * « connectée », appels suivants anonymes → « Authentification requise »).
+ */
+let _refreshing: Promise<string | null> | null = null;
+
+export function refreshAccessToken(): Promise<string | null> {
+  if (!_refreshing) {
+    _refreshing = doRefreshAccessToken().finally(() => { _refreshing = null; });
+  }
+  return _refreshing;
+}
+
+async function doRefreshAccessToken(): Promise<string | null> {
   if (!_refreshToken) return null;
   try {
     const res = await fetch(`${API_BASE}/api/auth/refresh`, {
@@ -114,11 +129,13 @@ async function request(
   method: string,
   path: string,
   body?: unknown,
+  extraHeaders?: Record<string, string>,
 ): Promise<{ ok: boolean; status: number; data: unknown }> {
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'Accept-Language': uiLanguage(),
+    ...extraHeaders,
   };
   if (_accessToken) headers['Authorization'] = `Bearer ${_accessToken}`;
 
@@ -164,7 +181,8 @@ async function request(
 
 const api = {
   get: (path: string) => request('GET', path),
-  post: (path: string, body?: unknown) => request('POST', path, body),
+  post: (path: string, body?: unknown, headers?: Record<string, string>) =>
+    request('POST', path, body, headers),
   patch: (path: string, body?: unknown) => request('PATCH', path, body),
   // DELETE avec corps facultatif : certaines routes (purge du journal) ciblent
   // une LISTE d'éléments, pas une ressource unique dans l'URL.

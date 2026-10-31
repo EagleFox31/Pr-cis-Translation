@@ -4,22 +4,34 @@
  * POURQUOI : sans elle, ces pages s'ouvraient sur un fond nu, sans en-tête —
  * on avait l'impression de quitter Précis pour un autre logiciel. La coquille
  * REMET la barre de l'application (même logo, même verre dépoli, même bascule
- * FR/EN, même menu Administration) au-dessus d'un contenu cadré comme le reste
- * du site. Une seule barre pour toutes les pages admin : on ne la refait pas
- * page par page.
+ * FR/EN) au-dessus d'un contenu cadré comme le reste du site. Le menu central
+ * de la barre porte les pages admin (docs/etude-menu-admin.md) : une seule
+ * navigation, à la place de l'ancien menu déroulant et des onglets sous le titre.
  *
  * L'en-tête réutilise les classes `.navbar/.nav-inner/.lang-toggle` d'`index.css`
  * — c'est littéralement la même barre, pas une imitation qui dériverait.
  */
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
-import AdminMenu from '../navbar/AdminMenu';
+import MobileMenu from '../navbar/MobileMenu';
+import { AdminStats, type AdminStat } from './AdminParts';
+import './admin.css';
 
 const logo = '/Logo.png';
+
+/** Pages admin, dans l'ordre des onglets (libellés : `admin.tabs.<clé>`). */
+const TABS = [
+  { key: 'users', to: '/admin/users', label: 'Comptes' },
+  { key: 'documents', to: '/admin/documents', label: 'Documents' },
+  { key: 'support', to: '/admin/support', label: 'Assistance' },
+  { key: 'logs', to: '/admin/logs', label: 'Journal' },
+  { key: 'beta', to: '/admin/beta', label: 'Bêta' },
+] as const;
 
 interface AdminShellProps {
   title: string;
@@ -27,20 +39,29 @@ interface AdminShellProps {
   count?: string;
   /** Boutons d'action de la page (Rafraîchir, Exporter…). */
   actions?: ReactNode;
+  /** Tuiles de chiffres clés, affichées sous l'en-tête. */
+  stats?: AdminStat[];
+  /** Onglets d'administration (faux pour une page publique comme `/beta`). */
+  tabs?: boolean;
   children: ReactNode;
 }
 
-export default function AdminShell({ title, count, actions, children }: AdminShellProps) {
+export default function AdminShell({ title, count, actions, stats, tabs = true, children }: AdminShellProps) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const { user } = useAuth();
+  const [menuOpen, setMenuOpen] = useState(false);
+  // Jamais montré à un non-admin : il trahirait les pages internes.
+  const showTabs = tabs && user?.plan === 'admin';
+  const tabLinks = TABS.map((tab) => ({ id: tab.to, href: tab.to, label: t(`admin.tabs.${tab.key}`, tab.label) }));
 
   const avatarLetter = user?.name
     ? user.name[0].toUpperCase()
     : (user?.email?.[0].toUpperCase() || '?');
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--gray-50, #f9fafb)' }}>
+    <div className="admin-page">
       {/* En-tête de l'application — la vraie barre, réutilisée telle quelle */}
       <nav className="navbar scrolled">
         <div className="nav-inner">
@@ -60,12 +81,25 @@ export default function AdminShell({ title, count, actions, children }: AdminShe
             </span>
           </button>
 
+          {showTabs && (
+            <ul className="nav-links" aria-label={t('admin.tabs_label', 'Pages d’administration')}>
+              {tabLinks.map((tab) => (
+                <li key={tab.id}><NavLink to={tab.href}>{tab.label}</NavLink></li>
+              ))}
+            </ul>
+          )}
+
+          {showTabs && (
+            // Sortie explicite : le logo ramène aussi à l'accueil, mais ne se devine pas.
+            <button onClick={() => navigate('/home')} className="tb-btn ghost admin-btn admin-exit" title={t('admin.back_home', 'Retour à l’accueil')}>
+              <ArrowLeft size={15} strokeWidth={2.2} /> <span>{t('admin.back_home', 'Retour à l’accueil')}</span>
+            </button>
+          )}
+
           <div className="lang-toggle">
             <button className={i18n.language === 'fr' ? 'active' : ''} onClick={() => i18n.changeLanguage('fr')}>FR</button>
             <button className={i18n.language === 'en' ? 'active' : ''} onClick={() => i18n.changeLanguage('en')}>EN</button>
           </div>
-
-          <AdminMenu />
 
           <button
             onClick={() => navigate('/home')}
@@ -78,29 +112,41 @@ export default function AdminShell({ title, count, actions, children }: AdminShe
               fontFamily: 'inherit', flexShrink: 0,
             }}
           >{avatarLetter}</button>
+
+          {showTabs && (
+            <button className="hamburger" onClick={() => setMenuOpen((v) => !v)} aria-label="Toggle menu" aria-expanded={menuOpen}>
+              <span style={{ transform: menuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' }} />
+              <span style={{ opacity: menuOpen ? 0 : 1 }} />
+              <span style={{ transform: menuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none' }} />
+            </button>
+          )}
         </div>
       </nav>
 
-      {/* Contenu : décalé sous la barre fixe, cadré comme le reste du site */}
-      <main style={{ paddingTop: 'calc(var(--nav-h) + 28px)', paddingBottom: '48px' }}>
-        <div style={{ maxWidth: 'var(--frame-max, 1200px)', margin: '0 auto', padding: '0 var(--frame-pad, 24px)' }}>
+      {showTabs && (
+        <MobileMenu
+          isOpen={menuOpen} links={tabLinks} activeSection={pathname}
+          onNavClick={(to) => { setMenuOpen(false); navigate(to); }} onClose={() => setMenuOpen(false)}
+        />
+      )}
 
-          {/* Fil d'Ariane + titre + actions */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '20px', flexWrap: 'wrap' }}>
-            <button onClick={() => navigate('/home')} className="tb-btn ghost"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <ArrowLeft size={15} strokeWidth={2.2} /> {t('admin.back', 'Retour')}
-            </button>
-            <h1 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--navy, #0d1b3e)', margin: 0 }}>
-              {title}
-            </h1>
-            {count && (
-              <span style={{ fontSize: '12px', color: 'var(--gray-500, #6b7280)' }}>{count}</span>
+      {/* Contenu : décalé sous la barre fixe, cadré comme le reste du site */}
+      <main className="admin-main">
+        <div className="admin-frame">
+          {/* Page publique : Retour et titre restent visibles au défilement. */}
+          <div className={'admin-head' + (tabs ? '' : ' admin-head--sticky')}>
+            {/* Sans menu (page publique /beta), seul chemin visible vers l'accueil. */}
+            {!showTabs && (
+              <button onClick={() => navigate('/home')} className="tb-btn ghost admin-btn">
+                <ArrowLeft size={15} strokeWidth={2.2} /> {t('admin.back', 'Retour')}
+              </button>
             )}
-            {actions && (
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>{actions}</div>
-            )}
+            <h1>{title}</h1>
+            {count && <span className="admin-head__count">{count}</span>}
+            {actions && <div className="admin-head__actions">{actions}</div>}
           </div>
+
+          {stats && stats.length > 0 && <AdminStats items={stats} />}
 
           {children}
         </div>

@@ -16,9 +16,10 @@
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { FolderOpen, LifeBuoy, LogOut, X } from 'lucide-react';
+import { FolderOpen, LifeBuoy, UserPlus, X } from 'lucide-react';
 
 import type { DocMeta } from '../../hooks/useDocumentLibrary';
+import type { StopMode } from '../../hooks/useStreamingTranslation';
 import { useAuth } from '../../contexts/AuthContext';
 import { isTrialFor } from '../../lib/plans';
 import Button from '../ui/Button';
@@ -27,6 +28,7 @@ import EmptyState from '../ui/EmptyState';
 import IconButton from '../ui/IconButton';
 import PaymentModal from '../payment/PaymentModal';
 import { openSupport } from '../support/supportBus';
+import { openInvite } from '../invite/inviteBus';
 import AccountPanel from './AccountPanel';
 import DocumentCard from './DocumentCard';
 
@@ -46,6 +48,8 @@ interface DocumentLibraryProps {
     filename: string;
     ext: string;
     paid: boolean;
+    /** Traduction encore en cours côté serveur. */
+    enCours: boolean;
     source: Promise<Blob | undefined>;
   }) => void;
   onDelete: (id: string) => void;
@@ -57,11 +61,13 @@ interface DocumentLibraryProps {
   onPaid?: () => void;
   /** Relance la traduction d'un document en erreur. */
   onRetry?: (doc: DocMeta) => void;
+  /** Pause / Annuler une traduction en cours. */
+  onStop?: (doc: DocMeta, mode: StopMode) => Promise<void>;
 }
 
 export default function DocumentLibrary({
   isOpen, onClose, documents, onPreview, onDelete, onClearAll,
-  getBlob, getOriginalBlob, onPaid, onRetry,
+  getBlob, getOriginalBlob, onPaid, onRetry, onStop,
 }: DocumentLibraryProps) {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
@@ -90,6 +96,7 @@ export default function DocumentLibrary({
       docId: doc.id, paid: doc.paid,
       filename: doc.filename,
       ext: doc.ext,
+      enCours: doc.status === 'translating',
       source: getOriginalBlob(doc.id, true),
     });
   }, [getOriginalBlob, onPreview]);
@@ -125,7 +132,8 @@ export default function DocumentLibrary({
     <>
       <Drawer open={isOpen} onClose={onClose} label={t('library.title')}>
         {user && <AccountPanel user={user}
-          refreshKey={documents.map(d => `${d.id}:${d.status}`).join('|')} />}
+          refreshKey={documents.map(d => `${d.id}:${d.status}`).join('|')}
+          onLogout={async () => { onClose(); await logout(); }} />}
 
         <header className="biblio__tete">
           <div>
@@ -184,31 +192,30 @@ export default function DocumentLibrary({
                 onDownload={handleDownload}
                 onDelete={onDelete}
                 onRetry={onRetry}
+                onStop={onStop}
               />
             ))
           )}
         </div>
 
-        {/* Pied de panneau — la déconnexion.
-            Elle était au bas du bloc de compte, en gris clair sur blanc : on ne
-            savait pas qu'elle était là. Ici, elle ne défile pas avec la liste
-            et reste visible quel que soit le nombre de documents. Le ton
-            « danger » lui donne sa présence sans en faire l'action principale :
-            c'est une sortie, pas une suppression. */}
+        {/* Pied de panneau : inviter et demander de l'aide. Il ne défile pas
+            avec la liste et reste visible quel que soit le nombre de documents. */}
         {user && (
-          <footer className="biblio__pied" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {/* Aide au-DESSUS de la déconnexion : c'est une action qu'on cherche
-                quand ça coince, elle doit être à portée sans quitter le compte. */}
-            <Button variant="ghost" size="md" block
-              icon={<LifeBuoy size={15} strokeWidth={2.2} />}
-              onClick={() => { onClose(); openSupport(); }}>
-              {t('support.open', 'Aide & support')}
-            </Button>
-            <Button variant="danger" size="md" block
-              icon={<LogOut size={15} strokeWidth={2.2} />}
-              onClick={async () => { onClose(); await logout(); }}>
-              {t('account.logout')}
-            </Button>
+          <footer className="biblio__pied">
+            {/* Inviter et Aide côte à côte, de même largeur. La déconnexion
+                est montée dans la carte du compte (étude, point 4). */}
+            <nav className="biblio__duo">
+              <button type="button" className="biblio__action"
+                onClick={() => { onClose(); openInvite(); }}>
+                <UserPlus size={16} strokeWidth={2} aria-hidden="true" />
+                {t('invite.open', 'Inviter des proches')}
+              </button>
+              <button type="button" className="biblio__action"
+                onClick={() => { onClose(); openSupport(); }}>
+                <LifeBuoy size={16} strokeWidth={2} aria-hidden="true" />
+                {t('support.open', 'Aide & support')}
+              </button>
+            </nav>
           </footer>
         )}
       </Drawer>
