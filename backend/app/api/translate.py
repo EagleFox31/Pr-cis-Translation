@@ -404,8 +404,8 @@ async def translate_endpoint(
     limit = get_plan_page_limit(plan)
     page_limit = limit if limit is not None else 999_999
 
-    # Un document couvert par l'offre, le forfait, la bêta ou des crédits
-    # achetés donne droit au résultat en clair. Les anciens aperçus verrouillés
+    # Un document couvert par le forfait payant, la bêta ou des crédits achetés
+    # est téléchargeable ; les pages gratuites seules restent en aperçu. Les anciens aperçus verrouillés
     # gardent leur drapeau paid=False ; ils ne sont pas débloqués rétroactivement.
     doc_is_paid = False
 
@@ -555,7 +555,9 @@ async def translate_endpoint(
         # aucun quota, et le mécanisme existant rembourse un échec une seule fois.
         kind = KIND_FREE_OFFER if gratuit else KIND_PLAN
         usages = [(k, n) for k, n in ((kind, du_plan), (KIND_CREDITS, achetees)) if n > 0]
-        doc_is_paid = True
+        # Les pages gratuites ne se téléchargent pas ; un document qui consomme
+        # aussi des pages achetées, si : sinon il faudrait le repayer en entier.
+        doc_is_paid = not gratuit or achetees > 0
 
     # Ce qui sera RÉELLEMENT traduit — enregistré sur le Document, sinon le
     # quota du mois prochain n'aurait rien à compter (`page_count` restait NULL).
@@ -809,6 +811,18 @@ async def _droit_au_clair(job: dict, user: "User", db: AsyncSession) -> bool:
     return doc is not None and doc.user_id == user.id and _may_read_clear(user, doc)
 
 
+async def _apercu_en_clair(job: dict, user: "User", db: AsyncSession) -> bool:
+    """Aperçu sans filigrane ? Comme `_droit_au_clair`, sauf qu'un document
+    traduit avec des crédits bêta garde la mention promotionnelle, même sur
+    un compte payant (`documents._apercu_filigrane`)."""
+    from app.api.documents import _apercu_filigrane
+    doc_id = job.get("document_id")
+    doc = await db.get(Document, doc_id) if doc_id else None
+    if doc is None or doc.user_id != user.id:
+        return is_paid_plan(user.plan)
+    return not _apercu_filigrane(user, doc)
+
+
 @router.get("/api/translate/partial/{job_id}")
 async def translation_partial(job_id: str, x_api_key: str = Header(None),
                               current_user: "User" = Depends(require_auth),
@@ -838,7 +852,7 @@ async def translation_partial(job_id: str, x_api_key: str = Header(None),
     # Liste d'AUTORISATION, pas de refus : un plan inconnu (valeur corrompue,
     # plan retiré du barème) est traité comme non payant. `== FREE_PLAN`
     # donnait l'inverse : tout ce qui n'était pas littéralement "free" passait.
-    if not await _droit_au_clair(job, current_user, db):
+    if not await _apercu_en_clair(job, current_user, db):
         data = await run_in_threadpool(rasterize_for_trial, data, job.get("pages"))
 
     headers = {"Cache-Control": "no-store"}

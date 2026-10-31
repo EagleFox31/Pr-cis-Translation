@@ -68,12 +68,11 @@ class FreeDocumentTests(unittest.IsolatedAsyncioTestCase):
 
     async def document(self, response):
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertTrue(response.json()["can_download"])
         identifier = jobs.get(response.json()["job_id"])["document_id"]
         async with self.fx.sessions() as db:
             return await db.get(Document, identifier)
 
-    async def test_all_five_formats_share_five_pages_and_export_native_files(self):
+    async def test_all_five_formats_share_five_pages_as_preview_only(self):
         initial = await self.summary()
         self.assertEqual(initial["monthly_pages"], 5)
         self.assertEqual(initial["pages_remaining"], 5)
@@ -81,15 +80,15 @@ class FreeDocumentTests(unittest.IsolatedAsyncioTestCase):
                 ("c.docx", docx(20)), ("d.xlsx", fixtures.xlsx(20)), ("e.txt", b"Bonjour le monde")]:
             response = await self.upload(data, filename)
             document = await self.document(response)
-            self.assertTrue(document.paid)
+            # Pages gratuites : aperçu seulement, pas de téléchargement.
+            self.assertFalse(response.json()["can_download"])
+            self.assertFalse(document.paid)
             self.assertEqual(document.page_count, 1)
             result = Path(self.fx.temp.name) / filename
             result.write_bytes(data)
             jobs.set(response.json()["job_id"], state="done", result_path=str(result), result_filename=filename)
             download = await self.client.get("/api/translate/result/" + response.json()["job_id"], headers=self.headers)
-            self.assertEqual(download.status_code, 200, download.text[:100] if filename.endswith("txt") else filename)
-            self.assertEqual(download.content, data)
-            self.assertIn(filename, download.headers["content-disposition"])
+            self.assertEqual(download.status_code, 402, filename)
         self.assertEqual((await self.summary())["pages_remaining"], 0)
         denied = await self.upload()
         self.assertEqual(denied.status_code, 402)
@@ -121,6 +120,9 @@ class FreeDocumentTests(unittest.IsolatedAsyncioTestCase):
             await db.commit()
         response = await self.upload(docx(2501), "large.docx")
         document = await self.document(response)
+        # Document mixte : des pages achetées le rendent téléchargeable.
+        self.assertTrue(response.json()["can_download"])
+        self.assertTrue(document.paid)
         summary = await self.summary()
         self.assertEqual((summary["pages_remaining"], summary["page_credits"]), (0, 1))
         async with self.fx.sessions() as db:

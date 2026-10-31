@@ -240,6 +240,15 @@ def _may_read_clear(user: User, doc: Document) -> bool:
     return is_paid_plan(user.plan) or doc.paid
 
 
+def _apercu_filigrane(user: User, doc: Document) -> bool:
+    """L'aperçu de CE document porte-t-il la mention promotionnelle ?
+
+    Oui sans droit au clair, et aussi pour un document traduit avec des crédits
+    bêta : téléchargeable, mais son aperçu reste filigrané, même sur un compte
+    payant (conditions d'utilisation, « Offres et quotas »)."""
+    return not _may_read_clear(user, doc) or bool(reglages_de(doc).get("beta"))
+
+
 def _doc_response(doc: Document) -> dict:
     return {
         "id": doc.id,
@@ -505,7 +514,7 @@ async def preview_document(
                                                       "X-Render": "pending",
                                                       **_entetes_pages(job)})
         data = await run_in_threadpool(_lire, chemin)
-        if not _may_read_clear(user, doc):
+        if _apercu_filigrane(user, doc):
             # Même règle que /translate/partial : un plan d'essai ne reçoit
             # que des pixels, et seules les pages traduites sont à protéger.
             data = await run_in_threadpool(rasterize_for_trial, data, job.get("pages"))
@@ -517,8 +526,8 @@ async def preview_document(
     # Un plan d'essai ne reçoit que du rastérisé, et seulement pour le PDF : un
     # format non-PDF ne peut pas être filigrané ici sans risque de le livrer en
     # clair, donc on le réserve aux plans payants.
-    clear = _may_read_clear(user, doc)
-    if not clear and ext != "pdf":
+    clear = not _apercu_filigrane(user, doc)
+    if not _may_read_clear(user, doc) and ext != "pdf":
         raise HTTPException(
             status_code=402,
             detail="Aperçu de ce format réservé aux traductions payées.",

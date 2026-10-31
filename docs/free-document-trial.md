@@ -22,11 +22,14 @@ allowance; purchased credits remain separate. Earlier free-offer records retain
 their original consumption. No migration, automatic trial enrollment, recruitment
 opening or payment collection is needed.
 
-Newly covered documents are marked `paid` (the existing covered-document flag,
-also used for beta documents), allowing clear preview and native-format export.
-Old unpaid previews retain their lock. The frontend reads the document right from
-the accepted-job response or the library record; it does not infer it from being
-on a paid subscription. All ownership checks remain server-side.
+Free pages are preview-only: a document covered only by free pages stays
+unpaid, so its preview is watermarked and it cannot be downloaded. A document
+that also consumes bought pages, a paid-plan document and a beta document are
+marked `paid` (downloadable). Beta documents (`reglages["beta"]`) keep the
+watermarked preview with the promotional mention, even on a paid plan (see
+`docs/etude-source-credits.md`). Old unpaid previews retain their lock. The
+frontend reads the document right from the accepted-job response or the library
+record; it does not infer it from being on a paid subscription. All ownership checks remain server-side.
 
 The public pricing response includes monthly and annual charge totals computed
 with the same integer fee rounding as payment quotes. Plan cards display monthly
