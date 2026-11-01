@@ -1128,7 +1128,7 @@ def render_translation_bytes(original_path: str, translation_path: str,
         out = os.path.join(tmp, f"render.{ext}")
         if ext == "pdf":
             source_path = original_path
-            if "ocrv1" in os.path.basename(translation_path).split(".")[0].split("_"):
+            if any(part.startswith("ocrv") for part in os.path.basename(translation_path).split(".")[0].split("_")):
                 source_path = translation_path + ".source.pdf"
                 if not os.path.isfile(source_path):
                     raise FileNotFoundError("Copie OCR manquante pour reconstruire la traduction.")

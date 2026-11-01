@@ -41,7 +41,7 @@ async def main():
             args = submit.call_args.args[-1]
             assert args[1] == data, "Original bytes must stay intact"
             assert args[-1] is not None and args[-1] != data
-            assert "_ocrv1" in args[6], "OCR translations need a distinct cache key"
+            assert "_ocrv2" in args[6], "OCR translations need a distinct cache key"
             document = (await db.execute(select(Document).where(Document.user_id == user.id))).scalar_one()
             original_path = document.original_path
             assert document.page_count == 1

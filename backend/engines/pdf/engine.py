@@ -2441,6 +2441,7 @@ class PDFObjectEngine:
             lbb = [ln["bbox"] for ln in p.get("lines", [])
                    if ln.get("bbox") and len(ln["bbox"]) >= 4]
             ferre_droite = False
+            axe_pile = None                     # axe commun d'une pile centrée
             if len(lbb) >= 2:
                 # TAXONOMIE PAR VARIANCES — le bord le plus STABLE d'un paragraphe
                 # trahit son alignement :
@@ -2545,6 +2546,42 @@ class PDFObjectEngine:
                         larg_p = max(1.0, max(pile_r) - min(pile_l))
                         ferre_droite = (vd_p <= tol_b and vg_p >=
                                         max(4.0 * tol_b, 0.12 * larg_p))
+                # (c) CENTRÉ PAR LA PILE : symétrique du (b). Un en-tête officiel
+                # (« RÉPUBLIQUE… / Paix - Travail - Patrie / ------- / MINISTÈRE…
+                # ») empile des lignes SEULES centrées sur un même axe, séparées
+                # de filets ; leur colonne, polluée par l'en-tête voisin, ne leur
+                # offre aucun cadre symétrique. On les reconnaît à ce que leurs
+                # voisines verticales partagent leur AXE tandis que leurs DEUX
+                # bords se dispersent. La pile se suit de proche en proche (les
+                # filets creusent des blancs de plus de 2,5 lignes au total).
+                if not centered and not ferre_droite and not wrapped:
+                    cx = (pleft + pright) / 2
+                    h = max(1.0, pbottom - ptop)
+                    pile = [(pleft, pright, ptop, pbottom)]
+                    ajout = True
+                    while ajout:
+                        ajout = False
+                        for q in boxed:
+                            if q is p:
+                                continue
+                            qb = q["bbox"]
+                            if any(qb[0] == b[0] and qb[1] == b[2] for b in pile):
+                                continue
+                            if abs((qb[0] + qb[2]) / 2 - cx) > tol_b:
+                                continue                # pas le même axe
+                            if (qb[3] - qb[1]) > 2.5 * h:
+                                continue                # un pavé, pas une ligne
+                            if not any(qb[1] - b[3] <= 2.5 * h
+                                       and b[2] - qb[3] <= 2.5 * h for b in pile):
+                                continue                # hors de la pile
+                            pile.append((qb[0], qb[2], qb[1], qb[3]))
+                            ajout = True
+                    if len(pile) >= 2:
+                        gauches = [b[0] for b in pile]
+                        larg_p = max(1.0, max(b[1] for b in pile) - min(gauches))
+                        if max(gauches) - min(gauches) >= max(4.0 * tol_b,
+                                                              0.12 * larg_p):
+                            centered, axe_pile = True, cx
                 justified = False
 
             # Bord droit de référence. La marge SYMÉTRIQUE n'est un repli que si
@@ -2638,6 +2675,12 @@ class PDFObjectEngine:
                 if left_block != float("-inf"):
                     left_edge = max(left_edge, left_block + safety)
                 left_edge = min(left_edge, pleft)       # jamais rétrécir la ligne
+                if axe_pile is not None:
+                    # Le cadre n'est pas symétrique autour de l'axe de la pile :
+                    # on le resserre pour que le recentrage tombe SUR cet axe.
+                    demi = max(min(axe_pile - left_edge, ref_right - axe_pile),
+                               (pright - pleft) / 2)
+                    left_edge, ref_right = axe_pile - demi, axe_pile + demi
             else:
                 left_edge = None
             # FERRÉ À DROITE : le bord droit est le point FIXE — on n'étend pas
