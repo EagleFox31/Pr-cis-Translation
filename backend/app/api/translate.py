@@ -36,6 +36,7 @@ from app.services.documents import (build_job_paths, cap_pages_for_plan,
 from app.services import usage
 from app.services import beta
 from app.services.beta_meter import BetaCost, FORMATS as BETA_FORMATS, office_cost
+from app.services.images_document import Analyse, analyser as analyser_images, vignette
 from app.services.ocr import OCR_VERSION, OCRError, prepare_scanned_pdf
 from app.services.jobs import jobs
 from app.services.office import convert_to_pdf_bytes
@@ -53,6 +54,14 @@ router = APIRouter(tags=["Traduction"])
 
 @router.options("/api/translate")
 async def translate_options():
+    return JSONResponse(content={}, headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, X-API-Key",
+    })
+
+@router.options("/api/translate/analyse")
+async def analyse_options():
     return JSONResponse(content={}, headers={
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -154,6 +163,68 @@ async def _save_document_for_user(user: "User | None", db: "AsyncSession",
         logger.error("Document non enregistré pour le job %s : %s", job_id, e)
         raise HTTPException(status_code=500,
                             detail="Impossible d'enregistrer la traduction. Réessayez.")
+
+
+APERCUS_MAX = 50
+
+
+def _analyse_images(file_bytes: bytes, ext: str):
+    """Pages du document et images à texte (détection seule, aucune lecture)."""
+    if ext in ("pdf", "docx", "pptx", "xlsx"):
+        analyse = analyser_images(file_bytes, ext)
+    else:
+        analyse = Analyse()
+    try:
+        pages = count_pages(file_bytes, ext)
+    except ValueError:
+        # Document fait seulement d'images à texte : rien à compter côté texte,
+        # mais les images restent proposées.
+        if not analyse.a_texte:
+            raise
+        pages = 0
+    apercus = []
+    for img in analyse.a_texte[:APERCUS_MAX]:
+        try:
+            miniature = vignette(img.octets)
+        except Exception:
+            miniature = ""
+        apercus.append({"cle": img.cle, "pages": img.pages, "largeur": img.largeur,
+                        "hauteur": img.hauteur, "vignette": miniature})
+    return {"pages": pages, "images": len(analyse.a_texte), "analysees": analyse.analysees,
+            "total": sum(1 for i in analyse.images if not i.exclusion),
+            "incomplet": analyse.incomplet, "indisponible": analyse.indisponible,
+            "apercus": apercus}
+
+
+@router.post("/api/translate/analyse")
+async def analyse_endpoint(
+    file: UploadFile = File(...),
+    x_api_key: str = Header(None),
+    current_user: "User" = Depends(require_auth),
+):
+    """Dit quelles images du document contiennent du texte, avant le lancement.
+    Ne traduit ni ne débite rien ; la détection est légère et bornée, elle ne
+    prend donc pas le sémaphore de l'OCR."""
+    verify_api_key(x_api_key)
+
+    filename = file.filename or ""
+    ext = filename.split(".")[-1].lower() if "." in filename else ""
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Type non supporté : .{ext}")
+
+    try:
+        file_bytes = await file.read()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Impossible de lire le fichier. Vérifiez qu'il n'est pas corrompu et réessayez.")
+
+    if len(file_bytes) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail=f"Fichier trop volumineux ({len(file_bytes)/(1024*1024):.1f} Mo, max 100 Mo).")
+
+    try:
+        resultat = await run_in_threadpool(_analyse_images, file_bytes, ext)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return JSONResponse(content=resultat)
 
 
 @router.post("/api/translate")

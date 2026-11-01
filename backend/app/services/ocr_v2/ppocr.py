@@ -103,6 +103,10 @@ class PPOCR:
         return self._sessions
 
     # ── Détection ───────────────────────────────────────────────────────────
+    def detecter_image(self, image):
+        """Boîtes de texte d'une image BGR, sans lecture (analyse avant lancement)."""
+        return self._detecter(self._charger()[0], image)
+
     def _detecter(self, det, image):
         h, w = image.shape[:2]
         r = max(1.0, COTE_MIN / min(h, w))
