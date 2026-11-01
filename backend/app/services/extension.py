@@ -15,11 +15,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import (User, get_plan_monthly_pages,
                         KIND_CREDITS, KIND_FREE_OFFER, KIND_PLAN)
 from app.services import usage
+from engines import runtags
 
 SEGMENTS_MAX = 300
 CARACTERES_MAX = 20_000
-# Volume d'une page équivalente pour le texte « qualité Précis » : la page
-# de traduction usuelle (250 mots).
+# Contexte joint (titre + blocs voisins) : le moteur n'en garde que 2 500
+# caractères (`translation_ai._CONTEXTE_MAX`), on refuse au-delà de 4 fois.
+CONTEXTE_MAX = 10_000
+# Volume d'une page équivalente pour le texte des pages : la page de
+# traduction usuelle (250 mots).
 CARACTERES_PAR_PAGE = 1_500
 
 
@@ -28,12 +32,21 @@ class TraductionIndisponible(RuntimeError):
 
 
 def pages_pour_segments(textes) -> int:
-    return max(1, math.ceil(sum(len(t) for t in textes) / CARACTERES_PAR_PAGE))
+    """Volume du texte nu : les balises `[[n]]` ne se paient pas."""
+    return max(1, math.ceil(sum(len(runtags.sans_balises(t)) for t in textes)
+                            / CARACTERES_PAR_PAGE))
 
 
-def traduire_textes(textes, langue, traducteur=None):
+def traduire_textes(textes, langue, traducteur=None, titre="", contexte=()):
     """Une traduction par texte, dans l'ordre. Les doublons et les textes sans
-    lettre (nombres, ponctuation) ne partent pas au moteur."""
+    lettre (nombres, ponctuation) ne partent pas au moteur.
+
+    Un texte est un bloc de page (§4) : ses éléments en ligne y sont des
+    balises `[[n]]…[[/n]]`, que le moteur garde (il relance s'il en perd).
+    Balises encore fausses au retour → le texte revient tel quel : le bloc
+    reste en original plutôt que mal mis en forme.
+    `titre` et `contexte` (blocs voisins, texte nu) servent le cadre de page,
+    comme pour les documents ; sans contexte, le lot fait la page."""
     if traducteur is None:
         from app.services.translation_runner import ai_translator as traducteur
     if traducteur is None:
@@ -41,10 +54,19 @@ def traduire_textes(textes, langue, traducteur=None):
     uniques = list(dict.fromkeys(t for t in textes if any(c.isalpha() for c in t)))
     if not uniques:
         return list(textes)
+    from engines.translation_ai import contexte_page
     lot = [{"id": str(i), "text": t} for i, t in enumerate(uniques)]
-    if not traducteur._translate_batch(lot, traducteur.lang_name(langue), None):
+    page = list(contexte) or [runtags.sans_balises(t) for t in uniques]
+    titres = (0,) if titre else ()
+    cadre = {"n_page": len(page) + (len(uniques) if contexte else 0),
+             "page": contexte_page(([titre] if titre else []) + page, titres)}
+    if not traducteur._translate_batch(lot, traducteur.lang_name(langue), None,
+                                       cadre=cadre):
         raise TraductionIndisponible("lot non traduit")
-    rendu = {b["text"]: b.get("translated_text") or b["text"] for b in lot}
+    rendu = {}
+    for b in lot:
+        sortie = b.get("translated_text") or b["text"]
+        rendu[b["text"]] = b["text"] if "balises" in runtags.defauts(b["text"], sortie) else sortie
     return [rendu.get(t, t) for t in textes]
 
 

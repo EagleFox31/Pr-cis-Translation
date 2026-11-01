@@ -6,7 +6,9 @@ Mesuré à la route elle-même, moteur et OCR remplacés (aucun appel payant) :
     puis pages achetées ; 402 `need_credits` sans traduire si rien ne couvre ;
   • image : 1 page si remplacée, 0 sinon (et l'image n'est pas renvoyée) ;
     type et taille refusés avant toute lecture ;
-  • `traduire_textes` : doublons et nombres ne partent pas au moteur.
+  • `traduire_textes` : doublons et nombres ne partent pas au moteur ; blocs
+    balisés `[[n]]` : balises perdues → bloc rendu tel quel ; titre et blocs
+    voisins joints au cadre de page ; balises non comptées au débit.
 
 Exécution :  backend/venv/Scripts/python.exe backend/tests/test_extension.py
 Requiert PostgreSQL.
@@ -14,6 +16,7 @@ Requiert PostgreSQL.
 from __future__ import annotations
 import asyncio
 import io
+import re
 import sys
 import uuid
 
@@ -45,16 +48,18 @@ image = route.traduire_une_image.__wrapped__
 
 class Moteur:
     """Faux `TranslatorAI` : retient ce qui lui est envoyé."""
-    def __init__(self, ok=True):
-        self.recu, self.ok = [], ok
+    def __init__(self, ok=True, perd_balises=False):
+        self.recu, self.cadres, self.ok, self.perd = [], [], ok, perd_balises
 
     def lang_name(self, code):
         return code
 
-    def _translate_batch(self, lot, langue, cb):
+    def _translate_batch(self, lot, langue, cb, cadre=None):
         self.recu.append([b["text"] for b in lot])
+        self.cadres.append(cadre)
         for b in lot:
-            b["translated_text"] = f"[{langue}] {b['text']}"
+            t = re.sub(r"\[\[/?\d+\]\]", "", b["text"]) if self.perd else b["text"]
+            b["translated_text"] = f"[{langue}] {t}"
         return self.ok
 
 
@@ -129,12 +134,32 @@ async def run():
         ok("textes : lot en échec → TraductionIndisponible", True)
     ok("volume : 1 page jusqu'à 1 500 caractères, 2 au-delà",
        ext.pages_pour_segments(["a" * 1500]) == 1 and ext.pages_pour_segments(["a" * 1501]) == 2)
+    ok("volume : les balises ne se paient pas",
+       ext.pages_pour_segments(["[[0]]" + "a" * 1500 + "[[/0]]"]) == 1)
+
+    bloc = "[[0]]Serrer[[/0]] l'écrou"
+    m = Moteur()
+    r = ext.traduire_textes([bloc], "en", m)
+    ok("bloc balisé : traduction rendue avec ses balises", r == [f"[en] {bloc}"], str(r))
+    r = ext.traduire_textes([bloc], "en", Moteur(perd_balises=True))
+    ok("bloc balisé : balises perdues → bloc rendu tel quel", r == [bloc], str(r))
+    ok("cadre sans contexte : le lot fait la page (pas de doublon au moteur)",
+       m.cadres[0]["n_page"] == 1 and "Serrer l'écrou" in m.cadres[0]["page"],
+       str(m.cadres))
+    m = Moteur()
+    ext.traduire_textes([bloc], "en", m, titre="Leçon G49001",
+                        contexte=["Retirer le capot.", "Contrôler le couple."])
+    c = m.cadres[0]
+    ok("cadre avec titre et voisins : joint au lot, titre marqué",
+       c["n_page"] > len(m.recu[0]) and c["page"].startswith("# Leçon G49001")
+       and "Contrôler le couple." in c["page"], str(c))
 
     vrai_textes, vrai_image = ext.traduire_textes, route.traduire_image
-    envoyes = []
+    envoyes, cadres = [], []
 
-    def faux_textes(textes, langue, traducteur=None):
+    def faux_textes(textes, langue, traducteur=None, titre="", contexte=()):
         envoyes.append(list(textes))
+        cadres.append((titre, list(contexte)))
         return [f"[{langue}] {t}" for t in textes]
 
     def fausse_image(remplacee):
@@ -175,6 +200,16 @@ async def run():
 
         r = await _appel(segments, uid, corps=route.Segments(textes=["a"] * (ext.SEGMENTS_MAX + 1)))
         ok("segments : plafond de segments → 413", r["statut"] == 413, str(r["statut"]))
+        r = await _appel(segments, uid, corps=route.Segments(
+            textes=["a"], contexte=["b" * (ext.CONTEXTE_MAX + 1)]))
+        ok("segments : contexte trop long → 413", r["statut"] == 413, str(r["statut"]))
+
+        uid = await compte("starter", 0)
+        cadres.clear()
+        r = await _appel(segments, uid, corps=route.Segments(
+            textes=["[[0]]Bonjour[[/0]]"], titre="T", contexte=["voisin"]))
+        ok("segments : titre et contexte transmis au moteur",
+           r["statut"] == 200 and cadres == [("T", ["voisin"])], str(cadres))
 
         uid = await compte("free", 2, quota_pris=10_000)
         route.traduire_image = fausse_image(True)
