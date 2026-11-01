@@ -92,6 +92,7 @@ aperçus non-PDF.
 | [`docs/etude-extension-navigateur.md`](docs/etude-extension-navigateur.md) | Étude : extension navigateur traduisant une page entière, images comprises après accord |
 | [`docs/etude-memoire-extension.md`](docs/etude-memoire-extension.md) | Étude : ne plus repayer une page déjà traduite (mémoire locale, texte compté au volume cumulé) |
 | [`docs/etude-images-documents.md`](docs/etude-images-documents.md) | Étude : traduire aussi les images à texte d'un document, avec le coût sans et avec images |
+| [`docs/etude-objets-incorpores.md`](docs/etude-objets-incorpores.md) | Étude : objets incorporés (Excel, Word, PowerPoint, graphiques…) — traduire leur contenu et régénérer leur aperçu |
 | [`docs/guide-premiere-mise-en-ligne.md`](docs/guide-premiere-mise-en-ligne.md) | Pas à pas de la toute première mise en ligne |
 | [`infra/aws/README.md`](infra/aws/README.md) | L'infrastructure AWS (CloudFormation, OIDC, secrets) |
 | `docs/api/index.html` | Les 32 opérations HTTP (`npm run docs:api`) |
