@@ -44,8 +44,9 @@ Implémenter l'OCR v2 (lire, effacer, réécrire le texte d'une image) puis l'ex
 6. [ ] ← Extension (demande 31/10 : traduire **tous les types de contenu**, en priorité les images qui gardent leur langue, règle : image dont le texte est détecté avec assez de confiance → traduite) : compléter l'étude d'extension (§3) pour vidéos, PDF intégrés, canvas, leçons G48xxx ; essai sur TEAM-GP ; puis prototype.
    - 6.1 [x] étude §3.5–3.9 + décisions 5–8 (mesures TEAM-GP : 81 leçons classiques, 107 images restées japonaises ; vidéos → calque en pause ; animations ignorées ; PDF → circuit documents ; G48 hors périmètre) ;
    - 6.2 [x] routes `app/api/extension.py` + service `app/services/extension.py` (débit forfait puis pages achetées, 1 500 car. = 1 page, image = 1 page si remplacée) ; `tests/test_extension.py` 11/11 ;
-   - 6.3 [ ] prototype `extension/` (MV3, TypeScript) : texte DOM + `MutationObserver`, images (règle de confiance), calque vidéo en pause ;
+   - 6.3 [x] prototype `extension/` (MV3, TS, esbuild) : texte (API du navigateur ou « qualité Précis »), MutationObserver, images avec accord et animations ignorées, vidéo en pause ; typecheck OK, `npm test` 16/16, build OK ; **pas encore essayé dans un vrai navigateur**. Limites notées : refresh token dans `storage.local` (lisible par nos scripts de contenu, pas par la page) ; disponibilité de `Translator` en content script et iframes à vérifier ;
    - 6.4 [ ] essai sur TEAM-GP (leçon classique avec images japonaises, G49001) sans cliquer « Début » ni enregistrer quoi que ce soit.
+   - 6.5 [ ] pastille « Traduire ce PDF » (§3.9, circuit `/api/translate`), hors du prototype ;
 
 **Hors plan** :
 - `frontend/tsconfig.tsbuildinfo` non suivi (à ignorer).
