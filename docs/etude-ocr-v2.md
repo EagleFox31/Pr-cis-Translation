@@ -566,6 +566,59 @@ Il faudrait donc regrouper les blocs par colonne avant de traduire. `blocs` et `
    - accélérer l'effacement (résolution réduite, zones limitées aux boîtes) ;
    - passer la lecture des scans à PP-OCR avec regroupement par colonne, ce qui récupère les titres en couleur et la page 10.
 
+### 7.6 Fiabilité et couleurs des scans (01/11, étape 6.7)
+
+**Besoin (utilisateur, 01/11)** : le résultat de 7.5 est accepté, puisque la qualité de lecture dépend de celle du scan. Deux conditions s'y ajoutent :
+1. ne traduire que ce qui est lu avec une confiance élevée, pour qu'aucune phrase absurde n'apparaisse ;
+2. rendre proprement les passages en couleur et en gras.
+
+**Existant** : `ocr._recognize` filtre seulement la page entière. La page est refusée si la confiance moyenne est sous 65 ou si moins de 90 % des mots dépassent 40. Une ligne douteuse dans une page correcte est effacée puis réécrite telle quelle.
+
+**Mesures sur le livret, pages 1 à 50, Tesseract ligne par ligne** :
+- **Phrases absurdes.** Elles viennent de lignes dont un mot est très mal lu, souvent du bruit pris dans une photo. Exemples :
+  - « cree ecioge:de force maleure… », mot le plus faible à 0 ;
+  - « …bande d'arrêt pare ka LL », mot le plus faible à 21.
+  
+  Les lignes saines ont une moyenne d'au moins 85. Sur les pages 1, 3, 20 et 35, entre 1 et 3 lignes par page sont sous 60. La page 50 en compte 2 sous 60 et 12 sous 75.
+- **Passages en couleur non lus.** Le lecteur compare l'encre au fond ; le jaune et l'orange sur blanc sont trop clairs pour lui. En relisant la page sur le canal le plus sombre (minimum de R, V, B), la couleur devient de l'encre noire. La page 50 récupère alors « ENTRETIEN ET DÉPANNAGE » et « La position de conduite », soit 683 mots au lieu de 578, en 3 s.
+  
+  Cette lecture ne peut pas remplacer la première : sur un aplat jaune vif, le fond deviendrait noir.
+- **Tailles démesurées et débordements.** Tesseract met parfois dans une même « ligne » des mots de deux colonnes séparées par une photo. La page 50 contient 7 sauts de plus de 2,5 hauteurs de ligne, la page 35 en contient 21. Le texte réécrit prend alors la largeur et la hauteur des deux colonnes : « Il doit vous permettre de voir la … liquide de frein. » sort en très gros.
+  
+  Le gras est mesuré mot par mot (`render.ecrire`). Il devient faux sur ces lignes fusionnées et sur les mots en couleur, qui n'étaient pas lus.
+
+**Options**
+
+| Option | Pour | Contre |
+|---|---|---|
+| A. Monter le seuil de la page | 1 ligne de code | Ne retire pas une mauvaise ligne d'une bonne page ; refuse des pages entières à tort |
+| B. Filtrer ligne par ligne (retenu) | Une ligne douteuse reste en image, en français mais exacte | Quelques lignes non traduites sur un scan moyen |
+| C. Passer les scans à PP-OCR | Lit plus | Colonnes mêlées (7.5), 11 à 28 s par page, autre chantier |
+
+**Choix retenu (B + double lecture + découpe)**, regroupé dans une fonction pure `detect.lignes_fiables` testée sans Tesseract :
+1. **Double lecture.** Après la lecture normale, une seconde lecture est faite sur le canal le plus sombre. Seuls ses mots qui ne recouvrent aucun mot déjà lu sont ajoutés, ce qui ne perd jamais rien de la lecture actuelle. Coût : environ 3 s par page.
+2. **Découpe.** Une ligne est coupée à chaque blanc de plus de 2,5 fois la hauteur des mots.
+3. **Rognage.** Aux deux bouts d'une ligne, on retire les mots sous 60 et les mots sans lettre ni chiffre.
+4. **Ligne gardée** seulement si sa moyenne atteint 80, son mot le plus faible 50, et si elle contient au moins 2 lettres ou chiffres.
+
+   Une ligne écartée n'est ni effacée ni réécrite : elle reste telle que scannée. Le filtre de page actuel (65 / 90 %) ne change pas.
+
+**Impacts** :
+- `ocr_v2/detect.py`, `ocr._recognize`, tests ; aucune migration.
+- Environ 3 s de plus par page.
+- Facturation inchangée : le nombre de pages préparées reste le même.
+
+**Risques** :
+- Un scan moyen peut laisser plus de lignes en français. C'est voulu : mieux vaut une ligne non traduite qu'une ligne fausse.
+- Les seuils (80 / 50) sont fixés sur ce seul livret ; ils se règlent dans `detect.py`.
+
+**Résultat (mesure du 01/11, pages 1, 3, 10, 20, 35, 50)** :
+- Premier réglage (ligne entière rejetée si un mot < 50 ou moyenne < 80) trop sévère : 31 lignes écartées page 35, dont des phrases saines précédées de bruit de photo. Réglage retenu : la ligne est **coupée** à chaque mot < 50 (ce mot reste en image) ; chaque fragment est rogné en bout (mot < 60, sans lettre, ou miette de 1-2 signes < 80) et gardé si sa moyenne est ≥ 75 (au moins 2 mots quand la ligne a été coupée). Page 35 : 5 fragments écartés, le texte illisible (« Lgonoe », « CARRE », « mmaleure ») n'est jamais traduit.
+- Défaut trouvé en route : la lecture TSV de Tesseract interprétait les guillemets (`csv` sans `QUOTE_NONE`) ; un « " » lu avalait les lignes suivantes (page 50 : 513 mots « retrouvés » par la seconde lecture, 91 après correction).
+- Seconde lecture (canal le plus sombre) : titres jaunes/orange récupérés (« ENTRETIEN ET DÉPANNAGE » → « MAINTENANCE AND BREAKDOWN »), ~3 s par page.
+- Temps : 63 à 101 s par page (inchangé, voir §7.5) ; page 10 toujours refusée (scan trop flou).
+- Limite assumée : une phrase coupée par un mot douteux mêle une partie traduite et une partie restée en image ; les petits intertitres de couleur sur bandeau (« Le vent ») restent souvent en français.
+
 ## 8. Le banc d'essai : prouver sans documents réels
 
 Repris du banc fourni, principe inchangé : chaque image est fabriquée deux

@@ -18,7 +18,7 @@ import fitz
 import numpy as np
 from PIL import Image
 
-from .ocr_v2.detect import LectureEchouee, Recognizer, Tesseract
+from .ocr_v2.detect import LectureEchouee, Recognizer, Tesseract, completer, lignes_fiables
 from .ocr_v2.erase import effacer
 from .ocr_v2 import render
 
@@ -66,6 +66,23 @@ def _recognize(page, directory, deadline, apres, lecteur: Recognizer):
     good = [w for w in words if w.conf >= 40]
     if len(good) < 0.9 * len(words):
         raise OCRError("La reconnaissance du scan est trop incertaine. Utilisez un scan plus net.")
+    # Titres jaunes ou orange sur blanc : trop clairs pour la premiere lecture,
+    # ils deviennent de l'encre sur le canal le plus sombre. Seconde lecture en
+    # complement seulement (sur un aplat vif, ce canal noircit le fond).
+    sombre = os.path.join(directory, "sombre.png")
+    Image.fromarray(np.ascontiguousarray(np.asarray(image).min(axis=2))).save(sombre, dpi=(dpi, dpi))
+    remaining = deadline - time.monotonic()
+    if remaining > 10:
+        try:
+            words = completer(words, lecteur.lire(sombre, min(30, remaining - 5)))
+        except LectureEchouee:
+            logger.warning("OCR : seconde lecture (couleurs) impossible")
+    # Une ligne douteuse n'est ni effacee ni reecrite : elle reste en image.
+    words, ecartees = lignes_fiables(words)
+    if ecartees:
+        logger.info("OCR : %d ligne(s) incertaine(s) laissee(s) telles quelles", ecartees)
+    if not words:
+        raise OCRError("Le texte du scan n'est pas assez lisible pour etre traduit. Aucune page n'a ete decomptee.")
     lines = {}
     for word in words:
         lines.setdefault(word.ligne, []).append(word)

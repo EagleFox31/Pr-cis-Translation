@@ -78,5 +78,81 @@ class Tesseract:
                             "--psm", "3", "tsv"], delai)
         return [Mot(row["text"].strip(), tuple(int(row[k]) for k in ("left", "top", "width", "height")),
                     float(row["conf"]), tuple(row[k] for k in ("block_num", "par_num", "line_num")))
-                for row in csv.DictReader(io.StringIO(result.stdout), delimiter="\t")
+                # QUOTE_NONE : un « " » lu ne doit pas avaler les lignes suivantes.
+                for row in csv.DictReader(io.StringIO(result.stdout), delimiter="\t", quoting=csv.QUOTE_NONE)
                 if row.get("level") == "5" and (row.get("text") or "").strip()]
+
+
+# Fiabilité d'un scan (étude OCR v2 §7.6) : une ligne douteuse reste en image,
+# jamais traduite. Seuils fixés sur le livret « Code de la Route ».
+SAUT_LIGNE = 2.5   # blanc (en hauteurs de mot) qui sépare deux colonnes
+CONF_BOUT = 60     # mot rogné en bout de ligne sous ce score
+CONF_MIETTE = 80   # miette de 1-2 signes rognée en bout sous ce score
+CONF_LIGNE = 75    # moyenne exigée d'un fragment gardé
+CONF_MOT = 50      # mot sous ce score : coupe la ligne, reste en image
+
+
+def _recouvre(a, b):
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    return min(ax + aw, bx + bw) > max(ax, bx) and min(ay + ah, by + bh) > max(ay, by)
+
+
+def completer(mots, autres):
+    """Ajoute à `mots` ceux d'une seconde lecture (`autres`) qui ne recouvrent aucun mot déjà lu."""
+    ajout = [Mot(m.texte, m.boite, m.conf, ("+",) + tuple(m.ligne))
+             for m in autres if not any(_recouvre(m.boite, d.boite) for d in mots)]
+    return list(mots) + ajout
+
+
+def _douteux(m):
+    """Bruit de bout de ligne : score bas, aucun signe, ou miette de 1-2 signes peu sûre."""
+    signes = sum(c.isalnum() for c in m.texte)
+    return m.conf < CONF_BOUT or not signes or (signes <= 2 and m.conf < CONF_MIETTE)
+
+
+def lignes_fiables(mots):
+    """Mots lus avec confiance : chaque ligne est coupée à ses grands blancs et
+    à ses mots douteux ; seuls les fragments sûrs sont gardés.
+
+    Retourne `(mots gardés, nombre de fragments écartés)`."""
+    groupes = {}
+    for m in mots:
+        groupes.setdefault(m.ligne, []).append(m)
+    lignes = []
+    for cle, g in groupes.items():
+        g = sorted(g, key=lambda m: m.boite[0])
+        morceau = [g[0]]
+        for a, b in zip(g, g[1:]):
+            if b.boite[0] - (a.boite[0] + a.boite[2]) > SAUT_LIGNE * max(a.boite[3], b.boite[3]):
+                lignes.append((cle, morceau))
+                morceau = []
+            morceau.append(b)
+        lignes.append((cle, morceau))
+    garde, ecartees = [], 0
+    for k, (cle, ligne) in enumerate(lignes):
+        # Un mot mal lu coupe la ligne : il reste en image et ses voisins sûrs
+        # restent traduisibles. Un fragment ainsi isolé doit compter 2 mots.
+        morceaux, courant = [], []
+        for m in ligne:
+            if m.conf < CONF_MOT:
+                morceaux.append(courant)
+                courant = []
+            else:
+                courant.append(m)
+        morceaux.append(courant)
+        coupee = len(morceaux) > 1
+        for j, morceau in enumerate(morceaux):
+            while morceau and _douteux(morceau[0]):
+                morceau = morceau[1:]
+            while morceau and _douteux(morceau[-1]):
+                morceau = morceau[:-1]
+            if not any(c.isalnum() for m in morceau for c in m.texte):
+                continue
+            if (sum(c.isalnum() for m in morceau for c in m.texte) < 2
+                    or (coupee and len(morceau) < 2)
+                    or sum(m.conf for m in morceau) / len(morceau) < CONF_LIGNE):
+                ecartees += 1
+                continue
+            garde += [Mot(m.texte, m.boite, m.conf, tuple(cle) + (k, j)) for m in morceau]
+    return garde, ecartees

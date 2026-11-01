@@ -1,31 +1,27 @@
 # PASSATION — 01/11/2026
 
 ## 1. Objectif en cours
-Extension navigateur qui traduit une page entière (texte, images après accord, vidéo en pause) ; OCR v2 terminé.
+Extension navigateur : 6.4b (ne plus repayer une page déjà traduite) — 6.4b.1 (backend) fait, reste 6.4b.2 à 6.4b.4. Mesure 6.6 faite, décision OCR scans en attente.
 
 ## 2. Fait
 - Branche `feat/ocr-v2`, commits locaux non poussés jusqu'à c5678dc. OCR v2 complet (étape 5, détail dans le plan et `docs/etude-ocr-v2.md` §7-8, §11) : `backend/app/services/ocr_v2/` (mask, erase, ppocr, detect, render, image).
 - Extension : étude `docs/etude-extension-navigateur.md` §3.5-3.9, §8 (règle 1 500 car.), décisions 1-8 ; routes `backend/app/api/extension.py` + `app/services/extension.py` (532aacb) ; prototype `extension/` (c5678dc) : `src/background.ts` (jetons, refresh, appels API), `src/popup.ts`, `src/content.ts` + `src/contenu/*` (texte, moteur, images, vidéo, bandeau, calques), `src/lib/*` testé.
+- 6.4a (01/11, non commité) : `ocr_v2/image.py` — `_elargie` (effacement 0,2 × h de chaque côté, les boîtes PP-OCR sont plus étroites que les glyphes japonais), `blocs(lus, couleurs)` (hauteur 15 %, couleur ≤ 80, `_PUCE` ouvre un bloc), `colonnes` + `_libre` + `placer(..., libre)` (grandit dans le vide sous 80 % de la taille, 4 lignes au plus, respiration 6 %) ; tests `cas_blocs`/`cas_placer`/`cas_bords` ; étude OCR v2 §7.3 (résultat + limite : puces dimensionnées seules).
 - TEAM-GP (31/10-01/11, lecture seule) : contenu des leçons dans `/rpv/contents/2/_scorm/<sid>/js/data.js` ; le japonais reste dans 107 images (nettes : G41056, G41062, G41065, G41071, G40001). Scripts `scratchpad\gp\` de la session 0c3ed8c0….
+- 6.4c (01/11, non commité) : `ocr_v2/image.py` — `cadre` (bord gauche gardé, limite droite = encre voisine − ½ ligne), `_gras` (masque non dilaté, seuil par écriture) → Roboto/Noto Bold, `_freres` (liste d'une seule taille), `_libre(..., poses)` (pas de chevauchement), `_elargie` prolongée tant que l'encre continue ; étude OCR v2 §7.4.
+- Essai Edge 01/11 : grand titre resté en japonais (traduction trop longue sous le plancher de 60 %) → `LISIBLE_PX = 24` (`image.py:48`, `:267`) : un grand titre peut descendre jusqu'à 24 px ; test ajouté dans `cas_mise_en_page`. Le rechargement auto d'uvicorn n'avait pas repris `image.py` : serveurs relancés à la main ; considéré bon par l'utilisateur (01/11). 6.4a+6.4c commités en local : ad9a7e0, 7dd478e (non poussés).
+- 6.4b étude : `docs/etude-memoire-extension.md` (référencée dans `README.md:93`), décisions notées en fin d'étude.
 
 ## 3. Décisions
 - Scan : seule la détection diffère, ensuite même chemin que le PDF natif (`translate_pdf_progressive`) ; test de référence = scan traduit comparé au natif.
 - Qualité avant vitesse ; délai OCR de 90 s gardé (OCR dans la requête d'envoi, `api/translate.py:312`).
 - Extension : 1 crédit/image remplacée, 0 sinon ; tout le texte par le moteur Précis, par bloc avec balises `[[n]]` et contexte, au volume (décision 9, 01/11 : le navigateur traduisait mot à mot) ; pas de bascule silencieuse vers le payant ; Edge + Chrome ; essai manuel avant stores ; comptes bêta via le forfait normal.
+- 6.4b (01/11) : mémoire locale dans l'extension (IndexedDB du service de fond, par compte, gardée à la déconnexion, bouton « Effacer ») car « rien n'est conservé » côté serveur ; texte compté au volume cumulé (avance) car sinon chaque petite passe coûte 1 page ; autres appareils hors v1 (retraduire gratuitement nous coûterait).
 
 ## 4. Plan
-1. [x] Créer `feat/ocr-v2` depuis `main`.
-2. [x] Étude `docs/etude-ocr-v2.md`, révisée avec l'analyse et le banc fournis (`banc_inpainting.zip` dans Téléchargements) : masque couleur, sélecteur « masque fantôme », détection = goulot (PP-OCRv6), LaMa hors v1.
-3. [x] Étude `docs/etude-extension-navigateur.md` (MV3, cadres, SVG, accord images, option hybride navigateur/Précis, 2 routes backend, jetons, stores).
-4. [x] Décisions prises (31/10, options recommandées, notées en fin d'études) : poids Docker accepté sans LaMa ; japonais d'abord pour l'extension ; 1 crédit/image remplacée, texte navigateur gratuit ; Edge + Chrome ; essai manuel avant stores. Sauvegarde de la page du cours toujours attendue.
+1–4. [x] branche `feat/ocr-v2`, études OCR v2 et extension, décisions du 31/10 (notées en fin d'études).
 5. [x] OCR v2 (phasage étude §11) :
-   - 5.0 [x] prototype rendu stylé des scans (étude §7.1) ; [x] trait coloré traversant effacé ; [x] vrai traducteur : gras interne conservé ; [x] largeur mesurée (Tc + approches + espace final + famille la plus proche) : 36/36 lignes identiques au natif si Inter est candidate, 30/36 avec les polices du dépôt. Prototype : scratchpad de la session 217549bb… `orig\couche_texte.py` (variable `FONTS` = dossier des candidates, `polices\` y contient Inter) ; scripts `lignes_diff.py`, `largeurs.py`, `gras\vrai_traducteur.py` (à lancer depuis `backend/`) ;
-   - 5.1 [x] fait 31/10 : `tests/banc_effacement.py` OK (perte 0,86 dB, chiffres dans l'étude §8), `cas_banc` ajouté au test rapide ; faiblesses notées (brique, schémas, cercle 34 %). Ancienne consigne : banc `backend/tests/banc_effacement.py` (port de `cas.py` : textures brique/herbe/photo générées, polices Montserrat `backend/fonts/`, SSIM numpy) + compléter `test_ocr_v2_effacement.py` (3 cas déjà en place ; vérifier que `_ajuster` ne coûte pas de dB sur les 108 zones) (script `import racine` + `main()`, référence v1 = aplat du rectangle, seuils §8 : perte fantôme ≤ 1,5 dB sur 108 zones, uni/dégradé ≥ 40 dB, flèche droite 100 % conservée ; recalibrer si besoin) ;
-   - 5.2 [x] fait 31/10 : `ocr_v2/detect.py` (`Recognizer`, `Mot`, `Tesseract`, `LectureEchouee`), `ocr.py` l'utilise (messages v1 inchangés). Vérifié en Docker léger (`python:3.12-slim` + tesseract apt, `--cpus=2 --memory=2g`, paquets `app` vides pour éviter FastAPI) : ancien (HEAD) contre nouveau identiques (texte + pixels) sur scan droit, couché, fond blanc, page vide, sans tesseract. Script : `%TEMP%\claude\c--Users-IBRAH-Documents-Projets-Precis-Translator\0c3ed8c0-1686-4139-8530-b771278bfa32\scratchpad\compare_ocr.py` (+ `ocr_ref.py`) ;
-   - 5.3 [x] masque + fantôme branchés dans `ocr.py` pour les PDF scannés (voir Fait) ;
-   - 5.4 [x] PP-OCRv6 ONNX (voir Fait) ;
-   - 5.5a [x] `ocr_v2/render.py` : port de `couche_texte` (prototype `217549bb…\scratchpad\orig\couche_texte.py`) + police par la forme (étude §7.1 « Conception retenue ») ; redressement avant lecture dans `ocr.py` ; test `test_ocr_v2_rendu.py` (natif Roboto / PT Serif scanné → police, tailles, gras, italique) ;
-   - 5.5b [x] `ocr_v2/image.py` : `traduire_image(data, traduire, lecteur)` → `ImageTraduite(data, mime, blocs)` (contrôles taille/type/pixels/animée, blocs de lignes, mise en place élargie/réduite, effacement, dessin dans la couleur mesurée) ; test `test_ocr_v2_image.py` (PP-OCRv6 relit « Pompe à eau » sur le japonais). Revue de code : 8 corrigés, 2 rejetés (étude §7.2).
+   - 5.0–5.5b [x] détail dans `docs/etude-ocr-v2.md` §7-8, §11 et l'historique git ;
 6. [ ] Extension (demande 31/10 : traduire **tous les types de contenu**, en priorité les images qui gardent leur langue, règle : image dont le texte est détecté avec assez de confiance → traduite) : compléter l'étude d'extension (§3) pour vidéos, PDF intégrés, canvas, leçons G48xxx ; essai sur TEAM-GP ; puis prototype.
    - 6.1 [x] étude §3.5–3.9 + décisions 5–8 (mesures TEAM-GP : 81 leçons classiques, 107 images restées japonaises ; vidéos → calque en pause ; animations ignorées ; PDF → circuit documents ; G48 hors périmètre) ;
    - 6.2 [x] routes `app/api/extension.py` + service `app/services/extension.py` (débit forfait puis pages achetées, 1 500 car. = 1 page, image = 1 page si remplacée) ; `tests/test_extension.py` 11/11 ;
@@ -34,7 +30,16 @@ Extension navigateur qui traduit une page entière (texte, images après accord,
      - contenu : blocs (p, li, td, th, h1-h6, label, button, div/span à texte direct, texte SVG) ; enfants en ligne → `[[n]]…[[/n]]` + table n → élément d'origine ; envoi avec titre et blocs voisins ; reconstruction avec les éléments d'origine (attributs gardés), restauration ; balises encore fausses après relance → bloc laissé en original (jamais de mise en forme cassée) ;
      - backend : `traduire_textes` / route segments acceptent balises + contexte (`contexte_page`, contrôle `runtags.defauts` et relance du moteur) ; débit sur `runtags.sans_balises` ;
      - retirer `contenu/moteur.ts` (API Translator) et la case « qualité Précis » ; tests des deux côtés ;
-   - 6.4 [ ] ← essai réel : Playwright Chromium headed, `launch_persistent_context` avec `--disable-extensions-except` + `--load-extension=extension/dist` ; backend local :8000, compte de test vérifié avec crédits (base dev) ; d'abord une page locale (texte, img avec texte japonais, iframe, vidéo), puis TEAM-GP (leçon classique à images japonaises, G49001) sans cliquer « Début », « Options administrateur », `lbnRegist` ni aucun postback ;
+   - 6.4a [x] (01/11 : tests verts, banc OK, `essai_image.py` 3/3 sur :8001 ; serveurs relancés, essai réel OK sur :8000) correctifs image après l'essai Edge (étude OCR v2 §7.3) : zone d'effacement élargie, blocs par hauteur/couleur/puce, bloc qui grandit dans le vide ; tests d'abord ; `essai_image.py` 3/3 ;
+   - 6.4c [x] (01/11 : tests verts dont `cas_mise_en_page`, rendu vérifié sur pompe/schema) demande 01/11 : mise en page des images comme le PDF (étude OCR v2 §7.4) : gras gardé, bord gauche, limite droite par l'encre, frères de même taille, retour à la ligne vers le bas ;
+   - 6.4b [~] demande 01/11 : ne plus repayer une page déjà traduite. Étude faite : `docs/etude-memoire-extension.md` (recommandé : mémoire IndexedDB dans l'extension + avance au volume `users.extension_avance`) ; décisions §7 prises 01/11 (recommandations : D oui, mémoire gardée à la déconnexion + « Effacer », autres appareils hors v1) ; reste le plan §8, à confier à l'executant étape par étape :
+     - 6.4b.1 [x] (0dc8136, migration 0013, `test_extension.py` 22/22 sur 5433) backend : colonne `users.extension_avance` (int, défaut 0) + migration Alembic ; dans `services/extension.py`, débit texte avec avance sous le verrou de `debiter` (pages = ⌈(car. − avance)/1500⌉ si > 0, sinon 0 et avance −= car. ; 0 page → ni débit ni `usage.record`) ; `pages_pour_segments` sans le `max(1, …)` pour le contrôle `couvre` ; route segments renvoie les pages réellement débitées ; tests dans `tests/test_extension.py` (avance, 0 page, appels successifs) ;
+     - 6.4b.2 [ ] ← extension : `src/lib/memoire.ts` (clé SHA-256 `v1`+compte+langue+contenu, bornes 30 j / 50 000 textes / 200 Mo images, éviction la plus ancienne) testé, IndexedDB dans `background.ts` : `segments()` n'envoie que les blocs absents, garde les traductions ≠ original ; `image()` clé = octets source, garde aussi « non remplacée » ; pas pour la vidéo ;
+     - 6.4b.3 [ ] popup : « Mémoire : n traductions — Effacer » ;
+     - 6.4b.4 [ ] vérif : typecheck/test/build extension, backend 5433, essai page locale (2ᵉ visite = 0 débit, 0 appel) ;
+   - 6.4 [~] essai réel (page locale faite dans Edge 01/11 : texte OK, images → 6.4a) : Playwright Chromium headed, `launch_persistent_context` avec `--disable-extensions-except` + `--load-extension=extension/dist` ; backend local :8000, compte de test vérifié avec crédits (base dev) ; d'abord une page locale (texte, img avec texte japonais, iframe, vidéo), puis TEAM-GP (leçon classique à images japonaises, G49001) sans cliquer « Début », « Options administrateur », `lbnRegist` ni aucun postback ;
+   - 6.6 [x] demande 01/11 : mesure sur le livret « Code de la Route » (OCR seulement), voir `docs/etude-ocr-v2.md` §7.5 — même lecture que `main`, préparation ×10 (92-106 s/page, au-delà des 90 s), défauts communs (titres couleur, photos) ; PP-OCR lit plus (p. 10 incluse) mais mélange les colonnes. À trancher : accélérer l'effacement et/ou lire les scans avec PP-OCR.
+   - 6.7 [x] demande 01/11 : scans — ne traduire que les lignes lues avec confiance, lire les passages en couleur, ne plus fusionner deux colonnes (étude `docs/etude-ocr-v2.md` §7.6) : `detect.lignes_fiables` (découpe 2,5 h, coupure au mot < 50, rognage, fragment ≥ 75) + 2ᵉ lecture canal min dans `ocr._recognize` + TSV `QUOTE_NONE` ; tests verts, mesure §7.6.
    - 6.5 [ ] pastille « Traduire ce PDF » (§3.9, circuit `/api/translate`), hors du prototype ;
 
 **Hors plan** :
@@ -44,9 +49,7 @@ Extension navigateur qui traduit une page entière (texte, images après accord,
 
 ## 5. Pièges / contexte
 - `backend/.env` est en LIVE pour Fapshi : ne jamais valider d'invite réelle. Ne pas afficher les `.env` (`grep -c` seulement). Jamais de clé dans un fichier suivi.
-- Lancer :
-  - `npm run stop` ;
-  - puis, en arrière-plan à la racine, `PYTHONUTF8=1 <venv>/python.exe scripts/dev.py`.
+- Lancer : `npm run stop`, puis en arrière-plan à la racine `PYTHONUTF8=1 <venv>/python.exe scripts/dev.py`. Si `stop.cmd` laisse un ancien uvicorn sur :8000 (vu le 01/11), l'arrêter par son PID avant de relancer.
 - venv : `C:\Users\IBRAH\Documents\Projets\Precis_Translator_backup_2026-06-10_13-10\backend\venv\Scripts\python.exe`.
 - Tests backend : unittest (pas de pytest), sur Postgres 5433, jamais la base dev 5432. Aucune base 5433 permanente : lancer Docker Desktop, puis `docker run -d --rm --name precis-test-pg -p 5433:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=precis postgres:16-alpine`, puis `python -m alembic upgrade head` (dans `backend/`, avec `DATABASE_URL`) avant les suites.
 - Tests extension/OCR : `cd backend && PYTHONUTF8=1 <venv>/python.exe tests/test_extension.py` (Postgres local actif suffit).
@@ -56,3 +59,4 @@ Extension navigateur qui traduit une page entière (texte, images après accord,
 - Extension : `cd extension && npm run -s typecheck && npm test && npm run -s build` ; `API_BASE` dans `src/config.ts`.
 - Front : `cd frontend && npx tsc --noEmit -p . ; npm run lint --silent ; npm run build --silent | tail -n 8`.
 - Remote `origin` = EagleFox31. Locales en UTF-8 sans réencodage.
+- Page d'essai image : `python -m http.server 8080` dans le scratchpad `essai/` (index.html, pompe.png, schema.png) ; extension rebâtie (`extension/dist`) le 01/11, à recharger dans Edge (edge://extensions → Recharger).
