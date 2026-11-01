@@ -227,6 +227,13 @@ Précis sait faire (images, terminologie). Si l'API intégrée est absente
 
 Le prix exact est un **point à trancher** (§12).
 
+Appliqué (01/11/2026, `app/services/extension.py`) : le texte « qualité
+Précis » compte **1 page par tranche de 1 500 caractères** (une page de
+250 mots), arrondie à la page supérieure à chaque appel. Une image remplacée
+compte 1 page. Le débit suit la règle des documents : le forfait du mois
+d'abord, puis les pages achetées. Les comptes bêta passent par le forfait
+normal (pas de compteur bêta pour l'extension en v1).
+
 ---
 
 ## 9. Publication

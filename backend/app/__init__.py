@@ -179,6 +179,7 @@ def create_app() -> FastAPI:
     from app.api.beta import router as beta_router
     from app.api.auth import router as auth_router
     from app.api.documents import router as documents_router
+    from app.api.extension import router as extension_router
     from app.api.logs import router as logs_router
     from app.api.payments import router as payments_router
     from app.api.support import router as support_router
@@ -186,6 +187,7 @@ def create_app() -> FastAPI:
     from app.api.translate import router as translate_router
 
     for router in (admin_users_router, beta_router, auth_router, documents_router,
+                   extension_router,
                    logs_router, payments_router, support_router,
                    system_router, translate_router):
         application.include_router(router)
