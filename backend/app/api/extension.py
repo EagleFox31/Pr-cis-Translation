@@ -57,8 +57,8 @@ async def traduire_segments(request: Request, corps: Segments,
     if (len(textes) > ext.SEGMENTS_MAX or sum(map(len, textes)) > ext.CARACTERES_MAX
             or len(corps.titre) + sum(map(len, corps.contexte)) > ext.CONTEXTE_MAX):
         raise HTTPException(status_code=413, detail="Trop de texte pour un seul appel.")
-    pages = ext.pages_pour_segments(textes)
-    if not ext.couvre(*(await ext.couverture(db, current_user))[:2], pages):
+    pages = ext.pages_pour_segments(textes, current_user.extension_avance)
+    if pages and not ext.couvre(*(await ext.couverture(db, current_user))[:2], pages):
         return _manque(pages)
     try:
         traductions = await run_in_threadpool(
@@ -66,9 +66,10 @@ async def traduire_segments(request: Request, corps: Segments,
     except ext.TraductionIndisponible as e:
         logger.warning(f"Extension, segments non traduits : {e}")
         raise HTTPException(status_code=503, detail="Traduction indisponible. Réessayez.")
-    if not await ext.debiter(db, current_user.id, pages):
+    debitees = await ext.debiter_texte(db, current_user.id, ext.caracteres(textes))
+    if debitees is None:
         return _manque(pages)
-    return {"traductions": traductions, "pages": pages}
+    return {"traductions": traductions, "pages": debitees}
 
 
 @router.post("/image")

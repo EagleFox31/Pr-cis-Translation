@@ -90,6 +90,7 @@ aperçus non-PDF.
 | [`docs/etude-ocr.md`](docs/etude-ocr.md) | Étude : traduire des PDF **scannés** (OCR) — feature à venir |
 | [`docs/etude-ocr-v2.md`](docs/etude-ocr-v2.md) | Étude : OCR v2 — lire, effacer et réécrire le texte d'une image (fonds chargés, japonais) |
 | [`docs/etude-extension-navigateur.md`](docs/etude-extension-navigateur.md) | Étude : extension navigateur traduisant une page entière, images comprises après accord |
+| [`docs/etude-memoire-extension.md`](docs/etude-memoire-extension.md) | Étude : ne plus repayer une page déjà traduite (mémoire locale, texte compté au volume cumulé) |
 | [`docs/guide-premiere-mise-en-ligne.md`](docs/guide-premiere-mise-en-ligne.md) | Pas à pas de la toute première mise en ligne |
 | [`infra/aws/README.md`](infra/aws/README.md) | L'infrastructure AWS (CloudFormation, OIDC, secrets) |
 | `docs/api/index.html` | Les 32 opérations HTTP (`npm run docs:api`) |

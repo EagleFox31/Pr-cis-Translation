@@ -44,6 +44,10 @@ class User(Base):
     # C'est un SOLDE, pas un historique : il est débité au lancement d'une
     # traduction, et les paiements qui l'ont alimenté vivent dans `payments`.
     page_credits:  Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Extension : caractères de texte déjà payés (page entière entamée) et pas
+    # encore consommés ; la passe suivante les utilise avant de débiter.
+    extension_avance: Mapped[int] = mapped_column(Integer, default=0, server_default="0",
+                                                  nullable=False)
     created_at:    Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at:    Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow,

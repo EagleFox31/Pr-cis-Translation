@@ -69,10 +69,11 @@ def _png() -> bytes:
     return data.getvalue()
 
 
-async def _compte(plan: str, credits: int, quota_pris: int = 0) -> str:
+async def _compte(plan: str, credits: int, quota_pris: int = 0, avance: int = 0) -> str:
     async with async_session() as db:
         u = User(email=f"ext-{uuid.uuid4().hex[:10]}@example.com",
-                 plan=plan, email_verified=True, page_credits=credits)
+                 plan=plan, email_verified=True, page_credits=credits,
+                 extension_avance=avance)
         db.add(u)
         await db.flush()
         if quota_pris:
@@ -109,6 +110,7 @@ async def _appel(fonction, uid, **k) -> dict:
         recs = (await db.execute(select(UsageRecord).where(
             UsageRecord.user_id == uid, UsageRecord.document_id.is_(None)))).scalars().all()
     return {"statut": statut, "corps": corps, "solde": u.page_credits,
+            "avance": u.extension_avance,
             "registre": sorted((r.kind, r.pages) for r in recs)}
 
 
@@ -136,6 +138,9 @@ async def run():
        ext.pages_pour_segments(["a" * 1500]) == 1 and ext.pages_pour_segments(["a" * 1501]) == 2)
     ok("volume : les balises ne se paient pas",
        ext.pages_pour_segments(["[[0]]" + "a" * 1500 + "[[/0]]"]) == 1)
+    ok("volume : l'avance passe d'abord, jamais de page négative",
+       ext.pages_pour_segments(["a" * 1600], 200) == 1
+       and ext.pages_pour_segments(["a" * 100], 200) == 0)
 
     bloc = "[[0]]Serrer[[/0]] l'écrou"
     m = Moteur()
@@ -183,6 +188,20 @@ async def run():
         ok("segments : forfait payant débité de 2 pages, solde intact",
            r["statut"] == 200 and r["corps"]["pages"] == 2 and r["solde"] == 5
            and r["registre"] == [(KIND_PLAN, 2)], str(r))
+        r = await _appel(segments, uid, corps=route.Segments(textes=["b" * 400], langue="fr"))
+        ok("avance : passe couverte par l'avance → 0 page, registre inchangé",
+           r["statut"] == 200 and r["corps"]["pages"] == 0 and r["avance"] == 600
+           and r["registre"] == [(KIND_PLAN, 2)], str(r)[:300])
+        r = await _appel(segments, uid, corps=route.Segments(textes=["[[0]]c[[/0]]" * 700]))
+        ok("avance : dépassement → 1 page, surplus gardé (balises non comptées)",
+           r["corps"]["pages"] == 1 and r["avance"] == 1400
+           and r["registre"] == [(KIND_PLAN, 1), (KIND_PLAN, 2)], str(r)[:300])
+
+        uid = await compte("free", 0, quota_pris=10_000, avance=500)
+        r = await _appel(segments, uid, corps=route.Segments(textes=["Bonjour"]))
+        ok("avance : couvre même sans crédit → traduit, 0 débit",
+           r["statut"] == 200 and r["corps"]["pages"] == 0 and r["avance"] == 493
+           and r["registre"] == [(KIND_FREE_OFFER, 10_000)], str(r)[:300])
 
         uid = await compte("free", 3, quota_pris=10_000)
         envoyes.clear()
