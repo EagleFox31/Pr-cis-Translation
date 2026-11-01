@@ -90,6 +90,72 @@ Le lecteur de cours charge le contenu dans des cadres.
   fond de l'extension (autorisé sur le site accordé) ; si impossible
   (canvas « contaminé »), l'image est signalée « non traduisible ».
 
+### 3.5 Ce que contient réellement TEAM-GP (mesuré le 01/11/2026)
+
+143 leçons de la catégorie G4, lues sans lancer de leçon (aucune progression
+enregistrée).
+
+| Famille | Nombre | Comment le contenu arrive | Japonais restant dans la version française |
+|---|---|---|---|
+| Leçons classiques (G40, G41, guides G48xxx-M01) | 81 | Textes dans un fichier `data.js`, pages HTML ordinaires | Texte : quelques segments dans 10 leçons sur 81. Images : **107 images sur 1 563 sont les mêmes fichiers que la version japonaise** — ce sont elles qui gardent leur texte japonais |
+| Tests (G4xxxx-T0x) | 38 | Choix de la langue, puis questions lues dans `fr/xml/q_info.xml` ; affichées dans un cadre de 1000 × 650 px agrandi par CSS | Questions en français. Certaines fenêtres de confirmation (« 採点します。よろしいですか？ ») restent en japonais |
+| Formation virtuelle (G49001, G49003, G49020) | 3 | Textes injectés **après** l'affichage (`text_l28.js` pour le français) ; animations en suites d'images PNG | Textes : 191 segments, tous français. Restent en japonais : 4 libellés écrits en dur (« ヒント », « 結果 », « ＜作業開始＞ », « エンジンNo : ») et le **texte incrusté dans 3 vidéos de démonstration** (« トルクレンチ », « 規定トルク »…) |
+| Fiches de contrôle (G48001 à G48020) | 19 | Écran de la plateforme réservé à l'évaluateur | Hors de portée de l'apprenant (bouton désactivé) : rien à traduire |
+| PDF liés aux guides | 14 documents × 14 langues | Lien vers un PDF à texte natif | Une version `_fr` existe ; vérifiée sur G48006-09 : français, aucun japonais, aucune image |
+
+**Conclusion** : la cible prioritaire est bien l'image restée japonaise
+(107 images dans les leçons classiques), puis les vidéos de la formation
+virtuelle. Le texte HTML est presque entièrement traduit par le site.
+
+### 3.6 Texte qui arrive tard
+La formation virtuelle remplit ses zones de texte après l'ouverture de la
+page, et les tests changent de question sans recharger. Le
+`MutationObserver` du §3.1 couvre les deux ; il surveille aussi
+`characterData` (texte remplacé dans un nœud existant), pas seulement
+l'ajout de nœuds.
+
+Une fenêtre `confirm()` / `alert()` du navigateur n'est pas dans la page :
+l'extension ne peut pas la traduire. Limite assumée (cas rare, message court).
+
+### 3.7 Suites d'images (fausses vidéos)
+La formation virtuelle anime des pièces en remplaçant l'image d'un `<img>`
+toutes les 50 ms (64 suites, 1 639 images). Aucune ne contient de texte
+lisible (vérifié sur une image par suite).
+- Règle : une image remplacée plus de 3 fois en 2 secondes dans le même
+  élément est une **animation** ; elle n'est pas proposée à la traduction (ce
+  serait payer des centaines d'images pour rien).
+- Un vrai `<canvas>` (aucun dans TEAM-GP) est traité comme une image fixe
+  s'il ne change pas, ignoré s'il est animé.
+
+### 3.8 Vidéos
+Le texte incrusté dans une vidéo fait partie de l'image : on ne peut pas le
+« remplacer » comme dans un `<img>`.
+
+| Option | Ce que voit l'utilisateur | Pour | Contre |
+|---|---|---|---|
+| A. Ignorer les vidéos | Vidéo en japonais | Rien à faire | Le besoin « tous les contenus » n'est pas couvert |
+| B. **Calque de traduction au moment de la pause** | Il met la vidéo en pause, clique « Traduire cette image » : la vue figée est traduite (comme une image, 1 crédit) et posée par-dessus ; elle disparaît à la reprise | Réutilise exactement la traduction d'image ; coût maîtrisé ; marche sur toute vidéo lisible | Pas en continu |
+| C. Sous-titres traduits en continu | Bandeau de texte français pendant la lecture | Fluide | Une lecture d'image toutes les secondes : cher et lent ; inutile pour des libellés d'interface qui ne bougent pas |
+| D. Vidéo entière retraitée côté serveur | Nouvelle vidéo française | Résultat parfait | Lourd (minutes de calcul, gros fichiers), hors du périmètre OCR v2 |
+
+**Recommandation : B.** Les vidéos de TEAM-GP montrent un écran fixe dont on
+lit les libellés ; une image figée traduite répond au besoin. Une vidéo
+d'une autre origine sans en-têtes CORS ne peut pas être lue : signalée
+« non traduisible », comme une image.
+
+### 3.9 PDF ouverts dans le navigateur
+La visionneuse PDF de Chrome et d'Edge est une page interne : une
+extension ne peut pas y écrire. Le PDF est donc traité comme un **document**,
+avec le moteur existant :
+- un lien vers un `.pdf` dans la page reçoit une petite pastille
+  « Traduire ce PDF » ; le clic télécharge le fichier (avec la session de
+  l'utilisateur, côté extension) et l'envoie à `/api/translate`, comme un
+  dépôt sur le site ; le résultat s'ouvre dans un nouvel onglet ;
+- facturation et contrôles inchangés (ceux des documents).
+
+Sur TEAM-GP, la version française des PDF existe déjà : la pastille servira
+surtout aux PDF laissés en japonais ailleurs.
+
 ---
 
 ## 4. D'où vient la traduction du texte
@@ -222,3 +288,10 @@ et images envoyés seulement sur action de l'utilisateur, non conservés.
 2. Navigateurs : Edge et Chrome au lancement ; Firefox plus tard.
 3. Publication : installation manuelle pour un groupe d'essai d'abord, stores ensuite.
 4. Page du cours : sauvegarde demandée à l'utilisateur ; en attendant, l'OCR v2 avance.
+
+### Décisions (01/11/2026, prises au vu des mesures du §3.5)
+
+5. Vidéos : calque traduit sur la vue en pause (§3.8 B), 1 crédit comme une image.
+6. Suites d'images animées : ignorées (§3.7).
+7. PDF : pastille « Traduire ce PDF » qui passe par le circuit des documents (§3.9).
+8. Fiches de contrôle G48 : hors périmètre (réservées à l'évaluateur).

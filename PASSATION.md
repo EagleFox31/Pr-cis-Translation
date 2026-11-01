@@ -42,6 +42,10 @@ Implémenter l'OCR v2 (lire, effacer, réécrire le texte d'une image) puis l'ex
    - 5.5a [x] `ocr_v2/render.py` : port de `couche_texte` (prototype `217549bb…\scratchpad\orig\couche_texte.py`) + police par la forme (étude §7.1 « Conception retenue ») ; redressement avant lecture dans `ocr.py` ; test `test_ocr_v2_rendu.py` (natif Roboto / PT Serif scanné → police, tailles, gras, italique) ;
    - 5.5b [x] `ocr_v2/image.py` : `traduire_image(data, traduire, lecteur)` → `ImageTraduite(data, mime, blocs)` (contrôles taille/type/pixels/animée, blocs de lignes, mise en place élargie/réduite, effacement, dessin dans la couleur mesurée) ; test `test_ocr_v2_image.py` (PP-OCRv6 relit « Pompe à eau » sur le japonais). Revue de code : 8 corrigés, 2 rejetés (étude §7.2).
 6. [ ] ← Extension (demande 31/10 : traduire **tous les types de contenu**, en priorité les images qui gardent leur langue, règle : image dont le texte est détecté avec assez de confiance → traduite) : compléter l'étude d'extension (§3) pour vidéos, PDF intégrés, canvas, leçons G48xxx ; essai sur TEAM-GP ; puis prototype.
+   - 6.1 [x] étude §3.5–3.9 + décisions 5–8 (mesures TEAM-GP : 81 leçons classiques, 107 images restées japonaises ; vidéos → calque en pause ; animations ignorées ; PDF → circuit documents ; G48 hors périmètre) ;
+   - 6.2 [ ] routes backend `/api/extension/segments` et `/api/extension/image` (réutilisent `traduire_image`), tests ;
+   - 6.3 [ ] prototype `extension/` (MV3, TypeScript) : texte DOM + `MutationObserver`, images (règle de confiance), calque vidéo en pause ;
+   - 6.4 [ ] essai sur TEAM-GP (leçon classique avec images japonaises, G49001) sans cliquer « Début » ni enregistrer quoi que ce soit.
 
 **Hors plan** :
 - `frontend/tsconfig.tsbuildinfo` non suivi (à ignorer).
