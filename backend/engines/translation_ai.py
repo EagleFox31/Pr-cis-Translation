@@ -848,6 +848,15 @@ class TranslatorAI:
                     for i in range(0, len(section_blocks), self.target_batch_size):
                         batches.append(section_blocks[i:i+self.target_batch_size])
 
+        # Objets incorporés (Excel, Word, PowerPoint dans un DOCX ou un XLSX) :
+        # liste plate à la racine du relevé, en lots de taille fixe comme un
+        # classeur. (Dans un PPTX, ils sont déjà rangés par diapositive.)
+        objets_blocs = [b for b in data.get("objets", [])
+                        if b.get("text", "").strip()]
+        if objets_blocs:
+            for i in range(0, len(objets_blocs), self.target_batch_size):
+                batches.append(objets_blocs[i:i + self.target_batch_size])
+
         if limit and isinstance(limit, int):
             flat_all = [b for batch in batches for b in batch]
             batches = [flat_all[:limit]]

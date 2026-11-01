@@ -231,6 +231,11 @@ Les tests unitaires restent synthétiques, sans LibreOffice. Seuls les tests mar
 
 Éventuellement plus tard (hors 6.11) : moteur Visio `.vsdx` avec ajout de `libreoffice-draw` (poids de l'image à mesurer).
 
+**Bilan 6.11.3 (02/11/2026)** — `incorpores.relever` / `reinjecter` (+ `appliquer_dossier` / `appliquer_fichier`) branchés dans les moteurs DOCX, XLSX et PPTX, profondeur 2. Objets 97-2003 convertis par LibreOffice (D4, conversion mise en cache par empreinte : une seule par objet et des ids stables). Budget anti-bombe commun à tout le document, sous-objets compris. Limites connues :
+- l'ancien `.bin` d'un objet 97-2003 converti reste dans le paquet, orphelin (Office l'ignore) ;
+- en traduction progressive PPTX, les objets des masques, dispositions et notes ne sont pas traités (déjà le cas avant) ;
+- le devis compte désormais le texte des objets (D1) ; le détail facturable et le compte rendu client relèvent de 6.11.6.
+
 ---
 
 ## 8. Points à trancher

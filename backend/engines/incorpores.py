@@ -30,11 +30,19 @@ XML illisible fait ignorer la partie, jamais échouer le repérage.
 """
 from __future__ import annotations
 
+import contextvars
 import copy
+import hashlib
 import io
+import json
+import logging
+import os
+import threading
 import posixpath
 import re
+import shutil
 import struct
+import tempfile
 import uuid
 import zipfile
 from dataclasses import dataclass, field
@@ -103,10 +111,15 @@ class ObjetIncorpore:
     ratio: float | None = None     # largeur / hauteur du cadre d'affichage
     relations_apercu: list[tuple[str, str]] = field(default_factory=list)
                                    # (fichier .rels, Id) pointant vers l'aperçu
+    rid: str | None = None         # Id de la relation de la partie vers la cible
+    echec: str | None = None       # posé APRÈS coup : pourquoi un objet a priori
+                                   # traitable ne l'a pas été (conversion, erreur…)
 
     @property
     def raison_non_traite(self) -> str | None:
         """Pourquoi l'objet ne sera pas traduit, ou None s'il le sera."""
+        if self.echec:
+            return self.echec
         if self.lie:
             return "lie"
         if not self.present:
@@ -255,7 +268,7 @@ def _objet(conteneur, partie, rels, rid, prog_id, icone, paquet,
         conteneur=conteneur, partie=partie, cible=cible, prog_id=prog_id,
         nature=_nature(prog_id, cible), format="autre" if lie else _format(cible),
         icone=icone, lie=lie, present=(not lie and cible in paquet.noms),
-        apercu=apercu, ratio=ratio)
+        apercu=apercu, ratio=ratio, rid=rid or None)
 
 
 def _pptx(paquet: _Paquet) -> list[ObjetIncorpore]:
@@ -672,21 +685,497 @@ def reecrire(extrait: Extrait, contenu: bytes) -> bytes:
     return _ecrire_cfb(racine)
 
 
-def remplacer_parties(paquet: bytes, table: dict[str, bytes]) -> bytes:
+def remplacer_parties(paquet: bytes, table: dict[str, bytes],
+                      ajouter: bool = False) -> bytes:
     """Paquet réécrit avec les parties de `table` remplacées : même ordre,
-    mêmes métadonnées d'entrée. Rien à remplacer : les octets d'origine."""
+    mêmes métadonnées d'entrée. Rien à remplacer : les octets d'origine.
+
+    `ajouter` : les parties de `table` absentes du paquet y sont AJOUTÉES, en fin
+    d'archive (objet 97-2003 converti, qui devient une partie nouvelle)."""
     if not table:
         return paquet
     with zipfile.ZipFile(io.BytesIO(paquet)) as source:
         entrees = source.infolist()
-        if not any(e.filename in table for e in entrees):
+        presentes = {e.filename for e in entrees}
+        nouvelles = [n for n in table if n not in presentes] if ajouter else []
+        if not nouvelles and not any(n in table for n in presentes):
             return paquet
         sortie = io.BytesIO()
         with zipfile.ZipFile(sortie, "w") as cible:
             for e in entrees:
                 octets = table[e.filename] if e.filename in table else source.read(e)
                 cible.writestr(copy.copy(e), octets)
+            for nom in nouvelles:
+                cible.writestr(nom, table[nom], zipfile.ZIP_DEFLATED)
     return sortie.getvalue()
+
+
+# --------------------------------------------------------------------------- #
+# Traduction des objets, récursive (étape 6.11.3b)
+# --------------------------------------------------------------------------- #
+#
+# Chaque objet extrait est traduit par le moteur de SON format (xlsx, docx,
+# pptx), qui relève à son tour ses propres objets : un Excel dans un Word dans
+# un PowerPoint est traduit jusqu'à PROFONDEUR_MAX. Un binaire 97-2003 est
+# d'abord converti par LibreOffice (D4) ; la version moderne remplace alors
+# l'objet d'origine dans le document.
+#
+#   relever(...)    → les textes des objets (ids préfixés) et le rapport ;
+#   reinjecter(...) → ce qu'il faut changer dans le paquet hôte (`Modifs`) ;
+#   appliquer_*(…)  → le changement, sur un dossier extrait ou un fichier zip.
+#
+# Les deux premières font le MÊME parcours (mêmes objets, mêmes préfixes) : un
+# id relevé à l'extraction se retrouve à l'identique à l'injection.
+
+_TYPE_NATURE = {"xlsx": "classeur", "xls": "classeur", "docx": "document",
+                "doc": "document", "pptx": "presentation", "ppt": "presentation"}
+_ETIQUETTE = {"xlsx": "excel", "xls": "excel", "docx": "word", "doc": "word",
+              "pptx": "ppt", "ppt": "ppt"}
+_MODERNE = {"xls": "xlsx", "doc": "docx", "ppt": "pptx"}
+
+_TYPE_PACKAGE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/package"
+_NS_CT = "http://schemas.openxmlformats.org/package/2006/content-types"
+_CT_MODERNE = {
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
+# progId d'un objet 97-2003 → progId de sa version moderne ; autre : inchangé.
+_PROGID_MODERNE = {
+    "excel.sheet.8": "Excel.Sheet.12", "excel.chart.8": "Excel.Chart.12",
+    "word.document.8": "Word.Document.12", "powerpoint.show.8": "PowerPoint.Show.12",
+    "powerpoint.slide.8": "PowerPoint.Slide.12",
+}
+
+
+logger = logging.getLogger(__name__)
+
+# Budget du document de PREMIER niveau, partagé par les sous-moteurs : sans lui,
+# chaque objet repartirait d'un budget neuf et le plafond anti-bombe ne
+# vaudrait plus pour le document entier.
+_BUDGET_COURANT: contextvars.ContextVar[Budget | None] = contextvars.ContextVar(
+    "budget_objets", default=None)
+
+# Conversions 97-2003 récentes, par empreinte : `relever` puis `reinjecter`
+# convertissent le même binaire — une seule conversion, et des ids identiques.
+_CONVERSIONS: dict[tuple[bytes, str], bytes] = {}
+_CONVERSIONS_OCTETS_MAX = 64 * 1024 * 1024
+_conversions_verrou = threading.Lock()
+
+
+def _sans_base(objet: ObjetIncorpore) -> str:
+    return ""
+
+
+def _avec_budget(fonction, budget: Budget | None):
+    """`fonction(budget)` avec le budget du document courant (ou un neuf au
+    premier niveau), visible des sous-moteurs pendant l'appel."""
+    budget = budget or _BUDGET_COURANT.get() or Budget()
+    jeton = _BUDGET_COURANT.set(budget)
+    try:
+        return fonction(budget)
+    finally:
+        _BUDGET_COURANT.reset(jeton)
+
+
+def _nettoyer_moteur(moteur) -> None:
+    """Dossier de travail d'un sous-moteur (le moteur XLSX le garde ouvert)."""
+    nettoyer = getattr(moteur, "_nettoyer", None)
+    if callable(nettoyer):
+        try:
+            nettoyer()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def stem(cible: str) -> str:
+    """Nom de fichier d'une cible, sans dossier ni extension."""
+    return posixpath.splitext(posixpath.basename(cible))[0]
+
+
+def prefixe(base: str, extrait: Extrait) -> str:
+    """Préfixe des ids d'un objet : `<base>excel_<nom du fichier>__`."""
+    return f"{base}{_ETIQUETTE[extrait.type]}_{stem(extrait.objet.cible)}__"
+
+
+class _EchecConversion(Exception):
+    """Le binaire 97-2003 n'a pas pu être converti en version moderne."""
+
+
+def _moderne(extrait: Extrait) -> tuple[str, bytes] | None:
+    """(type, octets) du fichier OOXML à traduire, ou None si la conversion
+    d'un binaire 97-2003 échoue (LibreOffice absent, fichier illisible…)."""
+    if extrait.enveloppe != "ancien":
+        return extrait.type, extrait.contenu
+    from engines import office
+    type_ = _MODERNE[extrait.type]
+    cle = (hashlib.sha256(extrait.contenu).digest(), type_)
+    with _conversions_verrou:
+        octets = _CONVERSIONS.get(cle)
+    if octets is None:
+        try:
+            octets = office.convertir(extrait.contenu, extrait.type, type_)
+        except Exception as exc:  # noqa: BLE001 — l'objet d'origine reste tel quel
+            logger.warning("Objet %s non converti : %s", extrait.objet.cible, exc)
+            return None
+        with _conversions_verrou:
+            _CONVERSIONS[cle] = octets
+            while sum(map(len, _CONVERSIONS.values())) > _CONVERSIONS_OCTETS_MAX \
+                    and len(_CONVERSIONS) > 1:
+                del _CONVERSIONS[next(iter(_CONVERSIONS))]
+    return (type_, octets) if taille_zip_sure(octets) is not None else None
+
+
+def _elements_de(noeud) -> list[dict]:
+    """Les blocs de texte d'une extraction, PAR RÉFÉRENCE : tout dictionnaire
+    qui porte un `id` et un `text` non vide, où qu'il soit dans le JSON. Le
+    rapport des objets n'en contient pas et n'est pas parcouru."""
+    if isinstance(noeud, list):
+        return [e for fils in noeud for e in _elements_de(fils)]
+    if not isinstance(noeud, dict):
+        return []
+    trouves = []
+    if (isinstance(noeud.get("id"), str) and isinstance(noeud.get("text"), str)
+            and noeud["text"].strip()):
+        trouves.append(noeud)
+    for cle, fils in noeud.items():
+        if cle != "objets_rapport":
+            trouves.extend(_elements_de(fils))
+    return trouves
+
+
+def _ouvrir(source) -> zipfile.ZipFile:
+    if isinstance(source, (bytes, bytearray)):
+        source = io.BytesIO(source)
+    return zipfile.ZipFile(source)
+
+
+def _retenir(zf: zipfile.ZipFile, objets: list[ObjetIncorpore], base, niveau: int,
+             budget: Budget):
+    """Parcours commun à `relever` et `reinjecter`.
+
+    Rend (objets retenus, {cible: (extrait, préfixe) | None}). Une cible n'est
+    extraite qu'une fois, même affichée à plusieurs endroits ; `base(objet)` à
+    None écarte l'objet (ni relevé, ni compté dans le rapport)."""
+    retenus: list[ObjetIncorpore] = []
+    trouves: dict[str, tuple[Extrait, str] | None] = {}
+    for o in objets:
+        b = base(o)
+        if b is None:
+            continue
+        retenus.append(o)
+        if o.cible not in trouves:
+            ex = extraire(zf, o, niveau, budget)
+            trouves[o.cible] = None if ex is None else (ex, prefixe(b, ex))
+    for o in retenus:
+        t = trouves[o.cible]
+        if t is not None:
+            o.nature = _TYPE_NATURE[t[0].type]      # un « paquet » devient ce qu'il contient
+        elif o.raison_non_traite is None:
+            # Traitable sur le papier, mais rien n'a pu en être tiré.
+            o.echec = "profondeur" if niveau > PROFONDEUR_MAX else "illisible"
+    return retenus, trouves
+
+
+def _sous_extraction(type_: str, octets: bytes, dossier: str, niveau: int):
+    """Écrit le fichier dans `dossier`, le fait relever par le moteur de son
+    format et rend (moteur, chemin du fichier, chemin du JSON, JSON)."""
+    from engines import new_engine
+    moteur = new_engine(type_)
+    if moteur is None:
+        raise ValueError(f"aucun moteur pour {type_}")
+    entree = os.path.join(dossier, f"objet.{type_}")
+    with open(entree, "wb") as f:
+        f.write(octets)
+    chemin_json = os.path.join(dossier, "extraction.json")
+    try:
+        moteur.extract_text(entree, chemin_json, niveau_objets=niveau + 1)
+    finally:
+        _nettoyer_moteur(moteur)
+    with open(chemin_json, encoding="utf-8") as f:
+        return entree, chemin_json, json.load(f)
+
+
+def relever(source, base=_sans_base, niveau: int = 1,
+            budget: Budget | None = None) -> tuple[list[dict], dict]:
+    """Textes des objets incorporés de `source` (chemin, octets ou fichier).
+
+    Rend (éléments, rapport). Chaque élément est `{"id", "text", "context"}`,
+    l'id étant `base(objet)` + `excel_<fichier>__` + l'id du moteur de l'objet.
+    Les objets des objets sont déjà dans la liste, à plat. Le rapport est établi
+    APRÈS l'extraction : un objet qui n'a pu être traité y figure avec sa raison.
+    Au mieux : un objet en échec est ignoré, jamais l'extraction du document."""
+    return _avec_budget(lambda b: _relever(source, base, niveau, b), budget)
+
+
+def _relever(source, base, niveau: int, budget: Budget) -> tuple[list[dict], dict]:
+    objets = reperer(source)
+    if not objets:
+        return [], rapport([])
+    elements: list[dict] = []
+    try:
+        zf = _ouvrir(source)
+    except (zipfile.BadZipFile, OSError, ValueError):
+        return [], rapport(objets)
+    with zf:
+        retenus, trouves = _retenir(zf, objets, base, niveau, budget)
+    for cible, trouve in trouves.items():
+        if trouve is None:
+            continue
+        ex, pref = trouve
+        premier = next(o for o in retenus if o.cible == cible)
+        dossier = tempfile.mkdtemp(prefix="incorpore_")
+        try:
+            moderne = _moderne(ex)
+            if moderne is None:
+                raise _EchecConversion()
+            _, _, data = _sous_extraction(moderne[0], moderne[1], dossier, niveau)
+            classeur = _TYPE_NATURE[ex.type] == "classeur"
+            nouveaux = []
+            for el in _elements_de(data):
+                contexte = {**(el.get("context") or {}), "objet": cible,
+                            "partie": premier.partie,
+                            "shape_type": "Excel Cell" if classeur else "Embedded Object"}
+                nouveaux.append({"id": pref + el["id"], "text": el["text"],
+                                 "context": contexte})
+            elements.extend(nouveaux)
+        except _EchecConversion:
+            for o in retenus:
+                if o.cible == cible:
+                    o.echec = "conversion"
+        except Exception as exc:  # noqa: BLE001 — au mieux : l'objet est laissé tel quel
+            logger.warning("Objet %s non relevé : %s", cible, exc)
+            for o in retenus:
+                if o.cible == cible:
+                    o.echec = "erreur"
+        finally:
+            shutil.rmtree(dossier, ignore_errors=True)
+    return elements, rapport(retenus)
+
+
+@dataclass
+class Modifs:
+    """Ce qu'il faut changer dans le paquet hôte pour y remettre les objets
+    traduits."""
+    parties: dict[str, bytes] = field(default_factory=dict)
+    # ("rel", partie_rels, rid, cible_relative, type_rel)
+    # ("progid", partie_hote, rid, nouveau_progid)
+    # ("defaut", extension, content_type)
+    retouches: list[tuple] = field(default_factory=list)
+    cibles: list[str] = field(default_factory=list)   # objets effectivement traduits
+
+
+def _nom_libre(cible: str, type_: str, pris: set[str]) -> str:
+    """`<dossier de la cible>/<nom>.<type>`, numéroté si le nom est déjà pris."""
+    dossier, nom = posixpath.dirname(cible), stem(cible)
+    candidat, n = posixpath.join(dossier, f"{nom}.{type_}"), 1
+    while candidat in pris:
+        n += 1
+        candidat = posixpath.join(dossier, f"{nom}_{n}.{type_}")
+    return candidat
+
+
+def reinjecter(source, traductions: dict[str, str], base=_sans_base,
+               niveau: int = 1, budget: Budget | None = None) -> Modifs:
+    """Remet dans le paquet les objets de `source` traduits.
+
+    `traductions` : {id relevé par `relever`: texte traduit}. Même parcours et
+    mêmes préfixes que `relever`. Un objet sans changement, ou dont le moteur
+    échoue, est laissé tel quel. Un objet 97-2003 traduit devient une partie
+    OOXML nouvelle (D4) : sa relation et son progId sont réécrits ; l'ancien
+    `.bin` reste dans le paquet, orphelin — Office l'ignore."""
+    if not traductions:
+        return Modifs()
+    return _avec_budget(lambda b: _reinjecter(source, traductions, base, niveau, b), budget)
+
+
+def _reinjecter(source, traductions: dict[str, str], base, niveau: int,
+                budget: Budget) -> Modifs:
+    modifs = Modifs()
+    # Seuls les objets dont un id traduit porte le nom sont ouverts.
+    objets = [o for o in reperer(source)
+              if any(f"_{stem(o.cible)}__" in k for k in traductions)]
+    if not objets:
+        return modifs
+    try:
+        zf = _ouvrir(source)
+    except (zipfile.BadZipFile, OSError, ValueError):
+        return modifs
+    with zf:
+        retenus, trouves = _retenir(zf, objets, base, niveau, budget)
+        pris = set(zf.namelist())
+    for cible, trouve in trouves.items():
+        if trouve is None:
+            continue
+        ex, pref = trouve
+        if not any(k.startswith(pref) for k in traductions):
+            continue        # aucune traduction pour cet objet : inutile de l'ouvrir
+        dossier = tempfile.mkdtemp(prefix="incorpore_")
+        try:
+            moderne = _moderne(ex)
+            if moderne is None:
+                continue
+            type_, octets = moderne
+            entree, chemin_json, data = _sous_extraction(type_, octets, dossier, niveau)
+            change = False
+            for el in _elements_de(data):
+                el["translated_text"] = traductions.get(pref + el["id"]) or el["text"]
+                change = change or el["translated_text"] != el["text"]
+            if not change:
+                continue
+            with open(chemin_json, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+            sortie = os.path.join(dossier, f"sortie.{type_}")
+            from engines import new_engine
+            moteur = new_engine(type_)
+            try:
+                resultat = moteur.inject_translation(
+                    entree, chemin_json, sortie, niveau_objets=niveau + 1)
+            finally:
+                _nettoyer_moteur(moteur)
+            ok = resultat[0] if isinstance(resultat, tuple) else resultat
+            if ok is False or not os.path.isfile(sortie):
+                continue
+            with open(sortie, "rb") as f:
+                nouveaux = f.read()
+            if _type_ooxml(nouveaux) != type_:
+                continue
+            if ex.enveloppe == "ancien":
+                _remplacer_ancien(modifs, ex, type_, nouveaux, retenus, pris)
+            else:
+                modifs.parties[cible] = reecrire(ex, nouveaux)
+            modifs.cibles.append(cible)
+        except Exception as exc:  # noqa: BLE001 — au mieux : l'objet d'origine est gardé
+            logger.warning("Objet %s non réinjecté : %s", cible, exc)
+            continue
+        finally:
+            shutil.rmtree(dossier, ignore_errors=True)
+    return modifs
+
+
+def _remplacer_ancien(modifs: Modifs, ex: Extrait, type_: str, nouveaux: bytes,
+                      retenus: list[ObjetIncorpore], pris: set[str]) -> None:
+    """Un 97-2003 traduit devient une partie OOXML : nouvelle partie, relation
+    réorientée vers elle (type `package`), progId et type de contenu modernes."""
+    cible = ex.objet.cible
+    nom = _nom_libre(cible, type_, pris | set(modifs.parties))
+    modifs.parties[nom] = nouveaux
+    vus = set()
+    for o in retenus:
+        if o.cible != cible or not o.rid:
+            continue
+        relative = posixpath.relpath(nom, posixpath.dirname(o.partie))
+        rel = ("rel", _Paquet.rels_de(o.partie), o.rid, relative, _TYPE_PACKAGE)
+        nouveau = _PROGID_MODERNE.get(o.prog_id.lower())
+        progid = ("progid", o.partie, o.rid, nouveau) if nouveau else None
+        for r in (rel, progid):
+            if r is not None and r not in vus:
+                vus.add(r)
+                modifs.retouches.append(r)
+    defaut = ("defaut", type_, _CT_MODERNE[type_])
+    if defaut not in modifs.retouches:
+        modifs.retouches.append(defaut)
+
+
+def _retoucher(retouches: list[tuple], lire) -> dict[str, bytes]:
+    """Parties XML retouchées, lues avec `lire(nom) -> octets | None` (le
+    contenu COURANT du paquet). Une retouche qui échoue est sans effet."""
+    racines: dict[str, etree._Element | None] = {}
+    modifiees: list[str] = []
+
+    def racine(nom: str):
+        if nom not in racines:
+            octets = lire(nom)
+            if octets is None or len(octets) > OCTETS_PARTIE_MAX:
+                racines[nom] = None
+            else:
+                parser = etree.XMLParser(resolve_entities=False, no_network=True)
+                racines[nom] = etree.fromstring(octets, parser)
+        return racines[nom]
+
+    def noter(nom: str) -> None:
+        if nom not in modifiees:
+            modifiees.append(nom)
+
+    for r in retouches:
+        try:
+            if r[0] == "rel":
+                _, partie_rels, rid, cible, type_rel = r
+                for e in racine(partie_rels).iter("{%s}Relationship" % NS["rel"]):
+                    if e.get("Id") == rid:
+                        e.set("Target", cible)
+                        e.set("Type", type_rel)
+                        e.attrib.pop("TargetMode", None)
+                        noter(partie_rels)
+            elif r[0] == "progid":
+                _, partie, rid, progid = r
+                for e in racine(partie).iter():
+                    if e.get(_R_ID) != rid:
+                        continue
+                    for attribut in ("progId", "ProgID"):
+                        if e.get(attribut) is not None:
+                            e.set(attribut, progid)
+                            noter(partie)
+            elif r[0] == "defaut":
+                _, extension, type_contenu = r
+                types = racine("[Content_Types].xml")
+                defauts = [e for e in types if e.tag == "{%s}Default" % _NS_CT]
+                if not any((e.get("Extension") or "").lower() == extension.lower()
+                           for e in defauts):
+                    neuf = etree.Element("{%s}Default" % _NS_CT, nsmap=types.nsmap)
+                    neuf.set("Extension", extension)
+                    neuf.set("ContentType", type_contenu)
+                    types.insert(types.index(defauts[-1]) + 1 if defauts else 0, neuf)
+                    noter("[Content_Types].xml")
+        except Exception:  # noqa: BLE001 — retouche sans effet, le reste continue
+            continue
+    return {nom: etree.tostring(racines[nom], xml_declaration=True,
+                                encoding="UTF-8", standalone=True)
+            for nom in modifiees}
+
+
+def _nom_sur(nom: str) -> bool:
+    """Un nom de partie qui reste DANS le paquet (jamais de `..` ni de racine)."""
+    return bool(nom) and not nom.startswith("/") and ".." not in nom.split("/")
+
+
+def appliquer_dossier(dossier, modifs: Modifs) -> None:
+    """Applique `modifs` à un paquet déjà extrait dans `dossier`."""
+    racine = Path(dossier)
+    for nom, octets in modifs.parties.items():
+        if _nom_sur(nom):
+            chemin = racine / nom
+            chemin.parent.mkdir(parents=True, exist_ok=True)
+            chemin.write_bytes(octets)
+
+    def lire(nom: str) -> bytes | None:
+        chemin = racine / nom
+        return chemin.read_bytes() if _nom_sur(nom) and chemin.is_file() else None
+
+    for nom, octets in _retoucher(modifs.retouches, lire).items():
+        (racine / nom).write_bytes(octets)
+
+
+def appliquer_fichier(chemin_zip, modifs: Modifs) -> None:
+    """Applique `modifs` à un paquet zip sur disque (réécriture atomique).
+    Rien à faire : le fichier n'est pas touché."""
+    if not modifs.parties and not modifs.retouches:
+        return
+    chemin_zip = str(chemin_zip)
+    with open(chemin_zip, "rb") as f:
+        octets = f.read()
+    with zipfile.ZipFile(io.BytesIO(octets)) as zf:
+        noms = set(zf.namelist())
+        table = {n: b for n, b in modifs.parties.items() if _nom_sur(n)}
+        table.update(_retoucher(modifs.retouches,
+                                lambda n: zf.read(n) if n in noms else None))
+    neuf = remplacer_parties(octets, table, ajouter=True)
+    if neuf is octets:
+        return
+    temporaire = chemin_zip + ".tmp"
+    with open(temporaire, "wb") as f:
+        f.write(neuf)
+    os.replace(temporaire, chemin_zip)
 
 
 # --------------------------------------------------------------------------- #

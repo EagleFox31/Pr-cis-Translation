@@ -10,6 +10,7 @@ from pathlib import Path
 from collections import defaultdict
 
 from engines import runtags        # contrat des balises de runs (et sa réparation)
+from engines import incorpores     # objets incorporés (Excel, Word, PowerPoint)
 
 NAMESPACES = {
     'p': 'http://schemas.openxmlformats.org/presentationml/2006/main',
@@ -141,6 +142,9 @@ class PPTXTranslatorEngine:
         # Parties partagées déjà extraites pour CE document (chemins de
         # fichiers). Remis à zéro avec le dossier temporaire.
         self._parts_vues: set[str] = set()
+        # PPTX d'origine du dossier temporaire : les objets incorporés se
+        # relèvent et se réinjectent depuis lui (chemin progressif, diapo à diapo).
+        self._source: str | None = None
 
     def generate_autorefresh_pptm(self, pptx_path: str, pptm_output_path: str = None) -> str:
         """Génère une version .pptm (PowerPoint Macro-Enabled) contenant la macro VBA
@@ -216,6 +220,7 @@ class PPTXTranslatorEngine:
         temp_path = self._get_temp_dir()
         with zipfile.ZipFile(pptx_path, 'r') as zf:
             zf.extractall(temp_path)
+        self._source = str(pptx_path)
         # Nouveau document : les parties partagées sont à revoir.
         self._parts_vues.clear()
 
@@ -237,7 +242,7 @@ class PPTXTranslatorEngine:
                     arcname = os.path.relpath(file_path, temp_path)
                     zf.write(file_path, arcname)
 
-    def extract_text(self, pptx_path, output_json="extraction_texte.json", filters=None, progress_callback=None, pages=None):
+    def extract_text(self, pptx_path, output_json="extraction_texte.json", filters=None, progress_callback=None, pages=None, niveau_objets=1):
         if filters is None:
             filters = {"shapes": True, "smartarts": True, "tables": True, "connectors": True}
 
@@ -263,6 +268,26 @@ class PPTXTranslatorEngine:
         element_types_used = defaultdict(set)
         total_slides = len(slide_files)
 
+        # Objets incorporés : relevés UNE fois pour tout le document, puis rangés
+        # dans `excel_elements` de la diapositive qui les affiche. Ceux d'un
+        # masque, d'une disposition ou d'une page de notes vont à la première
+        # diapositive relevée.
+        objets_par_diapo: dict[int, list] = {}
+        if filters.get("tables"):
+            retenues = {int(p.stem.replace("slide", ""))
+                        for i, p in enumerate(slide_files)
+                        if pages is None or (i + 1) in pages}
+            if retenues:
+                elements_objets, rapport_objets = incorpores.relever(
+                    pptx_path, base=self._base_objets(retenues), niveau=niveau_objets)
+                extraction["objets_rapport"] = rapport_objets
+                for el in elements_objets:
+                    m = re.fullmatch(r"ppt/slides/slide(\d+)\.xml",
+                                     el["context"].get("partie", ""))
+                    num = int(m.group(1)) if m else min(retenues)
+                    objets_par_diapo.setdefault(num, []).append(el)
+                    element_types_used[num].add(el["context"]["shape_type"])
+
         for i, slide_path in enumerate(slide_files):
             slide_num = int(slide_path.stem.replace("slide", ""))
             if pages is not None and (i + 1) not in pages:
@@ -279,7 +304,7 @@ class PPTXTranslatorEngine:
                 "diagram_elements": [],
                 "chart_elements": [],
                 "layout_elements": [],
-                "excel_elements": []
+                "excel_elements": objets_par_diapo.get(slide_num, [])
             }
 
             # 1. Extraction du texte de la slide
@@ -335,16 +360,7 @@ class PPTXTranslatorEngine:
                         if layout_data["text_elements"]:
                             slide_data["layout_elements"].append(layout_data)
 
-                # 5. Tableaux & Graphiques Excel incorporés (ppt/embeddings/*.xlsx)
-                if filters.get("tables"):
-                    pkg_rels = rels_tree.xpath("//*[@Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/package']")
-                    for rel in pkg_rels:
-                        target = rel.get("Target")
-                        emb_path = (slides_dir / target).resolve()
-                        if emb_path.exists() and emb_path.suffix.lower() in ('.xlsx', '.xlsm'):
-                            self._process_excel_file(emb_path, slide_num,
-                                                     slide_data["excel_elements"],
-                                                     element_types_used)
+            # (5. Objets incorporés : relevés plus haut, pour tout le document.)
 
             # 6. Masques principaux (slideMasters) — hors bloc rels_path
             masters_dir = temp_path / "ppt" / "slideMasters"
@@ -374,37 +390,36 @@ class PPTXTranslatorEngine:
         self._cleanup_temp()
         return extraction, element_types_used
 
-    # Classeur incorporé : relevé et réinjecté par le moteur XLSX complet
-    # (cellules partagées, en ligne et `t="str"`, graphiques, dessins, onglets),
-    # et non plus par sa seule table sharedStrings. Les ids du moteur XLSX sont
-    # préfixés par la diapositive et le nom du classeur.
+    # Objets incorporés (Excel, Word, PowerPoint, jusqu'à PROFONDEUR_MAX niveaux) :
+    # relevés et réinjectés par le moteur de leur format, via `incorpores`. Les
+    # ids sont préfixés par la diapositive (ou la partie) et le nom du fichier.
     @staticmethod
-    def _prefixe_excel(slide_num: int, emb_path: Path) -> str:
-        return f"slide{slide_num}_excel_{emb_path.stem}__"
+    def _base_objets(retenues):
+        """Préfixe des ids d'un objet : `slide<N>_` pour une diapositive de
+        `retenues` (None pour les autres, ignorées), `<partie>_` pour un masque,
+        une disposition ou une page de notes."""
+        def base(objet):
+            m = re.fullmatch(r"ppt/slides/slide(\d+)\.xml", objet.partie)
+            if m:
+                n = int(m.group(1))
+                return f"slide{n}_" if n in retenues else None
+            return f"{Path(objet.partie).stem}_"
+        return base
 
     @staticmethod
-    def _relever_classeur(emb_path: Path, dossier: Path) -> dict:
-        from engines import new_engine
-        extraction, _ = new_engine("xlsx").extract_text(str(emb_path), str(dossier / "ex.json"))
-        return extraction or {}
+    def _base_diapo(slide_num: int):
+        """Chemin progressif : seuls les objets affichés par CETTE diapositive."""
+        partie = f"ppt/slides/slide{slide_num}.xml"
+        return lambda objet: f"slide{slide_num}_" if objet.partie == partie else None
 
-    def _process_excel_file(self, emb_path: Path, slide_num: int, excel_store: list, element_types_used: dict):
-        """Relève le texte d'un classeur incorporé avec le moteur XLSX."""
-        dossier = Path(tempfile.mkdtemp(prefix="pptx_xlsx_"))
+    def _a_des_objets(self, slide_num: int) -> bool:
+        """La diapositive pointe-t-elle vers ppt/embeddings ? Test bon marché qui
+        évite de reparcourir tout le paquet pour chaque diapositive sans objet."""
+        rels = Path(self._get_temp_dir()) / "ppt" / "slides" / "_rels" / f"slide{slide_num}.xml.rels"
         try:
-            extraction = self._relever_classeur(emb_path, dossier)
-        except Exception:
-            return
-        finally:
-            shutil.rmtree(dossier, ignore_errors=True)
-        prefixe = self._prefixe_excel(slide_num, emb_path)
-        for el in extraction.get("workbook", {}).get("elements", []):
-            if not (el.get("text") or "").strip():
-                continue
-            excel_store.append({"id": prefixe + el["id"], "text": el["text"],
-                                "context": {**(el.get("context") or {}),
-                                            "shape_type": "Excel Cell"}})
-            element_types_used[slide_num].add("Excel Cell")
+            return b"embeddings/" in rels.read_bytes()
+        except OSError:
+            return False
 
     def _process_xml_element(self, root, slide_num, data_store, element_types_used, id_prefix, filters):
         paragraphs = root.xpath(".//a:p", namespaces=NAMESPACES)
@@ -478,7 +493,7 @@ class PPTXTranslatorEngine:
                     })
                     element_types_used[slide_num].add("Chart Label")
 
-    def inject_translation(self, original_pptx, translated_json_path, output_pptx, progress_callback=None, format_options=None):
+    def inject_translation(self, original_pptx, translated_json_path, output_pptx, progress_callback=None, format_options=None, niveau_objets=1):
         if not os.path.exists(translated_json_path):
             return False, "Fichier JSON de traduction introuvable."
         
@@ -557,14 +572,6 @@ class PPTXTranslatorEngine:
                                                 translation_map,
                                                 num_alt=(slide_num,))
 
-                    # Excel incorporés (.xlsx) — injecter dans sharedStrings.xml
-                    pkg_rels = rels_tree.xpath("//*[@Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/package']")
-                    for rel in pkg_rels:
-                        target = rel.get("Target")
-                        emb_path = (slides_dir / target).resolve()
-                        if emb_path.exists() and emb_path.suffix.lower() in ('.xlsx', '.xlsm'):
-                            self._inject_excel_file(emb_path, slide_num, translation_map)
-
             # SlideMasters — UNE injection par masque, pas une par diapositive.
             # La boucle imbriquée réécrivait le même fichier autant de fois
             # qu'il y avait de diapositives, chaque passe écrasant la
@@ -579,6 +586,17 @@ class PPTXTranslatorEngine:
                     self._inject_in_xml(master_path, self.PART_PARTAGEE,
                                         f"master_{master_id}", translation_map,
                                         num_alt=nums_anciens)
+
+            # Objets incorporés : traduits par le moteur de leur format, puis remis
+            # dans le dossier AVANT la régénération des aperçus (qui lit les
+            # classeurs traduits). Au mieux : un objet en échec reste tel quel.
+            try:
+                retenues = {sl.get("slide_id") for sl in translation_data.get("slides", [])}
+                incorpores.appliquer_dossier(temp_path, incorpores.reinjecter(
+                    original_pptx, translation_map, self._base_objets(retenues),
+                    niveau=niveau_objets))
+            except Exception as exc:  # noqa: BLE001
+                incorpores.logger.warning("Objets PPTX non réinjectés : %s", exc)
 
             # Aperçus des objets OLE Excel : régénérés depuis les classeurs
             # traduits (best-effort — voir regenerate_ole_previews). Sans ça, les
@@ -599,36 +617,6 @@ class PPTXTranslatorEngine:
         except Exception as e:
             self._cleanup_temp()
             return False, f"Erreur lors de la réinjection : {str(e)}"
-
-    def _inject_excel_file(self, emb_path: Path, slide_num: int, translation_map: dict) -> bool:
-        """Réinjecte la traduction dans le classeur incorporé (moteur XLSX).
-        Faux si rien ne change : l'aperçu n'a alors pas à être régénéré."""
-        if not emb_path.exists():
-            return False
-        from engines import new_engine
-        prefixe = self._prefixe_excel(slide_num, emb_path)
-        dossier = Path(tempfile.mkdtemp(prefix="pptx_xlsx_"))
-        try:
-            extraction = self._relever_classeur(emb_path, dossier)
-            touche = False
-            for el in extraction["workbook"]["elements"]:
-                traduit = translation_map.get(prefixe + el["id"])
-                el["translated_text"] = el["text"] if traduit is None else traduit
-                touche = touche or (traduit is not None and traduit != el["text"])
-            if not touche:
-                return False
-            tr = dossier / "tr.json"
-            tr.write_text(json.dumps(extraction, ensure_ascii=False), encoding="utf-8")
-            sortie = dossier / ("out" + emb_path.suffix)
-            ok, _ = new_engine("xlsx").inject_translation(str(emb_path), str(tr), str(sortie))
-            if not ok or not sortie.exists():
-                return False
-            shutil.copyfile(sortie, emb_path)
-            return True
-        except Exception:
-            return False
-        finally:
-            shutil.rmtree(dossier, ignore_errors=True)
 
     def _inject_in_xml(self, xml_path, slide_num, id_prefix, translation_map,
                        num_alt=()):
@@ -818,15 +806,13 @@ class PPTXTranslatorEngine:
                     if master_data["text_elements"]:
                         slide_data.setdefault("master_elements", []).append(master_data)
 
-            # Excel incorporés
-            if filters.get("tables"):
-                pkg_rels = rels_tree.xpath(
-                    "//*[@Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/package']")
-                for rel in pkg_rels:
-                    target = rel.get("Target")
-                    emb_path = (slides_dir / target).resolve()
-                    if emb_path.exists() and emb_path.suffix.lower() in ('.xlsx', '.xlsm'):
-                        self._process_excel_file(emb_path, slide_num, slide_data["excel_elements"], element_types_used)
+        # Objets incorporés affichés par cette diapositive.
+        if filters.get("tables") and self._source and self._a_des_objets(slide_num):
+            elements_objets, _ = incorpores.relever(
+                self._source, base=self._base_diapo(slide_num))
+            for el in elements_objets:
+                slide_data["excel_elements"].append(el)
+                element_types_used[slide_num].add(el["context"]["shape_type"])
 
         if not any([slide_data["text_elements"], slide_data["diagram_elements"],
                     slide_data["chart_elements"], slide_data["layout_elements"],
@@ -896,14 +882,16 @@ class PPTXTranslatorEngine:
                         f"master_{master_path.stem}", translation_map):
                     modified = True
 
-            pkg_rels = rels_tree.xpath(
-                "//*[@Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/package']")
-            for rel in pkg_rels:
-                target = rel.get("Target")
-                emb_path = (slides_dir / target).resolve()
-                if emb_path.exists() and emb_path.suffix.lower() in ('.xlsx', '.xlsm'):
-                    if self._inject_excel_file(emb_path, slide_num, translation_map):
-                        modified = True
+        # Objets incorporés affichés par cette diapositive.
+        if self._source and translation_map and self._a_des_objets(slide_num):
+            try:
+                modifs = incorpores.reinjecter(self._source, translation_map,
+                                               self._base_diapo(slide_num))
+                incorpores.appliquer_dossier(self._get_temp_dir(), modifs)
+                if modifs.cibles:
+                    modified = True
+            except Exception as exc:  # noqa: BLE001
+                incorpores.logger.warning("Objets diapo %s non réinjectés : %s", slide_num, exc)
 
         return bool(modified)
 

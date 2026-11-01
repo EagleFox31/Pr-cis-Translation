@@ -360,6 +360,8 @@ def run_xlsx_progressive_job(
                 donnees = json.load(f)
             for el in donnees.get("workbook", {}).get("elements", []):
                 el["translated_text"] = el.get("text", "")
+            for el in donnees.get("objets", []):
+                el["translated_text"] = el.get("text", "")
             with open(translation_path, "w", encoding="utf-8") as f:
                 json.dump(donnees, f, ensure_ascii=False)
         elif not os.path.exists(translation_path):
@@ -384,7 +386,13 @@ def run_xlsx_progressive_job(
             el["id"]: (el.get("translated_text") or el.get("text", ""))
             for el in traduit.get("workbook", {}).get("elements", [])
         }
-        if not traductions:
+        # Objets incorporés (Excel, Word, PowerPoint) : traduits à part, une fois
+        # le classeur final écrit. `traductions` reste celle du classeur seul.
+        traductions_objets = {
+            el["id"]: (el.get("translated_text") or el.get("text", ""))
+            for el in traduit.get("objets", [])
+        }
+        if not traductions and not traductions_objets:
             raise ValueError("Aucun texte traduit à réinjecter.")
 
         # ── Réinjection, puis GREFFE feuille par feuille ──────────────────
@@ -429,6 +437,7 @@ def run_xlsx_progressive_job(
         eng.build_partial_xlsx(output_path, only_sheets=None)
         if not os.path.exists(output_path):
             raise ValueError("Le fichier traduit est introuvable après génération.")
+        eng.injecter_objets(output_path, traductions_objets)
 
         _poser_images_fichier(output_path, table_images)
         jobs.done(job_id, output_path, output_filename,

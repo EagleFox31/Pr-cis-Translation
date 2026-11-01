@@ -49,6 +49,7 @@ from pathlib import Path
 from lxml import etree
 from engines.xlsx import expansion
 
+from engines import incorpores
 from engines.base import TranslationEngine
 
 #: Espaces de noms SpreadsheetML.
@@ -643,7 +644,8 @@ class XLSXTranslatorEngine(TranslationEngine):
 
     # ── Extraction ────────────────────────────────────────────────────────
     def extract_text(self, input_path: str, output_json: str = "extraction_xlsx.json",
-                     filters: dict | None = None, progress_callback=None):
+                     filters: dict | None = None, progress_callback=None,
+                     niveau_objets: int = 1):
         """Relève le texte traduisible du classeur.
 
         Le relevé porte l'IDENTITÉ de chaque chaîne (partie + index), pas sa
@@ -678,6 +680,13 @@ class XLSXTranslatorEngine(TranslationEngine):
             },
             "types": {k: sorted(v) for k, v in types.items()},
         }
+
+        # Objets incorporés (Word, PowerPoint, autre Excel) : leurs textes, à
+        # plat, HORS de `workbook.elements` — ce ne sont pas des éléments du
+        # classeur et le chemin progressif n'injecte que ceux-là.
+        objets, rapport_objets = incorpores.relever(input_path, niveau=niveau_objets)
+        extraction["objets"] = objets
+        extraction["objets_rapport"] = rapport_objets
 
         with open(output_json, "w", encoding="utf-8") as f:
             json.dump(extraction, f, ensure_ascii=False, indent=2)
@@ -1691,9 +1700,25 @@ class XLSXTranslatorEngine(TranslationEngine):
                 types["workbook"].add("Chaîne en ligne")
 
     # ── Injection ─────────────────────────────────────────────────────────
+    def injecter_objets(self, chemin_sortie: str, traductions: dict,
+                        niveau_objets: int = 1) -> None:
+        """Traduit, dans le classeur produit, les objets incorporés.
+
+        `traductions` : {id relevé: texte traduit} (la clé `objets` du JSON).
+        Au mieux : un objet qui échoue reste dans sa langue d'origine, le
+        classeur déjà produit n'est jamais compromis."""
+        if not traductions:
+            return
+        try:
+            incorpores.appliquer_fichier(chemin_sortie, incorpores.reinjecter(
+                chemin_sortie, traductions, niveau=niveau_objets))
+        except Exception as exc:  # noqa: BLE001
+            incorpores.logger.warning("Objets XLSX non réinjectés : %s", exc)
+
     def inject_translation(self, original_path: str, translated_json: str,
                            output_path: str, format_options: dict | None = None,
-                           progress_callback=None) -> tuple[bool, str]:
+                           progress_callback=None,
+                           niveau_objets: int = 1) -> tuple[bool, str]:
         """Réinjecte la traduction et réassemble le classeur.
 
         Les nœuds sont modifiés SUR PLACE : aucun `<t>` n'est supprimé ni
@@ -1710,8 +1735,20 @@ class XLSXTranslatorEngine(TranslationEngine):
             el["id"]: el.get("translated_text", el.get("text", ""))
             for el in donnees.get("workbook", {}).get("elements", [])
         }
+        traductions_objets = {
+            el["id"]: el.get("translated_text") or el["text"]
+            for el in donnees.get("objets", [])
+        }
         if not traductions:
-            return False, "Aucun texte traduit à réinjecter."
+            if not traductions_objets:
+                return False, "Aucun texte traduit à réinjecter."
+            # Rien à traduire dans le classeur lui-même, seulement dans ses objets.
+            try:
+                shutil.copyfile(original_path, output_path)
+            except OSError as exc:
+                return False, f"Le classeur n'a pas pu être reconstruit : {exc}"
+            self.injecter_objets(output_path, traductions_objets, niveau_objets)
+            return True, "Classeur traduit."
 
         try:
             dossier = self._ouvrir(original_path)
@@ -1742,6 +1779,7 @@ class XLSXTranslatorEngine(TranslationEngine):
             expansion.ajuster_dossier(dossier, self._origine)
 
             self._refermer(output_path)
+            self.injecter_objets(output_path, traductions_objets, niveau_objets)
             return True, "Classeur traduit."
         except Exception as exc:
             # Le message part vers l'utilisateur : il dit ce qui s'est passé,

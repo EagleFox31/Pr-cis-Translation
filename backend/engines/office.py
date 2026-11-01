@@ -115,12 +115,12 @@ def profil_argument() -> str:
     return f"-env:UserInstallation={_profil_uri()}"
 
 
-def _cmd(src_path: str, outdir: str) -> list[str]:
+def _cmd(src_path: str, outdir: str, fmt: str = "pdf") -> list[str]:
     """Ligne de commande de conversion, profil partagé compris."""
     return [
         SOFFICE_PATH, "--headless", "--norestore", "--nolockcheck",
         profil_argument(),
-        "--convert-to", "pdf", "--outdir", outdir, src_path,
+        "--convert-to", fmt, "--outdir", outdir, src_path,
     ]
 
 
@@ -165,6 +165,30 @@ def convert_to_pdf(file_bytes: bytes, ext: str) -> bytes:
             proc = subprocess.run(_cmd(src_path, tmp), capture_output=True,
                                   timeout=120)
         out_path = os.path.join(tmp, "input.pdf")
+        if proc.returncode != 0 or not os.path.exists(out_path):
+            err = proc.stderr.decode("utf-8", "ignore")[:300]
+            raise RuntimeError(f"Conversion LibreOffice échouée : {err}")
+        with open(out_path, "rb") as f:
+            return f.read()
+
+
+def convertir(octets: bytes, ext_source: str, ext_cible: str, timeout: int = 120) -> bytes:
+    """Convertit un document d'un format Office vers un autre (xls -> xlsx, ...).
+
+    Même mécanique que `convert_to_pdf` : profil partagé, `preview_lock`, dossier
+    temporaire jetable. Lève `RuntimeError` si LibreOffice est absent ou si la
+    conversion échoue — l'appelant décide quoi faire de l'objet.
+    """
+    if not SOFFICE_PATH:
+        raise RuntimeError("LibreOffice est requis pour convertir ce format.")
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        src_path = os.path.join(tmp, f"input.{ext_source}")
+        with open(src_path, "wb") as f:
+            f.write(octets)
+        with preview_lock:
+            proc = subprocess.run(_cmd(src_path, tmp, ext_cible), capture_output=True,
+                                  timeout=timeout)
+        out_path = os.path.join(tmp, f"input.{ext_cible}")
         if proc.returncode != 0 or not os.path.exists(out_path):
             err = proc.stderr.decode("utf-8", "ignore")[:300]
             raise RuntimeError(f"Conversion LibreOffice échouée : {err}")
