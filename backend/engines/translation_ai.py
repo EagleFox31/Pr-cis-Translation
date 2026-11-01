@@ -338,7 +338,10 @@ class TranslatorAI:
         parenthèse, ni équivalent étranger, ni note. Un diplôme, une
         institution, un grade propre à un pays garde son NOM OFFICIEL (sigle
         compris), seuls ses mots communs traduits ; jamais remplacé par celui
-        d'un autre pays, jamais par une glose. Tout texte qui n'est pas déjà
+        d'un autre pays, jamais par une glose. L'intitulé d'une formation, d'un
+        cours ou d'un module se traduit (son code reste tel quel : « TST01 :
+        Gestion de projet » → « TST01: Project management ») ; seul un nom de
+        marque déposé reste intact. Tout texte qui n'est pas déjà
         dans la langue cible se traduit, QUELLE QUE SOIT sa langue d'origine :
         en-têtes, devises, noms d'État et d'administration, et chaque version
         d'un en-tête bilingue.
