@@ -1,33 +1,61 @@
-# PASSATION
+# PASSATION — 01/11/2026
 
 ## 1. Objectif en cours
-Résolution des polices non embarquées dans le moteur PDF (téléchargement à l'identique, sinon clone métrique, sinon police la plus proche), branche `feat/polices-telechargement-substitution`, moteur 1.0.12.
+Implémenter l'OCR v2 (lire, effacer, réécrire le texte d'une image) puis l'extension navigateur qui traduit une page entière, images comprises après accord.
 
 ## 2. Fait
-- Ticket CD26052553710 : points 1–7 commités (point 8 laissé de côté à la demande).
-- `backend/engines/pdf/polices.py` (nouveau) : `Resolveur` (identique locale / Google Fonts css2 validée famille-pente-graisse-encre / clone `CLONES` / plus proche par largeurs), cache `translations/_polices`, absences 30 j, disjoncteur réseau, verrou par variante en vol, redirections hors `_HOTES` refusées, échéance globale.
-- `backend/engines/pdf/engine.py` : profils de largeur (`_measure_span`, `_font_profiles_from`), chaîne `_full_fallback_font`.
-- `backend/engines/pdf/stream.py:149-153` : profils passés à `_extract_fonts` (sans eux, la couche « proche » était aveugle en production).
-- `backend/scripts/precharger_polices.py` : ~90 familles pré-chargées dans `backend/fonts/catalogue` (gitignoré + dockerignoré) ; lancé au build (`Dockerfile`, non bloquant) ; Carlito/Caladea installés.
-- `backend/tests/test_polices.py` : 20/20 ; `racine.py` pose `PRECIS_FONT_DOWNLOAD/SYSTEM/CATALOGUE=0`.
-- `test_rendu_structure.py` : `fiche_document` simulé (appelait réellement DeepSeek).
-- Commits : c6dfe71, a588a76, 2192374. 9 suites moteur en code 0.
+- Branche `feat/ocr-v2` ; commits locaux non poussés : ae67f13 (études + README l.38, l.90-92), 29ffb6f (décisions).
+- `docs/etude-ocr-v2.md` : s'appuie sur l'analyse PDF + `banc_inpainting.zip` (Téléchargements, 30/10). Repères clés :
+  - masque `masque_couleur` (§5) ; méthodes aplat/plan/harmonique/Telea/FSR/structurel (§6) ;
+  - sélecteur « masque fantôme », perte 1,2 dB, ~0,6 s/zone ; bascule `regle_corrigee` si trop de zones ;
+  - détection = goulot (Tesseract 0 % sur fond chargé) → PP-OCRv6 small ONNX ; seuils du banc §8 ; phasage §11.
+- `docs/etude-extension-navigateur.md` : MV3, cadres, SVG Storyline, accord images, routes `POST /api/extension/segments` et `/image`, jetons Bearer, CORS `app/__init__.py` ~l.127-150.
+- Étape 5 en cours (non commitée) : `backend/app/services/ocr_v2/` = `__init__.py`, `mask.py` (`masque_couleur`, `anneau`, `composantes`), `erase.py` (6 méthodes du banc, `regle_corrigee`, fantôme, `effacer(image, boites, budget_s, mask, limite_s)` → (image, choix)). `requirements.txt` l.36-37 : opencv-contrib-python-headless==4.14.0.94, scipy==1.17.1 (installés dans le venv).
+- 5.3 (01/11, vérifié, commité) : `ocr.py:72-77` efface via `effacer` avec une part de temps par page (réserve lecture des pages suivantes + 1 s/page + 6 s d'enregistrement) ; `prepare_scanned_pdf` l.115 liste les pages scannées d'avance (`apres`). `erase.effacer` : passe 1 règle pour toutes les zones, passe 2 fantôme tant qu'il reste du temps, au-delà de `limite_s` un seul Telea pleine page (`erase.py`). `test_ocr.py:104` patche `ocr_v2.detect.shutil.which`. Mesures (étude §8) : banc 0,93 dB ; uni 138 dB / dégradé 56,2 dB (v1 53,8), 26 s/page ; 3 pages 78 s ; 10 pages 85 s sans échec. Tests : effacement, banc, test_ocr.py (Docker), 15 unittest OCR/moteur OK.
+- Trait coloré traversant (« Bonjour » barré de rouge sur dégradé) : 347-1280 px faux → 0, 0,1 s. Quatre causes corrigées : la règle prime sur le fantôme quand elle dit `structurel` (`effacer`) ; `_ajuster` (moindres carrés en 2 passes, écarte les aberrants) dans `_residu_poly`, `m_plan`, `m_structurel` (fantôme rosé) ; `_pixels_traits(gris, mask)` bouche les lettres avant la médiane (le fond près du texte passait pour trait) ; `mask._pixels_du_trait` ne protège que les pixels de la couleur du trait ; `m_structurel` réajuste la droite sur une bande élargie (décalage d'1 px). Test `backend/tests/test_ocr_v2_effacement.py` (dégradé 59,6 dB, trait 0 px, texture via fantôme 51,3 dB).
+- 5.4 (01/11, vérifié, commité, non poussé) : `ocr_v2/ppocr.py` (PP-OCRv6 small, DBNet + CTC, onnxruntime 1.31.1 un seul fil ; poids Apache-2.0, révision HF figée + SHA-256 via `scripts/telecharger_ppocr.py`, non versionnés dans `backend/models/`, téléchargés dans Docker avant `COPY backend/` et en CI). Banc `tests/banc_detection.py` : 198/204 mots (97 %), fond chargé 94 % (Tesseract 0 %), japonais 0 % d'erreur, 0,14–0,28 s/image. `test_ocr_v2_detection.py` OK (sauté sans poids). Non corrigé, identique à PaddleOCR : ordre des coins des boîtes très inclinées, règle rot90 si hauteur ≥ 1,5 × largeur. Le lecteur n'est pas encore branché dans `ocr.py` (5.5).
+- Scan simulé `CD26052553710.pdf` p.1 (données perso, sorties locales) : effacement 42,5 dB (v1 35), 4,4 s grâce au remplissage par recadrage ; fantôme partout 110 s pour +0,2 dB → la règle suffit au bureautique ; Tesseract rate 4 lignes d'en-tête près du logo → détection = goulot, confirme PP-OCRv6 (5.4).
+- TEAM-GP (31/10, cas réel de l'extension, lecture seule) : 143 leçons ; contenu de chaque leçon dans `/rpv/contents/2/_scorm/<sid>/js/data.js` (toutes langues, sections `data_contents["fr"]`…), lisible avec les cookies sans lancer la leçon. Texte FR : 0 japonais. **Le japonais reste dans les images** reprises de la version JA (107 images, 19 leçons ; nettes dans G41056, G41062, G41065, G41071, G40001). Non vus : 22 leçons d'un autre format (G48xxx/G49xxx, sans data.js, vidéos ?) et 40 tests. Scripts `scratchpad\gp\` (`crawl.py`, `strict.py`, `resultats.json`, `planche0-3.jpg`). Identifiants : variables `GP_ID`/`GP_PW`, jamais dans un fichier ; ne pas cliquer « Début » (enregistre une progression) ni « Options administrateur ».
+- Rendu stylé des scans (étude §7.1) : scan → PDF intermédiaire (fond effacé + texte Roboto stylé mesuré sur les pixels) → `translate_pdf_progressive`. Scripts dans `%TEMP%\claude\c--Users-IBRAH-Documents-Projets-Precis-Translator\295228ac-8b5d-4376-8be9-ab18efc79b73\scratchpad\` : `couche_texte.py` + `moteur_hors_ligne.py` (traducteur dictionnaire hors ligne, données personnelles : rien n'est envoyé). Gras 262/262, tailles exactes ; scan traduit = natif traduit (mêmes mots en gras, mêmes textes ; reste l'ordre de lecture des deux colonnes ; coupures de ligne réglées en 5.0). Le faux traducteur garde désormais les balises de gras comme un vrai. À porter dans `ocr_v2/render.py` en 5.5.
+- Centrage des en-têtes (moteur commun, natif ET scan) corrigé sur `feat/ocr-v2` à la demande « corrige tout » : signal (c) « pile centrée » `backend/engines/pdf/engine.py:2444` et l.2549+ (voisines verticales de même axe, bords gauches dispersés → conteneur symétrique autour de l'axe) ; test P35 `backend/tests/test_engine_v2_generic.py:1164` (103/103, coherence_pdf 10/10). Faux traducteur : traduit segment par segment (`SEG`), gras conservé ; vérifié à l'image, scan = natif, 29/29 lignes présentes.
+- `backend/app/services/ocr.py` : lecture via `ocr_v2/detect.py` (5.2), comportement v1 identique ; interface `prepare_scanned_pdf(data, pages)` à garder. Copie de l'ancien : `scratchpad\ocr_ref.py` (session 0c3ed8c0…).
 
-## 3. Décisions prises
-- Serif détecté par le nom seulement : le drapeau MuPDF n'est pas fiable.
-- Largeurs mesurées prioritaires dans le score « proche » (chasse fixe pénalité 10).
-- Base14 (Helvetica/Times/Courier) gardé en raccourci : métriques identiques à Liberation.
-- Pré-chargement laissé après `COPY backend/` : `engines/__init__.py` importe tous les moteurs.
+## 3. Décisions
+- Règle (31/10) : seule la détection diffère pour un scan ; ensuite même chemin que le PDF natif (`translate_pdf_progressive`), mêmes règles, même résultat. Pas de règle de rendu propre aux scans ; test de référence = traduction du scan comparée à celle du natif (étude §7.1).
+- Options recommandées retenues par l'utilisateur (notées en fin des deux études) : poids Docker +150-200 Mo accepté, LaMa non ; japonais d'abord pour l'extension ; 1 crédit/image remplacée, texte navigateur gratuit ; Edge + Chrome ; essai manuel avant stores.
+- Code du banc réutilisable (fourni par l'utilisateur) : `methodes.py`, `selection.py`, `effaceur.py` → paquet `backend/app/services/ocr_v2/` (detect/mask/erase/render) ; scikit-image et pandas hors production (SSIM numpy en test) ; police DejaVu → Noto Sans.
+- Deps à ajouter : `opencv-contrib-python-headless`, `scipy`, `onnxruntime`. Licence des poids PP-OCRv6 à vérifier avant intégration.
+- Qualité avant vitesse (utilisateur, 01/11) : le fantôme prend tout le temps disponible ; délai de 90 s gardé car l'OCR tourne dans la requête d'envoi (`api/translate.py:312`), le dépasser couperait la requête.
+- Banc extrait (non fiable, lire avec `python -I`) : scratchpad de la session précédente `.../51a2be47-.../scratchpad/banc_zip/banc_inpainting/` ; sinon ré-extraire le zip dans un dossier vide.
 
-## 4. Reste à faire
-1. FAIT (1.0.11) : liste blanche `backend/fonts/google_familles.txt` (1950 familles, seules interrogées) ; rendu fait réseau dégradé non conservé (`render_cache.marque_polices()` → `store_render(..., marque)`) ; polices système désactivées par défaut (`PRECIS_FONT_SYSTEM=1` pour les activer). test_polices 23/23.
-2. FAIT (1.0.12) : `fsType=2` exclu de l'index ; « Arial Black », « Helvetica-Narrow » et autres chasses gardés dans la famille ; `absences.json` purgé et borné à 5000, plafond de 60 téléchargements par heure (refus noté comme dégradation) ; `PRECIS_FONTS_CACHE` posé par `app/config.py`.
-3. FAIT (1.0.12) : `categorie()` (catalogue Google `Famille	Catégorie`, puis marques du nom) sert aux fiches locales (panose souvent muet) et à la cible ; un changement de catégorie coûte 5.0 dans « proche ». test_polices 28/28, générique 100/100.
-4. Pousser la branche / PR vers main.
+## 4. Plan
+1. [x] Créer `feat/ocr-v2` depuis `main`.
+2. [x] Étude `docs/etude-ocr-v2.md`, révisée avec l'analyse et le banc fournis (`banc_inpainting.zip` dans Téléchargements) : masque couleur, sélecteur « masque fantôme », détection = goulot (PP-OCRv6), LaMa hors v1.
+3. [x] Étude `docs/etude-extension-navigateur.md` (MV3, cadres, SVG, accord images, option hybride navigateur/Précis, 2 routes backend, jetons, stores).
+4. [x] Décisions prises (31/10, options recommandées, notées en fin d'études) : poids Docker accepté sans LaMa ; japonais d'abord pour l'extension ; 1 crédit/image remplacée, texte navigateur gratuit ; Edge + Chrome ; essai manuel avant stores. Sauvegarde de la page du cours toujours attendue.
+5. [ ] ← OCR v2 (phasage étude §11) :
+   - 5.0 [x] prototype rendu stylé des scans (étude §7.1) ; [x] trait coloré traversant effacé ; [x] vrai traducteur : gras interne conservé ; [x] largeur mesurée (Tc + approches + espace final + famille la plus proche) : 36/36 lignes identiques au natif si Inter est candidate, 30/36 avec les polices du dépôt. Prototype : scratchpad de la session 217549bb… `orig\couche_texte.py` (variable `FONTS` = dossier des candidates, `polices\` y contient Inter) ; scripts `lignes_diff.py`, `largeurs.py`, `gras\vrai_traducteur.py` (à lancer depuis `backend/`) ;
+   - 5.1 [x] fait 31/10 : `tests/banc_effacement.py` OK (perte 0,86 dB, chiffres dans l'étude §8), `cas_banc` ajouté au test rapide ; faiblesses notées (brique, schémas, cercle 34 %). Ancienne consigne : banc `backend/tests/banc_effacement.py` (port de `cas.py` : textures brique/herbe/photo générées, polices Montserrat `backend/fonts/`, SSIM numpy) + compléter `test_ocr_v2_effacement.py` (3 cas déjà en place ; vérifier que `_ajuster` ne coûte pas de dB sur les 108 zones) (script `import racine` + `main()`, référence v1 = aplat du rectangle, seuils §8 : perte fantôme ≤ 1,5 dB sur 108 zones, uni/dégradé ≥ 40 dB, flèche droite 100 % conservée ; recalibrer si besoin) ;
+   - 5.2 [x] fait 31/10 : `ocr_v2/detect.py` (`Recognizer`, `Mot`, `Tesseract`, `LectureEchouee`), `ocr.py` l'utilise (messages v1 inchangés). Vérifié en Docker léger (`python:3.12-slim` + tesseract apt, `--cpus=2 --memory=2g`, paquets `app` vides pour éviter FastAPI) : ancien (HEAD) contre nouveau identiques (texte + pixels) sur scan droit, couché, fond blanc, page vide, sans tesseract. Script : `%TEMP%\claude\c--Users-IBRAH-Documents-Projets-Precis-Translator\0c3ed8c0-1686-4139-8530-b771278bfa32\scratchpad\compare_ocr.py` (+ `ocr_ref.py`) ;
+   - 5.3 [x] masque + fantôme branchés dans `ocr.py` pour les PDF scannés (voir Fait) ;
+   - 5.4 [x] PP-OCRv6 ONNX (voir Fait) ;
+   - 5.5 [ ] ← rendu de l'image traduite + point d'entrée pour l'extension ; port de `couche_texte` dans `ocr_v2/render.py` avec **identification de la police par la forme** (rendre chaque candidate sur des mots du scan, garder la plus ressemblante ; candidates via `engines/pdf/polices.py`, étude §7.1 « Reste à faire »).
+   Puis relire le diff, /code-review (> 150 lignes), commit local sans push.
+6. [ ] Extension (demande 31/10 : traduire **tous les types de contenu**, en priorité les images qui gardent leur langue, règle : image dont le texte est détecté avec assez de confiance → traduite) : compléter l'étude d'extension (§3) pour vidéos, PDF intégrés, canvas, leçons G48xxx ; essai sur TEAM-GP ; puis prototype.
+
+**Hors plan** :
+- `frontend/tsconfig.tsbuildinfo` non suivi (à ignorer).
+- Échec CI `sync-github-app-user` : à régler côté propriétaire, hors code.
+- `feat/page-beta-candidature` : push et PR sur accord, à rebaser après fusion de #53.
 
 ## 5. Pièges / contexte
-- Comparatif identité (sans API) : scripts dans le scratchpad de session (`run_corpus.py`, `comparer.py`) ; résultat 1.0.10 = 1.0.9 avec polices livrées ; sans elles, Inter/Oswald/PT Serif retéléchargées.
-- Python lisant des PDF téléchargés : `venv/Scripts/python.exe -I`.
-- Windows verrouille les fichiers ouverts : lire les polices en bytes.
-- Tout changement de rendu : bump `backend/engines/pdf/version.py`.
-- Tests : `cd backend && PYTHONIOENCODING=utf-8 venv/Scripts/python.exe tests/<fichier>`.
+- `backend/.env` est en LIVE pour Fapshi : ne jamais valider d'invite réelle. Ne pas afficher les `.env` (`grep -c` seulement). Jamais de clé dans un fichier suivi.
+- Lancer :
+  - `npm run stop` ;
+  - puis, en arrière-plan à la racine, `PYTHONUTF8=1 <venv>/python.exe scripts/dev.py`.
+- venv : `C:\Users\IBRAH\Documents\Projets\Precis_Translator_backup_2026-06-10_13-10\backend\venv\Scripts\python.exe`.
+- Tests backend : unittest (pas de pytest), sur Postgres 5433, jamais la base dev 5432. Aucune base 5433 permanente : lancer Docker Desktop, puis `docker run -d --rm --name precis-test-pg -p 5433:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=precis postgres:16-alpine`, puis `python -m alembic upgrade head` (dans `backend/`, avec `DATABASE_URL`) avant les suites.
+- Lancer un test OCR v2 : `cd backend && PYTHONUTF8=1 <venv>/python.exe tests/test_ocr_v2_effacement.py`.
+- Tesseract est absent en local : tester l'OCR dans un conteneur léger, pas l'image backend (LibreOffice lourd ; l'utilisateur demande de ménager la machine) — voir la commande de 5.2 ; pip peut couper en SSL : `--retries 10 --timeout 60`.
+- Front : `cd frontend && npx tsc --noEmit -p . ; npm run lint --silent ; npm run build --silent | tail -n 8`.
+- Remote `origin` = EagleFox31. Locales en UTF-8 sans réencodage.

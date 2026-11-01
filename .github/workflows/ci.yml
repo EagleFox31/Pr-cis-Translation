@@ -173,6 +173,11 @@ jobs:
         # alembic. `migrations/env.py` lit `DATABASE_URL` dans l'environnement.
         run: alembic upgrade head
 
+      # Sans les poids, `test_ocr_v2_detection.py` saute la lecture PP-OCRv6.
+      - name: Poids PP-OCRv6
+        working-directory: backend
+        run: python scripts/telecharger_ppocr.py
+
       - name: Les 21 suites
         working-directory: backend
         run: |

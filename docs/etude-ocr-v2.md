@@ -115,7 +115,7 @@ chargés, des schémas et des flèches.
 | Moteur | Langues | Licence | Poids | Pour | Contre |
 |---|---|---|---|---|---|
 | **Tesseract** (actuel) | fra, eng ; `jpn` disponible | Apache-2.0 | paquets système, déjà là | Déjà intégré ; 100 % sur fond propre | 0 % sur fond chargé et texte sur trait (mesuré) ; japonais médiocre |
-| **PP-OCRv6** (PaddleOCR 3.7, juin 2026) via ONNX Runtime | un modèle : chinois, anglais, **japonais**, 46 langues latines (dont français) | Apache-2.0 (code) ; licence des poids **à vérifier** | `onnxruntime` + modèle *small* (7,7 M paramètres) | Détecteur neuronal (type DBNet) conçu pour le texte de scène ; un seul modèle fr/en/ja ; ONNX publié | Chiffres de l'éditeur seul ; à mesurer sur le banc |
+| **PP-OCRv6** (PaddleOCR 3.7, juin 2026) via ONNX Runtime | un modèle : chinois, anglais, **japonais**, 46 langues latines (dont français) | Apache-2.0 (code et poids : fiches officielles PaddlePaddle, vérifié le 01/11/2026) | `onnxruntime` + modèle *small* (7,7 M paramètres) | Détecteur neuronal (type DBNet) conçu pour le texte de scène ; un seul modèle fr/en/ja ; ONNX publié | Chiffres de l'éditeur seul ; à mesurer sur le banc |
 | RapidOCR 3.x (enveloppe ONNX de PaddleOCR) | selon modèle | Apache-2.0 | léger | Intégration prête | Couche de plus ; ONNX Runtime suffit |
 | PaddleOCR complet (framework Paddle) | idem | Apache-2.0 | plusieurs centaines de Mo | Officiel | Trop lourd pour l'image Docker |
 | manga-image-translator | ja → autres | **GPL-3.0** | lourd | Pipeline de référence | Incompatible avec un service fermé : **à lire, pas à reprendre** |
@@ -129,6 +129,27 @@ chargés, des schémas et des flèches.
 
 Le moteur doit rendre des **lignes** (polygone, texte, confiance) : le japonais
 n'a pas d'espaces.
+
+**Mesuré (étape 4, 01/11/2026)** : `app/services/ocr_v2/ppocr.py`, détecteur et
+reconnaissance *small* en ONNX (det 9,9 Mo, rec 21 Mo), un seul fil.
+`backend/tests/banc_detection.py`, 12 fonds × 4 positions, mots de confiance
+≥ 40 :
+
+| Fond | PP-OCRv6 | Tesseract |
+|---|---|---|
+| Propres (uni, sombre, scan, tableau) | 100 % | 100 % |
+| Brique | 83 % (1 mot inventé) | 0 % |
+| Herbe, photo | 100 % | 0 % |
+| Dégradé radial, quadrillage | 100 % | 67-75 % |
+| Schéma à cadre | 100 % | 0 % (cercle) |
+| Schéma fléché | 75 % (« Signalinput » : le trait vertical efface l'espace) | 0 % |
+| **Total** | **198/204 mots (97 %)**, fond chargé 94 % | |
+| Japonais, 5 lignes sur 5 fonds (Yu Gothic) | 0 % d'erreur par caractère | non installé |
+
+Temps : 0,14 à 0,28 s par image (480 × 300). Les mots sont découpés aux espaces
+d'après la position des caractères dans la sortie du modèle ; une ligne
+japonaise reste un seul mot. Tesseract reste le moteur des PDF scannés
+(`ocr.py` inchangé) ; PP-OCRv6 sert aux images (extension, étape 5).
 
 ---
 
@@ -246,6 +267,72 @@ que la couleur. Pour les images, on dessine nous-mêmes (base : `effaceur.py`) :
 - **Original conservé** : l'utilisateur peut toujours revenir à l'image
   d'origine (cas mesurés où aucune méthode n'atteint 25 dB : herbe, photo).
 
+### 7.1 PDF scannés : garder le style d'origine (essai du 31/10)
+
+**Règle (décision du 31/10)** : seule la détection du texte diffère entre un
+scan et un document natif. Une fois le texte lu, le scan doit suivre
+exactement le même chemin que le PDF natif (mêmes règles de découpage, de
+traduction, de mise en page) et donner le même résultat. Aucune règle propre
+aux scans dans le rendu. Le test de référence compare donc la traduction du
+scan à celle du PDF natif, paragraphe par paragraphe et style par style.
+
+Problème constaté sur un certificat scanné : la traduction perdait le gras
+des valeurs (n° d'identifiant, date, e-mail), les tailles et l'italique des
+mentions légales. Approche retenue : le scan devient un **PDF intermédiaire**
+(fond effacé + texte invisible stylé), puis le **moteur PDF existant**
+traduit ce PDF comme un PDF natif. Le style est mesuré sur les pixels :
+
+- **Gras, mot par mot** : quantité d'encre par longueur de trait. Cette mesure
+  ne dépend ni du flou ni de l'éclairage, contrairement à l'épaisseur seule
+  (qui donnait de faux gras sur les « : »). Gras si > 1,3 × la référence de
+  la taille ; une ponctuation isolée suit le mot voisin.
+- **Taille** : hauteur des lettres à hampe (b, d, h, l…) mesurée mot par mot,
+  moyennée par paragraphe, puis ramenée aux tailles fréquentes de la page
+  (un pixel d'erreur vaut ~0,5 pt à 200 dpi, la moyenne l'efface).
+- **Italique** : pente des traits, décidée par ligne.
+- **Couleur** : médiane de l'encre ; un gris de scan redevient noir.
+- **Police** : la famille dont la chasse colle le mieux aux largeurs
+  mesurées (polices Unicode embarquées, qui conservent « ’ »). Le moteur
+  réécrit la traduction dans cette police : une police plus étroite que
+  l'originale fait tenir plus de mots par ligne. Exemple : « Without » fait
+  29,3 pt en Inter (l'originale) et 26,8 pt en Roboto ; la traduction des
+  mentions légales se coupait alors un mot plus loin que celle du natif.
+- **Largeur** : chaque segment occupe exactement la largeur mesurée sur le
+  scan, grâce à l'espacement des caractères (opérateur `Tc`), qui ne change
+  pas la taille lue par le moteur (un étirement `Tz` la faisait passer de
+  10 à 10,95 pt). Les bords se calent sur la chasse des lettres, pas sur
+  l'encre : on ajoute les approches latérales du premier et du dernier
+  glyphe. Chaque ligne se termine par une espace, comme dans un PDF de
+  traitement de texte, car le moteur compte cette espace dans la largeur
+  du paragraphe (3 pt de moins suffisaient à renvoyer un mot à la ligne).
+- **Gras des mots courts** : l'amincissement raccourcit chaque bout de trait ;
+  sans correction (0,2 épaisseur par extrémité), « Il » ou « a » passaient
+  pour gras.
+
+Résultat sur le scan simulé (200 dpi, 0,6° d'inclinaison, JPEG 80) : gras
+juste sur 262 mots sur 262, tailles 6/8/10/16 pt toutes exactes, italique sur
+les 8 bonnes lignes. Le moteur traduit autant de paragraphes depuis le scan
+que depuis le PDF natif. Bord droit du dernier mot de chaque ligne : écart
+médian 9,1 → 0,46 pt. Quand Inter fait partie des candidates, les 36 lignes
+traduites du scan sont **identiques** à celles du natif. Avec les seules
+polices du dépôt (Roboto, Open Sans, Montserrat, Merriweather, PT Serif), 30
+sur 36, et la plus proche en largeur est Merriweather, une police à
+empattements : choisir sur la seule largeur ne suffit pas.
+
+Avec le vrai traducteur (document fictif, rien de personnel envoyé), le gras
+interne survit, y compris en milieu de phrase (« five hundred euros ») ;
+scan et natif ne diffèrent que par le choix des mots d'un appel à l'autre.
+
+**Reste à faire (5.5)** : identifier la police d'un scan par la forme, pas
+seulement la largeur. On rend chaque candidate sur quelques mots du scan et
+on garde celle dont l'image ressemble le plus (cela tranche empattements ou
+non, et la chasse). Les candidates sont les polices courantes des documents
+de bureau et leurs clones libres (Inter, Arimo pour Arial, Carlito pour
+Calibri, Tinos pour Times, Roboto, Open Sans, Lato, Noto Sans), obtenues par
+le résolveur existant `engines/pdf/polices.py` (cache Google Fonts). Limite
+connue : la taille déduite de la hauteur des hampes dépend de la police
+(Helvetica 11 pt lue 10 pt sur le document fictif, exacte en Inter).
+
 ---
 
 ## 8. Le banc d'essai : prouver sans documents réels
@@ -274,12 +361,39 @@ Seuils de non-régression (tirés des mesures du banc) :
 | Fond uni et dégradé | ≥ 40 dB |
 | Flèche droite sous le texte | 100 % du trait conservé |
 | Détection sur fond propre (uni, sombre, scan, tableau) | 100 % des mots |
-| Détection sur fond chargé avec PP-OCRv6 | à mesurer ; objectif > Tesseract (0 %) |
-| Japonais : erreur par caractère | à mesurer, objectif ≤ 10 % |
+| Détection sur fond chargé avec PP-OCRv6 | objectif > Tesseract (0 %) ; **mesuré 94 %** (§4) |
+| Japonais : erreur par caractère | objectif ≤ 10 % ; **mesuré 0 %** sur 5 lignes synthétiques |
 
 Limite assumée par l'analyse : ce sont des images synthétiques. Les seuils de la
 règle corrigée sont à recalibrer sur de vraies images (le masque fantôme n'a
 pas de seuil). Un premier jeu réel : les captures du cours cible.
+
+**Mesuré (31/10, `backend/tests/banc_effacement.py`, textures générées, police
+Montserrat)** : 108 zones, perte moyenne 0,86 dB face au meilleur choix
+possible, 0,8 s/zone ; uni 45,1 dB, sombre 45,2, dégradés 44,6-44,9 ; flèche
+droite et tableau 100 % des traits gardés. Les moindres carrés en deux passes
+ne coûtent rien (0,90 dB sans eux). Points faibles, sous les seuils mais à
+suivre : brique 17,5 dB (le meilleur choix ne fait que 18,0 : limite des
+méthodes sans IA), schémas 2 à 4 dB sous le meilleur choix (`structurel`
+choisi d'office par la règle), cercle de `schema_boite` gardé à 34 %.
+
+**Branché dans `ocr.py` (01/11)** : masque corrigé (une lettre qui touche le
+bord de sa boîte, ou un fût de lettre long, n'est plus pris pour un trait).
+Le banc passe à 0,93 dB, flèche droite 99 %. Mesures sur une page A4 simulée
+(88 mots, conteneur 2 CPU), comparées à la v1 (aplat de rectangle) :
+
+| Fond | v1 | v2 |
+|---|---|---|
+| Uni | 138 dB, 7 s | 138 dB, 26 s |
+| Dégradé | 53,8 dB | 56,2 dB |
+| Texte reconnu | identique | identique |
+
+Le fantôme (la méthode la plus sûre, mais la plus lente) prend tout le temps
+disponible de la page. Chaque page reçoit une part du délai de 90 s, après
+déduction de la lecture des pages suivantes. Passé ce temps, les zones
+restantes passent par la règle, puis sont remplies sans analyse. Résultat :
+3 pages en 78 s en qualité maximale, 10 pages en 85 s (v1 : 65 s) avec une
+qualité dégradée sur les dernières zones, sans échec.
 
 ---
 
@@ -291,18 +405,18 @@ pas de seuil). Un premier jeu réel : les captures du cours cible.
 | Sécurité | Image reçue = fichier non fiable : contrôle du type réel, plafond de taille et de pixels avant décodage (`Image.MAX_IMAGE_PIXELS`), aucun téléchargement d'URL côté serveur |
 | Performance | Fantôme ~0,6 s par zone sur 2 cœurs : budget par image + bascule en règle (§6). ONNX Runtime et OpenCV limités à 1 fil comme Tesseract ; le sémaphore unique reste |
 | Dépendances Python | + `opencv-contrib-python-headless` (FSR, Telea, Hough), + `scipy` (harmonique), + `onnxruntime` (PP-OCRv6). Pas de scikit-image ni pandas en production |
-| Déploiement | Image Docker : + ces paquets, + modèle PP-OCRv6 small, + Noto Sans CJK. Ordre de grandeur **+150 à 200 Mo** (sans LaMa). À mesurer sur la machine de staging |
+| Déploiement | Image Docker : + ces paquets, + modèle PP-OCRv6 small (31 Mo, téléchargé au build, SHA-256 contrôlé), + Noto Sans CJK. Ordre de grandeur **+150 à 200 Mo** (sans LaMa). À mesurer sur la machine de staging |
 | Coûts | CPU seulement, pas d'appel IA de plus pour l'OCR ; la traduction du texte lu reste facturée comme aujourd'hui |
 | i18n | Messages d'erreur existants réutilisés ; nouveaux messages fr/en pour les images |
-| Licences | OpenCV Apache-2.0 depuis 4.5.0 ; Tesseract, PaddleOCR, ONNX Runtime Apache-2.0 ; Noto OFL. À vérifier : licence des poids PP-OCRv6 ; LaMa (Apache-2.0 pour le dépôt, fichier ONNX du Zoo non explicite) seulement s'il est retenu |
+| Licences | OpenCV Apache-2.0 depuis 4.5.0 ; Tesseract, PaddleOCR, ONNX Runtime Apache-2.0 ; Noto OFL ; poids PP-OCRv6 Apache-2.0 (vérifié). À vérifier : LaMa (Apache-2.0 pour le dépôt, fichier ONNX du Zoo non explicite) seulement s'il est retenu |
 
 ---
 
 ## 10. Risques
 
 1. **Détection sur fond chargé** : c'est le risque n°1, mesuré (Tesseract à
-   0 %). Si PP-OCRv6 ne fait pas nettement mieux sur le banc, les images de
-   diapositives resteront partiellement traduites. Parade : règle
+   0 %). PP-OCRv6 lit 94 % des mots sur fond chargé du banc ; reste à confirmer
+   sur de vraies captures. Un trait qui traverse peut coller deux mots. Parade : règle
    d'honnêteté — ce qui n'est pas lu avec certitude n'est pas touché.
 2. **Temps de calcul** du fantôme sur les images denses. Parade : budget +
    bascule en règle (0,5 dB de moins en moyenne).
