@@ -511,6 +511,7 @@ class XLSXTranslatorEngine(TranslationEngine):
         # APRÈS les chaînes, et jamais avant : les alignements RECOPIENT
         # les cellules telles qu'elles viennent d'être traduites.
         self._aligner_tableaux(dossier)
+        self._aligner_graphiques(dossier)
         self._aligner_croises(dossier, traductions)
         # En DERNIER : la place se mesure sur le texte final.
         expansion.ajuster_dossier(dossier, self._origine)
@@ -1069,6 +1070,83 @@ class XLSXTranslatorEngine(TranslationEngine):
                                / rels.name[:-len(".rels")])
                     return feuille if feuille.exists() else None
         return None
+
+    _REF_GRAPHIQUE = re.compile(
+        r"^(?:'((?:[^']|'')+)'|([^'!]+))!\$?([A-Za-z]{1,3})\$?(\d+)"
+        r"(?::\$?([A-Za-z]{1,3})\$?(\d+))?$")
+
+    @staticmethod
+    def _lettres(colonne: int) -> str:
+        """1 → « B ». L'inverse de `_colonne_de_ref` (index 0-basé)."""
+        out = ""
+        colonne += 1
+        while colonne:
+            colonne, reste = divmod(colonne - 1, 26)
+            out = chr(65 + reste) + out
+        return out
+
+    def _aligner_graphiques(self, dossier: Path) -> None:
+        """Recopie dans les caches des graphiques le texte TRADUIT des cellules.
+
+        Un nom de série ou une catégorie (`<c:strRef>`) cite une plage de la
+        feuille et en garde une copie (`<c:strCache>`). On ne traduit pas
+        cette copie (cf. `_textes_de_graphique`), mais la laisser en langue
+        source est faux aussi : l'aperçu d'un classeur incorporé, LibreOffice
+        et Excel avant tout rafraîchissement dessinent depuis ce cache. On y
+        recopie donc la cellule telle qu'elle vient d'être traduite : même
+        texte que la feuille, sans second appel au modèle.
+
+        Seules les plages simples (`Feuil1!$A$2:$A$5`) sont lues ; une
+        référence multi-zones est laissée telle quelle.
+        """
+        dossier_charts = dossier / "xl" / "charts"
+        if not dossier_charts.is_dir():
+            return
+        feuilles = {f["nom"]: dossier / f["cible"] for f in self.feuilles()}
+        magasin = self._magasin_courant(dossier)
+        lues: dict[Path, dict] = {}
+
+        def cellule(chemin: Path, ref: str):
+            if chemin not in lues:
+                lues[chemin] = ({c.get("r"): c for c in etree.parse(
+                    str(chemin)).getroot().xpath(".//s:c[@r]", namespaces=NS)}
+                    if chemin.exists() else {})
+            return lues[chemin].get(ref)
+
+        for chart in sorted(dossier_charts.glob("chart*.xml")):
+            arbre = etree.parse(str(chart))
+            touche = False
+            for sref in arbre.getroot().xpath(".//c:strRef", namespaces=NS):
+                f = sref.find("c:f", NS)
+                cache = sref.find("c:strCache", NS)
+                m = (self._REF_GRAPHIQUE.match(f.text.strip())
+                     if f is not None and f.text else None)
+                if m is None or cache is None:
+                    continue
+                chemin = feuilles.get(m.group(1).replace("''", "'")
+                                      if m.group(1) else m.group(2))
+                if chemin is None:
+                    continue
+                c1, l1 = self._colonne_de_ref(m.group(3)), int(m.group(4))
+                c2, l2 = ((self._colonne_de_ref(m.group(5)), int(m.group(6)))
+                          if m.group(5) else (c1, l1))
+                refs = [f"{self._lettres(c)}{ligne}"
+                        for ligne in range(l1, l2 + 1)
+                        for c in range(c1, c2 + 1)]
+                for pt in cache.xpath("c:pt", namespaces=NS):
+                    v = pt.find("c:v", NS)
+                    idx = pt.get("idx") or ""
+                    if v is None or not idx.isdigit() or int(idx) >= len(refs):
+                        continue
+                    cel = cellule(chemin, refs[int(idx)])
+                    texte = (self._texte_de_cellule(cel, magasin)
+                             if cel is not None else None)
+                    if texte is not None and texte != v.text:
+                        v.text = texte
+                        touche = True
+            if touche:
+                arbre.write(str(chart), xml_declaration=True,
+                            encoding="UTF-8", standalone=True)
 
     def _aligner_tableaux(self, dossier: Path) -> None:
         """`xl/tables/table*.xml` — aligne les en-têtes sur les cellules.
@@ -1658,6 +1736,7 @@ class XLSXTranslatorEngine(TranslationEngine):
             # APRÈS les chaînes, et jamais avant : les alignements RECOPIENT
             # les cellules telles qu'elles viennent d'être traduites.
             self._aligner_tableaux(dossier)
+            self._aligner_graphiques(dossier)
             self._aligner_croises(dossier, traductions)
             # En DERNIER : la place se mesure sur le texte final.
             expansion.ajuster_dossier(dossier, self._origine)
@@ -1755,6 +1834,24 @@ class XLSXTranslatorEngine(TranslationEngine):
             if touche:
                 arbre_f.write(str(chemin), xml_declaration=True,
                               encoding="UTF-8", standalone=True)
+
+        # 3. Les plages citées par les graphiques (`<c:f>` des séries) :
+        #    sans elles, une série pointe vers un onglet qui n'existe plus.
+        dossier_charts = dossier / "xl" / "charts"
+        if dossier_charts.is_dir():
+            for chart in sorted(dossier_charts.glob("chart*.xml")):
+                arbre_c = etree.parse(str(chart))
+                touche = False
+                for noeud in arbre_c.getroot().xpath(".//c:f", namespaces=NS):
+                    if not noeud.text:
+                        continue
+                    reecrit = reecrire_references(noeud.text, renommage)
+                    if reecrit != noeud.text:
+                        noeud.text = reecrit
+                        touche = True
+                if touche:
+                    arbre_c.write(str(chart), xml_declaration=True,
+                                  encoding="UTF-8", standalone=True)
 
     def _injecter_chaines_partagees(self, dossier: Path, traductions: dict) -> None:
         chemin = dossier / "xl" / "sharedStrings.xml"

@@ -374,28 +374,37 @@ class PPTXTranslatorEngine:
         self._cleanup_temp()
         return extraction, element_types_used
 
+    # Classeur incorporé : relevé et réinjecté par le moteur XLSX complet
+    # (cellules partagées, en ligne et `t="str"`, graphiques, dessins, onglets),
+    # et non plus par sa seule table sharedStrings. Les ids du moteur XLSX sont
+    # préfixés par la diapositive et le nom du classeur.
+    @staticmethod
+    def _prefixe_excel(slide_num: int, emb_path: Path) -> str:
+        return f"slide{slide_num}_excel_{emb_path.stem}__"
+
+    @staticmethod
+    def _relever_classeur(emb_path: Path, dossier: Path) -> dict:
+        from engines import new_engine
+        extraction, _ = new_engine("xlsx").extract_text(str(emb_path), str(dossier / "ex.json"))
+        return extraction or {}
+
     def _process_excel_file(self, emb_path: Path, slide_num: int, excel_store: list, element_types_used: dict):
-        """Extrait les chaînes de texte partagées (xl/sharedStrings.xml) d'un fichier Excel incorporé."""
+        """Relève le texte d'un classeur incorporé avec le moteur XLSX."""
+        dossier = Path(tempfile.mkdtemp(prefix="pptx_xlsx_"))
         try:
-            with open(emb_path, "rb") as f:
-                excel_bytes = f.read()
-            with zipfile.ZipFile(io.BytesIO(excel_bytes), "r") as xzf:
-                if "xl/sharedStrings.xml" in xzf.namelist():
-                    ss_xml = xzf.read("xl/sharedStrings.xml")
-                    tree = etree.fromstring(ss_xml)
-                    t_nodes = tree.xpath(".//s:t", namespaces=NAMESPACES)
-                    for t_idx, t_node in enumerate(t_nodes):
-                        val = t_node.text or ""
-                        if val.strip() and not _is_numeric(val):
-                            elem_id = f"slide{slide_num}_excel_{emb_path.stem}_ss{t_idx}"
-                            excel_store.append({
-                                "id": elem_id,
-                                "text": f"[[0]]{val}[[/0]]",
-                                "context": {"shape_type": "Excel Cell", "paragraph_index": t_idx}
-                            })
-                            element_types_used[slide_num].add("Excel Cell")
+            extraction = self._relever_classeur(emb_path, dossier)
         except Exception:
-            pass
+            return
+        finally:
+            shutil.rmtree(dossier, ignore_errors=True)
+        prefixe = self._prefixe_excel(slide_num, emb_path)
+        for el in extraction.get("workbook", {}).get("elements", []):
+            if not (el.get("text") or "").strip():
+                continue
+            excel_store.append({"id": prefixe + el["id"], "text": el["text"],
+                                "context": {**(el.get("context") or {}),
+                                            "shape_type": "Excel Cell"}})
+            element_types_used[slide_num].add("Excel Cell")
 
     def _process_xml_element(self, root, slide_num, data_store, element_types_used, id_prefix, filters):
         paragraphs = root.xpath(".//a:p", namespaces=NAMESPACES)
@@ -592,40 +601,34 @@ class PPTXTranslatorEngine:
             return False, f"Erreur lors de la réinjection : {str(e)}"
 
     def _inject_excel_file(self, emb_path: Path, slide_num: int, translation_map: dict) -> bool:
-        """Réinjecte la traduction dans le fichier Excel incorporé (xl/sharedStrings.xml) en mémoire."""
+        """Réinjecte la traduction dans le classeur incorporé (moteur XLSX).
+        Faux si rien ne change : l'aperçu n'a alors pas à être régénéré."""
         if not emb_path.exists():
             return False
+        from engines import new_engine
+        prefixe = self._prefixe_excel(slide_num, emb_path)
+        dossier = Path(tempfile.mkdtemp(prefix="pptx_xlsx_"))
         try:
-            with open(emb_path, "rb") as f:
-                excel_bytes = f.read()
-            
-            in_mem = io.BytesIO(excel_bytes)
-            out_mem = io.BytesIO()
-            ns = {'s': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
-            modified = False
-
-            with zipfile.ZipFile(in_mem, "r") as xin, zipfile.ZipFile(out_mem, "w", zipfile.ZIP_DEFLATED) as xout:
-                for item in xin.infolist():
-                    content = xin.read(item.filename)
-                    if item.filename == "xl/sharedStrings.xml":
-                        tree = etree.fromstring(content)
-                        t_nodes = tree.xpath(".//s:t", namespaces=ns)
-                        for t_idx, t_node in enumerate(t_nodes):
-                            elem_id = f"slide{slide_num}_excel_{emb_path.stem}_ss{t_idx}"
-                            if elem_id in translation_map:
-                                tr_text = translation_map[elem_id]
-                                clean_text = re.sub(r"\[\[\d+\]\](.*?)\[\[/\d+\]\]", r"\1", tr_text)
-                                t_node.text = clean_text
-                                modified = True
-                        content = etree.tostring(tree, encoding="utf-8", xml_declaration=True)
-                    xout.writestr(item, content)
-
-            if modified:
-                with open(emb_path, "wb") as f:
-                    f.write(out_mem.getvalue())
-            return modified
+            extraction = self._relever_classeur(emb_path, dossier)
+            touche = False
+            for el in extraction["workbook"]["elements"]:
+                traduit = translation_map.get(prefixe + el["id"])
+                el["translated_text"] = el["text"] if traduit is None else traduit
+                touche = touche or (traduit is not None and traduit != el["text"])
+            if not touche:
+                return False
+            tr = dossier / "tr.json"
+            tr.write_text(json.dumps(extraction, ensure_ascii=False), encoding="utf-8")
+            sortie = dossier / ("out" + emb_path.suffix)
+            ok, _ = new_engine("xlsx").inject_translation(str(emb_path), str(tr), str(sortie))
+            if not ok or not sortie.exists():
+                return False
+            shutil.copyfile(sortie, emb_path)
+            return True
         except Exception:
             return False
+        finally:
+            shutil.rmtree(dossier, ignore_errors=True)
 
     def _inject_in_xml(self, xml_path, slide_num, id_prefix, translation_map,
                        num_alt=()):

@@ -225,6 +225,32 @@ def contexte_page(textes, titres=(), autour=None):
     return "\n".join(x for x in lignes[d:f] if x)[:_CONTEXTE_MAX]
 
 
+def harmoniser(blocs):
+    """Un même texte source reçoit une seule traduction dans tout le document.
+
+    Les lots partent en parallèle : un texte répété (pied de page, mise en page
+    dupliquée) peut revenir traduit différemment, voire traduit à rebours
+    (« OUR NEW GEOGRAPHIES » rendu en français alors que ses doublons sont
+    restés en anglais). La traduction majoritaire l'emporte ; à égalité, celle
+    qui laisse le texte tel quel (déjà dans la langue cible), puis la première.
+    """
+    groupes = {}
+    for b in blocs:
+        if b.get("translated_text") is not None and b.get("text", "").strip():
+            groupes.setdefault(b["text"], []).append(b)
+    for source, membres in groupes.items():
+        if len(membres) < 2:
+            continue
+        votes = {}
+        for b in membres:
+            votes[b["translated_text"]] = votes.get(b["translated_text"], 0) + 1
+        if len(votes) < 2:
+            continue
+        retenue = max(votes, key=lambda t: (votes[t], t == source))
+        for b in membres:
+            b["translated_text"] = retenue
+
+
 class TranslatorAI:
     def __init__(self):
         self.client = _client_deepseek()
@@ -880,6 +906,8 @@ class TranslatorAI:
 
         if failed_batch[0] is not None:
             return False, f"Échec lors de la traduction du lot {failed_batch[0]}."
+
+        harmoniser([b for lot in batches for b in lot])
 
         output_path = json_path.replace(".json", "_translated.json")
         with open(output_path, "w", encoding="utf-8") as f:
