@@ -259,7 +259,11 @@ def indicateurs(image, zone, mask):
     }
 
 
-def regle_corrigee(f, t_plan=2.0, t_quad=2.0, t_tex=300, t_calme=2.0):
+# Indicateur `texture` au-delà duquel le fond est chargé.
+T_TEX = 300
+
+
+def regle_corrigee(f, t_plan=2.0, t_quad=2.0, t_tex=T_TEX, t_calme=2.0):
     """Le résidu d'un modèle de fond (et non la variance brute) décide."""
     if f["traits"] > 0 and f["residu_hors_traits"] < t_calme:
         return "structurel"

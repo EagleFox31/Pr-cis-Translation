@@ -374,6 +374,73 @@ par `ocr.py` à la place de l'écriture en Helvetica :
 
 L'image traduite pour l'extension (§7) devient l'étape 5.5b.
 
+### 7.2 Image traduite pour l'extension (5.5b, 01/11)
+
+Exemple : une capture de leçon porte « 冷却水 » sur un schéma. L'extension
+envoie l'image ; le serveur renvoie la même image où « Eau de
+refroidissement » remplace le japonais, au même endroit, dans la couleur
+d'origine. Le reste de l'image n'est pas touché.
+
+Module `ocr_v2/image.py`, fonction `traduire_image(data, traduire, …)`. La
+traduction est **injectée** (`traduire(liste de textes) → liste`) : la route
+`POST /api/extension/image` (étape 6) y branchera le traducteur et le débit ;
+le module reste testable sans réseau ni crédit.
+
+| Option | Pour | Contre |
+|---|---|---|
+| Passer l'image par le PDF intermédiaire (§7.1) | un seul chemin | le moteur PDF met en page des paragraphes de document, pas des étiquettes de schéma ; renvoyer une image demanderait de rasteriser |
+| **Dessin direct sur l'image (§7)** | place exacte, aucune conversion, rapide | code de mise en place propre aux images |
+
+Choix : dessin direct. La règle « même chemin que le natif » du §7.1 vaut
+pour les PDF ; une image n'a pas d'équivalent natif.
+
+- **Contrôles avant décodage** (§9) : type réel lu dans l'en-tête (PNG, JPEG,
+  WebP, GIF non animé ; le JPEG « MPO » des smartphones compte comme JPEG),
+  ≤ 10 Mo, ≤ 25 Mpx ; refus avec un code
+  (`type`, `taille`, `pixels`, `animee`) que la route traduira en message.
+- **Lecture** : PP-OCRv6 (Tesseract n'a pas le japonais : pas de repli ;
+  sans les poids, `LectureEchouee`, la route répondra 503). **Honnêteté** : une ligne lue
+  avec une confiance < 70 n'est ni effacée ni traduite.
+- **Blocs** : les lignes voisines (même hauteur à 30 % près, écart vertical
+  entre −0,3 et 0,8 hauteur car les boîtes PP-OCR débordent, recouvrement
+  horizontal) forment un bloc traduit d'un seul
+  tenant ; mots joints sans espace pour le japonais et le chinois.
+- **Mise en place** : couleur = médiane des pixels du masque ; police Noto
+  Sans (repli Roboto du dépôt) à la hauteur des lignes d'origine ; boîte
+  élargie jusqu'à 1,35 fois (dans l'image), retour à la ligne (dans la
+  hauteur du bloc : une étiquette d'une ligne ne déborde pas sur ce qui est
+  dessous), puis
+  réduction jusqu'à un plancher (60 % de la taille d'origine, 9 px au
+  moins). Sous le plancher : le bloc **n'est pas effacé**, l'original reste
+  et sa traduction est renvoyée pour l'info-bulle.
+- **Contour** de la couleur opposée si un trait traverse ou si le fond est
+  chargé (indicateurs de `erase.py`).
+- **Sortie** : même format que l'entrée (JPEG qualité 92, sinon PNG), canal
+  alpha et profil couleur conservés ; si rien n'est remplacé, l'original
+  revient tel quel ; plus la liste des blocs (texte, traduction, boîte,
+  remplacé ou non). `remplacee` vaut vrai si au moins un bloc a été dessiné :
+  c'est ce qui déclenche le débit d'un crédit (décision du 31/10).
+- **Temps** : lecture puis effacement dans un délai global (30 s par défaut,
+  fantôme puis règle comme pour les scans).
+- **Preuve** : test sur images générées (lecteur simulé, puis PP-OCRv6 si les
+  poids sont là) : la traduction est relue au bon endroit, le texte d'origine
+  a disparu, un bloc trop long garde l'original, les contrôles refusent.
+
+**Revue de code (01/11)** — 10 écarts :
+
+| # | Écart | Statut |
+|---|---|---|
+| 1 | `_contour` : masque pleine page par bloc | corrigé (recadrage `zones_par_boite`) |
+| 2 | JPEG de smartphone (MPO) refusé | corrigé |
+| 3 | Lignes PP-OCR qui se chevauchent non réunies | corrigé (écart ≥ −0,3 h) |
+| 4 | Lecteur chargé deux fois, polices partagées entre fils | corrigé (verrou, police par fil) |
+| 5 | Profil couleur perdu, ré-encodage sans remplacement | corrigé |
+| 6 | Une étiquette d'une ligne ne passe jamais à la ligne | rejeté : déborderait sur le contenu dessous, non mesuré ; l'info-bulle couvre le cas |
+| 7 | Retours à la ligne du traducteur dessinés tels quels | corrigé (normalisés) |
+| 8 | Regroupement dupliqué de `render.paragraphes` | rejeté : celui-ci part de la taille et de la ligne de base mesurées, absentes ici |
+| 9 | Seuil de texture recopié | corrigé (`erase.T_TEX`) |
+| 10 | PNG temporaire sur disque avant lecture | corrigé (`PPOCR.lire_image`) |
+
 ---
 
 ## 8. Le banc d'essai : prouver sans documents réels

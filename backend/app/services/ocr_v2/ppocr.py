@@ -219,10 +219,14 @@ class PPOCR:
         return mots
 
     def lire(self, chemin, delai):
-        fin = time.monotonic() + delai
         image = cv2.imread(chemin, cv2.IMREAD_COLOR)
         if image is None:
             raise LectureEchouee(f"image illisible : {chemin}")
+        return self.lire_image(image, delai)
+
+    def lire_image(self, image, delai):
+        """Comme `lire`, sur une image BGR déjà décodée (sans passer par le disque)."""
+        fin = time.monotonic() + delai
         try:
             det, rec = self._charger()
             boites = self._detecter(det, image)
