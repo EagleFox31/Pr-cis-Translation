@@ -1,4 +1,5 @@
-"""Objets incorporés des documents Office : repérage (étape 6.11.1).
+"""Objets incorporés des documents Office : repérage (6.11.1), extraction et
+réécriture (6.11.2).
 
 Un objet incorporé (classeur Excel dans une diapo, lettre Word dans un
 classeur…) est un fichier rangé dans le paquet du document, affiché par une
@@ -6,10 +7,10 @@ IMAGE D'APERÇU que dessine Office. Traduire le document sans traduire l'objet
 ni refaire son aperçu laisse un tableau en langue d'origine au milieu d'une
 page traduite.
 
-Ce module, commun aux trois moteurs (DOCX, XLSX, PPTX), ne fait pour l'instant
-que REPÉRER : il lit le paquet et décrit chaque objet, sans rien modifier.
-Les étapes suivantes (extraction, traduction, redessin) s'appuient sur cette
-description. Voir `docs/etude-objets-incorpores.md`.
+Ce module, commun aux trois moteurs (DOCX, XLSX, PPTX), REPÈRE les objets
+(il lit le paquet et décrit chaque objet, sans rien modifier), puis sait
+EXTRAIRE le fichier traduisible et le RÉÉCRIRE dans son enveloppe d'origine.
+La traduction et le redessin (étapes suivantes) s'appuient sur ces briques. Voir `docs/etude-objets-incorpores.md`.
 
 Un objet se reconnaît toujours de la même façon, quel que soit le conteneur :
 son type de relation (`package` pour un fichier OOXML, `oleObject` pour un
@@ -29,13 +30,17 @@ XML illisible fait ignorer la partie, jamais échouer le repérage.
 """
 from __future__ import annotations
 
+import copy
 import io
 import posixpath
 import re
+import struct
+import uuid
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import olefile
 from lxml import etree
 
 NS = {
@@ -463,3 +468,368 @@ def rapport(objets: list[ObjetIncorpore]) -> dict:
     return {"total": len(objets), "a_traiter": len(a_traiter),
             "a_redessiner": sum(1 for o in a_traiter if not o.icone and o.apercu),
             "natures": natures, "non_traites": non_traites}
+
+
+# --------------------------------------------------------------------------- #
+# Extraction et réécriture (étape 6.11.2)
+# --------------------------------------------------------------------------- #
+#
+# Un objet incorporé est rangé de deux façons :
+#   - directement en OOXML (`embeddings/Microsoft_Excel_Worksheet.xlsx`) ;
+#   - dans une enveloppe OLE2 (`embeddings/oleObject1.bin`), qui contient soit
+#     un flux `Package` (le fichier OOXML tel quel), soit un flux
+#     `\x01Ole10Native` (le « paquet » d'un fichier glissé : en-tête, nom,
+#     octets du fichier), soit un vrai binaire 97-2003 (`Workbook`,
+#     `WordDocument`, `PowerPoint Document`).
+# On extrait le fichier traduisible et l'on sait le remettre à sa place, dans
+# la même enveloppe. Rien n'est exécuté : `olefile` ne lit que la structure.
+
+PROFONDEUR_MAX = 2                       # niveaux d'objets sous le document
+OCTETS_OBJET_MAX = 128 * 1024 * 1024     # décompressé, par objet (module images)
+OCTETS_DOCUMENT_MAX = 512 * 1024 * 1024  # cumulé par document (à mesurer, 6.11.7)
+TAUX_COMPRESSION_MAX = 100               # au-delà : bombe zip
+_SEUIL_TAUX = 1024 * 1024                # un petit fichier très compressible est normal
+
+_ANCIENS = (("workbook", "xls"), ("book", "xls"), ("worddocument", "doc"),
+            ("powerpoint document", "ppt"))
+
+
+@dataclass
+class Extrait:
+    """Fichier tiré d'un objet incorporé, prêt à être traduit."""
+    objet: ObjetIncorpore
+    type: str            # "xlsx" | "docx" | "pptx" | "xls" | "doc" | "ppt"
+    contenu: bytes       # le fichier lui-même (pour un 97-2003 : tout le .bin)
+    enveloppe: str       # "ooxml" | "package" | "ole10native" | "ancien"
+    niveau: int          # 1 = objet du document, 2 = objet d'un objet
+    nom: str | None = None    # nom de fichier d'origine (paquet Ole10Native)
+    origine: bytes = b""      # octets de la cible telle qu'incorporée
+    _ole10: tuple | None = None   # (en-tête, suite, packager ?) du flux natif
+
+
+class Budget:
+    """Plafond d'octets décompressés pour tous les objets d'un document."""
+
+    def __init__(self, plafond: int = OCTETS_DOCUMENT_MAX):
+        self.reste = plafond
+
+    def prendre(self, n: int) -> bool:
+        if n > self.reste:
+            return False
+        self.reste -= n
+        return True
+
+
+def _taux_suspect(decompresse: int, compresse: int) -> bool:
+    return decompresse > _SEUIL_TAUX and decompresse > TAUX_COMPRESSION_MAX * max(compresse, 1)
+
+
+def taille_zip_sure(octets: bytes) -> int | None:
+    """Taille décompressée d'un fichier OOXML, ou None s'il faut le refuser :
+    illisible, trop d'entrées, trop gros ou trop compressé (bombe zip)."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(octets)) as zf:
+            infos = zf.infolist()
+    except (zipfile.BadZipFile, OSError, ValueError):
+        return None
+    total = sum(i.file_size for i in infos)
+    if (len(infos) > ENTREES_MAX or total > OCTETS_OBJET_MAX
+            or _taux_suspect(total, sum(i.compress_size for i in infos))):
+        return None
+    return total
+
+
+def _type_ooxml(octets: bytes) -> str | None:
+    try:
+        with zipfile.ZipFile(io.BytesIO(octets)) as zf:
+            return _conteneur(set(zf.namelist()))
+    except (zipfile.BadZipFile, OSError, ValueError):
+        return None
+
+
+def _lire_cible(zf: zipfile.ZipFile, cible: str) -> bytes | None:
+    try:
+        info = zf.getinfo(cible)
+    except KeyError:
+        return None
+    if info.file_size > OCTETS_OBJET_MAX or _taux_suspect(info.file_size, info.compress_size):
+        return None
+    return zf.read(info)
+
+
+def _ole10_decouper(flux: bytes):
+    """`\\x01Ole10Native` → (en-tête, données, suite, packager ?, nom).
+
+    Format « Packager » : taille totale, 0x0002, nom, chemin, 4 octets,
+    chemin temporaire (longueur + texte), taille des données, données, puis
+    éventuellement les mêmes chaînes en Unicode. Sinon : taille + données."""
+    (total,) = struct.unpack_from("<I", flux, 0)
+    try:
+        if struct.unpack_from("<H", flux, 4)[0] == 2:
+            fin_nom = flux.index(b"\0", 6)
+            fin_chemin = flux.index(b"\0", fin_nom + 1)
+            p = fin_chemin + 1 + 4
+            (n,) = struct.unpack_from("<I", flux, p)
+            p += 4 + n
+            (taille,) = struct.unpack_from("<I", flux, p)
+            if p + 4 + taille <= len(flux):
+                nom = flux[6:fin_nom].decode("latin-1")
+                return (flux[4:p], flux[p + 4:p + 4 + taille],
+                        flux[p + 4 + taille:], True, nom)
+    except (ValueError, struct.error):
+        pass
+    taille = min(total, len(flux) - 4)
+    return b"", flux[4:4 + taille], flux[4 + taille:], False, None
+
+
+def _ole10_recoller(flux_origine: bytes, entete: bytes, suite: bytes,
+                    packager: bool, ancien: bytes, nouveau: bytes) -> bytes:
+    (total,) = struct.unpack_from("<I", flux_origine, 0)
+    corps = entete + (struct.pack("<I", len(nouveau)) if packager else b"") + nouveau + suite
+    return struct.pack("<I", max(0, total + len(nouveau) - len(ancien))) + corps
+
+
+def _flux_ole(ole) -> dict[str, list[str]]:
+    return {"/".join(p).lower(): p for p in ole.listdir(streams=True, storages=False)}
+
+
+def _extraire_ole2(origine: bytes):
+    """(type, contenu, enveloppe, nom, _ole10) d'un .bin OLE2, ou None."""
+    with olefile.OleFileIO(io.BytesIO(origine)) as ole:
+        flux = _flux_ole(ole)
+        if "package" in flux:
+            if ole.get_size(flux["package"]) > OCTETS_OBJET_MAX:
+                return None
+            contenu = ole.openstream(flux["package"]).read()
+            return _type_ooxml(contenu), contenu, "package", None, None
+        if "\x01ole10native" in flux:
+            if ole.get_size(flux["\x01ole10native"]) > OCTETS_OBJET_MAX:
+                return None
+            entete, contenu, suite, packager, nom = _ole10_decouper(
+                ole.openstream(flux["\x01ole10native"]).read())
+            return (_type_ooxml(contenu), contenu, "ole10native", nom,
+                    (entete, suite, packager))
+        for nom_flux, type_ancien in _ANCIENS:
+            if nom_flux in flux:
+                return type_ancien, origine, "ancien", None, None
+    return None
+
+
+def extraire(zf: zipfile.ZipFile, objet: ObjetIncorpore, niveau: int = 1,
+             budget: Budget | None = None) -> Extrait | None:
+    """Fichier traduisible d'un objet, ou None s'il faut le laisser tel quel.
+
+    `niveau` : 1 pour un objet du document, 2 pour un objet d'un objet ;
+    au-delà de PROFONDEUR_MAX, rien n'est extrait. Au mieux : un objet lié,
+    absent, mal formé, démesuré ou d'un type non pris en charge donne None."""
+    if niveau > PROFONDEUR_MAX or objet.lie or not objet.present:
+        return None
+    if objet.nature not in TRAITABLES and objet.nature != "paquet":
+        return None
+    try:
+        origine = _lire_cible(zf, objet.cible)
+        if origine is None:
+            return None
+        if origine[:8] == olefile.MAGIC:
+            trouve = _extraire_ole2(origine)
+            if trouve is None:
+                return None
+            type_, contenu, enveloppe, nom, ole10 = trouve
+        else:
+            type_, contenu, enveloppe, nom, ole10 = _type_ooxml(origine), origine, "ooxml", None, None
+    except Exception:  # noqa: BLE001 — .bin hostile : l'objet reste tel quel
+        return None
+    if type_ is None:
+        return None
+    taille = len(contenu) if enveloppe == "ancien" else taille_zip_sure(contenu)
+    if taille is None or (budget is not None and not budget.prendre(taille)):
+        return None
+    return Extrait(objet, type_, contenu, enveloppe, niveau, nom, origine, ole10)
+
+
+def reecrire(extrait: Extrait, contenu: bytes) -> bytes:
+    """Octets de la cible avec `contenu` à la place du fichier extrait, dans
+    la même enveloppe. Contenu inchangé : les octets d'origine, à l'identique.
+
+    Un binaire 97-2003 n'est jamais réécrit sur place : converti (D4), il
+    remplace l'objet sous forme OOXML (étape 6.11.3)."""
+    if contenu == extrait.contenu:
+        return extrait.origine
+    if extrait.enveloppe == "ooxml":
+        return contenu
+    if extrait.enveloppe == "ancien":
+        raise ValueError("binaire 97-2003 : pas de réécriture sur place")
+    with olefile.OleFileIO(io.BytesIO(extrait.origine)) as ole:
+        racine = _lire_arbre(ole)
+    nom_flux = "package" if extrait.enveloppe == "package" else "\x01ole10native"
+    noeud = next(k for k in racine.enfants if k.nom.lower() == nom_flux)
+    if extrait.enveloppe == "package":
+        noeud.donnees = contenu
+    else:
+        entete, suite, packager = extrait._ole10
+        noeud.donnees = _ole10_recoller(noeud.donnees, entete, suite, packager,
+                                        extrait.contenu, contenu)
+    return _ecrire_cfb(racine)
+
+
+def remplacer_parties(paquet: bytes, table: dict[str, bytes]) -> bytes:
+    """Paquet réécrit avec les parties de `table` remplacées : même ordre,
+    mêmes métadonnées d'entrée. Rien à remplacer : les octets d'origine."""
+    if not table:
+        return paquet
+    with zipfile.ZipFile(io.BytesIO(paquet)) as source:
+        entrees = source.infolist()
+        if not any(e.filename in table for e in entrees):
+            return paquet
+        sortie = io.BytesIO()
+        with zipfile.ZipFile(sortie, "w") as cible:
+            for e in entrees:
+                octets = table[e.filename] if e.filename in table else source.read(e)
+                cible.writestr(copy.copy(e), octets)
+    return sortie.getvalue()
+
+
+# --------------------------------------------------------------------------- #
+# Écriture d'un fichier composé OLE2 (MS-CFB, version 3)
+# --------------------------------------------------------------------------- #
+#
+# `olefile` sait lire, mais ne réécrit un flux qu'à taille égale ; une
+# traduction change la taille. On recopie donc l'arbre entier (flux, dossiers,
+# CLSID, drapeaux, dates) dans un nouveau fichier : secteurs de 512 octets,
+# petits flux (< 4 096 octets) dans le mini-flux, arbre binaire équilibré
+# tout noir (forme admise par MS-CFB 2.6.4).
+
+_SECTEUR, _MINI, _COUPURE = 512, 64, 4096
+_LIBRE, _FIN, _SECT_FAT, _SECT_DIFAT, _AUCUN = (0xFFFFFFFF, 0xFFFFFFFE,
+                                                0xFFFFFFFD, 0xFFFFFFFC, 0xFFFFFFFF)
+_FLUX, _RACINE = 2, 5
+
+
+@dataclass
+class _Noeud:
+    nom: str
+    type: int
+    clsid: bytes
+    etat: int
+    cree: int
+    modifie: int
+    donnees: bytes = b""
+    enfants: list = field(default_factory=list)
+
+
+def _clsid_octets(texte: str) -> bytes:
+    return uuid.UUID(texte).bytes_le if texte else b"\0" * 16
+
+
+def _lire_arbre(ole) -> _Noeud:
+    def noeud(e, chemin):
+        n = _Noeud(e.name, e.entry_type, _clsid_octets(e.clsid), e.dwUserFlags,
+                   e.createTime, e.modifyTime)
+        if e.entry_type == _FLUX:
+            n.donnees = ole.openstream(chemin).read()
+        else:
+            n.enfants = [noeud(k, chemin + [k.name]) for k in e.kids]
+        return n
+    return noeud(ole.root, [])
+
+
+def _ecrire_cfb(racine: _Noeud) -> bytes:
+    entrees: list[_Noeud] = []
+
+    def numeroter(n):
+        entrees.append(n)
+        for k in n.enfants:
+            numeroter(k)
+    numeroter(racine)
+    sid = {id(n): i for i, n in enumerate(entrees)}
+
+    gauche, droite, enfant = {}, {}, {}
+
+    def arbre(freres):          # liste triée → racine d'un arbre équilibré
+        if not freres:
+            return _AUCUN
+        m = len(freres) // 2
+        i = sid[id(freres[m])]
+        gauche[i], droite[i] = arbre(freres[:m]), arbre(freres[m + 1:])
+        return i
+    for n in entrees:
+        if n.type != _FLUX:
+            enfant[sid[id(n)]] = arbre(sorted(n.enfants, key=lambda k: (len(k.nom), k.nom.upper())))
+
+    fat: list[int] = []
+    corps = bytearray()
+
+    def poser(octets: bytes, bourrage: bytes = b"\0") -> int:
+        nb = -(-len(octets) // _SECTEUR)
+        if nb == 0:
+            return _FIN
+        debut = len(fat)
+        fat.extend(range(debut + 1, debut + nb))
+        fat.append(_FIN)
+        corps.extend(octets + bourrage * (nb * _SECTEUR - len(octets)))
+        return debut
+
+    debuts: dict[int, int] = {}
+    mini = bytearray()
+    minifat: list[int] = []
+    for i, n in enumerate(entrees):
+        if n.type != _FLUX:
+            continue
+        if len(n.donnees) >= _COUPURE:
+            debuts[i] = poser(n.donnees)
+            continue
+        nb = -(-len(n.donnees) // _MINI)
+        if nb == 0:
+            debuts[i] = _FIN
+            continue
+        debuts[i] = len(minifat)
+        minifat.extend(range(len(minifat) + 1, len(minifat) + nb))
+        minifat.append(_FIN)
+        mini.extend(n.donnees.ljust(nb * _MINI, b"\0"))
+    debuts[0] = poser(bytes(mini))
+    debut_minifat = poser(struct.pack("<%dI" % len(minifat), *minifat), b"\xff")
+    nb_minifat = -(-len(minifat) * 4 // _SECTEUR)
+
+    repertoire = bytearray()
+    for i, n in enumerate(entrees):
+        nom = n.nom.encode("utf-16-le")[:62]
+        flux_ou_racine = n.type in (_FLUX, _RACINE)
+        taille = len(mini) if n.type == _RACINE else len(n.donnees) if n.type == _FLUX else 0
+        repertoire += struct.pack(
+            "<64sHBB3I16sIQQIQ", nom, len(nom) + 2, n.type, 1,
+            gauche.get(i, _AUCUN), droite.get(i, _AUCUN), enfant.get(i, _AUCUN),
+            n.clsid, n.etat, n.cree, n.modifie,
+            debuts.get(i, _FIN) if flux_ou_racine else 0, taille)
+    vide = struct.pack("<64sHBB3I16sIQQIQ", b"", 0, 0, 0, _AUCUN, _AUCUN, _AUCUN,
+                       b"\0" * 16, 0, 0, 0, 0, 0)
+    while len(repertoire) % _SECTEUR:
+        repertoire += vide
+    debut_repertoire = poser(bytes(repertoire))
+
+    nb_fat = nb_difat = 0
+    while True:                 # la FAT se décrit elle-même : point fixe
+        total = len(fat) + nb_fat + nb_difat
+        f = -(-total // 128)
+        d = 0 if f <= 109 else -(-(f - 109) // 127)
+        if (f, d) == (nb_fat, nb_difat):
+            break
+        nb_fat, nb_difat = f, d
+    secteurs_fat = list(range(len(fat), len(fat) + nb_fat))
+    debut_difat = len(fat) + nb_fat if nb_difat else _FIN
+    fat.extend([_SECT_FAT] * nb_fat + [_SECT_DIFAT] * nb_difat)
+    fat.extend([_LIBRE] * (nb_fat * 128 - len(fat)))
+
+    difat = bytearray()
+    reste = secteurs_fat[109:]
+    for k in range(nb_difat):
+        lot = reste[k * 127:(k + 1) * 127]
+        suivant = debut_difat + k + 1 if k + 1 < nb_difat else _FIN
+        difat += struct.pack("<128I", *(lot + [_LIBRE] * (127 - len(lot)) + [suivant]))
+
+    tete = secteurs_fat[:109]
+    entete = struct.pack(
+        "<8s16sHHHHH6s9I109I", olefile.MAGIC, b"\0" * 16, 0x3E, 3, 0xFFFE, 9, 6,
+        b"\0" * 6, 0, nb_fat, debut_repertoire, 0, _COUPURE,
+        debut_minifat, nb_minifat, debut_difat, nb_difat,
+        *(tete + [_LIBRE] * (109 - len(tete))))
+    return entete + bytes(corps) + struct.pack("<%dI" % len(fat), *fat) + bytes(difat)

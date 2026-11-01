@@ -1,7 +1,7 @@
 # PASSATION — 01/11/2026
 
 ## 1. Objectif en cours
-6.8 (images à texte des documents normaux, devis avec/sans images) : 6.8.1 et 6.8.2 faits (commits locaux), **6.11 avancé avant 6.8.3** (demande 01/11 : gérer toutes les combinaisons d'objets incorporés ; étude faite `docs/etude-objets-incorpores.md`, décisions D1-D6 prises 01/11, §8 ; 6.11.1 fait ; **prochaine étape 6.11.2**) ; ensuite 6.8.3 → 6.9 → 6.10, puis 6.4b.2.
+6.8 (images à texte des documents normaux, devis avec/sans images) : 6.8.1 et 6.8.2 faits (commits locaux), **6.11 avancé avant 6.8.3** (demande 01/11 : gérer toutes les combinaisons d'objets incorporés ; étude faite `docs/etude-objets-incorpores.md`, décisions D1-D6 prises 01/11, §8 ; 6.11.1 et 6.11.2 faits ; **prochaine étape 6.11.3**) ; ensuite 6.8.3 → 6.9 → 6.10, puis 6.4b.2.
 
 ## 2. Fait
 - Branche `feat/ocr-v2`, tout en commits locaux **non poussés** (dernier : e85f40a). OCR v2 complet (`backend/app/services/ocr_v2/`, `docs/etude-ocr-v2.md` §7-8, §11) ; extension `extension/` + routes `app/api/extension.py`, `app/services/extension.py`.
@@ -26,7 +26,7 @@
      - 6.8.4 [ ] annulation par image : route de reconstruction depuis la table, bouton « Remettre l'original » sur l'aperçu ; tests ;
      - 6.8.5 [ ] essai de bout en bout DOCX + PDF à schémas ;
    - 6.11 [~] ← (avancé 01/11) objets incorporés, toutes les combinaisons. Étude faite (`docs/etude-objets-incorpores.md`, README:95) : Office dans Docker impossible (pas de Linux, automatisation serveur non prise en charge, KB 257757) → LibreOffice headless + méthode CFAO Academy (`services/apercu/classeurs.py:402-452` zone visible, `:685-736` rognage, `:768-855` cache, `service.py:613-631` relance profil) dans un module commun `engines/incorpores.py`. Décisions §8 (01/11, déléguées) : D1 texte des objets facturé, D2 aperçu LibreOffice, D3 1ʳᵉ page redessinée sauf écart de proportions > 10 %, D4 conversion 97-2003, D5 pas de Draw (Visio/PDF signalés), D6 signalement au client ; plan §7 :
-     - 6.11.1 [x] repérage (`engines/incorpores.py` `reperer`/`rapport`, 21 tests ; repères think-cell `TCLayout` ignorés) ; 6.11.2 [ ] ← extraction/réécriture + garde-fous ; 6.11.3 [ ] traduction récursive (profondeur 2) ; 6.11.4 [ ] redessin des aperçus ; 6.11.5 [ ] graphiques natifs ; 6.11.6 [ ] facturation + exclusion OCR ; 6.11.7 [ ] mesure et recette Docker (`--cpus 2 --memory 3g`) ;
+     - 6.11.1 [x] repérage (`engines/incorpores.py` `reperer`/`rapport`, 21 tests ; repères think-cell `TCLayout` ignorés) ; 6.11.2 [x] extraction/réécriture + garde-fous (`extraire`/`reecrire`/`remplacer_parties`, écrivain CFB, 20 tests ; dépendance `olefile==0.47`) ; 6.11.3 [ ] ← traduction récursive (profondeur 2) ; 6.11.4 [ ] redessin des aperçus ; 6.11.5 [ ] graphiques natifs ; 6.11.6 [ ] facturation + exclusion OCR ; 6.11.7 [ ] mesure et recette Docker (`--cpus 2 --memory 3g`) ;
    - 6.9 [ ] interface de l'extension : **branding seulement**, normes des pages du site, jetons du `frontend`, impeccable en raffinement ;
    - 6.10 [ ] bilan OCR pour le déploiement (ce qui marche, limites, prérequis serveur, risques, check-list) ;
    - 6.5 [ ] pastille « Traduire ce PDF » (circuit `/api/translate`).
