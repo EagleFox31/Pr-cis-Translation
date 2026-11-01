@@ -1267,7 +1267,11 @@ class PPTXTranslatorEngine:
         # 5. Supprimer les EMF devenus orphelins (plus aucune relation n'y
         #    pointe) : une part non référencée fait afficher à PowerPoint un
         #    avertissement de réparation.
-        for emf_name in emf_to_png:
+        #    Un aperçu déjà en PNG garde son nom : l'« ancien » fichier est
+        #    alors le nouveau, ne pas le supprimer.
+        for emf_name, png_name in emf_to_png.items():
+            if emf_name == png_name:
+                continue
             old = media_dir / emf_name
             try:
                 if old.exists():

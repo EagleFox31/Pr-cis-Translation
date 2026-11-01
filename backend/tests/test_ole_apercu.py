@@ -238,6 +238,54 @@ def main() -> int:
         ok("FILTRE  sans filtre, les trois diapositives sont examinees",
            vues_toutes == [1, 2, 3], str(vues_toutes))
 
+    # APERCU DEJA EN PNG. Les comptes rendus generes posent un aperçu PNG
+    # (`x_apercu.png`) et non un EMF : le PNG regenere porte alors le MEME nom,
+    # et l'etape de nettoyage des « anciens EMF » supprimait l'image qu'on venait
+    # d'ecrire (icone cassee dans le PPTX traduit).
+    with tempfile.TemporaryDirectory() as td:
+        import subprocess as _sp
+        e3 = PPTXTranslatorEngine()
+        temp = Path(td) / "paquet"
+        sl = temp / "ppt" / "slides"
+        (sl / "_rels").mkdir(parents=True)
+        (temp / "ppt" / "embeddings").mkdir(parents=True)
+        (temp / "ppt" / "media").mkdir(parents=True)
+        with zipfile.ZipFile(temp / "ppt" / "embeddings" / "a.xlsx", "w") as z:
+            z.writestr("xl/workbook.xml", "<workbook/>")
+        (temp / "ppt" / "media" / "a_apercu.png").write_bytes(b"ANCIEN")
+        P, A, R = NAMESPACES['p'], NAMESPACES['a'], NAMESPACES['r']
+        (sl / "slide1.xml").write_text(
+            f'<p:sld xmlns:p="{P}" xmlns:a="{A}" xmlns:r="{R}"><p:graphicFrame>'
+            '<p:xfrm><a:ext cx="200" cy="100"/></p:xfrm>'
+            '<p:oleObj progId="Excel.Sheet.12" r:id="rId2">'
+            '<p:pic><a:blip r:embed="rId3"/></p:pic></p:oleObj>'
+            '</p:graphicFrame></p:sld>', encoding="utf-8")
+        (sl / "_rels" / "slide1.xml.rels").write_text(
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/'
+            '2006/relationships"><Relationship Id="rId2" Type="x/oleObject" '
+            'Target="../embeddings/a.xlsx"/><Relationship Id="rId3" '
+            'Type="x/image" Target="../media/a_apercu.png"/></Relationships>',
+            encoding="utf-8")
+        e3.temp_dir = temp
+
+        def run_factice(cmd, *a, **k):
+            out = cmd[cmd.index("--outdir") + 1]
+            for x in cmd[cmd.index("--outdir") + 2:]:
+                Path(out, Path(x).stem + ".pdf").write_bytes(b"%PDF")
+
+        vrai_run = _sp.run
+        _sp.run = run_factice
+        e3._crop_xlsx_pdf_to_png = lambda pdf, ratio_cible=None: b"NOUVEAU"
+        try:
+            n = e3.regenerate_ole_previews(soffice_path="soffice")
+        finally:
+            _sp.run = vrai_run
+            e3.temp_dir = None
+        png = temp / "ppt" / "media" / "a_apercu.png"
+        ok("PNG  un aperçu deja PNG est regenere et conserve",
+           n == 1 and png.exists() and png.read_bytes() == b"NOUVEAU",
+           f"n={n} existe={png.exists()}")
+
     print()
     n_ok = sum(1 for _, c, _ in checks if c)
     for nom, cond, detail in checks:
