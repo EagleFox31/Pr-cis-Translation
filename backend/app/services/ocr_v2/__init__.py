@@ -4,6 +4,8 @@ Une étape par module, chacun testable seul (voir `docs/etude-ocr-v2.md` §3) :
 
     mask.py   pixels des lettres dans les boîtes lues
     erase.py  remplissage, méthode choisie zone par zone (masque fantôme)
+    render.py redressement, couche de texte dans le style mesuré (police, corps,
+              gras, italique, couleur)
 
 Les images sont des tableaux numpy BGR `uint8` (convention OpenCV) et les
 boîtes des tuples `(x, y, w, h)` en pixels.

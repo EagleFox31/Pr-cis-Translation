@@ -7,6 +7,7 @@ Les polices sont approximatives ; les manuscrits ne sont pas pris en charge.
 from __future__ import annotations
 
 import io
+import logging
 import os
 import statistics
 import tempfile
@@ -19,8 +20,10 @@ from PIL import Image
 
 from .ocr_v2.detect import LectureEchouee, Recognizer, Tesseract
 from .ocr_v2.erase import effacer
+from .ocr_v2 import render
 
 OCR_VERSION = "ocrv2"
+logger = logging.getLogger(__name__)
 _slot = threading.BoundedSemaphore(1)
 
 
@@ -45,6 +48,11 @@ def _recognize(page, directory, deadline, apres, lecteur: Recognizer):
     if rotation:
         image = image.rotate(-rotation, expand=True)
         image.save(image_path, dpi=(dpi, dpi))
+    # Lignes horizontales avant lecture : boites justes et style mesurable.
+    droit, angle = render.redresser(np.ascontiguousarray(np.asarray(image)[:, :, ::-1]))
+    if angle:
+        image = Image.fromarray(np.ascontiguousarray(droit[:, :, ::-1]))
+        image.save(image_path, dpi=(dpi, dpi))
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         raise OCRError("Ce scan demande trop de temps. Traduisez moins de pages a la fois.")
@@ -65,12 +73,13 @@ def _recognize(page, directory, deadline, apres, lecteur: Recognizer):
     # zone par zone (fonds degrades, textures, traits traversants). Le reste de
     # l'image (logos, tampons, signatures hors zones de texte) reste intact.
     # Le temps restant, moins la lecture des `apres` pages suivantes (estimee
-    # sur celle-ci), le cout fixe d'effacement de chaque page (~1 s) et
+    # sur celle-ci), le cout fixe de chaque page (effacement ~1 s, ecriture du
+    # texte et choix de la police ~2 s) et
     # l'enregistrement final du PDF, se partage entre l'effacement de cette page
     # et des suivantes. Passe sa part, les zones restantes sont remplies sans
     # analyse.
     now = time.monotonic()
-    libre = deadline - now - apres * (1.2 * (now - debut) + 1) - 1 - 6
+    libre = deadline - now - apres * (1.2 * (now - debut) + 3) - 3 - 6
     limite = max(0.0, libre / (apres + 1))
     bgr = np.ascontiguousarray(np.asarray(image)[:, :, ::-1])
     efface, _ = effacer(bgr, [w.boite for w in words],
@@ -82,16 +91,19 @@ def _recognize(page, directory, deadline, apres, lecteur: Recognizer):
     work = fitz.open()
     target = work.new_page(width=image.width * scale, height=image.height * scale)
     target.insert_image(target.rect, stream=buffer.getvalue())
-    for line in lines.values():
-        text = " ".join(w.texte for w in line)
-        x0 = min(w.boite[0] for w in line) * scale
-        y0 = min(w.boite[1] for w in line) * scale
-        x1 = max(w.boite[0] + w.boite[2] for w in line) * scale
-        y1 = max(w.boite[1] + w.boite[3] for w in line) * scale
-        size = min((y1 - y0) / 0.8,
-                   (x1 - x0) / max(0.1, fitz.get_text_length(text, fontsize=1)))
-        target.insert_text((x0, y1 - 0.1 * (y1 - y0)), text,
-                           fontname="helv", fontsize=size)
+    # Texte dans le style mesure sur le scan ; ecriture v1 (Helvetica) en repli,
+    # aussi quand il ne reste plus le temps de choisir la police (~2 s).
+    try:
+        render.ecrire(target, bgr, words, dpi,
+                      None if deadline - time.monotonic() > 6 + 3 * apres else [])
+    except Exception:
+        logger.exception("OCR : ecriture stylee impossible, repli Helvetica")
+        work.close()
+        work = fitz.open()
+        target = work.new_page(width=image.width * scale, height=image.height * scale)
+        target.insert_image(target.rect, stream=buffer.getvalue())
+        for line in lines.values():
+            render.ligne_simple(target, line, scale)
     return work
 
 

@@ -333,6 +333,47 @@ le résolveur existant `engines/pdf/polices.py` (cache Google Fonts). Limite
 connue : la taille déduite de la hauteur des hampes dépend de la police
 (Helvetica 11 pt lue 10 pt sur le document fictif, exacte en Inter).
 
+**Conception retenue (5.5a, 01/11)** — module `ocr_v2/render.py`, appelé
+par `ocr.py` à la place de l'écriture en Helvetica :
+
+| Option | Pour | Contre |
+|---|---|---|
+| Largeur seule (prototype) | rapide | choisit Merriweather (serif) pour un document sans serif |
+| **Forme : rendre chaque candidate sur des mots du scan** | tranche serif / sans serif et la chasse en une mesure | ~0,1 s par candidate |
+| Classifieur de polices appris | robuste | modèle à entraîner, poids, licence |
+
+- **Redressement** : l'inclinaison est mesurée et corrigée *avant* la
+  lecture (les boîtes lues sont alors droites, rien à recalculer).
+- **Taille propre à chaque candidate** : la hauteur des hampes mesurée est
+  divisée par la hauteur des hampes de la candidate (glyphes b, d, h, k, l),
+  ce qui lève la limite « Helvetica 11 lue 10 ».
+- **Score** : chaque mot échantillon (mots maigres, droits, de la taille la
+  plus fréquente) est rendu à sa place (bord gauche de l'encre, ligne de
+  base), à deux tailles : celle des hampes et celle calée sur la largeur du
+  mot. Ressemblance = recouvrement des **squelettes** adoucis (Dice), au
+  pixel près. Le squelette ignore l'épaisseur des traits, que le flou du scan
+  grossit : comparer les encres faisait gagner la police la plus grasse.
+- **Gras** : masse d'encre par longueur de trait, rapportée au corps ; seuil
+  1,3 × la référence de la page (30ᵉ centile si ≥ 20 mots, sinon 0,094).
+  **Italique** : pente médiane de la ligne > 0,07.
+- **Limite mesurée** : deux empattements voisins restent confondus sur un
+  scan à 200 dpi agrandi à 220 dpi (PT Serif lu Merriweather, écart 0,02).
+  Le texte garde la hauteur et la largeur lues ; gras et italique restent
+  justes ; seul le dessin des lettres diffère légèrement. Roboto, Open Sans
+  et Merriweather sont reconnus dans tous les cas.
+- **Temps** : écriture et choix de la police ~1,5–2 s par page (2 cœurs),
+  réservés dans le budget de 90 s (coût fixe par page 1 → 3 s).
+- **Candidates** : polices de bureau et clones libres déjà sur disque
+  (`Resolveur.possede`, catalogue préchargé dans Docker) — aucun
+  téléchargement pendant un envoi (délai de 90 s) ; les polices du dépôt
+  (Roboto, Open Sans, PT Serif…) restent toujours disponibles.
+- **Repli** : si aucune ligne n'est mesurable, écriture comme en v1.
+- **Preuve** : test qui fabrique un document natif (Roboto, puis PT Serif),
+  le « scanne » (flou, bruit, JPEG) et vérifie police, tailles, gras et
+  italique ; puis comparaison scan traduit / natif traduit.
+
+L'image traduite pour l'extension (§7) devient l'étape 5.5b.
+
 ---
 
 ## 8. Le banc d'essai : prouver sans documents réels

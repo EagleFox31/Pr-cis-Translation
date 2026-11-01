@@ -39,7 +39,8 @@ Implémenter l'OCR v2 (lire, effacer, réécrire le texte d'une image) puis l'ex
    - 5.2 [x] fait 31/10 : `ocr_v2/detect.py` (`Recognizer`, `Mot`, `Tesseract`, `LectureEchouee`), `ocr.py` l'utilise (messages v1 inchangés). Vérifié en Docker léger (`python:3.12-slim` + tesseract apt, `--cpus=2 --memory=2g`, paquets `app` vides pour éviter FastAPI) : ancien (HEAD) contre nouveau identiques (texte + pixels) sur scan droit, couché, fond blanc, page vide, sans tesseract. Script : `%TEMP%\claude\c--Users-IBRAH-Documents-Projets-Precis-Translator\0c3ed8c0-1686-4139-8530-b771278bfa32\scratchpad\compare_ocr.py` (+ `ocr_ref.py`) ;
    - 5.3 [x] masque + fantôme branchés dans `ocr.py` pour les PDF scannés (voir Fait) ;
    - 5.4 [x] PP-OCRv6 ONNX (voir Fait) ;
-   - 5.5 [ ] ← rendu de l'image traduite + point d'entrée pour l'extension ; port de `couche_texte` dans `ocr_v2/render.py` avec **identification de la police par la forme** (rendre chaque candidate sur des mots du scan, garder la plus ressemblante ; candidates via `engines/pdf/polices.py`, étude §7.1 « Reste à faire »).
+   - 5.5a [x] `ocr_v2/render.py` : port de `couche_texte` (prototype `217549bb…\scratchpad\orig\couche_texte.py`) + police par la forme (étude §7.1 « Conception retenue ») ; redressement avant lecture dans `ocr.py` ; test `test_ocr_v2_rendu.py` (natif Roboto / PT Serif scanné → police, tailles, gras, italique) ;
+   - 5.5b [ ] rendu de l'image traduite (étude §7) + point d'entrée pour l'extension.
    Puis relire le diff, /code-review (> 150 lignes), commit local sans push.
 6. [ ] Extension (demande 31/10 : traduire **tous les types de contenu**, en priorité les images qui gardent leur langue, règle : image dont le texte est détecté avec assez de confiance → traduite) : compléter l'étude d'extension (§3) pour vidéos, PDF intégrés, canvas, leçons G48xxx ; essai sur TEAM-GP ; puis prototype.
 
