@@ -166,10 +166,32 @@ surtout aux PDF laissés en japonais ailleurs.
 | **B. Moteur Précis (OpenAI, côté serveur)** | Même qualité et même glossaire que les documents ; fonctionne partout | Coût par page, donc crédits ; le texte de la page quitte le poste |
 | **C. Hybride** : A pour le texte si disponible, B sur demande (« qualité Précis ») et toujours B pour les images | Gratuit par défaut, payant quand ça apporte quelque chose | Deux chemins à tester |
 
-**Recommandation : C.** Le texte courant ne coûte rien à l'utilisateur ni à
-nous quand le navigateur sait le faire ; les crédits portent sur ce que seul
-Précis sait faire (images, terminologie). Si l'API intégrée est absente
-(Edge non supporté, Firefox), bascule automatique sur B, signalée.
+~~Recommandation : C.~~ **Révisé le 01/11/2026 : B seul** (décision 9).
+Essai de l'utilisateur : l'API du navigateur traduit nœud par nœud, sans
+contexte, parfois mot à mot. Exemple : « <b>Serrer</b> l'écrou » est coupé en
+deux morceaux traduits séparément. Le texte passe donc par le moteur des
+documents, **par bloc** (paragraphe, cellule, titre, élément de liste), comme
+une page de document :
+
+- les éléments en ligne du bloc (`b`, `a`, `span`, `code`…) deviennent des
+  balises `[[n]]…[[/n]]` (module `runtags`, déjà utilisé pour Word et PDF) ;
+  le moteur les garde et relance la traduction s'il en perd (`runtags.defauts`) ;
+- le contexte de la page (titre, blocs voisins) part avec le lot
+  (`contexte_page`, `translation_ai.py:204`, même cadre que les documents) ;
+- au retour, le bloc est reconstruit avec **les éléments d'origine**
+  (attributs, styles, liens conservés) ; « Afficher l'original » remet le
+  contenu initial ;
+- le débit compte le texte sans balises (1 page par 1 500 caractères).
+
+Mise en œuvre (01/11/2026) : un bloc est une suite d'enfants en ligne d'un
+conteneur ; images, sauts de ligne, `code`, champs et zones `notranslate`
+partent en balise vide `[[n]][[/n]]` et restent intacts. L'extension vérifie
+au retour que chaque balise revient une fois, sous son parent d'origine, et
+que la page n'a pas changé entre-temps ; sinon le bloc reste en original.
+Les nœuds de texte et les éléments d'origine sont réutilisés (écouteurs des
+scripts de la page conservés), l'ordre n'est touché que si la traduction le
+change. Contexte : titre à chaque passe, blocs voisins pour le texte qui
+arrive tard (4 000 caractères au plus).
 
 ---
 
@@ -302,3 +324,4 @@ et images envoyés seulement sur action de l'utilisateur, non conservés.
 6. Suites d'images animées : ignorées (§3.7).
 7. PDF : pastille « Traduire ce PDF » qui passe par le circuit des documents (§3.9).
 8. Fiches de contrôle G48 : hors périmètre (réservées à l'évaluateur).
+9. (01/11, remplace la part « texte navigateur gratuit » de la décision 1) : tout le texte passe par le moteur Précis, par bloc avec balises et contexte (§4) ; débit au volume. Plus de case « qualité Précis ».

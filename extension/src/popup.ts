@@ -7,7 +7,6 @@ const vueConnexion = $<HTMLFormElement>("vue-connexion");
 const vueConnecte = $<HTMLDivElement>("vue-connecte");
 const message = $<HTMLParagraphElement>("message");
 const selectLangue = $<HTMLSelectElement>("langue");
-const casePrecis = $<HTMLInputElement>("precis");
 const btnTraduire = $<HTMLButtonElement>("btn-traduire");
 
 const MESSAGES_CONNEXION: Record<ErreurConnexion, string> = {
@@ -88,7 +87,6 @@ btnTraduire.addEventListener("click", () => {
     return;
   }
   const langue = selectLangue.value;
-  const qualitePrecis = casePrecis.checked;
   btnTraduire.disabled = true;
 
   chrome.permissions
@@ -102,7 +100,7 @@ btnTraduire.addEventListener("click", () => {
         target: { tabId, allFrames: true },
         files: ["content.js"],
       });
-      await envoyerAuxCadres(tabId, { type: "traduire", langue, qualitePrecis });
+      await envoyerAuxCadres(tabId, { type: "traduire", langue });
       afficher("Traduction lancée sur la page.");
     })
     .catch(() => afficher("Impossible de traiter cette page.", true))

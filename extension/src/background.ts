@@ -141,7 +141,7 @@ async function etat(): Promise<ReponseEtat> {
 
 // --- Texte
 
-async function segments(textes: string[], langue: string): Promise<ReponseSegments> {
+async function segments(textes: string[], langue: string, titre: string, contexte: string[]): Promise<ReponseSegments> {
   const traductions: string[] = [];
   try {
     for (const lot of decouperEnLots(textes)) {
@@ -150,7 +150,7 @@ async function segments(textes: string[], langue: string): Promise<ReponseSegmen
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ textes: lot, langue }),
+          body: JSON.stringify({ textes: lot, langue, titre, contexte }),
         },
         [503],
         2,
@@ -245,7 +245,7 @@ function traiter(msg: VersBackground): Promise<ReponseDe<VersBackground>> {
     case "etat":
       return etat();
     case "segments":
-      return segments(msg.textes, msg.langue);
+      return segments(msg.textes, msg.langue, msg.titre, msg.contexte);
     case "image":
       return image(msg);
   }

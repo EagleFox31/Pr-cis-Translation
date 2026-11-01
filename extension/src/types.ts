@@ -23,7 +23,13 @@ export interface ReponseImage {
 export type MsgConnexion = { type: "connexion"; email: string; motDePasse: string };
 export type MsgDeconnexion = { type: "deconnexion" };
 export type MsgEtat = { type: "etat" };
-export type MsgSegments = { type: "segments"; textes: string[]; langue: string };
+export type MsgSegments = {
+  type: "segments";
+  textes: string[];
+  langue: string;
+  titre: string;
+  contexte: string[];
+};
 export type MsgImage = {
   type: "image";
   langue: string;
@@ -54,6 +60,6 @@ export interface ReponsesBackground {
 export type ReponseDe<M extends VersBackground> = ReponsesBackground[M["type"]];
 
 // popup -> content (tous les cadres de l'onglet)
-export type MsgTraduire = { type: "traduire"; langue: string; qualitePrecis: boolean };
+export type MsgTraduire = { type: "traduire"; langue: string };
 export type MsgOriginal = { type: "original" };
 export type VersContent = MsgTraduire | MsgOriginal;
