@@ -1595,6 +1595,22 @@ class XLSXTranslatorEngine(TranslationEngine):
                                 "cell": ref},
                 })
                 types["workbook"].add("Chaîne en ligne")
+            # `t="str"` SANS formule : texte nu écrit dans la feuille (exports,
+            # classeurs incorporés). Avec une formule, la valeur est recalculée
+            # à l'ouverture : la traduire ne servirait à rien.
+            for cellule in arbre.getroot().xpath(
+                    ".//s:c[@t='str'][not(s:f)]", namespaces=NS):
+                ref = cellule.get("r") or ""
+                balise = _baliser(cellule.xpath("s:v", namespaces=NS))
+                if not balise:
+                    continue
+                elements.append({
+                    "id": f"str_{feuille.stem}_{ref}",
+                    "text": balise,
+                    "context": {"part": "str", "sheet": feuille.stem,
+                                "cell": ref},
+                })
+                types["workbook"].add("Chaîne en ligne")
 
     # ── Injection ─────────────────────────────────────────────────────────
     def inject_translation(self, original_path: str, translated_json: str,
@@ -1765,6 +1781,14 @@ class XLSXTranslatorEngine(TranslationEngine):
                     continue
                 self._repartir(cellule.xpath(".//s:is//s:t", namespaces=NS),
                                traduit)
+                touche = True
+            for cellule in arbre.getroot().xpath(".//s:c[@t='str'][not(s:f)]",
+                                                 namespaces=NS):
+                traduit = traductions.get(
+                    f"str_{feuille.stem}_{cellule.get('r') or ''}")
+                if traduit is None:
+                    continue
+                self._repartir(cellule.xpath("s:v", namespaces=NS), traduit)
                 touche = True
             if touche:
                 arbre.write(str(feuille), xml_declaration=True,

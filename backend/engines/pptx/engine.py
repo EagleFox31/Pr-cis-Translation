@@ -804,6 +804,16 @@ class PPTXTranslatorEngine:
                                               element_types_used, f"layout_{layout_id}", filters)
                     if layout_data["text_elements"]:
                         slide_data["layout_elements"].append(layout_data)
+                # Masque du layout : même règle (une fois par document). Ses
+                # formes hors espace réservé s'affichent sur la diapositive.
+                master_path = self._master_du_layout(layout_path)
+                if master_path is not None and not self._part_deja_vue(master_path):
+                    master_data = {"master_id": master_path.stem, "text_elements": []}
+                    self._process_xml_element(etree.parse(str(master_path)).getroot(),
+                                              self.PART_PARTAGEE, master_data["text_elements"],
+                                              element_types_used, f"master_{master_path.stem}", filters)
+                    if master_data["text_elements"]:
+                        slide_data.setdefault("master_elements", []).append(master_data)
 
             # Excel incorporés
             if filters.get("tables"):
@@ -817,9 +827,21 @@ class PPTXTranslatorEngine:
 
         if not any([slide_data["text_elements"], slide_data["diagram_elements"],
                     slide_data["chart_elements"], slide_data["layout_elements"],
-                    slide_data["excel_elements"]]):
+                    slide_data.get("master_elements"), slide_data["excel_elements"]]):
             return None, "Aucun texte trouvé dans cette slide."
         return slide_data, element_types_used
+
+    @staticmethod
+    def _master_du_layout(layout_path: Path):
+        """Le slideMaster d'un layout (via ses relations), ou None."""
+        rels = layout_path.parent / "_rels" / (layout_path.name + ".rels")
+        if not rels.exists():
+            return None
+        for rel in etree.parse(str(rels)).getroot():
+            if (rel.get("Type") or "").endswith("/slideMaster"):
+                chemin = (layout_path.parent / rel.get("Target")).resolve()
+                return chemin if chemin.exists() else None
+        return None
 
     def inject_slide(self, slide_num: int, translation_map: dict):
         """Injecte la traduction dans les XML d'une SEULE slide déjà décompressée."""
@@ -865,6 +887,11 @@ class PPTXTranslatorEngine:
                                            translation_map,
                                            num_alt=(slide_num,)):
                         modified = True
+                master_path = self._master_du_layout(layout_path)
+                if master_path is not None and self._inject_in_xml(
+                        master_path, self.PART_PARTAGEE,
+                        f"master_{master_path.stem}", translation_map):
+                    modified = True
 
             pkg_rels = rels_tree.xpath(
                 "//*[@Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/package']")

@@ -267,6 +267,9 @@ class TranslatorAI:
         4. RÉPONDS UNIQUEMENT avec un objet JSON contenant une liste "translations".
         Chaque élément de la liste doit être un objet :
         {"id": "...", "translated_text": "..."}.
+        4-bis. Un fragment DÉJÀ rédigé dans la langue cible se recopie À
+        L'IDENTIQUE : ne le traduis jamais vers une autre langue (pas même celle
+        du reste du document).
 
         RÈGLE D'ANCRAGE (nombres & symboles) — TRÈS IMPORTANTE :
         Si le texte ENTIER d'un fragment est uniquement un nombre, un seul symbole
@@ -743,9 +746,10 @@ class TranslatorAI:
                 for chart in slide.get("chart_elements", []):
                     for block in chart.get("text_elements", []):
                         if block.get("text", "").strip(): slide_blocks.append(block)
-                for layout in slide.get("layout_elements", []):
-                    for block in layout.get("text_elements", []):
-                        if block.get("text", "").strip(): slide_blocks.append(block)
+                for groupe in ("layout_elements", "master_elements"):
+                    for layout in slide.get(groupe, []):
+                        for block in layout.get("text_elements", []):
+                            if block.get("text", "").strip(): slide_blocks.append(block)
                 for block in slide.get("excel_elements", []):
                     if block.get("text", "").strip(): slide_blocks.append(block)
 

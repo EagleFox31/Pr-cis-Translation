@@ -450,7 +450,8 @@ def _elements_de(slide_data: dict):
     famille oubliée quelque part passait inaperçue.
     """
     yield from slide_data.get("text_elements", [])
-    for groupe in ("diagram_elements", "chart_elements", "layout_elements"):
+    for groupe in ("diagram_elements", "chart_elements", "layout_elements",
+                   "master_elements"):
         for bloc in slide_data.get(groupe, []):
             yield from bloc.get("text_elements", [])
     yield from slide_data.get("excel_elements", [])
@@ -603,7 +604,8 @@ def _reprendre_slide(slide_data: dict, connus: dict[str, dict],
     copie = copy.deepcopy(slide_data)
     for cle in ("text_elements", "excel_elements"):
         copie[cle] = [el for el in copie.get(cle, []) if el.get("id") in reste]
-    for groupe in ("diagram_elements", "chart_elements", "layout_elements"):
+    for groupe in ("diagram_elements", "chart_elements", "layout_elements",
+                   "master_elements"):
         blocs = []
         for bloc in copie.get(groupe, []):
             bloc["text_elements"] = [el for el in bloc.get("text_elements", [])
@@ -924,9 +926,10 @@ def run_pptx_progressive_job(
                 for chart in slide_data.get("chart_elements", []):
                     for el in chart.get("text_elements", []):
                         el["translated_text"] = el["text"]
-                for layout in slide_data.get("layout_elements", []):
-                    for el in layout.get("text_elements", []):
-                        el["translated_text"] = el["text"]
+                for groupe in ("layout_elements", "master_elements"):
+                    for layout in slide_data.get(groupe, []):
+                        for el in layout.get("text_elements", []):
+                            el["translated_text"] = el["text"]
                 for el in slide_data.get("excel_elements", []):
                     el["translated_text"] = el["text"]
             else:
