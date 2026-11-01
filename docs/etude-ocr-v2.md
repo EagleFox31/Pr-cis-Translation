@@ -517,6 +517,55 @@ Alignement : un bloc qui partage son bord gauche avec un autre est aligné à ga
 - une lettre peut déborder de la boîte lue de plus de 0,2 × h (dernier kanji du titre de `schema.png`) : la zone d'effacement se prolonge tant que l'encre continue au bord, au plus d'une demi-ligne.
 - Plancher de réduction (essai Edge 01/11) : 60 % de la taille d'origine, mais un grand titre peut descendre jusqu'à 24 px (`LISIBLE_PX`). Sans cela, « 冷却水ポンプ » → « Pompe à eau de refroidissement » restait en japonais ; il passe désormais sur deux lignes, gras et rouge, bord gauche gardé.
 
+### 7.5 Mesure sur le livret « Code de la Route » (01/11, étape 6.6)
+
+Le livret de 59 pages est un scan sans couche texte. Les deux méthodes ont été mesurées sur les pages 1, 3, 10, 20, 35 et 50, traduites vers l'anglais :
+- **ancienne** (`main`) : lecture Tesseract, puis page recomposée en blanc ;
+- **nouvelle** (`feat/ocr-v2`) : lecture Tesseract, effacement de l'encre et reconstitution du fond.
+
+L'essai a tourné dans le conteneur `precis-ocr-test` (4 CPU). Les scripts sont hors dépôt : `ocr_banc.py`, `trad_banc.py` et `pp_banc.py`.
+
+| Mesure | Ancienne | Nouvelle |
+|---|---|---|
+| Mots lus par page (p. 1 / 3 / 20 / 35 / 50) | 268 / 454 / 327 / 552 / 577 | identiques |
+| Page 10 (légendes de panneaux) | refusée, « pas assez lisible » | refusée |
+| Temps de préparation par page | 9 à 13 s | **92 à 106 s** |
+| Traduction des 6 pages (DeepSeek) | 105,6 s, 23 appels | 97,7 s, 20 appels |
+
+Les deux rendus anglais sont presque identiques à l'œil. Ils partagent quatre défauts :
+- les titres en couleur ne sont pas lus et restent en français (« LE POSTE DE CONDUITE », sous-titres rouges) ;
+- le texte dans les photos reste en français (« 3 mètres ») ;
+- les bandeaux de couleur des titres sont perdus ;
+- en page 50, une ligne dépasse à droite, un titre est rendu trop grand et un résidu reste visible (« backbest »).
+
+**Lecteur d'images de l'extension (PP-OCR) sur les mêmes pages** : 11 à 28 s par page.
+
+| Page | PP-OCR | Tesseract |
+|---|---|---|
+| 1 | 269 mots | 268 mots |
+| 3 | 476 mots | 454 mots |
+| 10 | 710 mots | 0 mot (page refusée) |
+| 20 | 394 mots | 327 mots |
+| 35 | 626 mots | 552 mots |
+| 50 | 683 mots | 577 mots |
+
+Exemples de ce qu'il ajoute :
+- en page 50, le titre « LE POSTE DE CONDUITE » et le bandeau « ENTRETIEN ET DÉPANNAGE » ;
+- en page 10, toutes les légendes de panneaux.
+
+Il a aussi des défauts :
+- il lit d'une traite des lignes de deux colonnes voisines (« …doivent passer une Réglage du siège… ») ;
+- il fait quelques fautes de lecture (« marguage »).
+
+Il faudrait donc regrouper les blocs par colonne avant de traduire. `blocs` et `colonnes` de `ocr_v2/image.py` le font déjà pour les images.
+
+**Conclusion** :
+1. La nouvelle méthode ne lit pas plus que l'ancienne : le gain est seulement visuel (le fond est gardé).
+2. Elle est environ 10 fois plus lente et dépasse le délai de 90 s par page. En l'état, elle n'est donc pas livrable sur un scan dense.
+3. Prochaines décisions possibles :
+   - accélérer l'effacement (résolution réduite, zones limitées aux boîtes) ;
+   - passer la lecture des scans à PP-OCR avec regroupement par colonne, ce qui récupère les titres en couleur et la page 10.
+
 ## 8. Le banc d'essai : prouver sans documents réels
 
 Repris du banc fourni, principe inchangé : chaque image est fabriquée deux
