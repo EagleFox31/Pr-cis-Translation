@@ -2,7 +2,7 @@
 
 Extension MV3 pour Edge et Chrome : traduit le texte d'une page, puis les images contenant du texte, en s'appuyant sur le compte Précis (connexion, crédits).
 
-- Texte : API de traduction intégrée au navigateur (Chrome 138+, gratuit) ou « Qualité Précis » (crédits).
+- Texte : moteur Précis, par bloc avec le contexte de la page (1 500 caractères = 1 page de crédit).
 - Images : envoyées à Précis après accord (bandeau dans la page), débit seulement si l'image est effectivement traduite.
 - Vidéos : en pause, bouton « Traduire cette image » (1 crédit).
 - « Afficher l'original » rétablit la page.
@@ -40,5 +40,4 @@ Limites assumées du prototype :
 - les boîtes `alert` / `confirm` du navigateur ne sont pas traduites ;
 - les PDF ne sont pas traités ;
 - les images animées (source qui change en boucle) sont ignorées ;
-- les images servies par un autre domaine que le site peuvent être illisibles pour l'extension (essai depuis la page, soumis aux règles CORS du site) ;
-- l'API de traduction du navigateur peut nécessiter le téléchargement préalable d'un modèle de langue ; en cas d'échec, utiliser « Qualité Précis ».
+- les images servies par un autre domaine que le site peuvent être illisibles pour l'extension (essai depuis la page, soumis aux règles CORS du site).
