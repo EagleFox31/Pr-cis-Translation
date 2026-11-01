@@ -120,7 +120,18 @@ def cas_blocs():
     assert bs[0].boite == (10, 10, 90, 48), bs[0].boite
     # Boîtes qui débordent sur la ligne du dessus (PP-OCR) : même paragraphe.
     assert len(blocs([("a b", (10, 10, 90, 24)), ("c d", (10, 30, 80, 24))])) == 1
-    print("  blocs : lignes empilées réunies, confiance < 70 ignorée, japonais sans espace")
+    # Titre et texte (hauteurs 82 et 64, essai Edge) : deux blocs.
+    assert len(blocs([("冷却水ポンプ", (45, 40, 390, 82)), ("毎日点検", (45, 130, 390, 64))])) == 2
+    # Une puce ouvre un bloc, même à hauteur égale.
+    liste = [("1. 電源を切る", (40, 10, 300, 36)), ("2. 弁を閉じる", (40, 50, 300, 39)),
+             ("・圧力を確認", (40, 92, 300, 39))]
+    assert len(blocs(liste)) == 3, [b.texte for b in blocs(liste)]
+    # Couleurs différentes (titre rouge, corps noir) : deux blocs.
+    deux = [("a b", (10, 10, 90, 24)), ("c d", (10, 38, 80, 24))]
+    assert len(blocs(deux, [ROUGE, (20, 20, 20)])) == 2
+    assert len(blocs(deux, [(20, 20, 20), (30, 25, 25)])) == 1
+    print("  blocs : lignes empilées réunies, confiance < 70 ignorée, japonais sans espace, "
+          "hauteur, puce et couleur séparent")
 
 
 def cas_placer():
@@ -135,6 +146,14 @@ def cas_placer():
                                <= 60 * module.ELARGIR for t in p["lignes"]), p
     b.traduction = "Vanne " * 40
     assert placer(b, 640) is None
+    # Étiquette trop longue : le bloc grandit dans le vide autour.
+    b = blocs([("Storage tank", (100, 50, 120, 24))])[0]
+    b.traduction = "Réservoir de stockage principal du circuit de refroidissement"
+    assert placer(b, 640) is None
+    p = placer(b, 640, libre=(20, 160))
+    assert p is not None and len(p["lignes"]) > 1, p
+    assert 20 <= p["y"] and p["y"] + (len(p["lignes"]) - 1) * p["pas"] + p["haut_glyphe"] <= 160, p
+    assert placer(b, 640, libre=(48, 76)) is None
     print(f"  mise en place : élargie et réduite ({p['taille']} px, {len(p['lignes'])} ligne(s)), "
           "trop longue refusée")
 
@@ -162,11 +181,11 @@ def cas_rendu():
     zone = s[y - 4:y + h + 4, max(x - 40, 0):x + int(w * 1.4)]
     rouge = (np.abs(zone - ROUGE).sum(axis=2) < 60).sum()
     assert rouge > 150, rouge
-    # Hors des blocs, l'image n'a pas bougé.
+    # Hors de la bande des blocs (la traduction s'étend à droite, §7.4), l'image n'a pas bougé.
     hors = np.ones(a.shape[:2], bool)
     for b in res.blocs:
         x, y, w, h = b.boite
-        hors[max(y - 12, 0):y + h + 12, max(x - int(w * 0.25), 0):x + int(w * 1.25)] = False
+        hors[max(y - 12, 0):y + h + 12, max(x - int(w * 0.25), 0):] = False
     assert (np.abs(a - s).max(axis=2)[hors] <= 2).all()
     # JPEG reste JPEG ; l'alpha est conservé.
     assert traduire_image(octets(im, "JPEG"), traduire, Simule(mots)).mime == "image/jpeg"
@@ -185,6 +204,97 @@ def cas_rendu():
     assert Image.open(io.BytesIO(traduire_image(b.getvalue(), traduire, Simule(mots)).data)).info.get(
         "icc_profile") == b"profil-test"
     print(f"  rendu : 2 blocs remplacés, 1 gardé, 1 ignoré, reste intact, original rendu si rien à faire ({time.monotonic() - t0:.1f} s)")
+
+
+def cas_bords():
+    """Boîtes plus étroites que l'encre (sortie CTC sur du japonais) : bords effacés aussi."""
+    im, mots = dessiner([("Cooling water", (60, 60), 40, ROUGE)])
+    serres = []
+    for m in mots:
+        x, y, w, h = m.boite
+        d = int(0.15 * h)
+        serres.append(Mot(m.texte, (x + d, y, w - 2 * d, h), m.conf, m.ligne))
+    res = traduire_image(octets(im), lambda ts: ["Eau"] * len(ts), Simule(serres))
+    assert res.remplacee
+    a, s = np.asarray(im).astype(int), np.asarray(Image.open(io.BytesIO(res.data)).convert("RGB")).astype(int)
+    rouge_a, rouge_s = (np.abs(a - ROUGE).sum(axis=2) < 90), (np.abs(s - ROUGE).sum(axis=2) < 90)
+    x0 = int(min(m.boite[0] for m in serres))
+    x1 = int(np.ceil(max(m.boite[0] + m.boite[2] for m in serres)))
+    bords = np.zeros(a.shape[:2], bool)
+    bords[:, :x0] = bords[:, x1:] = True
+    assert rouge_a[bords].sum() > 20, rouge_a[bords].sum()  # le cas reproduit bien le défaut
+    assert rouge_s[bords].sum() == 0, rouge_s[bords].sum()
+    # Étiquette trop longue pour sa boîte, vide autour : remplacée sur plusieurs lignes.
+    im, mots = dessiner([("Tank", (280, 150), 24, (20, 20, 20))])
+    res = traduire_image(octets(im), lambda ts: ["Réservoir de stockage principal du circuit"] * len(ts),
+                         Simule(mots))
+    assert res.remplacee, res.blocs
+    print(f"  bords : {rouge_a[bords].sum()} px de glyphe hors boîte effacés ; étiquette longue placée dans le vide")
+
+
+def cas_mise_en_page():
+    """Comme le PDF (étude OCR v2 §7.4) : gras gardé, bord gauche, place à droite, liste d'une taille."""
+    gras = POLICE.replace("Regular", "Bold")
+    noir = (20, 20, 20)
+    for police, attendu in [(POLICE, False), (gras, True)] + [
+            (f"C:/Windows/Fonts/YuGoth{s}.ttc", s == "B") for s in "RB"
+            if os.path.isfile(f"C:/Windows/Fonts/YuGoth{s}.ttc")]:
+        im, mots = dessiner([("冷却水ポンプ" if "YuGoth" in police else "Cooling water", (40, 60), 40, noir)], police)
+        bgr = np.asarray(im)[:, :, ::-1].copy()
+        zones = [module._elargie(m.boite, bgr) for m in mots]
+        assert module._gras(module.masque_couleur(bgr, zones, dilatation=0), zones,
+                            "YuGoth" in police) == attendu, police
+    # Titre gras seul, puis une liste de trois lignes alignées à gauche.
+    etiquettes = [("Cooling water", (40, 30), 40, ROUGE)] + [
+        (t, (40, 140 + 60 * i), 30, noir) for i, t in enumerate(("Stop", "Close", "Check"))]
+    im = Image.fromarray(fond())
+    mots = []
+    for n, (texte, (x, y), taille, couleur) in enumerate(etiquettes):
+        f = ImageFont.truetype(gras if n == 0 else POLICE, taille)
+        ImageDraw.Draw(im).text((x, y), texte, font=f, fill=couleur)
+        l, t, r, b = ImageDraw.Draw(im).textbbox((x, y), texte, font=f)
+        mots.append(Mot(texte, (l, t, r - l, b - t), 95, (n,)))
+    sorties = {"Cooling water": "Pompe à eau", "Stop": "Arrêter le moteur",
+               "Close": "Fermer la vanne principale d'alimentation en eau du circuit",
+               "Check": "Contrôler le manomètre"}
+    vus = []
+    origine = module._freres
+    module._freres = lambda *a: vus.extend(origine(*a)) or vus
+    try:
+        res = traduire_image(octets(im), lambda ts: [sorties[t] for t in ts], Simule(mots))
+    finally:
+        module._freres = origine
+    assert res.remplacee and all(b.remplace for b in res.blocs), res.blocs
+    p = {b.texte: q for b, q in vus}
+    assert "bold" in os.path.basename(p["Cooling water"]["fichier"]).lower(), p["Cooling water"]["fichier"]
+    assert all("bold" not in os.path.basename(p[t]["fichier"]).lower() for t in ("Stop", "Close", "Check"))
+    # Titre court : taille d'origine, une ligne ; bords gauches gardés (± 3 px).
+    assert len(p["Cooling water"]["lignes"]) == 1
+    for b in res.blocs:
+        assert abs(p[b.texte]["x"] - b.boite[0]) <= 3, (b.texte, p[b.texte]["x"], b.boite)
+    # La ligne longue s'étend à droite au-delà de sa boîte, et la liste garde une seule taille.
+    boite = next(b.boite for b in res.blocs if b.texte == "Close")
+    assert p["Close"]["larg"] > boite[2] * 2, (p["Close"]["larg"], boite)
+    tailles = {p[t]["taille"] for t in ("Stop", "Close", "Check")}
+    assert len(tailles) == 1, tailles
+    # Aucun chevauchement entre traductions posées.
+    rects = [(q["x"], q["y"], q["x"] + q["larg"], q["y"] + q["haut"]) for q in p.values()]
+    for i, a in enumerate(rects):
+        for b in rects[i + 1:]:
+            assert min(a[2], b[2]) <= max(a[0], b[0]) or min(a[3], b[3]) <= max(a[1], b[1]), (a, b)
+    # Grand titre dont la traduction est bien plus longue, texte juste
+    # dessous : il rétrécit plutôt que de rester en japonais (essai Edge 01/11).
+    im = Image.fromarray(fond())
+    mots = []
+    for n, (texte, y, taille, f) in enumerate([("Cooling", 20, 70, gras), ("Check", 110, 40, POLICE)]):
+        f = ImageFont.truetype(f, taille)
+        ImageDraw.Draw(im).text((48, y), texte, font=f, fill=ROUGE if n == 0 else noir)
+        l, t, r, b = ImageDraw.Draw(im).textbbox((48, y), texte, font=f)
+        mots.append(Mot(texte, (l, t, r - l, b - t), 95, (n,)))
+    sorties = {"Cooling": "Pompe à eau de refroidissement", "Check": "Vérifier"}
+    titre = traduire_image(octets(im), lambda ts: [sorties[t] for t in ts], Simule(mots))
+    assert all(b.remplace for b in titre.blocs), titre.blocs
+    print(f"  mise en page : gras détecté, bords gauches gardés, liste en {tailles.pop()} px, sans chevauchement")
 
 
 def cas_ppocr():
@@ -225,6 +335,8 @@ def main():
     cas_blocs()
     cas_placer()
     cas_rendu()
+    cas_bords()
+    cas_mise_en_page()
     cas_ppocr()
     print(f"OK image traduite ({time.monotonic() - debut:.1f} s)")
 

@@ -441,7 +441,81 @@ pour les PDF ; une image n'a pas d'équivalent natif.
 | 9 | Seuil de texture recopié | corrigé (`erase.T_TEX`) |
 | 10 | PNG temporaire sur disque avant lecture | corrigé (`PPOCR.lire_image`) |
 
+### 7.3 Premier essai réel dans Edge (01/11) : trois défauts
+
+Page d'essai locale (texte, `img`, fond CSS, vidéo en japonais), extension
+chargée dans Edge. Le texte passe bien ; deux remarques sur les images,
+reproduites en appelant la route trois fois de suite sur chaque image :
+
+| Constat | Mesure | Cause |
+|---|---|---|
+| Des bouts de traits japonais restent au bord des lignes | boîte lue contre encre réelle : 4 à 11 px de glyphe hors boîte à gauche et à droite de chaque ligne | `PPOCR._mots` borne un mot à ±1–2 pas CTC ; un glyphe CJK en occupe plus. L'effacement ne voit que l'intérieur de la boîte |
+| Une image passe ou ne passe pas selon l'essai | « 冷却水ポンプ » (rouge, 56 pt) + « 毎日点検してください » (noir, 40 pt) : 1 essai sur 3 remplacé. « Vérifiez chaque jour la pompe… » tient, « Vérifiez quotidiennement la pompe… » non | (a) les deux lignes forment **un seul bloc** (hauteurs 82 et 64 px : écart 22 % < 30 %), traduit d'un tenant puis dessiné tout en rouge ; (b) la traduction doit tenir dans la hauteur d'origine : quelques caractères de plus et le bloc reste en japonais. Le japonais → français triple la longueur |
+| Liste numérotée rendue en paragraphe | « 1. … 2. … 3. … » réunis, renvoyés à la ligne n'importe où | même règle de regroupement : rien ne distingue une nouvelle puce |
+
+Options :
+
+| Défaut | Option | Pour | Contre |
+|---|---|---|---|
+| Traits restants | élargir les boîtes de mots dans `ppocr.py` | corrige à la source | change aussi le circuit des PDF scannés, validé ligne à ligne (§7.1) |
+| | **élargir la zone d'effacement des lignes dans `image.py`** (0,15 × hauteur de ligne de chaque côté, 2 px en hauteur) | ne touche que les images ; le masque couleur n'efface que les pixels de la couleur du texte | un pictogramme collé au texte, de la même couleur, peut être entamé |
+| Blocs mélangés | **ne réunir que des lignes de même hauteur (15 %) et de même couleur, et ouvrir un bloc à chaque puce** (`1.`, `2)`, `・`, `•`, `-`, `①`) | titre, corps et puces gardent chacun leur style | un paragraphe dont une ligne est mal mesurée peut se couper en deux (traduit en deux morceaux) |
+| | regrouper par l'avis du moteur | — | coût et délai, hors sujet |
+| Traduction trop longue | demander au moteur une version courte | texte adapté | change le moteur commun, appel en plus |
+| | **laisser le bloc grandir dans l'espace vide autour** (vers le bas puis le haut, jusqu'à une autre ligne lue ou une encre visible), avant de réduire la police | aucun appel en plus ; lève l'objection de la revue (#6 : « déborderait sur le contenu dessous ») puisque seul le vide est pris | ne sauve pas une étiquette serrée dans un schéma dense (l'info-bulle reste) |
+
+Choix : les trois options en gras. La version courte demandée au moteur
+reste une piste si l'essai sur TEAM-GP montre encore des blocs sautés.
+
+Critères : sur les deux images d'essai, 3 essais sur 3 remplacés ; aucun
+pixel de glyphe d'origine hors des lignes dessinées ; titre et corps dans
+leurs couleurs ; une ligne par puce. Les tests de `test_ocr_v2_image.py`
+restent verts.
+
 ---
+
+**Résultat (01/11).** Sur les deux images d'essai, 3 passages sur 3 : tous les blocs remplacés, aucun trait d'origine visible, titre et texte séparés avec leurs couleurs, une ligne par puce. Réglages retenus : marge d'effacement 0,2 × hauteur de ligne, même bloc si hauteurs à 15 % près et couleurs à moins de 80 (RVB), agrandissement dans le vide à partir de 80 % de la taille lue et de 4 lignes au plus, 6 % de hauteur de ligne de respiration. Reste visible : chaque puce est dimensionnée seule, si bien qu'une puce longue peut sortir plus petite que ses voisines (harmoniser les tailles d'une même liste : amélioration possible, hors 6.4a).
+
+### 7.4 Qualité de mise en page des images (01/11, étape 6.4c)
+
+**Constat** (essai dans Edge, images `pompe.png` et `schema.png`, toutes en Yu Gothic gras) : la traduction est lisible mais la page ne « ressemble » plus à l'original.
+
+| Défaut | Exemple vu | Cause |
+|---|---|---|
+| Gras perdu | « 冷却水ポンプ » gras devient « Cooling water pump » maigre | une seule police (Roboto normale) pour tout |
+| Bord gauche cassé | le titre commence à 40 px, le texte dessous à 70 px | une ligne seule est recentrée sur elle-même |
+| Liste inégale | « 2. » plus petit que « 1. » et « 3. » | chaque puce est dimensionnée seule |
+| Place à droite inutilisée | titre réduit alors que la moitié droite de l'image est vide | largeur limitée à 1,35 × l'original |
+| Rythme vertical | le texte remonte vers le titre devenu 2 lignes | bloc agrandi centré puis serré |
+
+**Ce que fait déjà le PDF** (`engines/pdf/engine.py`, `_expand_paragraphs`, `group_scale`) : bord gauche fixe ; le cadre s'étend à droite jusqu'au premier objet de la même bande moins une gouttière, sinon jusqu'à une marge droite égale à la marge gauche ; un texte centré reste centré ; les frères (même taille, même colonne) reçoivent la même échelle.
+
+**Mesure du gras** : épaisseur du trait rapportée à la hauteur de ligne (masque des lettres, `longueur_trait` de `render.py`). Yu Gothic : normal ≈ 0,07, moyen ≈ 0,085, gras ≈ 0,13 ; seuil retenu 0,105. Seuil absolu (et non relatif à la page comme pour le PDF scanné) : sur une image tout en gras, une référence relative ne verrait aucun gras.
+
+**Options**
+
+| Option | Pour | Contre |
+|---|---|---|
+| A. Garder le placement bloc par bloc, élargir la limite (1,35 → 2) | simple | ne règle ni le bord gauche, ni la liste, ni le gras |
+| B. Reprendre les règles du PDF (bord, limite droite par l'encre, frères, gras) | même rendu que le PDF, règles déjà éprouvées | un peu plus de calcul par image (négligeable) |
+| C. Relayout complet de l'image (pile qui pousse les blocs suivants) | rythme parfait | réécrit des zones non effacées ; risque élevé pour un gain rare |
+
+**Choix : B.** Ordre des concessions, du plus fidèle au moins fidèle :
+
+1. même police (gras gardé), même taille, même bord gauche ;
+2. cadre étendu à droite jusqu'à l'encre voisine moins une demi-ligne, sinon jusqu'à une marge droite égale à la marge gauche ;
+3. retour à la ligne vers le bas, dans le vide jusqu'à une demi-ligne de la ligne suivante (le haut du bloc reste à sa place) ;
+4. réduction de la taille, la même pour tous les frères d'une liste ;
+5. sous le plancher : l'original reste, traduction en info-bulle.
+
+Alignement : un bloc qui partage son bord gauche avec un autre est aligné à gauche ; une étiquette isolée est centrée sur son centre (libellé dans une forme), avec une largeur égale des deux côtés.
+
+**Critères d'acceptation** : sur les deux images, bords gauches identiques à l'original (± 3 px), gras rendu en Roboto Bold, les trois puces de même taille, le titre de `pompe.png` en taille d'origine sur une ligne, aucun chevauchement entre blocs.
+
+**Résultat (01/11, 6.4c)** : critères tenus sur `pompe.png` et `schema.png` (test `cas_mise_en_page`). Deux points appris en route :
+- le gras se mesure sur le masque **non dilaté** (la dilatation, utile pour effacer le liseré, épaissit tous les traits) et avec un seuil **par écriture** (trait / hauteur d'encre) : japonais 0,07 normal contre 0,12 gras (seuil 0,095) ; latin 0,14 au plus normal contre 0,15 au moins gras (seuil 0,142, marge étroite : une petite police latine régulière peut passer en gras) ;
+- une lettre peut déborder de la boîte lue de plus de 0,2 × h (dernier kanji du titre de `schema.png`) : la zone d'effacement se prolonge tant que l'encre continue au bord, au plus d'une demi-ligne.
+- Plancher de réduction (essai Edge 01/11) : 60 % de la taille d'origine, mais un grand titre peut descendre jusqu'à 24 px (`LISIBLE_PX`). Sans cela, « 冷却水ポンプ » → « Pompe à eau de refroidissement » restait en japonais ; il passe désormais sur deux lignes, gras et rouge, bord gauche gardé.
 
 ## 8. Le banc d'essai : prouver sans documents réels
 
