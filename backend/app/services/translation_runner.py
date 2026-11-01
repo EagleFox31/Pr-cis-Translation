@@ -32,9 +32,10 @@ import threading
 
 import engines
 from app.config import logger, note
-from app.services import render_cache
+from app.services import extension as ext_service
+from app.services import images_document, render_cache
 from engines import runtags
-from app.services.jobs import jobs
+from app.services.jobs import _dans_une_boucle_jetable, jobs
 from app.services.office import SOFFICE_PATH, convert_to_pdf_bytes
 from app.services.progressive_preview import (ProgressivePreview,
                                               ecrire_atomiquement)
@@ -59,6 +60,71 @@ for _fmt, _raison in engines.INDISPONIBLES.items():
     note(logging.WARNING, f"{_fmt.upper()} indisponible : {_raison}")
 
 
+def _preparer_images(job_id: str, user_id: str | None, file_bytes: bytes, ext: str,
+                     langue: str, translation_path: str) -> dict[str, bytes]:
+    """Traduit les images à texte du document lancé avec `images=1` et renvoie
+    la table `{clé d'image: octets traduits}` à poser dans le rendu.
+
+    Le budget est lu AVANT de traduire (couverture restante du compte) ; le
+    débit est unique, après coup, lié au document : un échec du travail rend
+    donc aussi les images. Si le solde a été consommé entre-temps, rien n'est
+    posé. Une image qui échoue reste en original : jamais d'échec du document.
+    """
+    if not user_id:
+        return {}
+    try:
+        lu: list = []
+
+        async def _couverture(db):
+            from app.models import User
+            user = await db.get(User, user_id)
+            reste_plan, solde, _ = await ext_service.couverture(db, user)
+            lu.append(None if reste_plan is None else reste_plan + solde)
+
+        _dans_une_boucle_jetable(_couverture)
+        table, rapport = images_document.traduire_images(
+            file_bytes, ext, lambda t: ext_service.traduire_textes(t, langue),
+            os.path.join(os.path.dirname(translation_path), "images"), lu[0])
+
+        k = rapport["traduites"]
+        if k:
+            debite: list = []
+            document_id = (jobs.get(job_id) or {}).get("document_id")
+
+            async def _debit(db):
+                debite.append(await ext_service.debiter(db, user_id, k, document_id=document_id))
+
+            try:
+                _dans_une_boucle_jetable(_debit)
+            except Exception as e:
+                logger.warning("Job %s : débit des images échoué : %s", job_id, e)
+            if not (debite and debite[0]):
+                table, rapport["traduites"] = {}, 0
+                rapport["sans_credit"] += k
+        images_document.ecrire_table(translation_path, table, rapport)
+        jobs.set(job_id, images=rapport)
+        jobs.emit(job_id, "images", rapport)
+        return table
+    except Exception as e:
+        logger.warning("Job %s : images non traduites : %s", job_id, e)
+        return {}
+
+
+def _poser_images_fichier(chemin: str, table: dict[str, bytes]) -> None:
+    """Remplace dans le fichier Office `chemin` les parties de `table`.
+    Best-effort : en cas d'échec, le fichier garde ses images d'origine."""
+    if not table:
+        return
+    try:
+        with open(chemin, "rb") as f:
+            brut = f.read()
+        pose = images_document.poser_office(brut, table)
+        if pose is not brut:
+            ecrire_atomiquement(chemin, pose)
+    except Exception as e:
+        logger.warning("Images non posées dans %s : %s", os.path.basename(chemin), e)
+
+
 def run_translation_job(
     job_id: str, file_bytes: bytes, filename: str, ext: str,
     target_lang: str, format_opts: dict,
@@ -66,6 +132,7 @@ def run_translation_job(
     extraction_path: str, translated_path: str,
     output_path: str, output_filename: str,
     model: str, max_tokens: int, pages_set=None, debug: bool = False,
+    images: bool = False, user_id: str | None = None,
 ):
     """Exécute toute la pipeline dans un thread de fond et émet des events SSE.
 
@@ -80,6 +147,12 @@ def run_translation_job(
 
         # 2. Sauvegarde de l'original
         _sauver_original(original_path, file_bytes)
+
+        # Images à texte (option `images=1`) : traduites avant le texte, posées
+        # dans le fichier final.
+        table_images = (_preparer_images(job_id, user_id, file_bytes, ext, target_lang,
+                                         translated_path)
+                        if images and ext == "docx" else {})
 
         # 3. Extraction
         if not os.path.exists(extraction_path):
@@ -171,6 +244,7 @@ def run_translation_job(
         if not os.path.exists(output_path):
             raise ValueError("Le fichier traduit est introuvable après génération.")
 
+        _poser_images_fichier(output_path, table_images)
         jobs.done(job_id, output_path, output_filename,
                   translation_path=translated_path)
 
@@ -184,6 +258,7 @@ def run_xlsx_progressive_job(
     output_path: str, output_filename: str, partial_path: str,
     translation_path: str, target_lang: str,
     model: str = None, max_tokens: int = None, debug: bool = False,
+    images: bool = False, user_id: str | None = None,
 ):
     """Pipeline XLSX PROGRESSIF : l'aperçu se remplit FEUILLE PAR FEUILLE.
 
@@ -220,6 +295,16 @@ def run_xlsx_progressive_job(
                                        "message": "Démarrage du job...",
                                        "page": 0, "total": None})
 
+        # Images à texte (option `images=1`) : posées dans chaque aperçu de
+        # feuille comme dans le classeur final. Le socle reste l'original.
+        table_images = (_preparer_images(job_id, user_id, file_bytes, "xlsx",
+                                         target_lang, translation_path)
+                        if images else {})
+
+        def _extraire_feuilles(chemin, pages):
+            eng.build_partial_xlsx(chemin, only_sheets={n - 1 for n in pages})
+            _poser_images_fichier(chemin, table_images)
+
         # ── Le SOCLE, tout de suite ───────────────────────────────────────
         # Mis en cache par CONTENU : retraduire le même classeur dans une autre
         # langue ne le reconvertit pas.
@@ -229,8 +314,7 @@ def run_xlsx_progressive_job(
         # INDEX 0-basés (c'est ce que voit le format). La conversion se fait à
         # cet unique endroit — la frontière entre les deux mondes.
         apercu = ProgressivePreview(
-            extraire=lambda chemin, pages: eng.build_partial_xlsx(
-                chemin, only_sheets={n - 1 for n in pages}),
+            extraire=_extraire_feuilles,
             convertir=lambda octets: convert_to_pdf_bytes(octets, "xlsx",
                                                           use_cache=False),
             extension="xlsx",
@@ -346,6 +430,7 @@ def run_xlsx_progressive_job(
         if not os.path.exists(output_path):
             raise ValueError("Le fichier traduit est introuvable après génération.")
 
+        _poser_images_fichier(output_path, table_images)
         jobs.done(job_id, output_path, output_filename,
                   translation_path=translation_path)
 
@@ -609,6 +694,7 @@ def run_pptx_progressive_job(
     output_path: str, output_filename: str, partial_path: str,
     translation_path: str, target_lang: str,
     pages_set=None, debug: bool = False, is_admin: bool = False,
+    images: bool = False, user_id: str | None = None,
 ):
     """Pipeline PPTX PROGRESSIF : extraction, traduction et réinjection SLIDE
     PAR SLIDE. Le PPTX partiel est construit puis converti en PDF pour être
@@ -626,6 +712,16 @@ def run_pptx_progressive_job(
 
         # ── Sauvegarde de l'original ──────────────────────────────────────
         _sauver_original(original_path, file_bytes)
+
+        # Images à texte (option `images=1`) : posées dans chaque aperçu
+        # partiel comme dans le PPTX final. Le socle reste l'original.
+        table_images = (_preparer_images(job_id, user_id, file_bytes, "pptx",
+                                         target_lang, translation_path)
+                        if images else {})
+
+        def _extraire_diapos(chemin, pages):
+            pptx_eng.build_partial_pptx(chemin, max(pages), only_slides=pages)
+            _poser_images_fichier(chemin, table_images)
 
         # ── Décompression ─────────────────────────────────────────────────
         jobs.emit(job_id, "progress", {"step": "extract", "message": "Décompression du PPTX...", "page": 0, "total": None})
@@ -734,8 +830,7 @@ def run_pptx_progressive_job(
         _ole_faits: set[int] = set()
 
         _apercu = ProgressivePreview(
-            extraire=lambda chemin, pages: pptx_eng.build_partial_pptx(
-                chemin, max(pages), only_slides=pages),
+            extraire=_extraire_diapos,
             convertir=lambda octets: convert_to_pdf_bytes(octets, "pptx",
                                                           use_cache=False),
             extension="pptx",
@@ -985,6 +1080,7 @@ def run_pptx_progressive_job(
         # ── PPTX final ────────────────────────────────────────────────────
         jobs.emit(job_id, "progress", {"step": "inject", "message": "Génération du PPTX final...", "page": 0, "total": None})
         pptx_eng.build_partial_pptx(output_path, max(slides_to_process))
+        _poser_images_fichier(output_path, table_images)
 
         # ── Sauvegarde de la traduction (JSON complet pour reprise) ───────
         # Assemblée depuis ce qu'on a retenu AVANT injection : `text` y est la
@@ -1020,6 +1116,7 @@ def run_pdf_v2_job(
     output_path: str, output_filename: str, partial_path: str,
     translation_path: str, target_lang: str, pages_set=None, debug: bool = False,
     ocr_prepared: bytes | None = None,
+    images: bool = False, user_id: str | None = None,
 ):
     """Pipeline PDF v2 PROGRESSIF : chaque page est extraite, traduite et rendue
     avant la suivante. Le PDF partiel grandit page après page — le client
@@ -1040,6 +1137,14 @@ def run_pdf_v2_job(
             _sauver_original(source_path, ocr_prepared)
 
         jobs.set(job_id, partial_path=partial_path)
+
+        # Images à texte (option `images=1`) : traduites avant les pages, puis
+        # posées à la place des originales (par xref). Sans objet sur une copie
+        # préparée par l'OCR : ses références d'image ne sont plus celles de
+        # l'original.
+        table_images = (_preparer_images(job_id, user_id, file_bytes, "pdf",
+                                         target_lang, translation_path)
+                        if images and ocr_prepared is None else {})
 
         def on_event(ev: dict):
             et = ev.get("type")
@@ -1071,6 +1176,7 @@ def run_pdf_v2_job(
             source_path, output_path, target_lang=target_lang,
             pages=pages_set, partial_path=partial_path, on_event=on_event,
             debug=debug, cache_path=translation_path,
+            images=table_images or None,
         )
 
         if not os.path.exists(output_path):
@@ -1156,6 +1262,8 @@ def render_translation_bytes(original_path: str, translation_path: str,
                 source_path, out, target_lang=target_lang,
                 pages=pages_traduites, partial_path=None, on_event=None,
                 debug=debug, cache_path=translation_path,
+                images=(images_document.charger_table(translation_path)
+                        if source_path == original_path else None) or None,
             )
         elif ext == "docx":
             ok, msg = engines.new_engine("docx").inject_translation(original_path,
@@ -1172,5 +1280,9 @@ def render_translation_bytes(original_path: str, translation_path: str,
                 raise ValueError(f"Ré-injection PPTX échouée : {msg}")
         else:
             raise ValueError(f"Rendu à la demande non supporté pour .{ext}")
+        if ext in ("docx", "pptx"):
+            # Images traduites du document (option `images=1`), gardées à côté
+            # de la traduction ; sans table, le rendu reste inchangé.
+            _poser_images_fichier(out, images_document.charger_table(translation_path))
         with open(out, "rb") as f:
             return f.read()

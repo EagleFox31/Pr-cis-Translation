@@ -12,6 +12,7 @@ import asyncio
 import json
 import os
 import queue
+import shutil
 
 from fastapi import (APIRouter, Depends, File, Form, Header, HTTPException,
                      Request, UploadFile)
@@ -41,7 +42,7 @@ from app.services.ocr import OCR_VERSION, OCRError, prepare_scanned_pdf
 from app.services.jobs import jobs
 from app.services.office import convert_to_pdf_bytes
 from app.services.scheduler import scheduler
-from app.services.translation_runner import (run_pdf_v2_job,
+from app.services.translation_runner import (_chemin_reprise, run_pdf_v2_job,
                                              run_pptx_progressive_job,
                                              run_translation_job,
                                              run_xlsx_progressive_job)
@@ -241,6 +242,9 @@ async def translate_endpoint(
     # l'utilisateur après un 402 `need_credits`. Sans lui, un solde insuffisant
     # refuse le document entier — jamais de troncature silencieuse.
     covered_only: str = Form(""),
+    # Option « traduire aussi les images du document » : 1 page par image
+    # réellement remplacée, comptée en plus du texte.
+    images: str = Form(""),
     use_beta: str = Form("auto"),
     x_api_key: str = Header(None),
     # CONNEXION OBLIGATOIRE (décision produit) : un visiteur ne lance aucune
@@ -432,6 +436,20 @@ async def translate_endpoint(
                 "Document mixte : %d page(s) sans texte extractible écartée(s) "
                 "de la traduction et de la facturation.", pages_ignorees)
 
+    # ── Images à texte (option `images=1`) ────────────────────────────────
+    # Hors bêta (v1 : images ignorées), hors mode structure, et hors scan
+    # préparé par l'OCR (ses références d'image ne sont plus celles de
+    # l'original). `n_images` : images proposées, base du contrôle de crédits.
+    n_images = 0
+    if (images == "1" and ext in ("pdf", "docx", "pptx", "xlsx")
+            and not beta_mode and not debug_mode and ocr_prepared is None):
+        n_images = len((await run_in_threadpool(analyser_images, file_bytes, ext)).a_texte)
+    images_actives = n_images > 0
+    if images_actives:
+        # Variante de cache à part : la traduction avec images ne se mélange
+        # pas à celle du texte seul (même nom + `_img`).
+        qsuffix += "_img"
+
     # ── Limite de pages selon le plan ─────────────────────────────────────
     # On est dans un endpoint ASYNC : la session `db` et l'utilisateur
     # (`optional_auth`) sont déjà résolus par FastAPI. On interroge donc la base
@@ -487,20 +505,26 @@ async def translate_endpoint(
                           max(0, monthly - await usage.pages_used_this_month(db, locked)))
         couvert = None if reste_plan is None else reste_plan + solde
         needed = len(pages_set) if pages_set else nb_pages
-        if couvert is not None and needed > couvert:
+        # Les images remplacées se paient en plus du texte (1 page chacune) :
+        # le contrôle les compte, le débit au lancement ne prend que le texte
+        # (les images sont débitées une fois traduites, selon le résultat).
+        a_couvrir = needed + n_images
+        if couvert is not None and a_couvrir > couvert:
             partiel = ext in ("pdf", "pptx") and couvert > 0
             if not (covered_only == "1" and partiel):
                 detail = (f"Crédits insuffisants pour traduire tout le document : "
-                          f"il demande {needed} page(s) équivalente(s), {couvert} couverte(s).")
+                          f"il demande {a_couvrir} page(s) équivalente(s), {couvert} couverte(s).")
                 _debut, repart = usage.quota_period(locked)
                 detail += f" Le quota du forfait repart le {repart:%d/%m/%Y}."
                 return JSONResponse(status_code=402, content={
                     "detail": detail, "reason": "need_credits",
-                    "pages_needed": needed, "pages_available": couvert,
-                    "pages_missing": needed - couvert,
+                    "pages_needed": a_couvrir, "pages_available": couvert,
+                    "pages_missing": a_couvrir - couvert,
+                    "images_needed": n_images,
                     "partial_possible": partiel,
                     "trial": gratuit and reste_plan > 0,
                 })
+        if couvert is not None and needed > couvert:
             visees = sorted(pages_set) if pages_set else range(1, nb_pages + 1)
             pages_set = set(list(visees)[:couvert])
             needed = couvert
@@ -537,6 +561,20 @@ async def translate_endpoint(
         translation_path = os.path.join(lang_dir, f"pages{qsuffix}{psuffix}.json")
     else:
         translation_path = os.path.join(lang_dir, f"translated{qsuffix}{psuffix}.json")
+    if images_actives and not os.path.exists(translation_path):
+        # Le texte déjà traduit sans les images est repris tel quel : seules
+        # les images restent à traiter (aucun appel de traduction en double).
+        sans_img = os.path.join(lang_dir, os.path.basename(translation_path).replace(
+            f"{qsuffix}{psuffix}.json", f"{qsuffix[:-len('_img')]}{psuffix}.json"))
+        if os.path.isfile(sans_img):
+            try:
+                shutil.copyfile(sans_img, translation_path)
+                for suite in ("", ".fiche"):    # reprise PPTX et sa fiche
+                    reprise = _chemin_reprise(sans_img) + suite
+                    if os.path.isfile(reprise):
+                        shutil.copyfile(reprise, _chemin_reprise(translation_path) + suite)
+            except OSError as e:
+                logger.warning("Traduction sans images non reprise : %s", e)
 
     output_filename = f"{safe_name}_TRADUIT{qsuffix}{psuffix}.{ext}"
     if debug_mode:
@@ -568,7 +606,8 @@ async def translate_endpoint(
         target = run_pdf_v2_job
         job_args = (job_id, file_bytes, original_path, output_path,
                     output_filename, partial_path, translation_path, target_lang,
-                    pages_set, debug_mode, ocr_prepared)
+                    pages_set, debug_mode, ocr_prepared,
+                    images_actives, current_user.id)
     elif ext == "pptx":
         # PPTX → moteur progressif slide par slide (comme le PDF v2).
         # Si compte admin : 5 slides traduites en parallèle.
@@ -577,7 +616,8 @@ async def translate_endpoint(
         target = run_pptx_progressive_job
         job_args = (job_id, file_bytes, original_path, output_path,
                     output_filename, partial_path, translation_path, target_lang,
-                    pages_set, debug_mode, is_admin)
+                    pages_set, debug_mode, is_admin,
+                    images_actives, current_user.id)
     elif ext == "xlsx":
         # XLSX → aperçu progressif FEUILLE PAR FEUILLE. La traduction, elle,
         # reste d'un bloc : `sharedStrings.xml` est commun à tout le classeur
@@ -587,13 +627,15 @@ async def translate_endpoint(
         target = run_xlsx_progressive_job
         job_args = (job_id, file_bytes, original_path, output_path,
                     output_filename, partial_path, translation_path, target_lang,
-                    model, max_tokens, debug_mode)
+                    model, max_tokens, debug_mode,
+                    images_actives, current_user.id)
     else:
         target = run_translation_job
         job_args = (job_id, file_bytes, filename, ext, target_lang, format_opts,
                     job_dir, lang_dir, original_path, extraction_path,
                     translation_path, output_path, output_filename,
-                    model, max_tokens, pages_set, debug_mode)
+                    model, max_tokens, pages_set, debug_mode,
+                    images_actives, current_user.id)
     # ── Document en base AVANT de démarrer le worker ─────────────────────
     # L'ordre est un garde-fou, pas un détail : la ligne Document est la seule
     # référence qui protège les octets partagés du magasin contre la purge d'un
@@ -632,6 +674,8 @@ async def translate_endpoint(
         reponse["ocr_review_required"] = True
     if pages_ignorees:
         reponse["pages_ignorees"] = pages_ignorees
+    if images_actives:
+        reponse["images"] = n_images
     return JSONResponse(reponse)
 
 

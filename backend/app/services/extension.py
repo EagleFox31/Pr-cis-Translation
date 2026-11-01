@@ -98,10 +98,12 @@ async def _verrouiller(db: AsyncSession, user_id: str) -> User:
     )).scalar_one()
 
 
-async def debiter(db: AsyncSession, user_id: str, pages: int) -> bool:
+async def debiter(db: AsyncSession, user_id: str, pages: int,
+                  document_id: str | None = None) -> bool:
     """Débite `pages` sous verrou (forfait d'abord, puis solde acheté) et
-    commite. Faux si le solde verrouillé ne couvre plus : rien n'est débité."""
-    return await _debiter(db, await _verrouiller(db, user_id), pages)
+    commite. Faux si le solde verrouillé ne couvre plus : rien n'est débité.
+    `document_id` lie le débit à un document (remboursé s'il échoue)."""
+    return await _debiter(db, await _verrouiller(db, user_id), pages, document_id)
 
 
 async def debiter_texte(db: AsyncSession, user_id: str, nb_caracteres: int) -> int | None:
@@ -119,7 +121,8 @@ async def debiter_texte(db: AsyncSession, user_id: str, nb_caracteres: int) -> i
     return pages if await _debiter(db, locked, pages) else None
 
 
-async def _debiter(db: AsyncSession, locked: User, pages: int) -> bool:
+async def _debiter(db: AsyncSession, locked: User, pages: int,
+                   document_id: str | None = None) -> bool:
     reste_plan, solde, gratuit = await couverture(db, locked)
     if not couvre(reste_plan, solde, pages):
         await db.rollback()
@@ -128,8 +131,8 @@ async def _debiter(db: AsyncSession, locked: User, pages: int) -> bool:
     achetees = pages - du_plan
     locked.page_credits -= achetees
     if du_plan:
-        usage.record(db, locked.id, None, KIND_FREE_OFFER if gratuit else KIND_PLAN, du_plan)
+        usage.record(db, locked.id, document_id, KIND_FREE_OFFER if gratuit else KIND_PLAN, du_plan)
     if achetees:
-        usage.record(db, locked.id, None, KIND_CREDITS, achetees)
+        usage.record(db, locked.id, document_id, KIND_CREDITS, achetees)
     await db.commit()
     return True

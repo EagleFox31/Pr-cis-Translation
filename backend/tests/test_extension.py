@@ -33,9 +33,10 @@ from sqlalchemy.pool import NullPool                     # noqa: E402
 
 from app.api import extension as route                   # noqa: E402
 from app.core.database import DATABASE_URL               # noqa: E402
-from app.models import (UsageRecord, User,               # noqa: E402
+from app.models import (Document, UsageRecord, User,     # noqa: E402
                         KIND_CREDITS, KIND_FREE_OFFER, KIND_PLAN)
 from app.services import extension as ext                # noqa: E402
+from app.services import usage                           # noqa: E402
 from app.services.ocr_v2.image import Bloc, ImageTraduite  # noqa: E402
 
 _eng = create_async_engine(DATABASE_URL, poolclass=NullPool)
@@ -251,6 +252,43 @@ async def run():
         route.traduire_image = fausse_image(True)
         r = await _appel(image, uid, file=_fichier(_png()), langue="fr")
         ok("image : rien ne couvre → 402 avant lecture", r["statut"] == 402, str(r))
+
+        # Débit lié à un document (images d'un document) : le registre porte
+        # son identifiant, donc un échec du document peut le rembourser.
+        uid = await compte("starter", 3, quota_pris=99)
+        async with async_session() as db:
+            doc = Document(user_id=uid, original_name="d.docx", source_lang="auto",
+                           target_lang="fr", original_path="x", translated_path=None,
+                           size_bytes=1, status="translating")
+            db.add(doc)
+            await db.commit()
+            doc_id = doc.id
+        try:
+            async with async_session() as db:
+                fait = await ext.debiter(db, uid, 3, document_id=doc_id)
+            async with async_session() as db:
+                recs = (await db.execute(select(UsageRecord).where(
+                    UsageRecord.user_id == uid))).scalars().all()
+                u = await db.get(User, uid)
+            lies = sorted((r.kind, r.pages) for r in recs if r.document_id == doc_id)
+            ok("débit lié à un document : 1 du forfait + 2 achetées, document_id inscrit",
+               fait and lies == sorted([(KIND_PLAN, 1), (KIND_CREDITS, 2)])
+               and u.page_credits == 1, f"{fait} {lies} solde={u.page_credits}")
+            async with async_session() as db:
+                async with db.begin():
+                    await usage.refund_for_document(db, doc_id)
+                u = await db.get(User, uid)
+            ok("débit lié à un document : l'échec rend les pages achetées",
+               u.page_credits == 3, str(u.page_credits))
+        finally:
+            async with async_session() as db:
+                for r in (await db.execute(select(UsageRecord).where(
+                        UsageRecord.document_id == doc_id))).scalars().all():
+                    await db.delete(r)
+                d = await db.get(Document, doc_id)
+                if d:
+                    await db.delete(d)
+                await db.commit()
     finally:
         ext.traduire_textes, route.traduire_image = vrai_textes, vrai_image
         for uid in comptes:

@@ -9,8 +9,11 @@ PP-OCR sont là.
 """
 import io
 import os
+import shutil
+import tempfile
 import time
 import unittest
+import unittest.mock
 import zipfile
 
 import racine  # noqa: F401
@@ -19,7 +22,9 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from app.services import images_document as module
-from app.services.images_document import ImageDoc, analyser, detecter, lister, vignette
+from app.services.images_document import (Analyse, ImageDoc, analyser, detecter, lister,
+                                          vignette)
+from app.services.ocr_v2.image import Bloc, ImageTraduite
 
 POLICE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fonts",
                       "montserrat-Regular.ttf")
@@ -340,6 +345,213 @@ class Reel(unittest.TestCase):
         self.assertEqual(res.analysees, 2)
         res = analyser(docx_document(), "docx", lecteur)
         self.assertEqual([i.cle for i in res.a_texte], ["word/media/image1.png"])
+
+
+# ── Pose des images traduites (étape 6.8.2) ──────────────────────────────────
+
+NOUVELLE = png_texte("BONJOUR")
+
+
+def a_texte_sans_lecteur(data, ext):
+    """Analyse sans lecteur OCR : les images de 400 px de large portent du texte."""
+    images = lister(data, ext)
+    return Analyse(images=images, a_texte=[i for i in images
+                                           if i.exclusion is None and i.largeur == 400])
+
+
+class FauxTraducteur:
+    """Remplace `traduire_image` : retient les images reçues, rend NOUVELLE."""
+
+    def __init__(self, remplacee=True, erreur=None):
+        self.recus, self.remplacee, self.erreur = [], remplacee, erreur
+
+    def __call__(self, octets, traduire, **_):
+        self.recus.append(octets)
+        if self.erreur:
+            raise self.erreur
+        return ImageTraduite(NOUVELLE, "image/png",
+                             [Bloc("a", (0, 0, 1, 1), remplace=self.remplacee)])
+
+
+def trois_images():
+    return Analyse(a_texte=[ImageDoc(cle, octets=png_texte(mot))
+                            for cle, mot in (("a", "AAA"), ("b", "BBB"), ("c", "CCC"))])
+
+
+def entrees(data):
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        return [(e.filename, e.compress_type, z.read(e)) for e in z.infolist()]
+
+
+class PoserOffice(unittest.TestCase):
+    def test_partie_remplacee_reste_inchange(self):
+        for data, partie in ((docx_document(), "word/media/image1.png"),
+                             (pptx_document(), next(i.cle for i in lister(pptx_document(), "pptx")
+                                                    if i.largeur == 400))):
+            sortie = module.poser_office(data, {partie: NOUVELLE})
+            avant, apres = entrees(data), entrees(sortie)
+            self.assertEqual([e[:2] for e in avant], [e[:2] for e in apres])    # ordre, compression
+            for (nom, _, a), (_, _, b) in zip(avant, apres):
+                if nom == partie:
+                    self.assertEqual(b, NOUVELLE)
+                else:
+                    self.assertEqual(a, b, nom)
+            with zipfile.ZipFile(io.BytesIO(sortie)) as z:
+                self.assertIsNone(z.testzip())
+
+    def test_table_vide_ou_inconnue_octets_identiques(self):
+        data = docx_document()
+        self.assertEqual(module.poser_office(data, {}), data)
+        self.assertEqual(module.poser_office(data, {"word/media/absente.png": NOUVELLE}), data)
+
+
+class TraduireImages(unittest.TestCase):
+    def setUp(self):
+        self.dossier = os.path.join(tempfile.mkdtemp(prefix="imgdoc_"), "images")
+        self.addCleanup(shutil.rmtree, os.path.dirname(self.dossier), True)
+
+    def lancer(self, faux, budget=None, analyse=None):
+        with unittest.mock.patch.object(module.ocr_image, "traduire_image", faux):
+            return module.traduire_images(b"", "docx", lambda t: t, self.dossier, budget,
+                                          analyse or trois_images())
+
+    def test_toutes_remplacees(self):
+        faux = FauxTraducteur()
+        table, rapport = self.lancer(faux)
+        self.assertEqual(set(table), {"a", "b", "c"})
+        self.assertEqual(table["a"], NOUVELLE)
+        self.assertEqual(rapport, {"proposees": 3, "traduites": 3, "inchangees": 0,
+                                   "sans_credit": 0, "echecs": 0})
+
+    def test_budget_sans_credit(self):
+        faux = FauxTraducteur()
+        table, rapport = self.lancer(faux, budget=2)
+        self.assertEqual(len(table), 2)
+        self.assertEqual((rapport["traduites"], rapport["sans_credit"]), (2, 1))
+        self.assertEqual(len(faux.recus), 2)                  # la 3e n'est pas lue
+        faux = FauxTraducteur()
+        table, rapport = self.lancer(faux, budget=0)
+        self.assertEqual((table, faux.recus, rapport["sans_credit"]), ({}, [], 3))
+
+    def test_exception_est_un_echec_d_image(self):
+        table, rapport = self.lancer(FauxTraducteur(erreur=RuntimeError("lecture")))
+        self.assertEqual(table, {})
+        self.assertEqual((rapport["echecs"], rapport["traduites"]), (3, 0))
+
+    def test_octets_absents_est_un_echec(self):
+        faux = FauxTraducteur()
+        table, rapport = self.lancer(faux, analyse=Analyse(a_texte=[ImageDoc("x")]))
+        self.assertEqual((table, rapport["echecs"], faux.recus), ({}, 1, []))
+
+    def test_non_remplacee_est_inchangee(self):
+        table, rapport = self.lancer(FauxTraducteur(remplacee=False))
+        self.assertEqual(table, {})
+        self.assertEqual((rapport["inchangees"], rapport["traduites"], rapport["echecs"]), (3, 0, 0))
+
+    def test_cache_disque(self):
+        premier = FauxTraducteur()
+        table1, _ = self.lancer(premier)
+        second = FauxTraducteur()
+        table2, rapport = self.lancer(second)
+        self.assertEqual(len(premier.recus), 3)
+        self.assertEqual(second.recus, [])                    # tout vient du cache
+        self.assertEqual(table2, table1)
+        self.assertEqual(rapport["traduites"], 3)
+
+    def test_cache_garde_les_non_remplacees(self):
+        self.lancer(FauxTraducteur(remplacee=False))
+        second = FauxTraducteur()
+        table, rapport = self.lancer(second)
+        self.assertEqual((table, second.recus, rapport["inchangees"]), ({}, [], 3))
+
+    def test_document_reel(self):
+        faux = FauxTraducteur()
+        data = docx_document()
+        with unittest.mock.patch.object(module.ocr_image, "traduire_image", faux):
+            table, rapport = module.traduire_images(
+                data, "docx", lambda t: t, self.dossier, None, a_texte_sans_lecteur(data, "docx"))
+        self.assertEqual(list(table), ["word/media/image1.png"])
+        self.assertEqual(rapport["proposees"], 1)
+
+
+class TableDisque(unittest.TestCase):
+    def setUp(self):
+        self.racine = tempfile.mkdtemp(prefix="imgtab_")
+        self.addCleanup(shutil.rmtree, self.racine, True)
+        self.trad = os.path.join(self.racine, "translated_fr.json")
+
+    def test_aller_retour(self):
+        table = {"word/media/image1.png": NOUVELLE, "xref:12": TEXTE}
+        module.ecrire_table(self.trad, table, {"traduites": 2})
+        self.assertEqual(module.charger_table(self.trad), table)
+        self.assertTrue(module.chemin_table(self.trad).endswith("translated_fr.json.images.json"))
+
+    def test_reecriture_efface_les_restes(self):
+        module.ecrire_table(self.trad, {"a": NOUVELLE, "b": TEXTE}, {})
+        module.ecrire_table(self.trad, {"a": NOUVELLE}, {})
+        self.assertEqual(module.charger_table(self.trad), {"a": NOUVELLE})
+        self.assertEqual(len(os.listdir(self.trad + ".images")), 1)
+
+    def test_absente_ou_illisible(self):
+        self.assertEqual(module.charger_table(self.trad), {})
+        with open(module.chemin_table(self.trad), "w") as f:
+            f.write("{pas du json")
+        self.assertEqual(module.charger_table(self.trad), {})
+
+    def test_image_manquante_garde_les_autres(self):
+        module.ecrire_table(self.trad, {"a": NOUVELLE, "b": TEXTE}, {})
+        dossier = self.trad + ".images"
+        os.remove(os.path.join(dossier, sorted(os.listdir(dossier))[0]))
+        self.assertEqual(len(module.charger_table(self.trad)), 1)
+
+
+class PdfImages(unittest.TestCase):
+    """Substitution par xref dans le rendu PDF (mode structure, sans traduction)."""
+
+    @staticmethod
+    def pdf():
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((72, 72), "Texte de la page.")
+        xref = page.insert_image(fitz.Rect(72, 100, 272, 170), stream=TEXTE)
+        return doc.tobytes(), xref
+
+    def rendre(self, images):
+        from engines.pdf import stream
+        tmp = tempfile.mkdtemp(prefix="imgpdf_")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        data, xref = self.pdf()
+        src = os.path.join(tmp, "original.pdf")
+        with open(src, "wb") as f:
+            f.write(data)
+        sortie = os.path.join(tmp, "sortie.pdf")
+        stream.translate_pdf_progressive(
+            src, sortie, debug=True, cache_path=os.path.join(tmp, "pages_debug.json"),
+            images=images(xref) if callable(images) else images)
+        with fitz.open(sortie) as d:
+            pixels = d[0].get_pixmap(dpi=72).samples
+            images_sortie = [np.array(Image.open(io.BytesIO(d.extract_image(i[0])["image"])).convert("RGB"))
+                             for i in d[0].get_images(full=True)]
+        return pixels, images_sortie
+
+    def test_image_remplacee_par_xref(self):
+        pixels, images = self.rendre(lambda x: {f"xref:{x}": NOUVELLE})
+        voulu = np.array(Image.open(io.BytesIO(NOUVELLE)).convert("RGB"))
+        self.assertTrue(any(i.shape == voulu.shape and np.array_equal(i, voulu) for i in images))
+        sans, _ = self.rendre(None)
+        self.assertNotEqual(pixels, sans)
+
+    def test_sans_table_image_d_origine(self):
+        original = np.array(Image.open(io.BytesIO(TEXTE)).convert("RGB"))
+        for table in (None, {}):
+            _, images = self.rendre(table)
+            self.assertTrue(any(i.shape == original.shape and np.array_equal(i, original)
+                                for i in images))
+
+    def test_cle_inconnue_ignoree(self):
+        sans, _ = self.rendre(None)
+        pixels, _ = self.rendre({"xref:99999": NOUVELLE, "word/media/x.png": NOUVELLE})
+        self.assertEqual(pixels, sans)
 
 
 if __name__ == "__main__":

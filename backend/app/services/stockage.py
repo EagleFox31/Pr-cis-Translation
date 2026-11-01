@@ -36,6 +36,9 @@ _RACINE_JOB = re.compile(r"^[0-9a-f]{8,64}$")
 _SORTIE_JOB = re.compile(r"^(render|partial).*_[0-9a-f]{8}\.[a-z]+(\.tmp)?$")
 _RENDU_CACHE = re.compile(r"^(?P<trad>.+)\.render\.(?P<version>.+)\.pdf(\.tmp)?$")
 _TRADUCTION = re.compile(r"^(pages|translated).*\.json$")
+# Table des images traduites, gardée à côté d'une traduction (`<trad>.images.json`
+# et dossier `<trad>.images/`) : elle suit la traduction, jamais seule.
+_TABLE_IMAGES = re.compile(r"^(?P<trad>.+\.json)\.images\.json(\.tmp)?$")
 
 
 def _dans_magasin(path: str, magasin: str) -> bool:
@@ -104,6 +107,12 @@ def balayer_magasin(references: set[str], version_moteur: str,
                 cle = os.path.normcase(os.path.realpath(chemin))
                 if _SORTIE_JOB.match(f):
                     _effacer(chemin, compte, "sorties_job")
+                elif m := _TABLE_IMAGES.match(f):
+                    if not os.path.isfile(os.path.join(dossier, m["trad"])):
+                        _effacer(chemin, compte, "traductions")
+                elif (os.path.basename(dossier).endswith(".json.images")
+                      and not os.path.isfile(dossier[:-len(".images")])):
+                    _effacer(chemin, compte, "traductions")
                 elif m := _RENDU_CACHE.match(f):
                     trad = os.path.join(dossier, m["trad"])
                     if (m["version"] != version_moteur or f.endswith(".tmp")

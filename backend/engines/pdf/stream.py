@@ -61,9 +61,22 @@ def _alleger_images(pages) -> bool:
     return allege
 
 
+def _images_par_xref(images) -> dict:
+    """Clés "xref:<n>" (ou entières) -> {xref entier: octets} ; ignore le reste."""
+    out = {}
+    for cle, octets in (images or {}).items():
+        try:
+            xref = int(str(cle).split(":")[-1])
+        except ValueError:
+            continue
+        out[xref] = octets
+    return out
+
+
 def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                               pages=None, partial_path=None, on_event=None,
-                              debug=False, cache_path=None, engine=None):
+                              debug=False, cache_path=None, engine=None,
+                              images=None):
     """Traduit `pdf_path` page par page vers `output_path`.
 
     pages        : ensemble de numéros 1-basés à traduire (None = toutes) ; les
@@ -73,8 +86,11 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
     cache_path   : JSON de reprise — les pages déjà traduites (tr_tagged) y sont
                    relues au lieu d'être re-payées, et chaque page traduite y est
                    ajoutée aussitôt (un job interrompu reprend où il en était).
+    images       : images traduites, {"xref:<n>" ou n: octets}, posées à la
+                   place des images d'origine.
     """
     eng = engine or PDFObjectEngine()
+    images = _images_par_xref(images)
     lang = "fr_FR" if str(target_lang).lower().startswith("fr") else \
         f"{str(target_lang).lower()[:2]}_{str(target_lang).upper()[:2]}"
     eng.reflow_lang = lang
@@ -235,7 +251,8 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                              "status": "rendering",
                              "done": human - 1, "total": total})
             eng.render_page_into(out, page_data, draw_borders=debug,
-                                 translated=not debug, src_doc=src)
+                                 translated=not debug, src_doc=src,
+                                 images=images)
             _save_partial(out, partial_path)
             done_pages.append(human)
             _emit(on_event, {"type": "page", "page": human, "status": "done",
@@ -266,7 +283,7 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                 neuve = fitz.open()
                 try:
                     eng.render_page_into(neuve, page_data, translated=True,
-                                         src_doc=src)
+                                         src_doc=src, images=images)
                     out.delete_page(human - 1)
                     out.insert_pdf(neuve, start_at=human - 1)
                 finally:

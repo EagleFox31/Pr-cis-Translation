@@ -177,3 +177,30 @@ images sous la taille minimale de lecture.
    route de reconstruction avec l'original d'une image, bouton « Remettre
    l'original » sur l'aperçu de la page ; tests.
 5. Vérification de bout en bout sur un DOCX et un PDF à schémas.
+
+### 9.1 Conception de la pose (6.8.2)
+
+- **Table à côté de la traduction** : `<traduction>.images.json` (rapport et
+  clé d'image → fichier) et dossier `<traduction>.images/`, un fichier par
+  image traduite. Le rendu la relit à chaque appel ; elle suit la traduction
+  (le balayage du magasin ne la garde que si la traduction existe).
+- **Suffixe `_img`** : un document lancé avec `images=1` a sa propre
+  traduction (`..._img`), donc ses propres rendus et sa propre table. S'il
+  existe déjà une traduction texte seul, elle est copiée : le texte déjà
+  payé n'est pas retraduit.
+- **Budget lu avant, débit unique après** : la route compare texte + n images
+  à la couverture (402 `need_credits`, avec `images_needed`). Le job lit le
+  budget restant, ne traduit que les images qu'il couvre (`sans_credit` pour
+  les autres), puis débite d'un coup les images réellement remplacées, lié au
+  document (remboursé si le document échoue). Un cache disque par empreinte
+  évite de relire ou de repayer une même image.
+- **Échec d'image ≠ échec du document** : une image illisible ou non
+  traduite reste en original (`echecs`) ; une image sans texte à remplacer
+  ne coûte rien (`inchangees`). Le document finit toujours.
+- **Bêta et mode debug hors v1** : images ignorées. Idem pour un PDF préparé
+  par l'OCR des scans, dont les `xref` ne sont plus ceux de l'original.
+- **Limites constatées** : les aperçus partiels PPTX/XLSX posent les images
+  mais restent bâtis sur l'original ; un GIF ou WEBP remplacé ressort en PNG
+  dans une partie d'extension différente ; le XLSX n'est pas re-rendu à la
+  volée (`render_translation_bytes`) ; le cache `images/` est partagé et non
+  purgé.

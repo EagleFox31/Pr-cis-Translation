@@ -40,6 +40,7 @@ from app.core.database import DATABASE_URL               # noqa: E402
 from app.models import (Document, UsageRecord, User,     # noqa: E402
                         KIND_CREDITS, KIND_FREE_OFFER, KIND_PLAN)
 from app.services import usage                           # noqa: E402
+from app.services.images_document import Analyse, ImageDoc  # noqa: E402
 from app.services.jobs import jobs                       # noqa: E402
 
 _eng = create_async_engine(DATABASE_URL, poolclass=NullPool)
@@ -106,7 +107,8 @@ async def _supprimer(uid: str):
 
 
 async def _importer(uid: str, data: bytes, nom="doc.pdf", pages="",
-                    covered_only="", solde_entre_temps=None) -> dict:
+                    covered_only="", solde_entre_temps=None, images="",
+                    n_images=0) -> dict:
     """Appelle la route ; renvoie statut, corps, pages soumises, état final.
 
     `solde_entre_temps` : solde écrit par une AUTRE session après le
@@ -114,6 +116,10 @@ async def _importer(uid: str, data: bytes, nom="doc.pdf", pages="",
     webhook de paiement) — la route doit décider sur la valeur verrouillée."""
     file = _File()
     vrai, trmod.scheduler = trmod.scheduler, file
+    vrai_analyse = trmod.analyser_images
+    # `n_images` images à texte annoncées par l'analyse (sans lecteur OCR).
+    trmod.analyser_images = lambda data, ext: Analyse(
+        a_texte=[ImageDoc(f"xref:{i + 1}") for i in range(n_images)])
     try:
         async with async_session() as db:
             user = await db.get(User, uid)
@@ -126,12 +132,13 @@ async def _importer(uid: str, data: bytes, nom="doc.pdf", pages="",
                     request=None, file=UploadFile(filename=nom, file=io.BytesIO(data)),
                     target_lang="en", format_options="{}", quality="fast",
                     precise="", pages=pages, debug="", covered_only=covered_only,
-                    x_api_key=cfg.FRONTEND_API_KEY, current_user=user, db=db)
+                    images=images, x_api_key=cfg.FRONTEND_API_KEY, current_user=user, db=db)
             except HTTPException as e:
                 rep = JSONResponse(status_code=e.status_code,
                                    content={"detail": e.detail})
     finally:
         trmod.scheduler = vrai
+        trmod.analyser_images = vrai_analyse
     statut = getattr(rep, "status_code", 200)
     corps = (json.loads(bytes(rep.body).decode())
              if hasattr(rep, "body") else rep)
@@ -292,6 +299,24 @@ async def run():
         r = await _importer(uid, _pdf(3))
         ok("ENTERPRISE  sans quota : jamais d'avertissement",
            r["statut"] == 200 and r["solde"] == 0, str(r["statut"]))
+
+        # ── Images : texte couvert, texte + images non couverts ────────────
+        uid = await compte("starter", 0, quota_pris=95)         # 5 pages libres
+        r = await _importer(uid, _pdf(4), images="1", n_images=2)
+        c = r["corps"]
+        ok("IMAGES  texte (4) couvert mais + 2 images (6) non : 402 images_needed",
+           r["statut"] == 402 and c.get("reason") == "need_credits"
+           and c.get("images_needed") == 2 and c.get("pages_needed") == 6
+           and c.get("pages_missing") == 1 and r["soumis"] is None, f"{r['statut']} {c}")
+        ok("IMAGES  refus : rien consommé", r["registre"] == [], str(r["registre"]))
+        r = await _importer(uid, _pdf(4), images="1", n_images=1)
+        ok("IMAGES  texte (4) + 1 image = 5 pages libres : accepté, texte seul débité",
+           r["statut"] == 200 and r["corps"].get("images") == 1
+           and r["registre"] == [(KIND_PLAN, 4)], f"{r['statut']} {r['corps']} {r['registre']}")
+        uid = await compte("starter", 0, quota_pris=95)
+        r = await _importer(uid, _pdf(4), n_images=2)
+        ok("IMAGES  sans images=1 : l'analyse n'est pas comptée",
+           r["statut"] == 200 and "images" not in r["corps"], f"{r['statut']} {r['corps']}")
     finally:
         for uid in comptes:
             await _supprimer(uid)

@@ -3397,10 +3397,13 @@ class PDFObjectEngine:
         return output_pdf
 
     def render_page_into(self, doc, page_data, draw_borders=False,
-                         assets_dir=None, translated=False, src_doc=None):
+                         assets_dir=None, translated=False, src_doc=None,
+                         images=None):
         """Peint UNE page (page_data) dans un document fitz existant — brique du
         rendu progressif page par page (le PDF partiel grandit au fil des pages
-        traduites) et de `reinject`. Nécessite `_build_fonts(data)` au préalable."""
+        traduites) et de `reinject`. Nécessite `_build_fonts(data)` au préalable.
+        `images` : {xref: octets} d'images traduites, posées à la place de
+        l'image d'origine."""
         page = doc.new_page(width=page_data["width"],
                             height=page_data["height"])
         # Flux vertical (Étape E) : calcule DÉCALAGE + croissance de
@@ -3423,7 +3426,7 @@ class PDFObjectEngine:
             kind = el.get("type")
             try:
                 if kind == "image":
-                    self._draw_image(page, el, assets_dir, src_doc)
+                    self._draw_image(page, el, assets_dir, src_doc, images)
                 elif kind == "drawing":
                     # En mode traduit, un soulignement de lien consommé
                     # est redessiné SOUS le texte reflowé, pas ici (sinon
@@ -3485,12 +3488,14 @@ class PDFObjectEngine:
         return variants[0]   # meilleur effort : couverture partielle
 
     # ── Rendu image ──────────────────────────────────────────────────────────
-    def _draw_image(self, page, el, assets_dir, src_doc=None):
+    def _draw_image(self, page, el, assets_dir, src_doc=None, images=None):
         rect = fitz.Rect(el["bbox"])
         if rect.is_empty or rect.is_infinite:
             return
         stream = None
-        if el.get("asset_b64"):
+        if images and el.get("xref") in images:
+            stream = images[el["xref"]]     # image traduite : prioritaire
+        elif el.get("asset_b64"):
             stream = base64.b64decode(el["asset_b64"])
         elif el.get("asset_file") and assets_dir:
             path = os.path.join(assets_dir, el["asset_file"])

@@ -12,12 +12,21 @@ traduction ni aucun débit ici.
   relations du PPTX.
 - Une page de PDF sans texte presque couverte par une image est un scan : elle
   passe déjà par l'OCR de page, l'image est exclue (`scan`).
+
+La pose (fin du module) traduit ces images dans le travail de fond, garde la
+table des images traduites à côté de la traduction du document et la réinjecte
+dans le PDF (par `xref`) ou le paquet Office (par partie). Le débit se fait
+dans l'appelant, jamais ici.
 """
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import io
+import json
+import logging
+import os
 import posixpath
 import re
 import threading
@@ -31,6 +40,8 @@ from PIL import Image
 
 from app.services.ocr_v2 import image as ocr_image
 from app.services.ocr_v2.image import ImageRefusee
+
+logger = logging.getLogger(__name__)
 
 COTE_MIN = 16               # px : en dessous, rien de lisible
 PIXELS_MIN = 10_000
@@ -256,3 +267,163 @@ def vignette(octets: bytes, cote: int = 160) -> str:
     sortie = io.BytesIO()
     fond.save(sortie, "JPEG", quality=70)
     return "data:image/jpeg;base64," + base64.b64encode(sortie.getvalue()).decode("ascii")
+
+
+# ── Pose des images traduites ────────────────────────────────────────────────
+
+def poser_office(data: bytes, table: dict[str, bytes]) -> bytes:
+    """Paquet Office réécrit, chaque partie nommée dans `table` remplacée.
+
+    Même nom, même ordre d'entrées, même compression ; le reste est copié tel
+    quel. Rien à remplacer : les octets d'origine.
+    """
+    if not table:
+        return data
+    with zipfile.ZipFile(io.BytesIO(data)) as source:
+        entrees = source.infolist()
+        if not any(e.filename in table for e in entrees):
+            return data
+        sortie = io.BytesIO()
+        with zipfile.ZipFile(sortie, "w") as cible:
+            for e in entrees:
+                octets = table[e.filename] if e.filename in table else source.read(e)
+                cible.writestr(copy.copy(e), octets)
+    return sortie.getvalue()
+
+
+def chemin_table(translation_path: str) -> str:
+    """Table des images traduites, gardée à côté de la traduction du document."""
+    return translation_path + ".images.json"
+
+
+def _dossier_images(translation_path: str) -> str:
+    return translation_path + ".images"
+
+
+def _mime_de(octets: bytes) -> str:
+    if octets[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if octets[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if octets[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if octets[:4] == b"RIFF" and octets[8:12] == b"WEBP":
+        return "image/webp"
+    return "application/octet-stream"
+
+
+_EXTENSIONS = {"image/png": ".png", "image/jpeg": ".jpg",
+               "image/gif": ".gif", "image/webp": ".webp"}
+
+
+def _ecrire_atomiquement(chemin: str, octets: bytes) -> None:
+    tmp = chemin + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(octets)
+    os.replace(tmp, chemin)
+
+
+def charger_table(translation_path: str) -> dict[str, bytes]:
+    """{clé d'image: octets traduits} d'un document ; `{}` si absente ou illisible."""
+    try:
+        with open(chemin_table(translation_path), encoding="utf-8") as f:
+            images = json.load(f)["images"]
+        dossier = _dossier_images(translation_path)
+        table = {}
+        for cle, info in images.items():
+            try:
+                with open(os.path.join(dossier, os.path.basename(info["fichier"])), "rb") as f:
+                    table[cle] = f.read()
+            except (OSError, KeyError, TypeError):
+                continue                # image manquante : l'original reste
+        return table
+    except (OSError, ValueError, KeyError, AttributeError):
+        return {}
+
+
+def ecrire_table(translation_path: str, table: dict[str, bytes], rapport: dict,
+                 mimes: dict[str, str] | None = None) -> None:
+    """Écrit la table à côté de la traduction : le JSON `chemin_table` et, dans
+    `<traduction>.images/`, un fichier par image (nom dérivé de la clé).
+    Écriture atomique ; le JSON vient en dernier."""
+    dossier = _dossier_images(translation_path)
+    os.makedirs(dossier, exist_ok=True)
+    images, gardes = {}, set()
+    for cle, octets in table.items():
+        mime = (mimes or {}).get(cle) or _mime_de(octets)
+        nom = hashlib.sha1(cle.encode("utf-8")).hexdigest()[:20] + _EXTENSIONS.get(mime, ".bin")
+        _ecrire_atomiquement(os.path.join(dossier, nom), octets)
+        images[cle] = {"fichier": nom, "mime": mime}
+        gardes.add(nom)
+    for nom in os.listdir(dossier):     # restes d'un passage précédent
+        if nom not in gardes:
+            try:
+                os.remove(os.path.join(dossier, nom))
+            except OSError:
+                pass
+    _ecrire_atomiquement(chemin_table(translation_path), json.dumps(
+        {"rapport": rapport, "images": images}, ensure_ascii=False).encode("utf-8"))
+
+
+def _lire_cache(dossier: str, sha: str):
+    """(remplacée, mime, octets) d'une image déjà traduite, ou None."""
+    try:
+        with open(os.path.join(dossier, sha + ".json"), encoding="utf-8") as f:
+            meta = json.load(f)
+        with open(os.path.join(dossier, sha + ".bin"), "rb") as f:
+            return bool(meta["remplacee"]), meta.get("mime", ""), f.read()
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def _ecrire_cache(dossier: str, sha: str, remplacee: bool, mime: str, octets: bytes) -> None:
+    try:
+        os.makedirs(dossier, exist_ok=True)
+        _ecrire_atomiquement(os.path.join(dossier, sha + ".bin"), octets if remplacee else b"")
+        _ecrire_atomiquement(os.path.join(dossier, sha + ".json"),
+                             json.dumps({"remplacee": remplacee, "mime": mime}).encode("utf-8"))
+    except OSError as e:
+        logger.warning("Cache d'image non écrit : %s", e)
+
+
+def traduire_images(data: bytes, ext: str, traduire, dossier: str, budget: int | None,
+                    analyse: Analyse | None = None) -> tuple[dict[str, bytes], dict]:
+    """Traduit les images à texte du document ; renvoie `(table, rapport)`.
+
+    `table` : {clé d'image: octets traduits}, pour les seules images remplacées.
+    `budget` : nombre d'images remplacées au plus (None : sans limite) ; les
+    suivantes ne sont pas lues (`sans_credit`). Une image dont la lecture ou la
+    traduction échoue reste en original (`echecs`) : jamais d'échec du document.
+    Cache disque par empreinte des octets source, dans `dossier`.
+    """
+    from app.services.ocr import _slot      # sémaphore OCR, partagé avec les scans
+
+    a_texte = (analyse or analyser(data, ext)).a_texte
+    table: dict[str, bytes] = {}
+    rapport = {"proposees": len(a_texte), "traduites": 0, "inchangees": 0,
+               "sans_credit": 0, "echecs": 0}
+    for img in a_texte:
+        if budget is not None and rapport["traduites"] >= budget:
+            rapport["sans_credit"] += 1
+            continue
+        try:
+            if img.octets is None:
+                raise ValueError("octets de l'image absents")
+            sha = hashlib.sha256(img.octets).hexdigest()
+            trouve = _lire_cache(dossier, sha)
+            if trouve is None:
+                with _slot:
+                    rendu = ocr_image.traduire_image(img.octets, traduire)
+                trouve = (rendu.remplacee, rendu.mime, rendu.data)
+                _ecrire_cache(dossier, sha, *trouve)
+        except Exception as e:
+            logger.warning("Image %s non traduite : %s", img.cle, e)
+            rapport["echecs"] += 1
+            continue
+        remplacee, _, octets = trouve
+        if remplacee:
+            table[img.cle] = octets
+            rapport["traduites"] += 1
+        else:
+            rapport["inchangees"] += 1
+    return table, rapport
