@@ -49,7 +49,7 @@ function afficherBouton(video: HTMLVideoElement): void {
       bouton.textContent = "Image non traduisible";
       return;
     }
-    const rep = await envoyerImage(langue, charge);
+    const rep = await envoyerImage(langue, charge, true);
     if (!actifs.has(video)) return;
 
     if (!rep.ok) {

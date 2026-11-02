@@ -12,9 +12,9 @@ export interface Charge {
 
 export const estHttp = (url: string): boolean => /^https?:/i.test(url);
 
-export async function envoyerImage(langue: string, charge: Charge): Promise<ReponseImageBg> {
+export async function envoyerImage(langue: string, charge: Charge, sansMemoire = false): Promise<ReponseImageBg> {
   try {
-    const rep = await versBackground({ type: "image", langue, ...charge });
+    const rep = await versBackground({ type: "image", langue, sansMemoire, ...charge });
     return rep ?? { ok: false, erreur: "indisponible" };
   } catch {
     return { ok: false, erreur: "indisponible" };

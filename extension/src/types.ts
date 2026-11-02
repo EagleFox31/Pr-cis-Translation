@@ -36,9 +36,20 @@ export type MsgImage = {
   src?: string;
   donnees?: string;
   mime?: string;
+  /** Images de vidéo : chaque arrêt sur image est différent, inutile de les garder. */
+  sansMemoire?: boolean;
 };
+export type MsgMemoireEtat = { type: "memoire_etat" };
+export type MsgMemoireEffacer = { type: "memoire_effacer" };
 
-export type VersBackground = MsgConnexion | MsgDeconnexion | MsgEtat | MsgSegments | MsgImage;
+export type VersBackground =
+  | MsgConnexion
+  | MsgDeconnexion
+  | MsgEtat
+  | MsgSegments
+  | MsgImage
+  | MsgMemoireEtat
+  | MsgMemoireEffacer;
 
 export type ReponseConnexion = { ok: true; email: string } | { ok: false; erreur: ErreurConnexion };
 export type ReponseEtat = { connecte: boolean; email?: string };
@@ -48,6 +59,7 @@ export type ReponseSegments =
 export type ReponseImageBg =
   | { ok: true; reponse: ReponseImage }
   | { ok: false; erreur: ErreurImage };
+export type ReponseMemoire = { traductions: number };
 
 export interface ReponsesBackground {
   connexion: ReponseConnexion;
@@ -55,6 +67,8 @@ export interface ReponsesBackground {
   etat: ReponseEtat;
   segments: ReponseSegments;
   image: ReponseImageBg;
+  memoire_etat: ReponseMemoire;
+  memoire_effacer: ReponseMemoire;
 }
 
 export type ReponseDe<M extends VersBackground> = ReponsesBackground[M["type"]];

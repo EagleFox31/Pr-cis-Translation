@@ -1,3 +1,4 @@
+import { libelleMemoire } from "./lib/memoire.ts";
 import { versBackground } from "./pont.ts";
 import type { ErreurConnexion, VersContent } from "./types.ts";
 
@@ -41,8 +42,24 @@ async function afficherVue(): Promise<void> {
     $("compte").textContent = etat.email ?? "";
     const { langue } = await chrome.storage.local.get("langue");
     selectLangue.value = (langue as string | undefined) ?? "fr";
+    afficherMemoire((await versBackground({ type: "memoire_etat" })).traductions);
   }
 }
+
+function afficherMemoire(traductions: number): void {
+  $("memoire").textContent = libelleMemoire(traductions);
+  $("btn-memoire").hidden = traductions === 0;
+}
+
+$("btn-memoire").addEventListener("click", async (e) => {
+  e.preventDefault();
+  try {
+    afficherMemoire((await versBackground({ type: "memoire_effacer" })).traductions);
+    afficher("Mémoire effacée : ces pages seront de nouveau comptées.");
+  } catch {
+    afficher("La mémoire n'a pas pu être effacée.", true);
+  }
+});
 
 vueConnexion.addEventListener("submit", async (e) => {
   e.preventDefault();

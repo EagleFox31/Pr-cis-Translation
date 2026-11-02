@@ -1,11 +1,14 @@
 import { API_BASE } from "./config.ts";
 import { decouperEnLots } from "./lib/lots.ts";
+import { aEnvoyer, cleImage, empreinteCompte, Memoire } from "./lib/memoire.ts";
+import { MagasinIndexedDB } from "./lib/memoire-idb.ts";
 import type {
   ReponseConnexion,
   ReponseDe,
   ReponseEtat,
   ReponseImage,
   ReponseImageBg,
+  ReponseMemoire,
   ReponseSegments,
   VersBackground,
 } from "./types.ts";
@@ -139,12 +142,33 @@ async function etat(): Promise<ReponseEtat> {
   return refresh_token ? { connecte: true, email: email as string | undefined } : { connecte: false };
 }
 
+// --- Mémoire : gardée à la déconnexion, séparée par compte.
+
+const memoire = new Memoire(new MagasinIndexedDB());
+
+async function compteActif(): Promise<string | null> {
+  const { email } = await chrome.storage.local.get("email");
+  return typeof email === "string" && email ? empreinteCompte(email) : null;
+}
+
+async function memoireEtat(): Promise<ReponseMemoire> {
+  const compte = await compteActif();
+  return { traductions: compte ? await memoire.compter(compte) : 0 };
+}
+
+async function memoireEffacer(): Promise<ReponseMemoire> {
+  const compte = await compteActif();
+  if (compte) await memoire.effacer(compte);
+  return memoireEtat();
+}
+
 // --- Texte
 
 async function segments(textes: string[], langue: string, titre: string, contexte: string[]): Promise<ReponseSegments> {
-  const traductions: string[] = [];
+  const compte = await compteActif();
+  const connus = compte ? await memoire.lireTextes(compte, langue, textes) : new Map<string, string>();
   try {
-    for (const lot of decouperEnLots(textes)) {
+    for (const lot of decouperEnLots(aEnvoyer(textes, connus))) {
       const rep = await appelAvecReprises(
         "/api/extension/segments",
         {
@@ -162,12 +186,14 @@ async function segments(textes: string[], langue: string, titre: string, context
       if (!rep.ok) return { ok: false, erreur: "indisponible" };
       const corps = (await rep.json()) as { traductions: string[] };
       if (corps.traductions.length !== lot.length) return { ok: false, erreur: "indisponible" };
-      traductions.push(...corps.traductions);
+      lot.forEach((texte, i) => connus.set(texte, corps.traductions[i]));
+      // Gardé lot par lot : ce lot est payé même si le suivant échoue.
+      if (compte) await memoire.garderTextes(compte, langue, lot, corps.traductions);
     }
   } catch {
     return { ok: false, erreur: "indisponible" };
   }
-  return { ok: true, traductions };
+  return { ok: true, traductions: textes.map((t) => connus.get(t) ?? t) };
 }
 
 // --- Images
@@ -208,9 +234,17 @@ async function image(msg: {
   donnees?: string;
   mime?: string;
   langue: string;
+  sansMemoire?: boolean;
 }): Promise<ReponseImageBg> {
   const blob = await lireImage(msg);
   if (!blob) return { ok: false, erreur: "illisible" };
+
+  const compte = msg.sansMemoire ? null : await compteActif();
+  const cle = compte ? await cleImage(compte, msg.langue, new Uint8Array(await blob.arrayBuffer())) : null;
+  if (cle) {
+    const connue = await memoire.lireImage<ReponseImage>(cle);
+    if (connue) return { ok: true, reponse: { ...connue, pages: 0 } };
+  }
 
   const formulaire = new FormData();
   formulaire.append("file", blob, `image.${extensionDe(blob.type)}`);
@@ -228,7 +262,9 @@ async function image(msg: {
     if (rep.status === 402) return { ok: false, erreur: "credits" };
     if (rep.status === 413 || rep.status === 415) return { ok: false, erreur: "refusee" };
     if (!rep.ok) return { ok: false, erreur: "indisponible" };
-    return { ok: true, reponse: (await rep.json()) as ReponseImage };
+    const reponse = (await rep.json()) as ReponseImage;
+    if (cle && compte) await memoire.garderImage(cle, compte, reponse, JSON.stringify(reponse).length);
+    return { ok: true, reponse };
   } catch {
     return { ok: false, erreur: "indisponible" };
   }
@@ -248,6 +284,10 @@ function traiter(msg: VersBackground): Promise<ReponseDe<VersBackground>> {
       return segments(msg.textes, msg.langue, msg.titre, msg.contexte);
     case "image":
       return image(msg);
+    case "memoire_etat":
+      return memoireEtat();
+    case "memoire_effacer":
+      return memoireEffacer();
   }
 }
 

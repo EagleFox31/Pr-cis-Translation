@@ -16,6 +16,8 @@
     .message.erreur { color: #b91c1c; }
     .note { margin: 12px 0 0; font-size: 12px; color: #6b7280; }
     a.lien { display: inline-block; margin-top: 12px; font-size: 13px; color: #4b5563; }
+    .memoire { display: flex; justify-content: space-between; gap: 8px; }
+    .memoire a { color: #4b5563; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -44,6 +46,10 @@
     </select>
     <button id="btn-traduire" type="button">Traduire cette page</button>
     <button id="btn-original" type="button" class="secondaire">Afficher l'original</button>
+    <p class="note memoire">
+      <span id="memoire"></span>
+      <a id="btn-memoire" href="#" hidden>Effacer</a>
+    </p>
     <a id="btn-deconnexion" class="lien" href="#">Déconnexion</a>
     <p class="note">Les cadres d'une autre origine non accordée ne sont pas traités.</p>
   </div>
