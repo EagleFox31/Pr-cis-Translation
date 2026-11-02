@@ -280,6 +280,19 @@
     "cookies": "Cookies"
   },
   "viewer": {
+    "images": {
+      "title_one": "{{count}} translated image",
+      "title_other": "{{count}} translated images",
+      "restored_one": "{{count}} restored to original",
+      "restored_other": "{{count}} restored to original",
+      "state_translated": "Translated",
+      "state_original": "Original",
+      "pages_one": "Page {{pages}}",
+      "pages_other": "Pages {{pages}}",
+      "use_original": "Restore original",
+      "use_translation": "Restore translation",
+      "error": "The change could not be saved. Please try again."
+    },
     "pause": "Pause",
     "cancel": "Cancel translation",
     "stopping": "Stopping…",

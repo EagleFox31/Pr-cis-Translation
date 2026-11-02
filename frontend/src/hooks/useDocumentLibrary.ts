@@ -15,6 +15,16 @@ export interface PreviewResult {
   missing?: boolean;
 }
 
+/** Image traduite d'un document (`GET /api/documents/{id}/images`). */
+export interface DocImage {
+  cle: string;
+  /** Remise à l'original : le rendu montre l'image d'origine. */
+  originale: boolean;
+  pages: number[];
+  vignette_traduite: string | null;
+  vignette_originale: string | null;
+}
+
 export interface DocMeta {
   id: string;
   filename: string;
@@ -259,6 +269,21 @@ export function useDocumentLibrary() {
     setDocuments([]);
   }, [user, documents]);
 
+  /** Images traduites d'un document du compte ; `[]` si aucune ou hors ligne. */
+  const getDocumentImages = useCallback(async (id: string): Promise<DocImage[]> => {
+    if (!user) return [];
+    const res = await api.get(`/api/documents/${id}/images`);
+    return res.ok ? ((res.data as { images?: DocImage[] }).images ?? []) : [];
+  }, [user]);
+
+  /** Remet une image à l'original (`true`) ou rétablit sa traduction. */
+  const setImageOriginal = useCallback(async (
+    id: string, cle: string, originale: boolean,
+  ): Promise<boolean> => {
+    if (!user) return false;
+    return (await api.patch(`/api/documents/${id}/images`, { cle, originale })).ok;
+  }, [user]);
+
   return { documents, loading, refresh, saveDocument, getBlob, getPreviewBlob,
-           getOriginalBlob, deleteDocument, clearAll };
+           getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal };
 }

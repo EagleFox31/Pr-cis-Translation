@@ -73,6 +73,8 @@ interface StorySectionProps {
   onDownloadOriginal?: () => void;
   onPagesLoaded: (n: number) => void;
   onLibraryOpen?: () => void;
+  /** Bandeau sous la barre d'aperçu (images traduites d'un document de la bibliothèque). */
+  imagesPanel?: React.ReactNode;
 }
 
 export default function StorySection({
@@ -115,6 +117,7 @@ export default function StorySection({
   onDownloadOriginal,
   onPagesLoaded,
   onLibraryOpen,
+  imagesPanel,
 }: StorySectionProps) {
   // Nombre de pages déjà prêtes (traduites ou copiées) — barre de progression.
   const doneCount = Object.values(pageStatuses).filter(
@@ -489,7 +492,7 @@ export default function StorySection({
                     onToggleFocus={onToggleFocus}
                     onStop={onStop}
                   />
-
+                  {imagesPanel}
 
                   <div className="scroll" id="scroll">
                     <DocumentPreview

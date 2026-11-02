@@ -324,13 +324,18 @@ def _ecrire_atomiquement(chemin: str, octets: bytes) -> None:
 
 
 def charger_table(translation_path: str) -> dict[str, bytes]:
-    """{clé d'image: octets traduits} d'un document ; `{}` si absente ou illisible."""
+    """{clé d'image: octets traduits} d'un document ; `{}` si absente ou illisible.
+    Les images remises à l'original (`retirees`) n'y figurent pas."""
     try:
         with open(chemin_table(translation_path), encoding="utf-8") as f:
-            images = json.load(f)["images"]
+            meta = json.load(f)
+        images = meta["images"]
+        retirees = set(meta.get("retirees") or ())
         dossier = _dossier_images(translation_path)
         table = {}
         for cle, info in images.items():
+            if cle in retirees:
+                continue
             try:
                 with open(os.path.join(dossier, os.path.basename(info["fichier"])), "rb") as f:
                     table[cle] = f.read()
@@ -363,6 +368,51 @@ def ecrire_table(translation_path: str, table: dict[str, bytes], rapport: dict,
                 pass
     _ecrire_atomiquement(chemin_table(translation_path), json.dumps(
         {"rapport": rapport, "images": images}, ensure_ascii=False).encode("utf-8"))
+
+
+_VERROU_TABLE = threading.Lock()
+
+
+def _lire_meta(translation_path: str) -> dict | None:
+    try:
+        with open(chemin_table(translation_path), encoding="utf-8") as f:
+            meta = json.load(f)
+        return meta if isinstance(meta.get("images"), dict) else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def etat_images(translation_path: str) -> list[tuple[str, bool, bytes | None]]:
+    """[(clé, remise à l'original ?, octets traduits)] de la table du document."""
+    meta = _lire_meta(translation_path)
+    if meta is None:
+        return []
+    retirees = set(meta.get("retirees") or ())
+    dossier = _dossier_images(translation_path)
+    sortie = []
+    for cle, info in meta["images"].items():
+        try:
+            with open(os.path.join(dossier, os.path.basename(info["fichier"])), "rb") as f:
+                octets = f.read()
+        except (OSError, KeyError, TypeError):
+            octets = None
+        sortie.append((cle, cle in retirees, octets))
+    return sortie
+
+
+def marquer_originale(translation_path: str, cle: str, originale: bool) -> bool:
+    """Remet l'image `cle` à l'original (ou rétablit sa traduction) dans la
+    table ; les octets traduits restent gardés. False si la clé est inconnue."""
+    with _VERROU_TABLE:
+        meta = _lire_meta(translation_path)
+        if meta is None or cle not in meta["images"]:
+            return False
+        retirees = set(meta.get("retirees") or ())
+        retirees.add(cle) if originale else retirees.discard(cle)
+        meta["retirees"] = sorted(retirees)
+        _ecrire_atomiquement(chemin_table(translation_path),
+                             json.dumps(meta, ensure_ascii=False).encode("utf-8"))
+        return True
 
 
 def _lire_cache(dossier: str, sha: str):

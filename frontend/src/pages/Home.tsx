@@ -14,6 +14,7 @@ import PaymentModal from '../components/payment/PaymentModal';
 import DocumentLibrary from '../components/library/DocumentLibrary';
 import { useAuth } from '../contexts/AuthContext';
 import { useDocumentLibrary, STATUTS_REPRENABLES, type DocMeta } from '../hooks/useDocumentLibrary';
+import DocumentImagesPanel from '../components/preview/DocumentImagesPanel';
 import {
   useStreamingTranslation, stopTranslation, type PageStatus, type StopMode,
 } from '../hooks/useStreamingTranslation';
@@ -104,7 +105,7 @@ export default function Home() {
   const stream = useStreamingTranslation(user?.plan === 'free');
 
   // ---- Document library ----
-  const { documents, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll } = useDocumentLibrary();
+  const { documents, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal } = useDocumentLibrary();
 
   // Les droits du document viennent du serveur ; une mise à jour de la
   // bibliothèque après paiement doit aussi débloquer l'aperçu déjà ouvert.
@@ -695,6 +696,19 @@ export default function Home() {
           onDownloadOriginal={selectedFile ? handleDownloadOriginal : undefined}
           onPagesLoaded={setNumPages}
           onLibraryOpen={() => setShowLibrary(true)}
+          imagesPanel={libraryDocId && !suiviBiblio ? (
+            <DocumentImagesPanel
+              docId={libraryDocId}
+              load={getDocumentImages}
+              setOriginal={setImageOriginal}
+              onChanged={() => {
+                // L'image remplacée change le rendu : les pages en cache sont périmées.
+                pageBlobCache.current.clear();
+                fullDocFor.current = null;
+                setPreviewPoll((n) => n + 1);
+              }}
+            />
+          ) : undefined}
         />
 
         <PricingSection isAnnual={isAnnual} onAnnualChange={setIsAnnual} />

@@ -2197,6 +2197,22 @@ footer {
 .tl.muted{background:var(--color-border-tertiary);height:1.5px}
 .thumb-num{font-size:11px;font-weight:500;color:#2563eb;background:#eff6ff;border-radius:4px;padding:1px 8px}
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+/* Images traduites d'un document de la bibliothèque (remettre l'original). */
+.docimg{flex-shrink:0;background:var(--color-background-primary);border-bottom:0.5px solid var(--color-border-tertiary)}
+.docimg-bar{width:100%;display:flex;align-items:center;gap:8px;height:34px;padding:0 14px;border:none;background:transparent;font:inherit;font-size:12px;color:var(--color-text-secondary);cursor:pointer}
+.docimg-bar:hover{background:var(--color-background-secondary)}
+.docimg-bar:focus-visible{outline:2px solid #2563eb;outline-offset:-2px}
+.docimg-note{color:var(--color-text-tertiary,var(--color-text-secondary))}
+.docimg-list{display:flex;gap:10px;padding:4px 14px 12px;overflow-x:auto;max-height:180px}
+.docimg-card{display:flex;gap:10px;align-items:center;flex-shrink:0;padding:8px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md)}
+.docimg-thumb{width:72px;height:72px;display:flex;align-items:center;justify-content:center;background:var(--color-background-secondary);border-radius:4px;overflow:hidden;color:var(--color-text-secondary)}
+.docimg-thumb img{max-width:100%;max-height:100%;object-fit:contain}
+.docimg-meta{display:flex;flex-direction:column;align-items:flex-start;gap:2px;font-size:12px}
+.docimg-state{font-weight:500;color:var(--color-text-primary)}
+.docimg-pages{color:var(--color-text-secondary)}
+.docimg-meta .tb-btn{height:28px;padding:0 8px;margin-left:-8px}
+.docimg-meta .tb-btn:disabled{opacity:.55;cursor:default}
+.docimg-error{margin:0;padding:0 14px 4px;font-size:12px;color:#b91c1c}
 .docbar{height:44px;background:var(--color-background-primary);border-bottom:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;padding:0 14px;gap:8px;flex-shrink:0}
 .toggle{display:flex;background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:3px;height:32px;gap:2px}
 .tgl-btn{border:none;border-radius:6px;padding:0 12px;height:26px;font-size:12px;font-family:var(--font-sans);cursor:pointer;background:transparent;color:var(--color-text-secondary);transition:all 0.12s}

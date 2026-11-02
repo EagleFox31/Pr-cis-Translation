@@ -280,6 +280,19 @@
     "cookies": "Cookies"
   },
   "viewer": {
+    "images": {
+      "title_one": "{{count}} image traduite",
+      "title_other": "{{count}} images traduites",
+      "restored_one": "{{count}} remise à l’original",
+      "restored_other": "{{count}} remises à l’original",
+      "state_translated": "Traduite",
+      "state_original": "Originale",
+      "pages_one": "Page {{pages}}",
+      "pages_other": "Pages {{pages}}",
+      "use_original": "Remettre l’original",
+      "use_translation": "Remettre la traduction",
+      "error": "Le changement n’a pas pu être enregistré. Réessayez."
+    },
     "pause": "Mettre en pause",
     "cancel": "Annuler la traduction",
     "stopping": "Arrêt en cours…",

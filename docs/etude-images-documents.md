@@ -207,3 +207,24 @@ images sous la taille minimale de lecture.
   dans une partie d'extension différente ; le XLSX n'est pas re-rendu à la
   volée (`render_translation_bytes`) ; le cache `images/` est partagé et non
   purgé.
+
+### 9.2 Annulation par image (6.8.4)
+
+- **Ce que voit l'utilisateur** : sous la barre de l'aperçu d'un document de
+  la bibliothèque, un bandeau « N images traduites » (replié). Déplié, chaque
+  image montre sa vignette, ses pages et un bouton « Remettre l'original » /
+  « Remettre la traduction ». L'aperçu se recalcule aussitôt. Rien
+  n'apparaît si le document n'a aucune image traduite.
+- **Rien n'est retraduit ni refacturé** : la table `<trad>.images.json` garde
+  l'image traduite ; une liste `retirees` dit seulement de ne plus la poser.
+  Revenir en arrière est donc gratuit et immédiat.
+- **Traductions partagées entre comptes** : au premier changement, le
+  document reçoit sa propre copie (`…_d<id>`) de la traduction et de ses
+  images ; l'autre compte garde la version d'origine. La copie garde le
+  préfixe `translated…`, donc le ménage existant la couvre.
+- **Routes** : `GET /api/documents/{id}/images` (liste et vignettes) et
+  `PATCH /api/documents/{id}/images` `{cle, originale}` ; 404 pour un
+  document d'un autre compte ou une clé inconnue.
+- **Vérifié** : tests `test_images_retirees.py` (4) ; essai navigateur sur un
+  DOCX à schéma : aller-retour réussi, aperçu rechargé, pas de débordement
+  sur mobile.

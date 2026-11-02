@@ -4,18 +4,21 @@ Routes documents — CRUD par utilisateur.
 from __future__ import annotations
 import json
 import os
+import re
+import shutil
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import Response
 from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel, Field
 # FileResponse retiré : ses réponses Range/206 faisaient échouer
 # les fetch côté frontend (ERR_FAILED 206). On utilise Response partout.
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import TRANSLATIONS_DIR, logger
-from app.services import render_cache, stockage, usage
+from app.services import images_document, render_cache, stockage, usage
 from app.services.documents import reglages_de, traduction_partielle_du_document
 from app.services.jobs import STATUTS_ARRET, STATUTS_REPRENABLES, jobs
 from app.services.office import convert_to_pdf_bytes
@@ -626,6 +629,121 @@ async def preview_document(
 
 
 # ── DELETE /documents/{id} ───────────────────────────────────────────────────
+
+# ── Images traduites : remettre l'original (étude images-documents §8) ───────
+
+class ChoixImage(BaseModel):
+    cle: str = Field(min_length=1, max_length=512)
+    originale: bool
+
+
+async def _doc_traduit(db: AsyncSession, user: User, doc_id: str) -> Document:
+    doc = await db.get(Document, doc_id)
+    if doc is None or doc.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Document introuvable.")
+    if not doc.translated_path or not os.path.isfile(doc.translated_path):
+        raise HTTPException(status_code=404, detail="Ce document n'a pas de traduction disponible.")
+    return doc
+
+
+def _images_du_document(doc: Document) -> list[dict]:
+    etat = images_document.etat_images(doc.translated_path)
+    if not etat:
+        return []
+    ext = os.path.splitext(doc.original_name)[1].lstrip(".").lower()
+    originales: dict[str, images_document.ImageDoc] = {}
+    try:
+        with open(doc.original_path, "rb") as f:
+            originales = {i.cle: i for i in images_document.lister(f.read(), ext)}
+    except (OSError, ValueError, TypeError):
+        pass
+
+    def vignette(octets: bytes | None) -> str | None:
+        try:
+            return images_document.vignette(octets) if octets else None
+        except Exception:
+            return None
+
+    sortie = []
+    for cle, originale, octets in etat:
+        source = originales.get(cle)
+        sortie.append({
+            "cle": cle,
+            "originale": originale,
+            "pages": source.pages if source else [],
+            "vignette_traduite": vignette(octets),
+            "vignette_originale": vignette(source.octets if source else None),
+        })
+    return sortie
+
+
+def _copie_du_document(doc: Document) -> str:
+    """Traduction propre à CE document, créée au premier changement d'image.
+
+    La traduction d'origine peut servir à d'autres comptes (magasin partagé) :
+    on n'y touche pas. La copie (JSON, table et images) vit à côté, sous un nom
+    qui reste une traduction pour le balayage et que seul ce document vise."""
+    trad = doc.translated_path
+    base, extension = os.path.splitext(trad)
+    marque = "_d" + re.sub(r"[^0-9A-Za-z]", "", str(doc.id))[:12]
+    if base.endswith(marque):
+        return trad
+    copie = base + marque + extension
+    shutil.copy2(trad, copie)
+    if os.path.isdir(trad + ".images"):
+        shutil.copytree(trad + ".images", copie + ".images", dirs_exist_ok=True)
+    shutil.copy2(images_document.chemin_table(trad), images_document.chemin_table(copie))
+    return copie
+
+
+def _invalider_rendu(trad: str) -> None:
+    """Le rendu en cache date d'avant le changement : la traduction devient
+    plus récente que lui (`render_cache.cache_valid`), un rendu en cours
+    d'écriture est écarté (`store_render` compare la date relevée avant)."""
+    t = time.time()
+    try:
+        t = max(t, os.path.getmtime(render_cache.cache_path_for(trad)) + 1)
+    except OSError:
+        pass
+    os.utime(trad, (t, t))
+
+
+@router.get("/{doc_id}/images")
+async def images_traduites(
+    doc_id: str,
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Images traduites du document, avec leur état (original ou traduite)."""
+    doc = await _doc_traduit(db, user, doc_id)
+    return {"images": await run_in_threadpool(_images_du_document, doc)}
+
+
+@router.patch("/{doc_id}/images")
+async def choisir_image(
+    doc_id: str,
+    choix: ChoixImage,
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remet une image à l'original, ou rétablit sa traduction. Aucun
+    remboursement : l'image traduite reste gardée pour revenir en arrière."""
+    doc = await _doc_traduit(db, user, doc_id)
+    if not any(cle == choix.cle for cle, _, _ in
+               await run_in_threadpool(images_document.etat_images, doc.translated_path)):
+        raise HTTPException(status_code=404, detail="Image introuvable dans ce document.")
+    try:
+        copie = await run_in_threadpool(_copie_du_document, doc)
+    except OSError:
+        logger.exception("Copie de traduction impossible (doc %s)", doc.id)
+        raise HTTPException(status_code=500, detail="Le changement n'a pas pu être enregistré.")
+    if copie != doc.translated_path:
+        doc.translated_path = copie
+        await db.commit()
+    await run_in_threadpool(images_document.marquer_originale, copie, choix.cle, choix.originale)
+    await run_in_threadpool(_invalider_rendu, copie)
+    return {"cle": choix.cle, "originale": choix.originale}
+
 
 @router.delete("/{doc_id}")
 async def delete_document(
