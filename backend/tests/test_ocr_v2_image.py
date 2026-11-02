@@ -154,6 +154,13 @@ def cas_placer():
     assert p is not None and len(p["lignes"]) > 1, p
     assert 20 <= p["y"] and p["y"] + (len(p["lignes"]) - 1) * p["pas"] + p["haut_glyphe"] <= 160, p
     assert placer(b, 640, libre=(48, 76)) is None
+    # Étiquette serrée entre deux traits (cadre = sa largeur) : sur deux lignes,
+    # elle n'entre qu'en dessous du seuil de croissance ; elle grandit quand même.
+    b = blocs([("Outlet pipe", (189, 140, 173, 42))])[0]
+    b.traduction = "Tuyau de refoulement"
+    q = placer(b, 640, libre=(78, 359), cadre=(189, 362, True))
+    assert q is not None and len(q["lignes"]) == 2 and q["larg"] <= 173, q
+    assert 78 <= q["y"] and q["y"] + q["haut"] <= 359, q
     print(f"  mise en place : élargie et réduite ({p['taille']} px, {len(p['lignes'])} ligne(s)), "
           "trop longue refusée")
 

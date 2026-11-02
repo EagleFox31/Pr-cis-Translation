@@ -228,3 +228,31 @@ images sous la taille minimale de lecture.
 - **Vérifié** : tests `test_images_retirees.py` (4) ; essai navigateur sur un
   DOCX à schéma : aller-retour réussi, aperçu rechargé, pas de débordement
   sur mobile.
+
+### 9.3 Essai de bout en bout (6.8.5, 02/11)
+
+- **Essai** : un DOCX et un PDF contenant le même schéma annoté (pompe
+  centrifuge, 9 étiquettes) traduits en français par l'API locale, option
+  images activée.
+- **Résultat** : les deux documents sortent avec le schéma traduit, la mise
+  en page est gardée, et 2 pages sont débitées à chaque fois (1 de texte et
+  1 pour l'image). Aucun reste d'effacement n'est visible.
+- **Écart trouvé puis corrigé** : « Outlet pipe » restait en anglais, et le
+  rapport comptait quand même l'image comme traduite. L'étiquette est
+  coincée entre deux traits, donc elle n'a pas plus de place que sa propre
+  largeur. « Tuyau de refoulement » n'y entre que sur 2 lignes, à une taille
+  plus petite que le seuil à partir duquel une traduction a le droit de
+  descendre sous l'étiquette d'origine. Le programme n'avait donc aucune
+  taille possible et laissait l'original sans rien dire.
+  Correctif (`ocr_v2/image.py`, `placer`) : un second passage permet de
+  descendre plus bas jusqu'au plancher de lisibilité, avec une ligne de plus
+  au maximum. Un bloc beaucoup trop long reste refusé.
+  Test : `cas_placer` dans `tests/test_ocr_v2_image.py`.
+- **Reste** : une étiquette non posée n'apparaît toujours pas dans le
+  rapport de l'image (comptage par image, pas par étiquette). C'est à revoir
+  si des utilisateurs le remarquent.
+- **À savoir pour refaire l'essai** : il y a deux caches à vider,
+  `translations/<doc>/<langue>/*_img*` (le document) et
+  `translations/<doc>/<langue>/images/` (les images). Le serveur doit aussi
+  être relancé, car le rechargement automatique ne relit pas le code
+  d'OCR.

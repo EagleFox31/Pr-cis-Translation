@@ -265,25 +265,30 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
     x0, x1, centre = cadre
     lmax = x1 - x0
     plancher = max(min(PLANCHER * s0, LISIBLE_PX), PLANCHER_PX)
-    s = min(s0, taille_max or s0)
-    while s >= plancher:
-        police = _police(fichier, s)
-        texte_l = _couper(bloc.traduction, police, lmax)
-        pas = max(pas0, hl * 1.15) * s / s0
-        haut = (len(texte_l) - 1) * pas + k * s
-        larg = max(police.getlength(t) for t in texte_l)
-        tient = larg <= lmax and haut <= h + 0.1 * hl
-        # Étiquette centrée dans sa boîte ; sinon la première ligne reste à sa place.
-        y1 = y + (h - haut) / 2 if centre and tient else y + (bloc.lignes[0][3] - k * s) / 2
-        if (not tient and libre and larg <= lmax and s >= GRANDIR * s0
-                and haut <= min(libre[1] - libre[0], h + GRANDIR_LIGNES * hl)):
-            y1, tient = min(max(y1, libre[0]), libre[1] - haut), True
-        if tient:
-            xt = x + w / 2 - larg / 2 if centre else x
-            xt = min(max(xt, x0), x1 - larg)
-            return {"taille": s, "lignes": texte_l, "pas": pas, "x": xt, "y": y1,
-                    "haut_glyphe": k * s, "larg": larg, "haut": haut, "fichier": fichier}
-        s = int(s * 0.94) if s > 20 else s - 1
+    # Second passage : une étiquette serrée en largeur peut n'entrer sur deux
+    # lignes qu'en dessous du seuil de croissance ; mieux vaut alors grandir
+    # plus petit, d'une ligne au plus, que laisser l'original.
+    for seuil, nmax in ((GRANDIR * s0, None), (plancher, n0 + 1)) if libre else ((s0, None),):
+        s = min(s0, taille_max or s0)
+        while s >= plancher:
+            police = _police(fichier, s)
+            texte_l = _couper(bloc.traduction, police, lmax)
+            pas = max(pas0, hl * 1.15) * s / s0
+            haut = (len(texte_l) - 1) * pas + k * s
+            larg = max(police.getlength(t) for t in texte_l)
+            tient = larg <= lmax and haut <= h + 0.1 * hl
+            # Étiquette centrée dans sa boîte ; sinon la première ligne reste à sa place.
+            y1 = y + (h - haut) / 2 if centre and tient else y + (bloc.lignes[0][3] - k * s) / 2
+            if (not tient and libre and larg <= lmax and s >= seuil
+                    and (nmax is None or len(texte_l) <= nmax)
+                    and haut <= min(libre[1] - libre[0], h + GRANDIR_LIGNES * hl)):
+                y1, tient = min(max(y1, libre[0]), libre[1] - haut), True
+            if tient:
+                xt = x + w / 2 - larg / 2 if centre else x
+                xt = min(max(xt, x0), x1 - larg)
+                return {"taille": s, "lignes": texte_l, "pas": pas, "x": xt, "y": y1,
+                        "haut_glyphe": k * s, "larg": larg, "haut": haut, "fichier": fichier}
+            s = int(s * 0.94) if s > 20 else s - 1
     return None
 
 
