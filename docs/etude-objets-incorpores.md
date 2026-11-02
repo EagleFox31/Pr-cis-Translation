@@ -236,6 +236,17 @@ Les tests unitaires restent synthétiques, sans LibreOffice. Seuls les tests mar
 - en traduction progressive PPTX, les objets des masques, dispositions et notes ne sont pas traités (déjà le cas avant) ;
 - le devis compte désormais le texte des objets (D1) ; le détail facturable et le compte rendu client relèvent de 6.11.6.
 
+**Bilan 6.11.4 (02/11/2026)** — nouveau module `engines/apercus.py`, appelé par `incorpores.reinjecter` : il couvre donc DOCX, XLSX et PPTX (passe finale comme traduction progressive). L'ancien redessin propre au moteur PPTX (`regenerate_ole_previews`, Excel seulement) et ses appels dans `translation_runner` sont retirés.
+- **Un seul appel LibreOffice** pour tous les objets d'un fichier (nouvel essai si un profil neuf ne produit rien), sous le verrou commun des aperçus.
+- **Classeur** : copie de rendu (zone visible `oleSize` en zone d'impression, autres feuilles masquées, une page A4 paysage, % explicites), puis PDF → PNG rogné au contenu, fond transparent, pages empilées, complété (jamais rogné) aux proportions du cadre.
+- **Document / présentation** : première page ou diapositive ; règle D3 appliquée (écart de proportions > 10 % → aperçu d'origine).
+- **Jamais redessinés** : icônes, objets liés, objets sans aperçu. En cas d'échec, l'aperçu d'origine reste.
+- **Rebranchement** : un nouveau PNG `<aperçu>_traduit.png` ; toutes les relations vers l'ancien aperçu (diapositive, feuille, dessin VML) le visent, type PNG déclaré. L'ancien EMF reste dans le paquet, orphelin : il peut être partagé par un autre objet, et Office l'ignore.
+- **Cache** : 64 rendus par empreinte (copie de rendu + type + version + proportions) ; un second passage sur le même fichier ne relance pas LibreOffice (6 s → 0,4 s à l'essai).
+- **Preuves** : `tests/test_ole_apercu.py` (21 tests, LibreOffice simulé) ; essai réel Docker (`precis-ocr-test`, 2 CPU) sur une diapositive portant un classeur, un document et une présentation : classeur redessiné et traduit dans la diapositive rendue ; document et présentation écartés par D3 (cadre 1,5 contre 2,6 et 1,33), comme prévu.
+- **Revue (corrigée)** : identifiants de format % pris libres (plus de collision avec un format existant) ; délai LibreOffice proportionnel au nombre d'objets ; un échec de rendu n'est pas mis en cache (retenté) ; une image d'aperçu partagée avec un objet non traduit (diapositive dupliquée hors plage) n'est pas redessinée.
+- **À vérifier en 6.11.7** : PowerPoint réel face à l'EMF orphelin (l'ancien code évoquait une réparation). **En 6.11.5** : classeur dont la feuille active est une feuille graphique.
+
 ---
 
 ## 8. Points à trancher

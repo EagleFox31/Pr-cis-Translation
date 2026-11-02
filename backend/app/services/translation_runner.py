@@ -36,7 +36,7 @@ from app.services import extension as ext_service
 from app.services import images_document, render_cache
 from engines import runtags
 from app.services.jobs import ArretDemande, _dans_une_boucle_jetable, jobs
-from app.services.office import SOFFICE_PATH, convert_to_pdf_bytes
+from app.services.office import convert_to_pdf_bytes
 from app.services.progressive_preview import (ProgressivePreview,
                                               ecrire_atomiquement)
 from engines.translation_ai import TranslatorAI
@@ -849,9 +849,6 @@ def run_pptx_progressive_job(
         # temporaire est muté par plusieurs slides à la fois et un partiel lu au
         # vol serait incohérent. L'admin échange l'aperçu progressif contre la
         # vitesse (il verra le partiel final, comme avant).
-        # Diapositives dont l'aperçu Excel incorporé a été refait EN LIGNE : la
-        # passe finale n'y reviendra pas.
-        _ole_faits: set[int] = set()
 
         _apercu = ProgressivePreview(
             extraire=_extraire_diapos,
@@ -895,18 +892,6 @@ def run_pptx_progressive_job(
                 # disque plein). Sans lui, toute greffe échoue : on retente.
                 if not _apercu.pret:
                     _preparer_socle()
-
-                # PIÈCE JOINTE EXCEL D'ABORD. Un objet Excel incorporé s'affiche
-                # via une IMAGE de remplacement figée à la création : sans cette
-                # passe, la diapositive « terminée » montrerait son tableau en
-                # langue SOURCE. Best-effort et silencieux si rien à faire (la
-                # plupart des diapositives n'ont aucun objet OLE).
-                try:
-                    pptx_eng.regenerate_ole_previews(
-                        soffice_path=SOFFICE_PATH, only_slides=set(nums))
-                    _ole_faits.update(nums)
-                except Exception as e:
-                    logger.warning("Aperçu Excel diapo %s : %s", nums, e)
 
                 ecrire_atomiquement(partial_path, _apercu.greffer(nums))
                 # APRÈS l'écriture : lue avant le fichier par /partial, la
@@ -1037,7 +1022,7 @@ def run_pptx_progressive_job(
                 if not debug:
                     _ecrire_reprise(reprise_path, slides_traduites)
                 pptx_eng.inject_slide(slide_num, tmap)
-                apercu_ok = _afficher_slide(slide_num)   # OLE + greffe + emit
+                apercu_ok = _afficher_slide(slide_num)   # greffe + emit
 
             with done_lock:
                 done += 1
@@ -1162,25 +1147,6 @@ def run_pptx_progressive_job(
                                 f"pour cohérence terminologique")
             except Exception as e:
                 logger.warning(f"Job {job_id}: contrôle de cohérence ignoré : {e}")
-
-        # ── Aperçus OLE Excel : régénérés depuis les classeurs traduits ────
-        # Pour que le fichier téléchargé (et l'aperçu final) montre les
-        # tableaux/graphiques Excel EN LANGUE CIBLE sans devoir activer l'objet
-        # dans PowerPoint. Best-effort : un échec n'interrompt pas la traduction.
-        try:
-            jobs.emit(job_id, "progress", {"step": "ole", "message": "Régénération des aperçus Excel...", "page": 0, "total": None})
-            # Ce qui RESTE : les diapositives que le convertisseur progressif
-            # n'a pas traitées — mode parallèle (admin), lot en échec, ou aperçu
-            # désactivé. `None` = tout le document, le comportement d'origine.
-            reste = ({n for n in slides_to_process if n not in _ole_faits}
-                     if _ole_faits else None)
-            n_ole = (0 if reste == set() else
-                     pptx_eng.regenerate_ole_previews(
-                         soffice_path=SOFFICE_PATH, only_slides=reste))
-            if n_ole:
-                logger.info(f"Job {job_id}: {n_ole} aperçu(s) OLE Excel régénéré(s)")
-        except Exception as e:
-            logger.warning(f"Job {job_id}: régénération OLE ignorée : {e}")
 
         # ── PPTX final ────────────────────────────────────────────────────
         jobs.emit(job_id, "progress", {"step": "inject", "message": "Génération du PPTX final...", "page": 0, "total": None})

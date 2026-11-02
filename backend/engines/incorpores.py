@@ -993,7 +993,8 @@ def _reinjecter(source, traductions: dict[str, str], base, niveau: int,
                 budget: Budget) -> Modifs:
     modifs = Modifs()
     # Seuls les objets dont un id traduit porte le nom sont ouverts.
-    objets = [o for o in reperer(source)
+    tous = reperer(source)
+    objets = [o for o in tous
               if any(f"_{stem(o.cible)}__" in k for k in traductions)]
     if not objets:
         return modifs
@@ -1004,6 +1005,7 @@ def _reinjecter(source, traductions: dict[str, str], base, niveau: int,
     with zf:
         retenus, trouves = _retenir(zf, objets, base, niveau, budget)
         pris = set(zf.namelist())
+    traduits: dict[str, tuple[str, bytes]] = {}
     for cible, trouve in trouves.items():
         if trouve is None:
             continue
@@ -1045,12 +1047,58 @@ def _reinjecter(source, traductions: dict[str, str], base, niveau: int,
             else:
                 modifs.parties[cible] = reecrire(ex, nouveaux)
             modifs.cibles.append(cible)
+            traduits[cible] = (type_, nouveaux)
         except Exception as exc:  # noqa: BLE001 — au mieux : l'objet d'origine est gardé
             logger.warning("Objet %s non réinjecté : %s", cible, exc)
             continue
         finally:
             shutil.rmtree(dossier, ignore_errors=True)
+    _redessiner_apercus(modifs, traduits, retenus, tous, pris)
     return modifs
+
+
+_TYPE_IMAGE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+
+
+def _redessiner_apercus(modifs: Modifs, traduits: dict[str, tuple[str, bytes]],
+                        retenus: list[ObjetIncorpore], tous: list[ObjetIncorpore],
+                        pris: set[str]) -> None:
+    """Refait l'image affichée des objets traduits (6.11.4) : un PNG neuf, vers
+    lequel TOUTES les relations de l'aperçu (DrawingML et VML) sont réorientées.
+    Une icône garde son image ; l'ancien aperçu reste, orphelin (il peut servir
+    ailleurs dans le paquet). Un aperçu non redessiné reste celui d'origine.
+    Une image partagée avec un objet NON traduit (diapositive dupliquée hors
+    de la plage, objet sauté) n'est pas redessinée : elle le montrerait traduit."""
+    from engines import apercus
+    demandes, objets = [], {}
+    for o in retenus:
+        if o.cible not in traduits or o.icone or o.lie or not o.apercu or o.apercu in objets:
+            continue
+        if any(a.apercu == o.apercu and a.cible not in traduits for a in tous):
+            continue
+        type_, nouveaux = traduits[o.cible]
+        demandes.append(apercus.Demande(o.apercu, type_, nouveaux, o.ratio))
+        objets[o.apercu] = o
+    if not demandes:
+        return
+    try:
+        rendus = apercus.redessiner(demandes)
+    except Exception as exc:  # noqa: BLE001 — au mieux : les aperçus d'origine restent
+        logger.warning("Aperçus non redessinés : %s", exc)
+        return
+    for apercu, png in rendus.items():
+        o = objets[apercu]
+        nom = _nom_libre(posixpath.join(posixpath.dirname(apercu), stem(apercu) + "_traduit"),
+                         "png", pris | set(modifs.parties))
+        modifs.parties[nom] = png
+        for rels, rid in o.relations_apercu:
+            source = posixpath.dirname(posixpath.dirname(rels))
+            modifs.retouches.append(
+                ("rel", rels, rid, posixpath.relpath(nom, source or "."), _TYPE_IMAGE))
+    if rendus:
+        defaut = ("defaut", "png", "image/png")
+        if defaut not in modifs.retouches:
+            modifs.retouches.append(defaut)
 
 
 def _remplacer_ancien(modifs: Modifs, ex: Extrait, type_: str, nouveaux: bytes,
