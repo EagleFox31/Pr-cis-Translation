@@ -50,6 +50,10 @@ class User(Base):
                                                       nullable=True)
     phone_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True),
                                                                nullable=True)
+    # Extension : caractères de texte déjà payés (page entière entamée) et pas
+    # encore consommés ; la passe suivante les utilise avant de débiter.
+    extension_avance: Mapped[int] = mapped_column(Integer, default=0, server_default="0",
+                                                  nullable=False)
     created_at:    Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at:    Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow,

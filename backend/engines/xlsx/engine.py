@@ -49,6 +49,7 @@ from pathlib import Path
 from lxml import etree
 from engines.xlsx import expansion
 
+from engines import incorpores
 from engines.base import TranslationEngine
 
 #: Espaces de noms SpreadsheetML.
@@ -511,6 +512,7 @@ class XLSXTranslatorEngine(TranslationEngine):
         # APRÈS les chaînes, et jamais avant : les alignements RECOPIENT
         # les cellules telles qu'elles viennent d'être traduites.
         self._aligner_tableaux(dossier)
+        self._aligner_graphiques(dossier)
         self._aligner_croises(dossier, traductions)
         # En DERNIER : la place se mesure sur le texte final.
         expansion.ajuster_dossier(dossier, self._origine)
@@ -642,7 +644,8 @@ class XLSXTranslatorEngine(TranslationEngine):
 
     # ── Extraction ────────────────────────────────────────────────────────
     def extract_text(self, input_path: str, output_json: str = "extraction_xlsx.json",
-                     filters: dict | None = None, progress_callback=None):
+                     filters: dict | None = None, progress_callback=None,
+                     niveau_objets: int = 1):
         """Relève le texte traduisible du classeur.
 
         Le relevé porte l'IDENTITÉ de chaque chaîne (partie + index), pas sa
@@ -677,6 +680,13 @@ class XLSXTranslatorEngine(TranslationEngine):
             },
             "types": {k: sorted(v) for k, v in types.items()},
         }
+
+        # Objets incorporés (Word, PowerPoint, autre Excel) : leurs textes, à
+        # plat, HORS de `workbook.elements` — ce ne sont pas des éléments du
+        # classeur et le chemin progressif n'injecte que ceux-là.
+        objets, rapport_objets = incorpores.relever(input_path, niveau=niveau_objets)
+        extraction["objets"] = objets
+        extraction["objets_rapport"] = rapport_objets
 
         with open(output_json, "w", encoding="utf-8") as f:
             json.dump(extraction, f, ensure_ascii=False, indent=2)
@@ -1069,6 +1079,83 @@ class XLSXTranslatorEngine(TranslationEngine):
                                / rels.name[:-len(".rels")])
                     return feuille if feuille.exists() else None
         return None
+
+    _REF_GRAPHIQUE = re.compile(
+        r"^(?:'((?:[^']|'')+)'|([^'!]+))!\$?([A-Za-z]{1,3})\$?(\d+)"
+        r"(?::\$?([A-Za-z]{1,3})\$?(\d+))?$")
+
+    @staticmethod
+    def _lettres(colonne: int) -> str:
+        """1 → « B ». L'inverse de `_colonne_de_ref` (index 0-basé)."""
+        out = ""
+        colonne += 1
+        while colonne:
+            colonne, reste = divmod(colonne - 1, 26)
+            out = chr(65 + reste) + out
+        return out
+
+    def _aligner_graphiques(self, dossier: Path) -> None:
+        """Recopie dans les caches des graphiques le texte TRADUIT des cellules.
+
+        Un nom de série ou une catégorie (`<c:strRef>`) cite une plage de la
+        feuille et en garde une copie (`<c:strCache>`). On ne traduit pas
+        cette copie (cf. `_textes_de_graphique`), mais la laisser en langue
+        source est faux aussi : l'aperçu d'un classeur incorporé, LibreOffice
+        et Excel avant tout rafraîchissement dessinent depuis ce cache. On y
+        recopie donc la cellule telle qu'elle vient d'être traduite : même
+        texte que la feuille, sans second appel au modèle.
+
+        Seules les plages simples (`Feuil1!$A$2:$A$5`) sont lues ; une
+        référence multi-zones est laissée telle quelle.
+        """
+        dossier_charts = dossier / "xl" / "charts"
+        if not dossier_charts.is_dir():
+            return
+        feuilles = {f["nom"]: dossier / f["cible"] for f in self.feuilles()}
+        magasin = self._magasin_courant(dossier)
+        lues: dict[Path, dict] = {}
+
+        def cellule(chemin: Path, ref: str):
+            if chemin not in lues:
+                lues[chemin] = ({c.get("r"): c for c in etree.parse(
+                    str(chemin)).getroot().xpath(".//s:c[@r]", namespaces=NS)}
+                    if chemin.exists() else {})
+            return lues[chemin].get(ref)
+
+        for chart in sorted(dossier_charts.glob("chart*.xml")):
+            arbre = etree.parse(str(chart))
+            touche = False
+            for sref in arbre.getroot().xpath(".//c:strRef", namespaces=NS):
+                f = sref.find("c:f", NS)
+                cache = sref.find("c:strCache", NS)
+                m = (self._REF_GRAPHIQUE.match(f.text.strip())
+                     if f is not None and f.text else None)
+                if m is None or cache is None:
+                    continue
+                chemin = feuilles.get(m.group(1).replace("''", "'")
+                                      if m.group(1) else m.group(2))
+                if chemin is None:
+                    continue
+                c1, l1 = self._colonne_de_ref(m.group(3)), int(m.group(4))
+                c2, l2 = ((self._colonne_de_ref(m.group(5)), int(m.group(6)))
+                          if m.group(5) else (c1, l1))
+                refs = [f"{self._lettres(c)}{ligne}"
+                        for ligne in range(l1, l2 + 1)
+                        for c in range(c1, c2 + 1)]
+                for pt in cache.xpath("c:pt", namespaces=NS):
+                    v = pt.find("c:v", NS)
+                    idx = pt.get("idx") or ""
+                    if v is None or not idx.isdigit() or int(idx) >= len(refs):
+                        continue
+                    cel = cellule(chemin, refs[int(idx)])
+                    texte = (self._texte_de_cellule(cel, magasin)
+                             if cel is not None else None)
+                    if texte is not None and texte != v.text:
+                        v.text = texte
+                        touche = True
+            if touche:
+                arbre.write(str(chart), xml_declaration=True,
+                            encoding="UTF-8", standalone=True)
 
     def _aligner_tableaux(self, dossier: Path) -> None:
         """`xl/tables/table*.xml` — aligne les en-têtes sur les cellules.
@@ -1595,11 +1682,43 @@ class XLSXTranslatorEngine(TranslationEngine):
                                 "cell": ref},
                 })
                 types["workbook"].add("Chaîne en ligne")
+            # `t="str"` SANS formule : texte nu écrit dans la feuille (exports,
+            # classeurs incorporés). Avec une formule, la valeur est recalculée
+            # à l'ouverture : la traduire ne servirait à rien.
+            for cellule in arbre.getroot().xpath(
+                    ".//s:c[@t='str'][not(s:f)]", namespaces=NS):
+                ref = cellule.get("r") or ""
+                balise = _baliser(cellule.xpath("s:v", namespaces=NS))
+                if not balise:
+                    continue
+                elements.append({
+                    "id": f"str_{feuille.stem}_{ref}",
+                    "text": balise,
+                    "context": {"part": "str", "sheet": feuille.stem,
+                                "cell": ref},
+                })
+                types["workbook"].add("Chaîne en ligne")
 
     # ── Injection ─────────────────────────────────────────────────────────
+    def injecter_objets(self, chemin_sortie: str, traductions: dict,
+                        niveau_objets: int = 1) -> None:
+        """Traduit, dans le classeur produit, les objets incorporés.
+
+        `traductions` : {id relevé: texte traduit} (la clé `objets` du JSON).
+        Au mieux : un objet qui échoue reste dans sa langue d'origine, le
+        classeur déjà produit n'est jamais compromis."""
+        if not traductions:
+            return
+        try:
+            incorpores.appliquer_fichier(chemin_sortie, incorpores.reinjecter(
+                chemin_sortie, traductions, niveau=niveau_objets))
+        except Exception as exc:  # noqa: BLE001
+            incorpores.logger.warning("Objets XLSX non réinjectés : %s", exc)
+
     def inject_translation(self, original_path: str, translated_json: str,
                            output_path: str, format_options: dict | None = None,
-                           progress_callback=None) -> tuple[bool, str]:
+                           progress_callback=None,
+                           niveau_objets: int = 1) -> tuple[bool, str]:
         """Réinjecte la traduction et réassemble le classeur.
 
         Les nœuds sont modifiés SUR PLACE : aucun `<t>` n'est supprimé ni
@@ -1616,8 +1735,20 @@ class XLSXTranslatorEngine(TranslationEngine):
             el["id"]: el.get("translated_text", el.get("text", ""))
             for el in donnees.get("workbook", {}).get("elements", [])
         }
+        traductions_objets = {
+            el["id"]: el.get("translated_text") or el["text"]
+            for el in donnees.get("objets", [])
+        }
         if not traductions:
-            return False, "Aucun texte traduit à réinjecter."
+            if not traductions_objets:
+                return False, "Aucun texte traduit à réinjecter."
+            # Rien à traduire dans le classeur lui-même, seulement dans ses objets.
+            try:
+                shutil.copyfile(original_path, output_path)
+            except OSError as exc:
+                return False, f"Le classeur n'a pas pu être reconstruit : {exc}"
+            self.injecter_objets(output_path, traductions_objets, niveau_objets)
+            return True, "Classeur traduit."
 
         try:
             dossier = self._ouvrir(original_path)
@@ -1642,11 +1773,13 @@ class XLSXTranslatorEngine(TranslationEngine):
             # APRÈS les chaînes, et jamais avant : les alignements RECOPIENT
             # les cellules telles qu'elles viennent d'être traduites.
             self._aligner_tableaux(dossier)
+            self._aligner_graphiques(dossier)
             self._aligner_croises(dossier, traductions)
             # En DERNIER : la place se mesure sur le texte final.
             expansion.ajuster_dossier(dossier, self._origine)
 
             self._refermer(output_path)
+            self.injecter_objets(output_path, traductions_objets, niveau_objets)
             return True, "Classeur traduit."
         except Exception as exc:
             # Le message part vers l'utilisateur : il dit ce qui s'est passé,
@@ -1740,6 +1873,24 @@ class XLSXTranslatorEngine(TranslationEngine):
                 arbre_f.write(str(chemin), xml_declaration=True,
                               encoding="UTF-8", standalone=True)
 
+        # 3. Les plages citées par les graphiques (`<c:f>` des séries) :
+        #    sans elles, une série pointe vers un onglet qui n'existe plus.
+        dossier_charts = dossier / "xl" / "charts"
+        if dossier_charts.is_dir():
+            for chart in sorted(dossier_charts.glob("chart*.xml")):
+                arbre_c = etree.parse(str(chart))
+                touche = False
+                for noeud in arbre_c.getroot().xpath(".//c:f", namespaces=NS):
+                    if not noeud.text:
+                        continue
+                    reecrit = reecrire_references(noeud.text, renommage)
+                    if reecrit != noeud.text:
+                        noeud.text = reecrit
+                        touche = True
+                if touche:
+                    arbre_c.write(str(chart), xml_declaration=True,
+                                  encoding="UTF-8", standalone=True)
+
     def _injecter_chaines_partagees(self, dossier: Path, traductions: dict) -> None:
         chemin = dossier / "xl" / "sharedStrings.xml"
         if not chemin.exists():
@@ -1765,6 +1916,14 @@ class XLSXTranslatorEngine(TranslationEngine):
                     continue
                 self._repartir(cellule.xpath(".//s:is//s:t", namespaces=NS),
                                traduit)
+                touche = True
+            for cellule in arbre.getroot().xpath(".//s:c[@t='str'][not(s:f)]",
+                                                 namespaces=NS):
+                traduit = traductions.get(
+                    f"str_{feuille.stem}_{cellule.get('r') or ''}")
+                if traduit is None:
+                    continue
+                self._repartir(cellule.xpath("s:v", namespaces=NS), traduit)
                 touche = True
             if touche:
                 arbre.write(str(feuille), xml_declaration=True,

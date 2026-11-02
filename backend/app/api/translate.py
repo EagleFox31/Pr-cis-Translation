@@ -13,6 +13,7 @@ import json
 import os
 import queue
 from typing import Literal
+import shutil
 
 from fastapi import (APIRouter, Depends, File, Form, Header, HTTPException,
                      Request, UploadFile)
@@ -39,11 +40,12 @@ from app.services import usage
 from app.services import anti_abus
 from app.services import beta
 from app.services.beta_meter import BetaCost, FORMATS as BETA_FORMATS, office_cost
+from app.services.images_document import Analyse, analyser as analyser_images, vignette
 from app.services.ocr import OCR_VERSION, OCRError, prepare_scanned_pdf
 from app.services.jobs import STATUTS_ARRET, STATUTS_REPRENABLES, jobs
 from app.services.office import convert_to_pdf_bytes
 from app.services.scheduler import scheduler
-from app.services.translation_runner import (run_pdf_v2_job,
+from app.services.translation_runner import (_chemin_reprise, run_pdf_v2_job,
                                              run_pptx_progressive_job,
                                              run_translation_job,
                                              run_xlsx_progressive_job,
@@ -57,6 +59,14 @@ router = APIRouter(tags=["Traduction"])
 
 @router.options("/api/translate")
 async def translate_options():
+    return JSONResponse(content={}, headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, X-API-Key",
+    })
+
+@router.options("/api/translate/analyse")
+async def analyse_options():
     return JSONResponse(content={}, headers={
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -171,6 +181,66 @@ def qualite_autorisee(quality: str, precise: str, user: "User") -> str:
     if quality != "precise" or user.plan != "admin":
         return "fast"
     return "precise"
+APERCUS_MAX = 50
+
+
+def _analyse_images(file_bytes: bytes, ext: str):
+    """Pages du document et images à texte (détection seule, aucune lecture)."""
+    if ext in ("pdf", "docx", "pptx", "xlsx"):
+        analyse = analyser_images(file_bytes, ext)
+    else:
+        analyse = Analyse()
+    try:
+        pages = count_pages(file_bytes, ext)
+    except ValueError:
+        # Document fait seulement d'images à texte : rien à compter côté texte,
+        # mais les images restent proposées.
+        if not analyse.a_texte:
+            raise
+        pages = 0
+    apercus = []
+    for img in analyse.a_texte[:APERCUS_MAX]:
+        try:
+            miniature = vignette(img.octets)
+        except Exception:
+            miniature = ""
+        apercus.append({"cle": img.cle, "pages": img.pages, "largeur": img.largeur,
+                        "hauteur": img.hauteur, "vignette": miniature})
+    return {"pages": pages, "images": len(analyse.a_texte), "analysees": analyse.analysees,
+            "total": sum(1 for i in analyse.images if not i.exclusion),
+            "incomplet": analyse.incomplet, "indisponible": analyse.indisponible,
+            "apercus": apercus}
+
+
+@router.post("/api/translate/analyse")
+async def analyse_endpoint(
+    file: UploadFile = File(...),
+    x_api_key: str = Header(None),
+    current_user: "User" = Depends(require_auth),
+):
+    """Dit quelles images du document contiennent du texte, avant le lancement.
+    Ne traduit ni ne débite rien ; la détection est légère et bornée, elle ne
+    prend donc pas le sémaphore de l'OCR."""
+    verify_api_key(x_api_key)
+
+    filename = file.filename or ""
+    ext = filename.split(".")[-1].lower() if "." in filename else ""
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Type non supporté : .{ext}")
+
+    try:
+        file_bytes = await file.read()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Impossible de lire le fichier. Vérifiez qu'il n'est pas corrompu et réessayez.")
+
+    if len(file_bytes) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail=f"Fichier trop volumineux ({len(file_bytes)/(1024*1024):.1f} Mo, max 100 Mo).")
+
+    try:
+        resultat = await run_in_threadpool(_analyse_images, file_bytes, ext)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return JSONResponse(content=resultat)
 
 
 @router.post("/api/translate")
@@ -188,6 +258,9 @@ async def translate_endpoint(
     # l'utilisateur après un 402 `need_credits`. Sans lui, un solde insuffisant
     # refuse le document entier — jamais de troncature silencieuse.
     covered_only: str = Form(""),
+    # Option « traduire aussi les images du document » : 1 page par image
+    # réellement remplacée, comptée en plus du texte.
+    images: str = Form(""),
     use_beta: str = Form("auto"),
     # Reprise d'un document arrêté (serveur coupé, pause, annulation) : ses pages déjà
     # traduites et déjà payées ne sont pas débitées une seconde fois.
@@ -394,6 +467,20 @@ async def translate_endpoint(
                 "Document mixte : %d page(s) sans texte extractible écartée(s) "
                 "de la traduction et de la facturation.", pages_ignorees)
 
+    # ── Images à texte (option `images=1`) ────────────────────────────────
+    # Hors bêta (v1 : images ignorées), hors mode structure, et hors scan
+    # préparé par l'OCR (ses références d'image ne sont plus celles de
+    # l'original). `n_images` : images proposées, base du contrôle de crédits.
+    n_images = 0
+    if (images == "1" and ext in ("pdf", "docx", "pptx", "xlsx")
+            and not beta_mode and not debug_mode and ocr_prepared is None):
+        n_images = len((await run_in_threadpool(analyser_images, file_bytes, ext)).a_texte)
+    images_actives = n_images > 0
+    if images_actives:
+        # Variante de cache à part : la traduction avec images ne se mélange
+        # pas à celle du texte seul (même nom + `_img`).
+        qsuffix += "_img"
+
     # ── Limite de pages selon le plan ─────────────────────────────────────
     # On est dans un endpoint ASYNC : la session `db` et l'utilisateur
     # (`optional_auth`) sont déjà résolus par FastAPI. On interroge donc la base
@@ -517,7 +604,11 @@ async def translate_endpoint(
             if refus_offert:
                 reste_plan = 0
         couvert = None if reste_plan is None else reste_plan + solde
-        if couvert is not None and needed > couvert:
+        # Les images remplacées se paient en plus du texte (1 page chacune) :
+        # le contrôle les compte, le débit au lancement ne prend que le texte
+        # (les images sont débitées une fois traduites, selon le résultat).
+        a_couvrir = needed + n_images
+        if couvert is not None and a_couvrir > couvert:
             # Pas de reprise tronquée : une autre sélection nommerait un
             # autre cache, et les pages payées ne seraient pas retrouvées.
             partiel = ext in ("pdf", "pptx") and couvert > 0 and deja_payees == 0
@@ -527,20 +618,22 @@ async def translate_endpoint(
                         "reason": "free_limit_device", "risk": refus_offert,
                         "detail": "Les pages offertes ne sont pas disponibles pour ce compte "
                                   "sur cet appareil. Vous pouvez acheter des pages pour continuer.",
-                        "pages_needed": needed, "pages_available": couvert,
-                        "pages_missing": needed - couvert, "partial_possible": partiel,
+                        "pages_needed": a_couvrir, "pages_available": couvert,
+                        "pages_missing": a_couvrir - couvert, "partial_possible": partiel,
                     }))
                 detail = (f"Crédits insuffisants pour traduire tout le document : "
-                          f"il demande {needed} page(s) équivalente(s), {couvert} couverte(s).")
+                          f"il demande {a_couvrir} page(s) équivalente(s), {couvert} couverte(s).")
                 _debut, repart = usage.quota_period(locked)
                 detail += f" Le quota du forfait repart le {repart:%d/%m/%Y}."
                 return avec_cookie(JSONResponse(status_code=402, content={
                     "detail": detail, "reason": "need_credits",
-                    "pages_needed": needed, "pages_available": couvert,
-                    "pages_missing": needed - couvert,
+                    "pages_needed": a_couvrir, "pages_available": couvert,
+                    "pages_missing": a_couvrir - couvert,
+                    "images_needed": n_images,
                     "partial_possible": partiel,
                     "trial": gratuit and reste_plan > 0,
                 }))
+        if couvert is not None and needed > couvert:
             visees = sorted(pages_set) if pages_set else range(1, nb_pages + 1)
             pages_set = set(list(visees)[:couvert])
             needed = couvert
@@ -578,6 +671,19 @@ async def translate_endpoint(
     # de page) ; pour DOCX/PPTX, le JSON de traduction. Le PDF/DOCX rendu, lui,
     # n'est PAS conservé : il se recalcule à la demande depuis ces deux-là.
     translation_path = translation_path_for(lang_dir, ext, pages_set, qsuffix)
+    if images_actives and not os.path.exists(translation_path):
+        # Le texte déjà traduit sans les images est repris tel quel : seules
+        # les images restent à traiter (aucun appel de traduction en double).
+        sans_img = translation_path_for(lang_dir, ext, pages_set, qsuffix[:-len("_img")])
+        if os.path.isfile(sans_img):
+            try:
+                shutil.copyfile(sans_img, translation_path)
+                for suite in ("", ".fiche"):    # reprise PPTX et sa fiche
+                    reprise = _chemin_reprise(sans_img) + suite
+                    if os.path.isfile(reprise):
+                        shutil.copyfile(reprise, _chemin_reprise(translation_path) + suite)
+            except OSError as e:
+                logger.warning("Traduction sans images non reprise : %s", e)
 
     output_filename = f"{safe_name}_TRADUIT{qsuffix}{psuffix}.{ext}"
     if debug_mode:
@@ -609,7 +715,8 @@ async def translate_endpoint(
         target = run_pdf_v2_job
         job_args = (job_id, file_bytes, original_path, output_path,
                     output_filename, partial_path, translation_path, target_lang,
-                    pages_set, debug_mode, ocr_prepared)
+                    pages_set, debug_mode, ocr_prepared,
+                    images_actives, current_user.id)
     elif ext == "pptx":
         # PPTX → moteur progressif slide par slide (comme le PDF v2).
         # Si compte admin : 5 slides traduites en parallèle.
@@ -618,7 +725,8 @@ async def translate_endpoint(
         target = run_pptx_progressive_job
         job_args = (job_id, file_bytes, original_path, output_path,
                     output_filename, partial_path, translation_path, target_lang,
-                    pages_set, debug_mode, is_admin)
+                    pages_set, debug_mode, is_admin,
+                    images_actives, current_user.id)
     elif ext == "xlsx":
         # XLSX → aperçu progressif FEUILLE PAR FEUILLE. La traduction, elle,
         # reste d'un bloc : `sharedStrings.xml` est commun à tout le classeur
@@ -628,13 +736,15 @@ async def translate_endpoint(
         target = run_xlsx_progressive_job
         job_args = (job_id, file_bytes, original_path, output_path,
                     output_filename, partial_path, translation_path, target_lang,
-                    model, max_tokens, debug_mode)
+                    model, max_tokens, debug_mode,
+                    images_actives, current_user.id)
     else:
         target = run_translation_job
         job_args = (job_id, file_bytes, filename, ext, target_lang, format_opts,
                     job_dir, lang_dir, original_path, extraction_path,
                     translation_path, output_path, output_filename,
-                    model, max_tokens, pages_set, debug_mode)
+                    model, max_tokens, pages_set, debug_mode,
+                    images_actives, current_user.id)
     # ── Document en base AVANT de démarrer le worker ─────────────────────
     # L'ordre est un garde-fou, pas un détail : la ligne Document est la seule
     # référence qui protège les octets partagés du magasin contre la purge d'un
@@ -692,6 +802,8 @@ async def translate_endpoint(
         reponse["ocr_review_required"] = True
     if pages_ignorees:
         reponse["pages_ignorees"] = pages_ignorees
+    if images_actives:
+        reponse["images"] = n_images
     return avec_cookie(JSONResponse(reponse))
 
 

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Précis</title>
+  <style>
+    body { width: 320px; margin: 0; padding: 16px; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: #1f2937; }
+    h1 { margin: 0 0 12px; font-size: 16px; }
+    label { display: block; margin: 10px 0 4px; font-size: 13px; color: #4b5563; }
+    input[type="email"], input[type="password"], select { width: 100%; box-sizing: border-box; padding: 7px 8px; font: inherit; border: 1px solid #cbd5e1; border-radius: 6px; }
+    button { width: 100%; margin-top: 8px; padding: 8px 10px; font: inherit; border-radius: 6px; cursor: pointer; border: 1px solid #1f2937; background: #1f2937; color: #fff; }
+    button.secondaire { background: #fff; color: #1f2937; }
+    button:disabled { opacity: .55; cursor: default; }
+    .compte { margin: 0 0 4px; font-size: 13px; color: #4b5563; word-break: break-all; }
+    .message { min-height: 18px; margin: 10px 0 0; font-size: 13px; }
+    .message.erreur { color: #b91c1c; }
+    .note { margin: 12px 0 0; font-size: 12px; color: #6b7280; }
+    a.lien { display: inline-block; margin-top: 12px; font-size: 13px; color: #4b5563; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>Précis</h1>
+
+  <form id="vue-connexion" hidden>
+    <label for="email">Adresse e-mail</label>
+    <input id="email" type="email" required autocomplete="username">
+    <label for="mdp">Mot de passe</label>
+    <input id="mdp" type="password" required autocomplete="current-password">
+    <button id="btn-connexion" type="submit">Se connecter</button>
+  </form>
+
+  <div id="vue-connecte" hidden>
+    <p class="compte" id="compte"></p>
+    <label for="langue">Langue cible</label>
+    <select id="langue">
+      <option value="fr">Français</option>
+      <option value="en">English</option>
+      <option value="es">Español</option>
+      <option value="de">Deutsch</option>
+      <option value="it">Italiano</option>
+      <option value="pt">Português</option>
+      <option value="ar">العربية</option>
+    </select>
+    <button id="btn-traduire" type="button">Traduire cette page</button>
+    <button id="btn-original" type="button" class="secondaire">Afficher l'original</button>
+    <a id="btn-deconnexion" class="lien" href="#">Déconnexion</a>
+    <p class="note">Les cadres d'une autre origine non accordée ne sont pas traités.</p>
+  </div>
+
+  <p id="message" class="message" role="status"></p>
+  <script src="popup.js"></script>
+</body>
+</html>

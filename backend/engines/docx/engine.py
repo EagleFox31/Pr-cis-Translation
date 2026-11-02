@@ -17,6 +17,8 @@ from pathlib import Path
 from collections import defaultdict
 from lxml import etree
 
+from engines import incorpores
+
 # ── Namespace WordprocessingML ────────────────────────────────────────────────
 W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 A = 'http://schemas.openxmlformats.org/drawingml/2006/main'
@@ -197,7 +199,7 @@ class DOCXTranslatorEngine:
     # ══════════════════════════════════════════════════════════════════════════
 
     def extract_text(self, docx_path, output_json='extraction_docx.json',
-                     filters=None, progress_callback=None):
+                     filters=None, progress_callback=None, niveau_objets=1):
         if filters is None:
             filters = {
                 'paragraphs': True, 'tables': True,
@@ -269,6 +271,13 @@ class DOCXTranslatorEngine:
                         d_ctr += 1
 
         self._cleanup_temp()
+
+        # Objets incorporés (Excel, Word, PowerPoint) : leurs textes, à plat.
+        # `niveau_objets` : profondeur de ce document dans la chaîne d'objets.
+        objets, rapport_objets = incorpores.relever(docx_path, niveau=niveau_objets)
+        extraction['objets'] = objets
+        extraction['objets_rapport'] = rapport_objets
+
         with open(output_json, 'w', encoding='utf-8') as f:
             json.dump(extraction, f, ensure_ascii=False, indent=2)
 
@@ -282,7 +291,7 @@ class DOCXTranslatorEngine:
 
     def inject_translation(self, original_docx, translated_json_path,
                            output_docx, progress_callback=None,
-                           format_options=None):
+                           format_options=None, niveau_objets=1):
         if not os.path.exists(translated_json_path):
             return False, 'Fichier JSON de traduction introuvable.'
 
@@ -295,7 +304,11 @@ class DOCXTranslatorEngine:
             for elem in doc_data.get(section, []):
                 translation_map[elem['id']] = elem.get('translated_text', elem['text'])
 
-        if not translation_map: return False, 'Aucun élément traduit dans le JSON.'
+        traductions_objets = {e['id']: e.get('translated_text') or e['text']
+                              for e in translation_data.get('objets', [])}
+
+        if not translation_map and not traductions_objets:
+            return False, 'Aucun élément traduit dans le JSON.'
 
         self._extract_zip(original_docx)
         temp_path = self._get_temp_dir()
@@ -364,4 +377,13 @@ class DOCXTranslatorEngine:
 
         self._repack_zip(output_docx)
         self._cleanup_temp()
+
+        # Objets incorporés : traduits à part, puis remis dans le fichier produit
+        # (au mieux : un objet qui échoue reste dans sa langue d'origine).
+        if traductions_objets:
+            try:
+                incorpores.appliquer_fichier(output_docx, incorpores.reinjecter(
+                    output_docx, traductions_objets, niveau=niveau_objets))
+            except Exception as exc:  # noqa: BLE001
+                incorpores.logger.warning("Objets DOCX non réinjectés : %s", exc)
         return True, f'Fichier DOCX traduit généré : {output_docx}'

@@ -225,6 +225,32 @@ def contexte_page(textes, titres=(), autour=None):
     return "\n".join(x for x in lignes[d:f] if x)[:_CONTEXTE_MAX]
 
 
+def harmoniser(blocs):
+    """Un même texte source reçoit une seule traduction dans tout le document.
+
+    Les lots partent en parallèle : un texte répété (pied de page, mise en page
+    dupliquée) peut revenir traduit différemment, voire traduit à rebours
+    (« OUR NEW GEOGRAPHIES » rendu en français alors que ses doublons sont
+    restés en anglais). La traduction majoritaire l'emporte ; à égalité, celle
+    qui laisse le texte tel quel (déjà dans la langue cible), puis la première.
+    """
+    groupes = {}
+    for b in blocs:
+        if b.get("translated_text") is not None and b.get("text", "").strip():
+            groupes.setdefault(b["text"], []).append(b)
+    for source, membres in groupes.items():
+        if len(membres) < 2:
+            continue
+        votes = {}
+        for b in membres:
+            votes[b["translated_text"]] = votes.get(b["translated_text"], 0) + 1
+        if len(votes) < 2:
+            continue
+        retenue = max(votes, key=lambda t: (votes[t], t == source))
+        for b in membres:
+            b["translated_text"] = retenue
+
+
 class TranslatorAI:
     def __init__(self):
         self.client = _client_deepseek()
@@ -267,6 +293,9 @@ class TranslatorAI:
         4. RÉPONDS UNIQUEMENT avec un objet JSON contenant une liste "translations".
         Chaque élément de la liste doit être un objet :
         {"id": "...", "translated_text": "..."}.
+        4-bis. Un fragment DÉJÀ rédigé dans la langue cible se recopie À
+        L'IDENTIQUE : ne le traduis jamais vers une autre langue (pas même celle
+        du reste du document).
 
         RÈGLE D'ANCRAGE (nombres & symboles) — TRÈS IMPORTANTE :
         Si le texte ENTIER d'un fragment est uniquement un nombre, un seul symbole
@@ -309,7 +338,10 @@ class TranslatorAI:
         parenthèse, ni équivalent étranger, ni note. Un diplôme, une
         institution, un grade propre à un pays garde son NOM OFFICIEL (sigle
         compris), seuls ses mots communs traduits ; jamais remplacé par celui
-        d'un autre pays, jamais par une glose. Tout texte qui n'est pas déjà
+        d'un autre pays, jamais par une glose. L'intitulé d'une formation, d'un
+        cours ou d'un module se traduit (son code reste tel quel : « TST01 :
+        Gestion de projet » → « TST01: Project management ») ; seul un nom de
+        marque déposé reste intact. Tout texte qui n'est pas déjà
         dans la langue cible se traduit, QUELLE QUE SOIT sa langue d'origine :
         en-têtes, devises, noms d'État et d'administration, et chaque version
         d'un en-tête bilingue.
@@ -756,9 +788,10 @@ class TranslatorAI:
                 for chart in slide.get("chart_elements", []):
                     for block in chart.get("text_elements", []):
                         if block.get("text", "").strip(): slide_blocks.append(block)
-                for layout in slide.get("layout_elements", []):
-                    for block in layout.get("text_elements", []):
-                        if block.get("text", "").strip(): slide_blocks.append(block)
+                for groupe in ("layout_elements", "master_elements"):
+                    for layout in slide.get(groupe, []):
+                        for block in layout.get("text_elements", []):
+                            if block.get("text", "").strip(): slide_blocks.append(block)
                 for block in slide.get("excel_elements", []):
                     if block.get("text", "").strip(): slide_blocks.append(block)
 
@@ -827,6 +860,15 @@ class TranslatorAI:
                 else:
                     for i in range(0, len(section_blocks), self.target_batch_size):
                         batches.append(section_blocks[i:i+self.target_batch_size])
+
+        # Objets incorporés (Excel, Word, PowerPoint dans un DOCX ou un XLSX) :
+        # liste plate à la racine du relevé, en lots de taille fixe comme un
+        # classeur. (Dans un PPTX, ils sont déjà rangés par diapositive.)
+        objets_blocs = [b for b in data.get("objets", [])
+                        if b.get("text", "").strip()]
+        if objets_blocs:
+            for i in range(0, len(objets_blocs), self.target_batch_size):
+                batches.append(objets_blocs[i:i + self.target_batch_size])
 
         if limit and isinstance(limit, int):
             flat_all = [b for batch in batches for b in batch]
@@ -931,6 +973,8 @@ class TranslatorAI:
 
         if failed_batch[0] is not None:
             return False, f"Échec lors de la traduction du lot {failed_batch[0]}."
+
+        harmoniser([b for lot in batches for b in lot])
 
         output_path = json_path.replace(".json", "_translated.json")
         with open(output_path, "w", encoding="utf-8") as f:

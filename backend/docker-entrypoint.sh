@@ -19,6 +19,10 @@ if [ "$#" -gt 0 ]; then
     exec "$@"
 fi
 
+# Deux fins de suite ne se resolvent pas en reessayant : on le dit tout de suite,
+# plutot que d'annoncer une base injoignable apres dix tentatives.
+python scripts/verifier_migrations.py || exit 1
+
 echo "[precis] Application des migrations de base de donnees..."
 # La base met quelques secondes à accepter les connexions au tout premier
 # démarrage de la pile. `depends_on: condition: service_healthy` couvre le cas
@@ -28,7 +32,7 @@ essais=0
 until alembic upgrade head; do
     essais=$((essais + 1))
     if [ "$essais" -ge 10 ]; then
-        echo "[precis] ECHEC : la base reste injoignable apres 10 tentatives." >&2
+        echo "[precis] ECHEC : migrations non appliquees apres 10 tentatives (voir l'erreur ci-dessus)." >&2
         exit 1
     fi
     echo "[precis] Base pas encore prete, nouvelle tentative dans 3s ($essais/10)..."

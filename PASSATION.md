@@ -1,51 +1,53 @@
-# PASSATION — 31/10/2026
+# PASSATION — 02/11/2026
 
 ## 1. Objectif en cours
-Pages légales livrées (commit 60ffdfa sur `feat/pages-legales`, non poussée). En attente : retour de l'utilisateur sur les choix par défaut (§5 de `docs/etude-pages-legales.md`), puis push + PR sur accord. Relecture par un juriste avant l'ouverture publique.
+6.8 (images à texte des documents normaux, devis avec/sans images) : 6.8.1 et 6.8.2 faits (commits locaux), **6.11 avancé avant 6.8.3** (demande 01/11 : gérer toutes les combinaisons d'objets incorporés ; étude faite `docs/etude-objets-incorpores.md`, décisions D1-D6 prises 01/11, §8 ; 6.11.1 à 6.11.3b faits ; **prochaine étape 6.11.4**) ; ensuite 6.8.3 → 6.9 → 6.10, puis 6.4b.2.
 
 ## 2. Fait
-- Page Bêta : `docs/etude-page-beta.md` ; `pages/BetaPage.tsx` (deux colonnes, formulaire allégé), `BetaProgramDetails.tsx` (option `badges`), `AdminShell.tsx` (`.admin-head--sticky`), `beta.css`. Commits 59b2af1, 535c6a6, 3fa501a.
-- À propos : `docs/etude-section-a-propos.md` (référencée dans `README.md`, §7 = décisions).
-  - `components/about/AboutSection.tsx` : à gauche, titre, méthode en une phrase (justifiée) et 3 engagements prouvés ; à droite, mascotte derrière la fiche éditeur (siège, autres produits, e-mail · LinkedIn · Facebook sur une ligne, bouton « Nous écrire »).
-  - « Nous écrire » : connecté → `openSupport({category:'other'})` ; visiteur → `ContactModal` (même fichier, portail dans `body`, Échap, panneau bas ≤ 640 px ; tél./WhatsApp si renseignés). `POST /api/support` exige un compte.
-  - `index.css` : classes `about-*` et `contact-*` (après `.about-section`), sélecteur `.story-grid.about-grid` pour ne pas étirer la carte.
-  - Locales fr/en : `about.*` réécrit (`pledge_*`, `card_*`, `contact_cta`) ; `mission` et `val_*` supprimés.
-  - `frontend/.env.example` : `VITE_CONTACT_PHONE`, `VITE_CONTACT_WHATSAPP` (chiffres, format international).
-- Texte À propos remplacé (règles des traducteurs expérimentés, commit 1dd2736).
-- Contact : ligne MTN (appel + WhatsApp) dans `frontend/.env` ; lien Trigenys Insight dans la fiche (commit 3a1c408).
-- Pages légales (60ffdfa) : `pages/LegalPage.tsx`, `content/legal/{types,fr,en}.ts` (textes), `legal.css`, 4 routes dans `App.tsx`, 4 liens `Link` dans `FooterSection`, ligne d'acceptation `auth.accept_terms` dans `RegisterPage.tsx`, clés `footer.*` et `legal.*`. tsc, lint, build, Playwright 1266/390 verts.
-- Rien n'est poussé.
+- Branche `feat/ocr-v2`, tout en commits locaux **non poussés** (dernier : ff024fd, garde-fou des migrations). OCR v2 complet (`backend/app/services/ocr_v2/`, `docs/etude-ocr-v2.md` §7-8, §11) ; extension `extension/` + routes `app/api/extension.py`, `app/services/extension.py`.
+- 6.4a/6.4c (ad9a7e0, 7dd478e) mise en page des images (`ocr_v2/image.py`, `LISIBLE_PX = 24`) ; 6.4b.1 (0dc8136) avance au volume ; 6.7 (9735f18) lignes fiables des scans.
+- 6.8.1 (6108fd6) : `services/images_document.py` (`lister`/`detecter`/`analyser`/`vignette`), route `POST /api/translate/analyse`.
+- Compte rendu PPTX réel (01/11) : textes oubliés corrigés — 8f64c57 aperçu Excel déjà PNG, b421d2c masques + cellules `t="str"`, fa7ad72 classeur incorporé via moteur XLSX, caches de graphiques alignés (`xlsx/engine.py` `_aligner_graphiques`), `<c:f>` réécrits au renommage, `translation_ai.harmoniser` (doublons = une seule traduction). Intitulés de formation désormais traduits, code gardé (règle 6 du prompt, eac85e5) ; limite : formulation parfois variable entre diapositives (« Fictitious » / « Fictional »).
+- 6.8.2 (e85f40a) : `images_document.traduire_images`/`poser_office`/table `<trad>.images.json` + `.images/` ; PDF `engines/pdf/engine.py` `_draw_image(..., images)` + `stream._images_par_xref` ; `translation_runner._preparer_images` (débit unique lié au document, événement `images`) et `_poser_images_fichier` ; `api/translate.py` champ `images=1` → `qsuffix _img`, 402 avec `images_needed`, `reponse["images"]` ; `stockage` garde la table tant que la traduction existe ; étude §9.1.
 
 ## 3. Décisions
-- Bêta : format gardé en léger, pas de champ langues, aucune modification serveur.
-- À propos : contact `contact@trigenys.com` ; entreprise anonyme (aucun nom) ; pas d'angle FR/EN, mais la méthode des traducteurs de métier ; prestataire de traduction non mentionné (future page Confidentialité) ; Insight lié (insight.trigenys.com/fr), AgenStudio sans lien (pas de site). Numéro Orange non utilisé (dernier chiffre illisible sur la photo ; un seul champ téléphone).
-- Ni année de création ni délai de réponse affichés (jouent contre la confiance).
-- Numéros en variables `VITE_*` (publiques dans le bundle, c'est voulu) pour ne pas les figer dans le code.
+- Scan : seule la détection diffère, ensuite même chemin que le PDF natif. Qualité avant vitesse ; délai OCR 90 s gardé.
+- Extension : 1 crédit/image remplacée, texte au volume (1 500 car. = 1 page, avance cumulée), pas de bascule silencieuse vers le payant ; mémoire locale IndexedDB (rien n'est conservé côté serveur).
+- 6.8 (§8 de l'étude) : 1 page par image remplacée, case non cochée par défaut, tout ou rien + annulation par image sans remboursement en v1 (à confirmer), même règle en gratuit. Débit des images après traduction, lié au document (remboursé si le travail échoue) ; images exclues des scans OCR, de la bêta et du debug en v1 (à confirmer).
 
 ## 4. Plan
-1. [x] Étude page Bêta + choix validés.
-2. [x] Mise en page deux colonnes + en-tête collé.
-3. [x] Formulaire allégé + compteur + mention unique.
-4. [x] Équilibrage des cartes + zone d'action du bouton.
-5. [x] Vérif Bêta : tsc, lint, build, Playwright 1266×900 et 390.
-6. [x] Section À propos, première version (texte fr/en).
-7. [x] Étude À propos + refonte option B ; tsc, lint, build ; Playwright 1266×900 (tout sur un écran, pied de page compris) et 390 (empilé, sans débordement).
-8. [x] Finition À propos (texte court justifié, liens sur une ligne, mascotte, fenêtre de contact) ; tsc, lint, build, Playwright bureau/mobile + ouverture/fermeture de la fenêtre.
-9. [x] Vérif locale par l'utilisateur ; numéros MTN dans `frontend/.env`, lien Insight ; tsc, lint, build, Playwright (3 canaux, lien Insight).
-10. [ ] Push + PR de `feat/page-beta-candidature` (sur accord, pas encore donné) ; rebaser après fusion de la PR #53.
-11. [x] Pages légales : étude, pages, routes, pied de page, inscription ; tsc, lint, build, Playwright.
-11b. [x] Mise en page des pages légales (6f8f26f) : barre de navigation comme l'administration (4 documents au centre, hamburger en mobile), page à hauteur d'écran, Retour et titre fixes, seul le texte défile (`.legal-scroll`). Vérifié avec Playwright à 1266 et 390 px.
-12. [ ] ← Retour utilisateur sur les choix §5 de l'étude, corrections éventuelles dans `content/legal/*.ts` ; push + PR sur accord.
-13. [x] Source des crédits : étude, pages gratuites en aperçu seul, bêta téléchargeable avec aperçu filigrané ; tests ciblés OK (37).
+1–5. [x] branche, études OCR v2 + extension, OCR v2 complet.
+6. [~] Extension et documents :
+   - 6.1–6.3b [x] étude, routes, prototype, traduction par bloc ; 6.4a [x], 6.4c [x] images ; 6.6 [x] mesure livret ; 6.7 [x] scans fiables ;
+   - 6.4 [~] essai réel (page locale faite dans Edge) : puis TEAM-GP (G49001) sans cliquer « Début », « Options administrateur », `lbnRegist` ni aucun postback ;
+   - 6.4b [~] ne plus repayer une page (`docs/etude-memoire-extension.md` §8) : 6.4b.1 [x] ; 6.4b.2 [ ] `src/lib/memoire.ts` (clé SHA-256 `v1`+compte+langue+contenu, 30 j / 50 000 textes / 200 Mo) + IndexedDB dans `background.ts` ; 6.4b.3 [ ] popup « Mémoire : n — Effacer » ; 6.4b.4 [ ] vérif (2ᵉ visite = 0 débit) ;
+   - 6.8 [~] (prioritaire) images des documents normaux, étude `docs/etude-images-documents.md` :
+     - 6.8.1 [x] analyse ; 6.8.2 [x] pose + débit (tests : images_document 39, couverture_credits 29, extension 24, moteur PDF verts). Limites : aperçus partiels PPTX/XLSX non vérifiés après LibreOffice ; GIF/WEBP posé en PNG ; cache `images/` jamais purgé ; xlsx absent de `render_translation_bytes` (préexistant) ; débit échoué → images `sans_credit` ; aucun essai réel (→ 6.8.5) ;
+     - 6.8.3 [ ] frontend : case « Traduire les images » (envoyer `images=1`), deux totaux (avec/sans images, depuis `/api/translate/analyse`), 402 `images_needed`, rapport (événement `images` : proposees, traduites, inchangees, sans_credit, echecs) ; tsc/lint/build, Playwright ;
+     - 6.8.4 [ ] annulation par image : route de reconstruction depuis la table, bouton « Remettre l'original » sur l'aperçu ; tests ;
+     - 6.8.5 [ ] essai de bout en bout DOCX + PDF à schémas ;
+   - 6.11 [~] ← (avancé 01/11) objets incorporés, toutes les combinaisons. Étude faite (`docs/etude-objets-incorpores.md`, README:95) : Office dans Docker impossible (pas de Linux, automatisation serveur non prise en charge, KB 257757) → LibreOffice headless + méthode CFAO Academy (`services/apercu/classeurs.py:402-452` zone visible, `:685-736` rognage, `:768-855` cache, `service.py:613-631` relance profil) dans un module commun `engines/incorpores.py`. Décisions §8 (01/11, déléguées) : D1 texte des objets facturé, D2 aperçu LibreOffice, D3 1ʳᵉ page redessinée sauf écart de proportions > 10 %, D4 conversion 97-2003, D5 pas de Draw (Visio/PDF signalés), D6 signalement au client ; plan §7 :
+     - 6.11.1 [x] repérage (`engines/incorpores.py` `reperer`/`rapport`, 21 tests ; repères think-cell `TCLayout` ignorés) ; 6.11.2 [x] extraction/réécriture + garde-fous (`extraire`/`reecrire`/`remplacer_parties`, écrivain CFB, 20 tests ; dépendance `olefile==0.47`) ; 6.11.3a [x] classeur incorporé PPTX via moteur XLSX (fa7ad72) ; 6.11.3b [x] récursion générique (profondeur 2) + 97-2003/OLE2 Package (`relever`/`reinjecter`, `tests/test_incorpores_recursion.py` ; limites dans l'étude, bilan 6.11.3 ; openpyxl absent du venv) ; 6.11.4 [ ] ← redessin des aperçus ; 6.11.5 [ ] graphiques natifs ; 6.11.6 [ ] facturation + exclusion OCR ; 6.11.7 [ ] mesure et recette Docker (`--cpus 2 --memory 3g`) ;
+   - 6.9 [ ] interface de l'extension : **branding seulement**, normes des pages du site, jetons du `frontend`, impeccable en raffinement ;
+   - 6.10 [ ] bilan OCR pour le déploiement (ce qui marche, limites, prérequis serveur, risques, check-list) ;
+   - 6.5 [ ] pastille « Traduire ce PDF » (circuit `/api/translate`).
 
-**Hors plan** : `frontend/tsconfig.tsbuildinfo` non suivi (à ignorer).
+**Hors plan** :
+- Échec CI `sync-github-app-user` : côté propriétaire. `frontend/tsconfig.tsbuildinfo` non suivi : à ignorer.
+- `feat/page-beta-candidature` : push et PR sur accord, à rebaser après fusion de #53.
+- **Avant de fusionner `feat/ocr-v2`** : rebaser sur `main` après #53/#54 et faire pointer `0013_extension_avance` sur la dernière migration de `main` (aujourd'hui 0012 ; les branches ouvertes vont jusqu'à `0018_document_reglages`), en renumérotant le fichier. Sinon la CI refuse (étape « Suite de migrations unique »).
+- Base dev 5432 à `0018_document_reglages` (inconnue de cette branche), colonne `users.extension_avance` ajoutée à la main le 02/11 (accord de l'utilisateur) ; `alembic current` y reste en erreur et `dev.py` affiche l'avertissement tant que les suites ne sont pas remises bout à bout.
+- Ne pas tester `POST /api/auth/login` avec une adresse inconnue : cela crée un compte et envoie un vrai e-mail.
+- Correctifs repris d'autres branches (02/11) : texte brut masqué au démarrage (`frontend/index.html`), rafraîchissement de session (95b9598). Les autres correctifs des branches non fusionnées restent absents d'ici jusqu'au rebase.
+- `/api/pricing` appelé 10 fois par chargement de `/home` (`usePricing` sans partage) : à regrouper plus tard, sans urgence.
+- En attente : essai de connexion Google par l'utilisateur (non testable ici), puis essai des objets incorporés dans l'app, avant 6.11.4.
 
 ## 5. Pièges / contexte
-- `backend/.env` en LIVE pour Fapshi : ne jamais valider d'invite réelle. Ne pas afficher les `.env` (`grep -c` seulement). Jamais de clé dans un fichier suivi.
-- Lancer : `npm run stop`, puis en arrière-plan `PYTHONUTF8=1 <venv>/python.exe scripts/dev.py` à la racine. Un seul worktree à la fois (ports 3000/8000).
-- venv : `C:\Users\IBRAH\Documents\Projets\Precis_Translator_backup_2026-06-10_13-10\backend\venv\Scripts\python.exe`. Tests backend sur Postgres 5433, jamais la base dev 5432.
-- Front : `cd frontend && npx tsc --noEmit -p . ; npm run lint --silent ; npm run build --silent | tail -n 8`.
-- Jetons gris disponibles : 50/100/200/300/500/700/900 (pas de `--gray-600`).
-- `.story-grid` force `align-items: stretch` plus loin dans `index.css` : surcharger avec un sélecteur composé.
-- Changer de variable `VITE_*` impose de relancer le serveur front.
-- Éditer les locales en UTF-8 sans réencoder. Remote `origin` = EagleFox31.
+- `backend/.env` est en LIVE pour Fapshi : ne jamais valider d'invite réelle. Ne pas afficher les `.env` (`grep -c` seulement). Jamais de clé dans un fichier suivi. Push/PR seulement après vérification locale par l'utilisateur.
+- venv : `C:\Users\IBRAH\Documents\Projets\Precis_Translator_backup_2026-06-10_13-10\backend\venv\Scripts\python.exe`. Lancer : `npm run stop`, puis `PYTHONUTF8=1 <venv>/python.exe scripts/dev.py` (tuer un vieil uvicorn :8000 par PID au besoin).
+- Migrations : `backend/scripts/verifier_migrations.py` (une seule fin de suite : CI + démarrage du conteneur ; `--base` : `scripts/dev.py` met la base à jour ou explique l'écart). Une base migrée depuis une autre branche ne se répare pas seule.
+- Tests backend : unittest, Postgres 5433, jamais la base dev 5432. Docker Desktop puis `docker run -d --rm --name precis-test-pg -p 5433:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=precis postgres:16-alpine` et `python -m alembic upgrade head` (dans `backend/`, avec `DATABASE_URL`). Ex. : `cd backend && PYTHONUTF8=1 <venv>/python.exe tests/test_images_document.py`.
+- Tesseract absent en local : `MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W):/be" -w /be/tests precis-ocr-test python /be/tests/test_ocr.py` (depuis `backend/`, chemins `/be/...`).
+- Images 6.8 : clés `xref:<n>` (PDF) / nom de partie média (Office) ; budget lu via `ext_service.couverture` dans `jobs._dans_une_boucle_jetable` ; sémaphore OCR partagé `services/ocr.py:27`.
+- Front : `cd frontend && npx tsc --noEmit -p . ; npm run lint --silent ; npm run build --silent | tail -n 8`. Extension : `cd extension && npm run -s typecheck && npm test && npm run -s build`.
+- Remote `origin` = EagleFox31. Fichiers en CRLF : éditer avec Edit. `PYTHONUTF8=1` obligatoire pour les tests.

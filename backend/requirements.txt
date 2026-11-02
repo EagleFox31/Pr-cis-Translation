@@ -19,6 +19,7 @@ python-pptx==1.0.2
 python-dotenv==1.2.2
 slowapi==0.1.9
 lxml==6.1.1
+olefile==0.47
 PyMuPDF==1.27.2.3
 fonttools==4.63.0
 pyphen==0.17.2
@@ -33,5 +34,8 @@ aiosmtplib==5.1.2
 email-validator==2.3.0
 requests==2.34.2
 numpy==2.3.5
+opencv-contrib-python-headless==4.14.0.94
+onnxruntime==1.31.1
+scipy==1.17.1
 Pillow==13.0.0
 disposable-email-domains==0.0.284

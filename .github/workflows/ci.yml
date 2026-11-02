@@ -167,11 +167,23 @@ jobs:
           psql -h 127.0.0.1 -U precis -d postgres -c 'CREATE DATABASE precis_migration_ci'
           python scripts/ci/verify_migration_upgrade.py
 
+      # Deux branches qui ajoutent chacune une migration après la même parente
+      # laissent deux fins de suite : en production, `alembic upgrade head`
+      # échouerait et le conteneur ne redémarrerait plus.
+      - name: Suite de migrations unique
+        working-directory: backend
+        run: python scripts/verifier_migrations.py
+
       - name: Migrations
         working-directory: backend
         # Les suites ne créent pas le schéma — aucune n'appelle `create_all` ni
         # alembic. `migrations/env.py` lit `DATABASE_URL` dans l'environnement.
         run: alembic upgrade head
+
+      # Sans les poids, `test_ocr_v2_detection.py` saute la lecture PP-OCRv6.
+      - name: Poids PP-OCRv6
+        working-directory: backend
+        run: python scripts/telecharger_ppocr.py
 
       - name: Les 21 suites
         working-directory: backend
