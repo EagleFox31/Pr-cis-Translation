@@ -247,6 +247,26 @@ Les tests unitaires restent synthétiques, sans LibreOffice. Seuls les tests mar
 - **Revue (corrigée)** : identifiants de format % pris libres (plus de collision avec un format existant) ; délai LibreOffice proportionnel au nombre d'objets ; un échec de rendu n'est pas mis en cache (retenté) ; une image d'aperçu partagée avec un objet non traduit (diapositive dupliquée hors plage) n'est pas redessinée.
 - **À vérifier en 6.11.7** : PowerPoint réel face à l'EMF orphelin (l'ancien code évoquait une réparation). **En 6.11.5** : classeur dont la feuille active est une feuille graphique.
 
+**Conception 6.11.5 (02/11/2026)** — un graphique natif (`ppt/charts/chartN.xml`, `word/charts/chartN.xml`) montre ses textes à deux endroits : son XML (titre, axes, caches `c:strCache` des séries et catégories) et son classeur caché (`embeddings/*.xlsx`, ouvert par « Modifier les données »). Existant : le moteur PPTX traduit le XML du graphique, jamais le classeur ; le moteur DOCX ignore `word/charts` ; le moteur XLSX aligne déjà les caches de SES graphiques sur ses cellules (`_aligner_graphiques`).
+
+| Option | Pour | Contre |
+|---|---|---|
+| A. Traduire le classeur caché comme un objet incorporé (moteur XLSX), puis recopier ses cellules traduites dans les caches | Une seule traduction par texte ; caches et classeur identiques par construction ; réutilise `relever` / `reinjecter` | Une retouche de plus à écrire (lecture des cellules du classeur traduit) |
+| B. Traduire les caches, puis écrire ces textes dans les cellules du classeur | Pas de passage par le moteur XLSX | Écriture de cellules à la main (`sharedStrings`) ; les cellules hors caches restent non traduites |
+
+**Choix : A.**
+- **Repérage** (`incorpores`, PPTX et DOCX seulement : un XLSX garde son propre alignement) : chaque graphique affiché par une partie (diapositive, document, en-tête…) et pourvu d'un classeur incorporé devient un objet `classeur`. Sa `partie` est la partie qui l'affiche : les filtres par diapositive du moteur PPTX s'appliquent tels quels. Le chemin du graphique est porté à part, et l'objet n'a pas d'aperçu (Office dessine le graphique lui-même). Un classeur **lié** (fichier externe) n'est pas listé : le XML du graphique reste traduit par le moteur.
+- **Alignement** : après traduction du classeur, une retouche `graphique` relit le XML COURANT du graphique : chaque `c:f` suit les onglets renommés (`reecrire_references`), chaque `c:strCache` d'un `c:strRef` reçoit le texte des cellules traduites. Le classeur fait foi, comme en XLSX.
+- **DOCX** : nouvelle section `charts` (titres `a:p`, étiquettes `c:v` non numériques). Les caches d'un `c:strRef` ne sont pas relevés quand un classeur incorporé existe (ils seront recopiés : pas de double facturation au volume). PPTX inchangé (prix à la diapositive).
+- **Limites** : caches multi-niveaux (`c:multiLvlStrRef`) traduits par le moteur, non réalignés ; références multi-zones laissées telles quelles.
+- **Aperçu** : si la feuille active d'un classeur OLE est une feuille graphique, la copie de rendu ne pose pas de zone d'impression (sans objet sur une feuille graphique).
+
+**Bilan 6.11.5 (02/11/2026)** — fait comme conçu. `incorpores` repère les graphiques et leur classeur caché, puis la retouche `graphique` (`_aligner_graphique`) recopie les cellules traduites dans les caches et renomme les onglets dans les `c:f`. Le moteur DOCX lit `word/charts` (section `charts`). L'aperçu d'une feuille graphique n'a plus de zone d'impression. Règles communes : `incorpores.a_classeur_interne` (cible relative ou absolue) et `incorpores.sous_strref`.
+- **Décision de revue** : une cellule que la traduction du classeur n'a pas changée (formule, texte écarté) ne fait pas foi : le cache garde la traduction du moteur. Sans cette règle, un libellé PPTX déjà traduit revenait en langue source.
+- **PPTX** : les caches restent traduits par le moteur (prix à la diapositive, donc pas de double facturation). Si le classeur est écarté (budget, profondeur), le graphique reste traduit.
+- **DOCX** : les caches couverts par le classeur ne sont pas relevés, pour ne pas les facturer deux fois. Limite : si le classeur est écarté, ces libellés restent en langue source ; l'objet apparaît alors comme non traité dans le rapport.
+- Preuves : `tests/test_incorpores_graphiques.py` (6 tests : PPTX, DOCX, DOCX lié, PPTX progressif, cellule non traduite, aperçu de feuille graphique) ; régression incorpores, OLE, XLSX graphiques et PPTX verte.
+
 ---
 
 ## 8. Points à trancher

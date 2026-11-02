@@ -61,6 +61,7 @@ NS = {
     "x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
     "xdr": "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing",
     "rel": "http://schemas.openxmlformats.org/package/2006/relationships",
+    "c": "http://schemas.openxmlformats.org/drawingml/2006/chart",
 }
 _R_ID = "{%s}id" % NS["r"]
 _R_EMBED = "{%s}embed" % NS["r"]
@@ -114,6 +115,8 @@ class ObjetIncorpore:
     rid: str | None = None         # Id de la relation de la partie vers la cible
     echec: str | None = None       # posé APRÈS coup : pourquoi un objet a priori
                                    # traitable ne l'a pas été (conversion, erreur…)
+    graphique: str | None = None   # classeur caché d'un graphique natif : la
+                                   # partie du graphique (ppt/charts/chart1.xml)
 
     @property
     def raison_non_traite(self) -> str | None:
@@ -411,6 +414,83 @@ def _xlsx(paquet: _Paquet) -> list[ObjetIncorpore]:
     return objets
 
 
+_PARTIES_AFFICHAGE = {
+    "pptx": r"ppt/(slides|slideLayouts|slideMasters|notesSlides)/[^/]+\.xml",
+    "docx": r"word/(document|header\d*|footer\d*|footnotes|endnotes)\.xml",
+}
+
+
+def _classeur_du_graphique(paquet: _Paquet, graphique: str) -> str | None:
+    """Classeur OOXML incorporé qui porte les données d'un graphique, ou None
+    (classeur lié, binaire 97-2003, absent)."""
+    rels = paquet.relations(graphique)
+    racine = paquet.xml(graphique)
+    donnees = None if racine is None else racine.find("c:externalData", NS)
+    rid = None if donnees is None else donnees.get(_R_ID)
+    if rid not in rels:
+        rid = next((k for k, (_c, t, _e) in rels.items() if t.endswith("/package")), None)
+    if rid is None:
+        return None
+    cible, _typ, externe = rels[rid]
+    if externe or _format(cible) != "ooxml" or cible not in paquet.noms:
+        return None
+    return cible
+
+
+def a_classeur_interne(chemin_graphique) -> bool:
+    """Le graphique décompressé `chemin_graphique` a-t-il son classeur caché
+    dans le paquet ? Ses caches `c:strRef` sont alors réalignés sur le classeur
+    traduit : le moteur du conteneur ne les envoie pas en traduction (ni
+    facturés, ni traduits deux fois). Une cible absolue part de la racine."""
+    chemin = Path(chemin_graphique)
+    rels = chemin.parent / "_rels" / f"{chemin.name}.rels"
+    if not rels.exists():
+        return False
+    racine = next((d for d in chemin.parents if (d / "[Content_Types].xml").exists()),
+                  chemin.parent)
+    try:
+        liens = etree.parse(str(rels)).getroot()
+    except etree.XMLSyntaxError:
+        return False
+    for r in liens:
+        cible = r.get("Target") or ""
+        if ((r.get("Type") or "").endswith("/package")
+                and r.get("TargetMode") != "External"
+                and cible.lower().endswith((".xlsx", ".xlsm"))
+                and ((racine / cible.lstrip("/")) if cible.startswith("/")
+                     else (chemin.parent / cible)).exists()):
+            return True
+    return False
+
+
+def sous_strref(noeud) -> bool:
+    """Un `c:v` de cache lié au classeur (sous un `c:strRef`)."""
+    return any(etree.QName(a).localname == "strRef" for a in noeud.iterancestors())
+
+
+def _graphiques(paquet: _Paquet, conteneur: str) -> list[ObjetIncorpore]:
+    """Classeurs cachés des graphiques natifs (6.11.5). L'objet est rattaché à
+    la partie qui AFFICHE le graphique (mêmes préfixes d'ids que les autres
+    objets) ; il n'a ni aperçu ni relation propre : seul le XML du graphique
+    est réaligné sur le classeur traduit. Un classeur lié n'est pas listé."""
+    motif = _PARTIES_AFFICHAGE.get(conteneur)
+    if motif is None:
+        return []
+    objets = []
+    for partie in sorted(n for n in paquet.noms if re.fullmatch(motif, n)):
+        for graphique, typ, externe in paquet.relations(partie).values():
+            if externe or not typ.endswith("/chart"):
+                continue
+            cible = _classeur_du_graphique(paquet, graphique)
+            if cible is None:
+                continue
+            objets.append(ObjetIncorpore(
+                conteneur=conteneur, partie=partie, cible=cible,
+                prog_id="Excel.Sheet.12", nature=_nature("", cible), format="ooxml",
+                icone=False, lie=False, present=True, graphique=graphique))
+    return objets
+
+
 def _conteneur(noms: set[str]) -> str | None:
     if "ppt/presentation.xml" in noms:
         return "pptx"
@@ -451,6 +531,7 @@ def reperer(source) -> list[ObjetIncorpore]:
             if conteneur is None:
                 return []
             objets = {"pptx": _pptx, "docx": _docx, "xlsx": _xlsx}[conteneur](paquet)
+            objets += _graphiques(paquet, conteneur)
             liens = _relations_vers(paquet, {o.apercu for o in objets if o.apercu})
             for o in objets:
                 if o.apercu:
@@ -1048,6 +1129,10 @@ def _reinjecter(source, traductions: dict[str, str], base, niveau: int,
                 modifs.parties[cible] = reecrire(ex, nouveaux)
             modifs.cibles.append(cible)
             traduits[cible] = (type_, nouveaux)
+            for o in retenus:
+                r = ("graphique", o.graphique, nouveaux, ex.contenu)
+                if o.cible == cible and o.graphique and r not in modifs.retouches:
+                    modifs.retouches.append(r)
         except Exception as exc:  # noqa: BLE001 — au mieux : l'objet d'origine est gardé
             logger.warning("Objet %s non réinjecté : %s", cible, exc)
             continue
@@ -1175,11 +1260,102 @@ def _retoucher(retouches: list[tuple], lire) -> dict[str, bytes]:
                     neuf.set("ContentType", type_contenu)
                     types.insert(types.index(defauts[-1]) + 1 if defauts else 0, neuf)
                     noter("[Content_Types].xml")
+            elif r[0] == "graphique":
+                _, graphique, traduit, original = r
+                if _aligner_graphique(racine(graphique), traduit, original):
+                    noter(graphique)
         except Exception:  # noqa: BLE001 — retouche sans effet, le reste continue
             continue
     return {nom: etree.tostring(racines[nom], xml_declaration=True,
                                 encoding="UTF-8", standalone=True)
             for nom in modifiees}
+
+
+def _onglets(octets: bytes) -> list[tuple[str, str]]:
+    """[(nom d'onglet, partie de la feuille)] d'un classeur, dans l'ordre."""
+    with zipfile.ZipFile(io.BytesIO(octets)) as zf:
+        paquet = _Paquet(zf)
+        classeur = paquet.xml("xl/workbook.xml")
+        if classeur is None:
+            return []
+        rels = paquet.relations("xl/workbook.xml")
+        return [(s.get("name") or "", rels.get(s.get(_R_ID) or "", ("",))[0])
+                for s in classeur.iterfind("x:sheets/x:sheet", NS)]
+
+
+def _aligner_graphique(graphique, traduit: bytes, original: bytes) -> bool:
+    """Réaligne le XML d'un graphique natif sur son classeur caché traduit
+    (6.11.5) : chaque `c:f` suit les onglets renommés, chaque `c:strCache`
+    d'un `c:strRef` reçoit le texte des cellules traduites. Le classeur fait
+    foi, comme dans le moteur XLSX. Rend True si le graphique a changé."""
+    # Import tardif : le moteur XLSX importe ce module.
+    from engines.xlsx.engine import XLSXTranslatorEngine as XlsxEngine, reecrire_references
+    avant, apres = _onglets(original), _onglets(traduit)
+    renommage = {a[0]: b[0] for a, b in zip(avant, apres) if a[0] and b[0] and a[0] != b[0]}
+    touche = False
+    for f in graphique.iter("{%s}f" % NS["c"]):
+        neuf = reecrire_references(f.text or "", renommage)
+        if neuf != (f.text or ""):
+            f.text = neuf
+            touche = True
+    feuilles = {nom: cible for nom, cible in apres}
+    avant_cibles = {cible for _, cible in avant}
+    with zipfile.ZipFile(io.BytesIO(traduit)) as zf, \
+            zipfile.ZipFile(io.BytesIO(original)) as zo:
+        paquet, paquet_o = _Paquet(zf), _Paquet(zo)
+
+        def lire(p):
+            sst = p.xml("xl/sharedStrings.xml")
+            return [] if sst is None else [
+                "".join(t.text or "" for t in si.iter("{%s}t" % NS["x"]))
+                for si in sst.iterfind("x:si", NS)]
+
+        def grille(p, cible):
+            feuille = p.xml(cible)
+            return {} if feuille is None else {
+                c.get("r"): c for c in feuille.iter("{%s}c" % NS["x"]) if c.get("r")}
+
+        magasin, magasin_o = lire(paquet), lire(paquet_o)
+        cellules: dict[str, dict] = {}
+        cellules_o: dict[str, dict] = {}
+        for sref in graphique.iter("{%s}strRef" % NS["c"]):
+            f, cache = sref.find("c:f", NS), sref.find("c:strCache", NS)
+            m = XlsxEngine._REF_GRAPHIQUE.match((f.text or "").strip()) \
+                if f is not None else None
+            if m is None or cache is None:
+                continue
+            cible = feuilles.get(m.group(1).replace("''", "'") if m.group(1) else m.group(2))
+            if not cible:
+                continue
+            if cible not in cellules:
+                cellules[cible] = grille(paquet, cible)
+                cellules_o[cible] = grille(paquet_o, cible) if cible in avant_cibles else {}
+            c1, l1 = XlsxEngine._colonne_de_ref(m.group(3)), int(m.group(4))
+            c2, l2 = ((XlsxEngine._colonne_de_ref(m.group(5)), int(m.group(6)))
+                      if m.group(5) else (c1, l1))
+            largeur = c2 - c1 + 1     # ligne par ligne, comme `_aligner_graphiques`
+            if largeur < 1 or l2 < l1:
+                continue
+            for pt in cache.iterfind("c:pt", NS):
+                v, idx = pt.find("c:v", NS), pt.get("idx") or ""
+                if v is None or not idx.isdigit():
+                    continue
+                ligne, col = divmod(int(idx), largeur)
+                if l1 + ligne > l2:
+                    continue
+                ref = f"{XlsxEngine._lettres(c1 + col)}{l1 + ligne}"
+                cel, cel_o = cellules[cible].get(ref), cellules_o[cible].get(ref)
+                texte = (None if cel is None
+                         else XlsxEngine._texte_de_cellule(None, cel, magasin))
+                texte_o = (None if cel_o is None
+                           else XlsxEngine._texte_de_cellule(None, cel_o, magasin_o))
+                # Seule une cellule que la traduction a changée fait foi : une
+                # cellule laissée telle quelle (formule, texte écarté) ne
+                # remet pas la langue source dans un cache déjà traduit.
+                if texte is not None and texte != texte_o and texte != v.text:
+                    v.text = texte
+                    touche = True
+    return touche
 
 
 def _nom_sur(nom: str) -> bool:

@@ -18,10 +18,12 @@ from collections import defaultdict
 from lxml import etree
 
 from engines import incorpores
+from engines import runtags
 
 # ── Namespace WordprocessingML ────────────────────────────────────────────────
 W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 A = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+C = 'http://schemas.openxmlformats.org/drawingml/2006/chart'
 # Markup Compatibility : encapsule deux représentations du MÊME contenu —
 # mc:Choice (moderne, rendu par Word/LibreOffice) et mc:Fallback (VML legacy,
 # jamais rendu). Les deux portent un w:txbxContent → sans filtrage on extrait et
@@ -194,6 +196,30 @@ class DOCXTranslatorEngine:
             for idx, t_node in enumerate(t_nodes):
                 t_node.text = match_dict.get(idx, '')
 
+    # ── Graphiques natifs (word/charts) ──────────────────────────────────────
+
+    def _chart_values(self, chart_file, croot):
+        """Valeurs textuelles d'un graphique (noms de séries, catégories),
+        dans un ordre stable. Les caches liés au classeur caché sont laissés au
+        traitement des objets incorporés, qui les réaligne sur le classeur
+        traduit : ils ne sont ni facturés ni traduits deux fois."""
+        a_classeur = incorpores.a_classeur_interne(chart_file)
+        valeurs = []
+        for v in croot.iter(f'{{{C}}}v'):
+            texte = (v.text or '').strip()
+            if not texte or any(etree.QName(a).localname in ('numCache', 'numLit')
+                                for a in v.iterancestors()):
+                continue
+            try:
+                float(texte)
+                continue
+            except ValueError:
+                pass
+            if a_classeur and incorpores.sous_strref(v):
+                continue
+            valeurs.append(v)
+        return valeurs
+
     # ══════════════════════════════════════════════════════════════════════════
     # 1. EXTRACTION
     # ══════════════════════════════════════════════════════════════════════════
@@ -204,7 +230,7 @@ class DOCXTranslatorEngine:
             filters = {
                 'paragraphs': True, 'tables': True,
                 'headers_footers': True, 'text_boxes': True,
-                'smartarts': True
+                'smartarts': True, 'charts': True
             }
 
         self._extract_zip(docx_path)
@@ -212,7 +238,7 @@ class DOCXTranslatorEngine:
         extraction = {
             'document': {
                 'elements': [], 'headers': [], 'footers': [],
-                'textboxes': [], 'smartarts': []
+                'textboxes': [], 'smartarts': [], 'charts': []
             }
         }
         types_used = {'document': set()}
@@ -270,6 +296,21 @@ class DOCXTranslatorEngine:
                         self._process_drawing_paragraph(p, f'dgm_{diag_file.stem}_{d_ctr}', extraction['document']['smartarts'], types_used['document'], 'smartart')
                         d_ctr += 1
 
+        if filters.get('charts', True):
+            chart_dir = self._get_temp_dir() / 'word' / 'charts'
+            if chart_dir.exists():
+                for chart_file in sorted(chart_dir.glob('chart*.xml')):
+                    croot = self._parse_xml(chart_file).getroot()
+                    for n, p in enumerate(croot.iter(_a('p'))):
+                        self._process_drawing_paragraph(p, f'chart_{chart_file.stem}_{n}', extraction['document']['charts'], types_used['document'], 'chart')
+                    for i, v in enumerate(self._chart_values(chart_file, croot)):
+                        extraction['document']['charts'].append({
+                            'id': f'chartv_{chart_file.stem}_{i}',
+                            'text': f'[[0]]{v.text}[[/0]]',
+                            'context': {'type': 'chart', 'run_count': 1},
+                        })
+                        types_used['document'].add('chart')
+
         self._cleanup_temp()
 
         # Objets incorporés (Excel, Word, PowerPoint) : leurs textes, à plat.
@@ -300,7 +341,7 @@ class DOCXTranslatorEngine:
 
         translation_map = {}
         doc_data = translation_data.get('document', {})
-        for section in ('elements', 'headers', 'footers', 'textboxes', 'smartarts'):
+        for section in ('elements', 'headers', 'footers', 'textboxes', 'smartarts', 'charts'):
             for elem in doc_data.get(section, []):
                 translation_map[elem['id']] = elem.get('translated_text', elem['text'])
 
@@ -374,6 +415,22 @@ class DOCXTranslatorEngine:
                     if eid in translation_map: self._inject_drawing_paragraph(p, translation_map[eid]); d_mod = True
                     d_ctr += 1
                 if d_mod: self._save_xml(dtree, diag_file)
+
+        chart_dir = word_dir / 'charts'
+        if chart_dir.exists():
+            for chart_file in sorted(chart_dir.glob('chart*.xml')):
+                ctree = self._parse_xml(chart_file)
+                croot = ctree.getroot()
+                c_mod = False
+                for n, p in enumerate(croot.iter(_a('p'))):
+                    eid = f'chart_{chart_file.stem}_{n}'
+                    if eid in translation_map: self._inject_drawing_paragraph(p, translation_map[eid]); c_mod = True
+                for i, v in enumerate(self._chart_values(chart_file, croot)):
+                    eid = f'chartv_{chart_file.stem}_{i}'
+                    if eid in translation_map:
+                        v.text = runtags.sans_balises(translation_map[eid])
+                        c_mod = True
+                if c_mod: self._save_xml(ctree, chart_file)
 
         self._repack_zip(output_docx)
         self._cleanup_temp()

@@ -458,11 +458,13 @@ class PPTXTranslatorEngine:
         return lambda objet: f"slide{slide_num}_" if objet.partie == partie else None
 
     def _a_des_objets(self, slide_num: int) -> bool:
-        """La diapositive pointe-t-elle vers ppt/embeddings ? Test bon marché qui
-        évite de reparcourir tout le paquet pour chaque diapositive sans objet."""
+        """La diapositive pointe-t-elle vers ppt/embeddings ou vers un graphique
+        (son classeur caché, 6.11.5) ? Test bon marché qui évite de reparcourir
+        tout le paquet pour chaque diapositive sans objet."""
         rels = Path(self._get_temp_dir()) / "ppt" / "slides" / "_rels" / f"slide{slide_num}.xml.rels"
         try:
-            return b"embeddings/" in rels.read_bytes()
+            contenu = rels.read_bytes()
+            return b"embeddings/" in contenu or b"charts/" in contenu
         except OSError:
             return False
 

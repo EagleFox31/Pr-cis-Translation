@@ -832,7 +832,7 @@ class TranslatorAI:
         else:
             if progress_callback: progress_callback("Mode DOCX : Groupement par sections et éléments détecté.")
             doc_data = data.get("document", {})
-            for section in ["elements", "headers", "footers", "textboxes", "smartarts"]:
+            for section in ["elements", "headers", "footers", "textboxes", "smartarts", "charts"]:
                 section_blocks = [b for b in doc_data.get(section, []) if b.get("text", "").strip()]
                 if not section_blocks:
                     continue

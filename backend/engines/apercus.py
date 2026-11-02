@@ -160,8 +160,12 @@ def copie_de_rendu_classeur(octets: bytes) -> bytes:
     for i, f in enumerate(liste):
         if i != active:
             f.set("state", "hidden")
+    chemin = _cible_feuille(parties, liste[active].get(f"{{{_R}}}id") or "") if liste else None
+    # Feuille graphique : ni cellules ni zone d'impression, le graphique
+    # remplit déjà la page.
+    graphique = (chemin or "").startswith("xl/chartsheets/")
     taille = classeur.find(f"{{{_S}}}oleSize")
-    if liste and taille is not None and taille.get("ref"):
+    if liste and not graphique and taille is not None and taille.get("ref"):
         a, _, b = taille.get("ref").partition(":")
         nom = liste[active].get("name", "").replace("'", "''")
         noms = classeur.find(f"{{{_S}}}definedNames")
@@ -177,10 +181,8 @@ def copie_de_rendu_classeur(octets: bytes) -> bytes:
         zone.text = f"'{nom}'!{_absolu(a)}:{_absolu(b or a)}"
     parties["xl/workbook.xml"] = etree.tostring(classeur, xml_declaration=True,
                                                 encoding="UTF-8", standalone=True)
-    if liste:
-        chemin = _cible_feuille(parties, liste[active].get(f"{{{_R}}}id") or "")
-        if chemin in parties:
-            parties[chemin] = forcer_une_page(parties[chemin])
+    if not graphique and chemin in parties:
+        parties[chemin] = forcer_une_page(parties[chemin])
     if "xl/styles.xml" in parties:
         parties["xl/styles.xml"] = _pourcentages_explicites(parties["xl/styles.xml"])
     return _zip_stable(parties)
