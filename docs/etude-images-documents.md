@@ -173,6 +173,9 @@ images sous la taille minimale de lecture.
    `/api/translate`, contrôle de couverture texte + n ; tests.
 3. Frontend : appel d'analyse au dépôt, case et deux totaux, rapport final ;
    `tsc`, lint, build ; essai Playwright.
+   Décision de réalisation (02/11/2026) : option désactivée avec une plage de
+   pages. Le serveur compte les images du document entier, l'utilisateur
+   paierait donc des images hors de sa sélection.
 4. Annulation par image : table original/traduite gardée avec le document,
    route de reconstruction avec l'original d'une image, bouton « Remettre
    l'original » sur l'aperçu de la page ; tests.

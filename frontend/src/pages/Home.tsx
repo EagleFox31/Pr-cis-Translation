@@ -168,7 +168,7 @@ export default function Home() {
     (config: TranslateConfig) => {
       // Le catalogue ne propose que des codes de base ('en', 'fr'…) : plus de
       // variante régionale à réduire avant l'envoi.
-      const { file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta, resumeOf } = config;
+      const { file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta, resumeOf, images } = config;
       // Mémorisé pour rejouer après un achat de pages (402) : en ENTIER, un
       // achat sert à couvrir tout le document, jamais à rejouer une version partielle.
       lastConfigRef.current = { ...config, coverOnly: false };
@@ -188,7 +188,7 @@ export default function Home() {
       setShowPreview(true);
 
       stream
-        .start(file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta, resumeOf)
+        .start(file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta, resumeOf, images)
         .then((result) => {
           setTranslatedBlob(result.blob);
           setTranslatedIsPdf(false);   // le RÉSULTAT est au format d'origine
@@ -295,6 +295,7 @@ export default function Home() {
         debug: false,
         precise: doc.reglages?.precise ?? false,
         beta: doc.reglages ? doc.reglages.beta : undefined,
+        images: doc.reglages?.qsuffix?.includes('_img') ?? false,
         // Le serveur ne compte la remise que pour un document interrompu.
         resumeOf: STATUTS_REPRENABLES.includes(doc.status) ? doc.id : undefined,
         onAccepted: () => { deleteDocument(doc.id).catch(() => { /* déjà parti */ }); },
@@ -671,7 +672,12 @@ export default function Home() {
           limitReached={stream.limitReached}
           creditsNeeded={stream.creditsNeeded}
           onBuyPages={(p) => setPayPages(p)}
-          pagesCovered={stream.pagesCovered}
+          pagesCovered={stream.imagesNeeded ? null : stream.pagesCovered}
+          imagesNeeded={stream.imagesNeeded}
+          onTranslateWithoutImages={() => {
+            const cfg = lastConfigRef.current;
+            if (cfg) handleStartTranslate({ ...cfg, images: false, coverOnly: false });
+          }}
           creditsReason={stream.creditsReason}
           onTranslateCovered={() => {
             const cfg = lastConfigRef.current;

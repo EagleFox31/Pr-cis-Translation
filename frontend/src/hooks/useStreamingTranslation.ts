@@ -69,6 +69,8 @@ export interface StreamingState {
   /** En file d'attente : aucun worker libre. `null` = pas en file (démarré ou
    *  terminé). Le nombre est une estimation des demandes devant la vôtre. */
   queuePosition: number | null;
+  /** 402 : pages du manque dues aux images demandées. `null` = sans images. */
+  imagesNeeded: number | null;
 }
 
 const EMPTY: StreamingState = {
@@ -86,6 +88,7 @@ const EMPTY: StreamingState = {
   pagesCovered: null,
   creditsReason: null,
   queuePosition: null,
+  imagesNeeded: null,
 };
 
 // `deviceSignals` : seules les pages OFFERTES passent par l'anti-abus ; un
@@ -192,6 +195,7 @@ export function useStreamingTranslation(deviceSignals = true) {
       coverOnly: boolean = false,
       useBeta?: boolean,
       resumeOf?: string,
+      images: boolean = false,
     ): Promise<{ blob: Blob; filename: string }> => {
       return new Promise(async (resolve, reject) => {
         // Fermer TOUT flux encore ouvert avant d'en démarrer un nouveau. Relancer
@@ -231,6 +235,7 @@ export function useStreamingTranslation(deviceSignals = true) {
           if (coverOnly) formData.append('covered_only', '1');
           if (typeof useBeta === 'boolean') formData.append('use_beta', useBeta ? '1' : '0');
           if (resumeOf) formData.append('resume_of', resumeOf);
+          if (images) formData.append('images', '1');
 
           // `authHeader()` est INDISPENSABLE ici, pas décoratif : le backend lit
           // l'utilisateur via `optional_auth`. Sans token il voit un visiteur
@@ -263,14 +268,19 @@ export function useStreamingTranslation(deviceSignals = true) {
               ...s, isTranslating: false, error: detail,
               limitReached: is402 && !betaError, creditsNeeded: needed, pagesCovered: covered,
               creditsReason: deviceLimit ? detail : null,
+              imagesNeeded: credits && Number(err.images_needed) > 0 ? Number(err.images_needed) : null,
             }));
             throw new Error(detail);
           }
-          const { job_id, ocr_pages, can_download } = await startRes.json();
+          const { job_id, ocr_pages, can_download, images: imagesAcceptees } = await startRes.json();
           setState((s) => ({ ...s, canReadClear: can_download === true }));
-          if (ocr_pages > 0) {
-            setState((s) => ({ ...s, notice: t('story.ocr_notice', { count: ocr_pages }) }));
-          }
+          // Images demandées mais écartées par le serveur (scan, par exemple) :
+          // l'utilisateur doit le savoir, sa figure restera dans la langue d'origine.
+          const avis = [
+            ocr_pages > 0 ? t('story.ocr_notice', { count: ocr_pages }) : '',
+            images && imagesAcceptees === undefined ? t('story.images_skipped') : '',
+          ].filter(Boolean).join(' ');
+          if (avis) setState((s) => ({ ...s, notice: avis }));
           jobIdRef.current = job_id;
           // Le serveur a enregistré le Document AVANT de répondre : ce qui
           // dépendait de son existence peut maintenant se faire.
@@ -311,6 +321,21 @@ export function useStreamingTranslation(deviceSignals = true) {
               // Tout autre événement veut dire que le job a QUITTÉ la file (un
               // worker l'a pris) : on efface l'état d'attente une bonne fois.
               setState((s) => (s.queuePosition === null ? s : { ...s, queuePosition: null }));
+
+              if (type === 'images') {
+                const bilan = ['traduites', 'inchangees', 'sans_credit', 'echecs']
+                  .map((cle) => {
+                    const count = Number(msg[cle]) || 0;
+                    return count > 0 ? t(`story.images_report.${cle}`, { count }) : '';
+                  })
+                  .filter(Boolean)
+                  .join(', ');
+                if (bilan) {
+                  const phrase = t('story.images_report.intro', { detail: bilan });
+                  setState((s) => ({ ...s, notice: [s.notice, phrase].filter(Boolean).join(' ') }));
+                }
+                return;
+              }
 
               if (type === 'start') {
                 const total = (msg.total as number) ?? null;

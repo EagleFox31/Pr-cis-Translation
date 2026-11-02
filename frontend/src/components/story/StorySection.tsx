@@ -54,6 +54,10 @@ interface StorySectionProps {
   creditsReason?: string | null;
   /** Relance en ne traduisant que les pages couvertes. */
   onTranslateCovered?: () => void;
+  /** Pages du manque dues aux images demandées. */
+  imagesNeeded?: number | null;
+  /** Relance du document sans ses images. */
+  onTranslateWithoutImages?: () => void;
   /** Mode agrandi (focus) actif ? */
   focus?: boolean;
   onStartTranslate: (config: TranslateConfig) => void;
@@ -97,6 +101,8 @@ export default function StorySection({
   pagesCovered = null,
   creditsReason = null,
   onTranslateCovered,
+  imagesNeeded = null,
+  onTranslateWithoutImages,
   focus = false,
   onStartTranslate,
   onBack,
@@ -542,6 +548,8 @@ export default function StorySection({
                       pagesCovered={pagesCovered}
                       creditsReason={creditsReason}
                       onTranslateCovered={onTranslateCovered}
+                      imagesNeeded={imagesNeeded}
+                      onTranslateWithoutImages={onTranslateWithoutImages}
                       onUnlock={onUnlock}
                     />
                   </div>

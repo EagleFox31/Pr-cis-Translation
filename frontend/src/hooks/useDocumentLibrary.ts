@@ -41,7 +41,7 @@ export interface DocMeta {
   jobId?: string | null;
   /** Réglages d'origine : « Reprendre » relance avec eux, donc sur les pages
    *  déjà traduites. Absents sur les documents d'avant leur enregistrement. */
-  reglages?: { pages: string; precise: boolean; beta: boolean } | null;
+  reglages?: { pages: string; precise: boolean; beta: boolean; qsuffix?: string } | null;
   /** blob dispo uniquement pour les visiteurs (en mémoire) */
   _blob?: Blob;
 }

@@ -40,6 +40,10 @@ interface DocumentPreviewProps {
   creditsReason?: string | null;
   /** Relance en ne traduisant que les pages couvertes. */
   onTranslateCovered?: () => void;
+  /** Pages du manque dues aux images demandées. */
+  imagesNeeded?: number | null;
+  /** Relance du document sans ses images. */
+  onTranslateWithoutImages?: () => void;
   /** Essai : quitter l'aperçu pour les tarifs. */
   onUnlock?: () => void;
 }
@@ -70,6 +74,8 @@ export default function DocumentPreview({
   pagesCovered,
   creditsReason,
   onTranslateCovered,
+  imagesNeeded,
+  onTranslateWithoutImages,
   onUnlock,
 }: DocumentPreviewProps) {
   const { t } = useTranslation();
@@ -146,6 +152,8 @@ export default function DocumentPreview({
       pagesCovered={pagesCovered}
       creditsReason={creditsReason}
       onTranslateCovered={onTranslateCovered}
+      imagesNeeded={imagesNeeded}
+      onTranslateWithoutImages={onTranslateWithoutImages}
       onUnlock={onUnlock}
     />
   );

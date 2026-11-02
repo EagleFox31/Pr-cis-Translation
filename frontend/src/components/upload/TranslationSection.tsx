@@ -6,6 +6,7 @@ import CheckboxOption from '../ui/CheckboxOption';
 import {
   Check, ArrowRight, Loader2, Languages, Wand2, FileText,
   SlidersHorizontal, ChevronDown, ScanSearch, Info,
+  Image as ImageIcon,
 } from 'lucide-react';
 import FileUploader from './FileUploader';
 import LanguagePicker from './LanguagePicker';
@@ -14,6 +15,7 @@ import { findLang, isLangAvailable } from '../../lib/languages';
 import { Link } from 'react-router-dom';
 import { useBeta, type BetaFormat } from '../../hooks/useBeta';
 import { BETA_FORMATS } from '../library/BetaAllowances';
+import { useAnalyseImages, formatAvecImages } from '../../hooks/useAnalyseImages';
 
 export interface TranslateConfig {
   file: File;
@@ -32,6 +34,8 @@ export interface TranslateConfig {
   /** Reprise d'un document interrompu : ses pages déjà payées ne sont pas redébitées. */
   resumeOf?: string;
   beta?: boolean;
+  /** Traduire aussi le texte des images (1 page par image remplacée). */
+  images?: boolean;
 }
 
 interface TranslationSectionProps {
@@ -86,6 +90,7 @@ export default function TranslationSection({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [preciseMode, setPreciseMode] = useState(false);
   const [justReset, setJustReset] = useState(false);
+  const [traduireImages, setTraduireImages] = useState(false);
 
   const ext = file?.name.split('.').pop()?.toLowerCase() ?? '';
   const isPdf = ext === 'pdf';
@@ -116,8 +121,20 @@ export default function TranslationSection({
   const handleFile = (f: File | null) => {
     setFile(f);
     setPages('');          // une plage est propre à un document
+    setTraduireImages(false);   // un choix qui coûte des pages se refait à chaque document
     if (f) setJustReset(false);
   };
+
+  // Images à texte : l'analyse ne débite rien mais exige un compte. Le serveur
+  // compte les images du document ENTIER : avec une plage de pages, l'utilisateur
+  // paierait des images hors de sa sélection, d'où l'option désactivée.
+  const { analyse, enCours: analyseEnCours } = useAnalyseImages(file, !!user && formatAvecImages(ext));
+  const imagesTrouvees = analyse?.images ?? 0;
+  const imagesBloquees = betaUsable && useBetaCredits ? 'beta'
+    : supportsStructure && structureMode ? 'structure'
+    : supportsPages && pages.trim() ? 'pages'
+    : null;
+  const imagesActives = imagesTrouvees > 0 && traduireImages && !imagesBloquees;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,6 +147,7 @@ export default function TranslationSection({
       debug: supportsStructure && structureMode,
       precise: supportsPrecise && preciseMode,
       beta: betaAccess.data ? betaUsable && useBetaCredits : undefined,
+      images: imagesActives,
       onAccepted: () => { void betaAccess.refresh(); },
     });
   };
@@ -254,6 +272,41 @@ export default function TranslationSection({
             {t('story.source_auto', 'La langue du document est détectée automatiquement.')}
           </span>
         </div>
+
+        {/* Images à texte : l'option n'existe que si l'analyse en a trouvé. */}
+        {analyseEnCours && (
+          <span role="status" style={{
+            display: 'inline-flex', alignItems: 'center', gap: '6px',
+            fontSize: '11.5px', color: 'var(--gray-500)',
+          }}>
+            <Loader2 size={12} strokeWidth={2} className="animate-spin" style={{ flexShrink: 0 }} />
+            {t('story.images_analysing')}
+          </span>
+        )}
+        {imagesTrouvees > 0 && analyse && (
+          <CheckboxOption
+            id="images"
+            checked={imagesActives}
+            onChange={setTraduireImages}
+            disabled={isTranslating || !!imagesBloquees}
+            icon={<ImageIcon size={14} strokeWidth={2} />}
+            label={t('story.images_label', { count: imagesTrouvees })}
+            description={imagesBloquees
+              ? t(`story.images_blocked_${imagesBloquees}`)
+              : [
+                  analyse.pages > 0
+                    ? t('story.images_totals', { count: analyse.pages, avec: analyse.pages + imagesTrouvees })
+                    : t('story.images_total_only', { count: imagesTrouvees }),
+                  t('story.images_unchanged_free'),
+                  analyse.incomplet ? t('story.images_incomplete') : '',
+                ].filter(Boolean).join(' ')}
+          />
+        )}
+        {imagesTrouvees === 0 && analyse?.indisponible && (
+          <span role="status" style={{ fontSize: '11.5px', color: 'var(--gray-500)' }}>
+            {t('story.images_unavailable')}
+          </span>
+        )}
 
         {/* Options avancées — repliées : elles servent à des cas particuliers
             (extrait, diagnostic) et n'apparaissent que pour les formats qui les

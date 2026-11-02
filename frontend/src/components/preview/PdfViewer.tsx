@@ -87,6 +87,10 @@ interface PdfViewerProps {
   creditsReason?: string | null;
   /** Relance en ne traduisant que les pages couvertes. */
   onTranslateCovered?: () => void;
+  /** Pages du manque dues aux images demandées. */
+  imagesNeeded?: number | null;
+  /** Relance du document sans ses images. */
+  onTranslateWithoutImages?: () => void;
   /** Essai : quitter l'aperçu pour les tarifs. */
   onUnlock?: () => void;
   /** Fichier disparu du serveur : `translation` = la traduction seule,
@@ -118,6 +122,8 @@ export default function PdfViewer({
   pagesCovered,
   creditsReason,
   onTranslateCovered,
+  imagesNeeded,
+  onTranslateWithoutImages,
   onUnlock,
   fileMissing = null,
   formatHint = 'portrait',
@@ -525,6 +531,7 @@ export default function PdfViewer({
                   </span>
                   <span style={{ fontSize: '12.5px', color: 'var(--gray-600)', maxWidth: '280px', marginTop: '-6px' }}>
                     {creditsReason ?? t('preview.credits_needed', { count: creditsNeeded })}
+                    {imagesNeeded ? ` ${t('preview.credits_images', { count: imagesNeeded })}` : ''}
                   </span>
                   <button
                     onClick={() => onBuyPages(creditsNeeded)}
@@ -538,7 +545,21 @@ export default function PdfViewer({
                   >
                     {t('story.buy_pages_cta', { count: creditsNeeded })}
                   </button>
-                  {pagesCovered && onTranslateCovered ? (
+                  {/* Sans les images d'abord : ne garder que les pages couvertes
+                      facturerait quand même toutes les images du document. */}
+                  {imagesNeeded && onTranslateWithoutImages ? (
+                    <button
+                      onClick={onTranslateWithoutImages}
+                      style={{
+                        padding: '8px 16px', borderRadius: '10px',
+                        border: '1px solid var(--gray-300)', background: 'white',
+                        color: 'var(--gray-700)', fontSize: '12.5px', fontWeight: 600,
+                        fontFamily: 'inherit', cursor: 'pointer',
+                      }}
+                    >
+                      {t('preview.translate_without_images')}
+                    </button>
+                  ) : pagesCovered && onTranslateCovered ? (
                     <button
                       onClick={onTranslateCovered}
                       style={{
