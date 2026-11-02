@@ -521,6 +521,16 @@ class PaddleClient:
         # Live sur demande EXPLICITE, comme Campay et Fapshi.
         self.host = (PADDLE_LIVE_HOST if os.getenv("PADDLE_ENV", "").upper() == "LIVE"
                      else PADDLE_SANDBOX_HOST)
+        if self.cle_incoherente(self.api_key, self.host == PADDLE_LIVE_HOST):
+            # Sinon chaque paiement échoue en 403, sans dire pourquoi.
+            logger.error("PADDLE_API_KEY ne correspond pas à PADDLE_ENV=%s",
+                         os.getenv("PADDLE_ENV", "") or "SANDBOX")
+
+    @staticmethod
+    def cle_incoherente(api_key: str, live: bool) -> bool:
+        """Clé sandbox (`pdl_sdbx_`) visant le live, ou clé live (`pdl_live_`)
+        visant le sandbox."""
+        return api_key.startswith("pdl_sdbx_" if live else "pdl_live_")
 
     @property
     def configured(self) -> bool:

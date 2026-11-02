@@ -49,11 +49,17 @@ ARG VITE_API_KEY
 ARG VITE_API_BASE=""
 ARG VITE_GOOGLE_CLIENT_ID=""
 ARG VITE_TURNSTILE_SITE_KEY=""
+# Jeton CLIENT Paddle (`test_…` / `live_…`) : public par conception, comme la
+# clé d'interface. Vides = la page de paiement par carte se déclare non configurée.
+ARG VITE_PADDLE_ENV=""
+ARG VITE_PADDLE_CLIENT_TOKEN=""
 
 ENV VITE_API_KEY=$VITE_API_KEY \
     VITE_API_BASE=$VITE_API_BASE \
     VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID \
-    VITE_TURNSTILE_SITE_KEY=$VITE_TURNSTILE_SITE_KEY
+    VITE_TURNSTILE_SITE_KEY=$VITE_TURNSTILE_SITE_KEY \
+    VITE_PADDLE_ENV=$VITE_PADDLE_ENV \
+    VITE_PADDLE_CLIENT_TOKEN=$VITE_PADDLE_CLIENT_TOKEN
 
 # Échec IMMÉDIAT si la clé manque. Le code n'a plus de valeur de repli (elle
 # masquait l'oubli en faisant marcher l'interface avec la clé publique du

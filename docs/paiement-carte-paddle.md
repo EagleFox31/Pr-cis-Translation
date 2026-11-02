@@ -69,9 +69,15 @@ Backend (`backend/.env`) :
 | `PADDLE_WEBHOOK_SECRET` | secret de la destination de notification (`pdl_ntfset_…`) |
 | `PADDLE_CHECKOUT_URL` | dev local seulement : `http://localhost:3000/paiement/carte` (Paddle refuse `localhost` comme lien par défaut) |
 
-Front (`frontend/.env`, rebuild nécessaire) : `VITE_PADDLE_ENV`
-(`sandbox` / `production`) et `VITE_PADDLE_CLIENT_TOKEN` (jeton public `test_…` / `live_…`).
-Les deux côtés doivent viser le même environnement.
+Front, dev local (`frontend/.env`) : `VITE_PADDLE_ENV` (`sandbox` / `production`)
+et `VITE_PADDLE_CLIENT_TOKEN` (jeton public `test_…` / `live_…`).
+Image Docker (production) : le build lit `PADDLE_ENV` et `PADDLE_CLIENT_TOKEN`
+dans `backend/.env` (`docker-compose.yml`) ; front et service partagent donc le
+même environnement. Le service signale au démarrage une clé API qui ne
+correspond pas à `PADDLE_ENV`.
+
+nginx sert `/paiement/carte` par une `location` dédiée : seule page encadrable,
+et seulement par notre site (`frame-ancestors 'self'`) ; les autres restent en `DENY`.
 
 En production, les secrets vont dans SSM, jamais dans un fichier suivi.
 
@@ -90,9 +96,11 @@ En production, les secrets vont dans SSM, jamais dans un fichier suivi.
 3. *Checkout settings* : Default payment link `https://<domaine>/paiement/carte`.
 4. Notification : `https://<domaine>/api/payments/paddle/webhook`, événements
    `transaction.*` → secret dans `PADDLE_WEBHOOK_SECRET`.
-5. Clé API live et jeton client live ; `PADDLE_ENV=LIVE`,
-   `VITE_PADDLE_ENV=production` ; retirer `PADDLE_CHECKOUT_URL`.
-6. Secrets dans SSM, redémarrage du backend, rebuild du front.
+5. Clé API live (`pdl_live_…`) et jeton client live (`live_…`) ;
+   `PADDLE_ENV=LIVE`, `PADDLE_CLIENT_TOKEN=live_…`, `PAYMENT_METHODS` avec
+   `card=paddle` ; pas de `PADDLE_CHECKOUT_URL`.
+6. Dans SSM (`/precis-translation/staging/env`), puis déploiement : l'image
+   front est reconstruite avec ces valeurs.
 7. Confirmer le tarif du contrat Paddle (`CARD_FEE_PERCENT`, `CARD_FEE_FIXED`)
    et vérifier que le minimum de `GET /currencies` en live reste sous les prix.
 8. Paiement réel de faible montant avec une vraie carte, puis remboursement
