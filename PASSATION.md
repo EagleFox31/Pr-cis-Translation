@@ -1,10 +1,10 @@
-# PASSATION — 01/11/2026
+# PASSATION — 02/11/2026
 
 ## 1. Objectif en cours
 6.8 (images à texte des documents normaux, devis avec/sans images) : 6.8.1 et 6.8.2 faits (commits locaux), **6.11 avancé avant 6.8.3** (demande 01/11 : gérer toutes les combinaisons d'objets incorporés ; étude faite `docs/etude-objets-incorpores.md`, décisions D1-D6 prises 01/11, §8 ; 6.11.1 à 6.11.3b faits ; **prochaine étape 6.11.4**) ; ensuite 6.8.3 → 6.9 → 6.10, puis 6.4b.2.
 
 ## 2. Fait
-- Branche `feat/ocr-v2`, tout en commits locaux **non poussés** (dernier : eac85e5). OCR v2 complet (`backend/app/services/ocr_v2/`, `docs/etude-ocr-v2.md` §7-8, §11) ; extension `extension/` + routes `app/api/extension.py`, `app/services/extension.py`.
+- Branche `feat/ocr-v2`, tout en commits locaux **non poussés** (dernier : 1c201af). OCR v2 complet (`backend/app/services/ocr_v2/`, `docs/etude-ocr-v2.md` §7-8, §11) ; extension `extension/` + routes `app/api/extension.py`, `app/services/extension.py`.
 - 6.4a/6.4c (ad9a7e0, 7dd478e) mise en page des images (`ocr_v2/image.py`, `LISIBLE_PX = 24`) ; 6.4b.1 (0dc8136) avance au volume ; 6.7 (9735f18) lignes fiables des scans.
 - 6.8.1 (6108fd6) : `services/images_document.py` (`lister`/`detecter`/`analyser`/`vignette`), route `POST /api/translate/analyse`.
 - Compte rendu PPTX réel (01/11) : textes oubliés corrigés — 8f64c57 aperçu Excel déjà PNG, b421d2c masques + cellules `t="str"`, fa7ad72 classeur incorporé via moteur XLSX, caches de graphiques alignés (`xlsx/engine.py` `_aligner_graphiques`), `<c:f>` réécrits au renommage, `translation_ai.harmoniser` (doublons = une seule traduction). Intitulés de formation désormais traduits, code gardé (règle 6 du prompt, eac85e5) ; limite : formulation parfois variable entre diapositives (« Fictitious » / « Fictional »).
@@ -35,10 +35,13 @@
 **Hors plan** :
 - Échec CI `sync-github-app-user` : côté propriétaire. `frontend/tsconfig.tsbuildinfo` non suivi : à ignorer.
 - `feat/page-beta-candidature` : push et PR sur accord, à rebaser après fusion de #53.
+- **Avant de fusionner `feat/ocr-v2`** : rebaser sur `main` après #53/#54 et faire pointer `0013_extension_avance` sur la dernière migration de `main` (aujourd'hui 0012 ; les branches ouvertes vont jusqu'à `0018_document_reglages`), en renumérotant le fichier. Sinon la CI refuse (étape « Suite de migrations unique »).
+- Base dev 5432 à `0018_document_reglages` (inconnue de cette branche), colonne `users.extension_avance` absente : connexion en « Erreur interne » tant qu'elle n'est pas ajoutée (décision de l'utilisateur en attente).
 
 ## 5. Pièges / contexte
 - `backend/.env` est en LIVE pour Fapshi : ne jamais valider d'invite réelle. Ne pas afficher les `.env` (`grep -c` seulement). Jamais de clé dans un fichier suivi. Push/PR seulement après vérification locale par l'utilisateur.
 - venv : `C:\Users\IBRAH\Documents\Projets\Precis_Translator_backup_2026-06-10_13-10\backend\venv\Scripts\python.exe`. Lancer : `npm run stop`, puis `PYTHONUTF8=1 <venv>/python.exe scripts/dev.py` (tuer un vieil uvicorn :8000 par PID au besoin).
+- Migrations : `backend/scripts/verifier_migrations.py` (une seule fin de suite : CI + démarrage du conteneur ; `--base` : `scripts/dev.py` met la base à jour ou explique l'écart). Une base migrée depuis une autre branche ne se répare pas seule.
 - Tests backend : unittest, Postgres 5433, jamais la base dev 5432. Docker Desktop puis `docker run -d --rm --name precis-test-pg -p 5433:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=precis postgres:16-alpine` et `python -m alembic upgrade head` (dans `backend/`, avec `DATABASE_URL`). Ex. : `cd backend && PYTHONUTF8=1 <venv>/python.exe tests/test_images_document.py`.
 - Tesseract absent en local : `MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W):/be" -w /be/tests precis-ocr-test python /be/tests/test_ocr.py` (depuis `backend/`, chemins `/be/...`).
 - Images 6.8 : clés `xref:<n>` (PDF) / nom de partie média (Office) ; budget lu via `ext_service.couverture` dans `jobs._dans_une_boucle_jetable` ; sémaphore OCR partagé `services/ocr.py:27`.

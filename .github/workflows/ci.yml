@@ -167,6 +167,13 @@ jobs:
           psql -h 127.0.0.1 -U precis -d postgres -c 'CREATE DATABASE precis_migration_ci'
           python scripts/ci/verify_migration_upgrade.py
 
+      # Deux branches qui ajoutent chacune une migration après la même parente
+      # laissent deux fins de suite : en production, `alembic upgrade head`
+      # échouerait et le conteneur ne redémarrerait plus.
+      - name: Suite de migrations unique
+        working-directory: backend
+        run: python scripts/verifier_migrations.py
+
       - name: Migrations
         working-directory: backend
         # Les suites ne créent pas le schéma — aucune n'appelle `create_all` ni
