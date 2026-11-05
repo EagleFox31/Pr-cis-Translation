@@ -348,6 +348,7 @@ class XLSXTranslatorEngine(TranslationEngine):
 
     def __init__(self):
         self.temp_dir = None
+        self.objets_restes: list[dict] = []
         #: `{ss_i: texte source}`, capturé à l'ouverture. Le cache d'un croisé
         #: porte des VALEURS et non des index : l'aligner exige de relier un
         #: texte source à sa traduction, et l'ouverture est le seul instant où
@@ -1710,10 +1711,12 @@ class XLSXTranslatorEngine(TranslationEngine):
         if not traductions:
             return
         try:
-            incorpores.appliquer_fichier(chemin_sortie, incorpores.reinjecter(
-                chemin_sortie, traductions, niveau=niveau_objets))
+            modifs = incorpores.reinjecter(chemin_sortie, traductions, niveau=niveau_objets)
+            incorpores.appliquer_fichier(chemin_sortie, modifs)
+            incorpores.cumuler(self.objets_restes, modifs.restes)
         except Exception as exc:  # noqa: BLE001
             incorpores.logger.warning("Objets XLSX non réinjectés : %s", exc)
+            incorpores.cumuler(self.objets_restes, [incorpores.reste_inconnu()])
 
     def inject_translation(self, original_path: str, translated_json: str,
                            output_path: str, format_options: dict | None = None,

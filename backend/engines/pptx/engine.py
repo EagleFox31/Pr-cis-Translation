@@ -189,6 +189,10 @@ class PPTXTranslatorEngine:
         # PPTX d'origine du dossier temporaire : les objets incorporés se
         # relèvent et se réinjectent depuis lui (chemin progressif, diapo à diapo).
         self._source: str | None = None
+        # Objets non traités des diapositives relevées une à une (compte rendu
+        # client, D6) : même forme que `incorpores.rapport()["non_traites"]`.
+        self.objets_non_traites: list[dict] = []
+        self.objets_restes: list[dict] = []
 
     def generate_autorefresh_pptm(self, pptx_path: str, pptm_output_path: str = None) -> str:
         """Génère une version .pptm (PowerPoint Macro-Enabled) contenant la macro VBA
@@ -458,15 +462,33 @@ class PPTXTranslatorEngine:
         return lambda objet: f"slide{slide_num}_" if objet.partie == partie else None
 
     def _a_des_objets(self, slide_num: int) -> bool:
-        """La diapositive pointe-t-elle vers ppt/embeddings ou vers un graphique
-        (son classeur caché, 6.11.5) ? Test bon marché qui évite de reparcourir
-        tout le paquet pour chaque diapositive sans objet."""
+        """La diapositive pointe-t-elle vers ppt/embeddings, vers un graphique
+        (son classeur caché, 6.11.5) ou vers un objet lié (fichier externe, à
+        signaler) ? Test bon marché qui évite de reparcourir tout le paquet pour
+        chaque diapositive sans objet."""
         rels = Path(self._get_temp_dir()) / "ppt" / "slides" / "_rels" / f"slide{slide_num}.xml.rels"
         try:
             contenu = rels.read_bytes()
-            return b"embeddings/" in contenu or b"charts/" in contenu
+            return any(m in contenu for m in (b"embeddings/", b"charts/",
+                                              b"relationships/oleObject", b"relationships/package"))
         except OSError:
             return False
+
+    def objets_hors_diapositives(self) -> list[dict]:
+        """Objets des masques, dispositions et notes : le parcours progressif ne
+        les traduit pas (seules les diapositives sont parcourues), le client en est
+        averti. Un objet aussi affiché sur une diapositive n'en fait pas partie."""
+        if not self._source:
+            return []
+        objets = incorpores.reperer(self._source)
+        sur_diapo = {o.cible for o in objets if o.partie.startswith("ppt/slides/")}
+        signales: list[dict] = []
+        for o in objets:
+            raison = o.raison_non_traite or "hors_diapo"
+            if o.cible not in sur_diapo and raison != "marqueur":
+                incorpores.cumuler(signales, [{"cible": o.cible.rsplit("/", 1)[-1],
+                                               "raison": raison}])
+        return signales
 
     def _process_xml_element(self, root, slide_num, data_store, element_types_used, id_prefix, filters):
         paragraphs = root.xpath(".//a:p", namespaces=NAMESPACES)
@@ -639,11 +661,14 @@ class PPTXTranslatorEngine:
             # Au mieux : un objet en échec reste tel quel.
             try:
                 retenues = {sl.get("slide_id") for sl in translation_data.get("slides", [])}
-                incorpores.appliquer_dossier(temp_path, incorpores.reinjecter(
+                modifs = incorpores.reinjecter(
                     original_pptx, translation_map, self._base_objets(retenues),
-                    niveau=niveau_objets))
+                    niveau=niveau_objets)
+                incorpores.appliquer_dossier(temp_path, modifs)
+                incorpores.cumuler(self.objets_restes, modifs.restes)
             except Exception as exc:  # noqa: BLE001
                 incorpores.logger.warning("Objets PPTX non réinjectés : %s", exc)
+                incorpores.cumuler(self.objets_restes, [incorpores.reste_inconnu()])
 
             if progress_callback:
                 progress_callback("Re-compression du fichier PPTX...")
@@ -857,8 +882,9 @@ class PPTXTranslatorEngine:
 
         # Objets incorporés affichés par cette diapositive.
         if filters.get("tables") and self._source and self._a_des_objets(slide_num):
-            elements_objets, _ = incorpores.relever(
+            elements_objets, rapport_objets = incorpores.relever(
                 self._source, base=self._base_diapo(slide_num))
+            incorpores.cumuler(self.objets_non_traites, rapport_objets["non_traites"])
             for el in elements_objets:
                 slide_data["excel_elements"].append(el)
                 element_types_used[slide_num].add(el["context"]["shape_type"])
@@ -937,10 +963,12 @@ class PPTXTranslatorEngine:
                 modifs = incorpores.reinjecter(self._source, translation_map,
                                                self._base_diapo(slide_num))
                 incorpores.appliquer_dossier(self._get_temp_dir(), modifs)
+                incorpores.cumuler(self.objets_restes, modifs.restes)
                 if modifs.cibles:
                     modified = True
             except Exception as exc:  # noqa: BLE001
                 incorpores.logger.warning("Objets diapo %s non réinjectés : %s", slide_num, exc)
+                incorpores.cumuler(self.objets_restes, [incorpores.reste_inconnu()])
 
         return bool(modified)
 

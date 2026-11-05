@@ -337,6 +337,37 @@ export function useStreamingTranslation(deviceSignals = true) {
                 return;
               }
 
+              if (type === 'objets') {
+                type ObjetSignale = { cible?: string | null; raison?: string };
+                const liste: ObjetSignale[] = Array.isArray(msg.non_traites) ? msg.non_traites : [];
+                const RAISONS = ['lie', 'visio', 'pdf', 'equation', 'paquet', 'absent',
+                  'conversion', 'erreur', 'profondeur', 'illisible', 'reinjection', 'hors_diapo'];
+                const nomDe = (o: ObjetSignale) => (o.cible
+                  ? String(o.cible).split(' › ').map((part) => part.split(/[\\/]/).pop() || part).join(' › ')
+                  : t('story.objects_report.sans_nom'));
+                const resume = (noms: string[], total: number) => noms.join(', ')
+                  + (total > noms.length ? ' ' + t('story.objects_report.more', { count: total - noms.length }) : '');
+                const apercus = liste.filter((o) => o.raison === 'apercu');
+                const autres = liste.filter((o) => o.raison !== 'apercu');
+                const phrases: string[] = [];
+                if (autres.length) {
+                  const noms = autres.slice(0, 5).map((o) => {
+                    const raison = RAISONS.includes(String(o.raison)) ? String(o.raison) : 'autre';
+                    return `${nomDe(o)} (${t(`story.objects_report.raisons.${raison}`)})`;
+                  });
+                  phrases.push(t('story.objects_report.intro', { detail: resume(noms, autres.length) }));
+                }
+                if (apercus.length) {
+                  phrases.push(t('story.objects_report.apercus', {
+                    detail: resume(apercus.slice(0, 5).map(nomDe), apercus.length),
+                  }));
+                }
+                if (phrases.length) {
+                  setState((s) => ({ ...s, notice: [s.notice, ...phrases].filter(Boolean).join(' ') }));
+                }
+                return;
+              }
+
               if (type === 'start') {
                 const total = (msg.total as number) ?? null;
                 setState((s) => {

@@ -168,6 +168,18 @@
       "sans_credit_other": "{{count}} non traduites faute de crédit",
       "echecs_one": "{{count}} en échec",
       "echecs_other": "{{count}} en échec"
+    },
+    "objects_report": {
+      "intro": "Objets incorporés non traduits : {{detail}}.",
+      "apercus": "Objets incorporés traduits dont l'image affichée reste celle d'origine (ouvrez l'objet pour la mettre à jour) : {{detail}}.",
+      "sans_nom": "certains objets",
+      "more_one": "… et {{count}} autre",
+      "more_other": "… et {{count}} autres",
+      "raisons": {
+        "lie": "lié", "visio": "Visio", "pdf": "PDF", "equation": "équation",
+        "paquet": "paquet", "absent": "introuvable", "conversion": "conversion impossible",
+        "erreur": "erreur", "profondeur": "trop imbriqué", "illisible": "illisible", "reinjection": "remise en place impossible", "hors_diapo": "sur un masque, une disposition ou des notes", "autre": "non pris en charge"
+      }
     }
   },
   "library": {

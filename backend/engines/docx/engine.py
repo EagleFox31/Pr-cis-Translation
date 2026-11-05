@@ -43,6 +43,7 @@ def _mc(tag):
 class DOCXTranslatorEngine:
     def __init__(self):
         self.temp_dir = None
+        self.objets_restes: list[dict] = []
 
     def _get_temp_dir(self):
         if self.temp_dir is None:
@@ -439,8 +440,11 @@ class DOCXTranslatorEngine:
         # (au mieux : un objet qui échoue reste dans sa langue d'origine).
         if traductions_objets:
             try:
-                incorpores.appliquer_fichier(output_docx, incorpores.reinjecter(
-                    output_docx, traductions_objets, niveau=niveau_objets))
+                modifs = incorpores.reinjecter(
+                    output_docx, traductions_objets, niveau=niveau_objets)
+                incorpores.appliquer_fichier(output_docx, modifs)
+                incorpores.cumuler(self.objets_restes, modifs.restes)
             except Exception as exc:  # noqa: BLE001
                 incorpores.logger.warning("Objets DOCX non réinjectés : %s", exc)
+                incorpores.cumuler(self.objets_restes, [incorpores.reste_inconnu()])
         return True, f'Fichier DOCX traduit généré : {output_docx}'

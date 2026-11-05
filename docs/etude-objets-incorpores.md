@@ -132,7 +132,7 @@ Les trois conteneurs déclarent leurs objets de façon différente, mais un obje
 
 **Recommandation : option C bis.** C'est LibreOffice, déjà présent dans l'image, enrichi de la méthode CFAO (zone visible, transparence, cache). Ensuite :
 
-- passer à **D** (unoserver) seulement si la mesure de l'étape 6.11.6 montre que le démarrage de LibreOffice pèse sur les gros documents ;
+- passer à **D** (unoserver) seulement si la mesure de l'étape 6.11.7 montre que le démarrage de LibreOffice pèse sur les gros documents ;
 - écarter **A**, **B** et **E** pour les raisons du § 4.
 
 ### Module commun `backend/engines/incorpores.py`
@@ -266,6 +266,26 @@ Les tests unitaires restent synthétiques, sans LibreOffice. Seuls les tests mar
 - **PPTX** : les caches restent traduits par le moteur (prix à la diapositive, donc pas de double facturation). Si le classeur est écarté (budget, profondeur), le graphique reste traduit.
 - **DOCX** : les caches couverts par le classeur ne sont pas relevés, pour ne pas les facturer deux fois. Limite : si le classeur est écarté, ces libellés restent en langue source ; l'objet apparaît alors comme non traité dans le rapport.
 - Preuves : `tests/test_incorpores_graphiques.py` (6 tests : PPTX, DOCX, DOCX lié, PPTX progressif, cellule non traduite, aperçu de feuille graphique) ; régression incorpores, OLE, XLSX graphiques et PPTX verte.
+
+**Conception 6.11.6 (04/11/2026)** — état de l'existant mesuré :
+- **Devis (D1)** : déjà conforme. `beta_meter.office_cost` passe par `extract_text` des moteurs, qui relèvent les objets depuis 6.11.3. Il manque seulement une preuve (devis avec ou sans objet).
+- **OCR (cas 15)** : `images_document._lister_office` propose toute image de `*/media/`. L'aperçu PNG d'un objet traité est donc lu par l'OCR et facturé comme image, puis remplacé par le redessin. On paie pour rien. Les aperçus EMF sont déjà écartés (vectoriels).
+- **Compte rendu (D6)** : `incorpores.rapport` établit la liste `non_traites`. Les moteurs la rangent dans l'extraction (`objets_rapport`), mais rien ne la lit. Deux trous : le rapport d'un objet imbriqué est ignoré, et le chemin PPTX progressif jette le rapport.
+
+| Option compte rendu | Pour | Contre |
+|---|---|---|
+| A. Événement `objets` du flux du job, une phrase ajoutée à l'avis (comme le bilan des images) | Chemin déjà en place côté serveur et interface ; aucune migration | Visible pendant la session de traduction seulement |
+| B. Champ stocké sur le document en base | Relisible plus tard dans la bibliothèque | Migration, API, écran : hors proportion |
+
+**Choix : A.**
+- **OCR** : toute image d'aperçu d'objet reçoit l'exclusion `apercu_objet`. Elle n'est ni comptée, ni lue, ni facturée. Pour un objet traité, le redessin la remplace. Pour un objet non traité (lié, Visio…), il est signalé. Une même image servant aussi d'illustration ordinaire est écartée aussi (cas rare, accepté).
+- **Rapport** : les `non_traites` d'un objet imbriqué remontent sous le nom « parent › enfant ». En PPTX progressif, le moteur cumule les rapports de chaque diapositive.
+- **Interface** : « Objets incorporés non traduits : budget.xlsx (lié), schema.vsdx (Visio). » Au-delà de 5 objets : « … et N autres ».
+
+**Bilan 6.11.6 (05/11/2026)** — fait comme conçu, audit, contre-revue puis corrections (registre : `docs/revues/objets-incorpores-6.11.6.md`). Le devis compte le texte des objets (D1), l'OCR ne lit plus les aperçus d'objets (`apercu_objet`) et le client voit la liste des objets non traités, dans les trois parcours (`tests/test_incorpores_facturation.py`, 40 tests). Limites :
+- un objet signalé après l'extraction (remise en place impossible, image d'origine conservée) a été compté au devis : il n'est pas remboursé, seul le client en est averti ;
+- l'événement `objets` n'est pas conservé : si le flux est coupé à cet instant, la phrase est perdue pour ce job ;
+- en PPTX progressif, les objets des masques, dispositions et notes restent non traduits (seules les diapositives sont parcourues) : le client en est averti (`hors_diapo`).
 
 ---
 

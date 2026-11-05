@@ -36,6 +36,7 @@ import hashlib
 import io
 import json
 import logging
+import math
 import os
 import threading
 import posixpath
@@ -45,6 +46,8 @@ import struct
 import tempfile
 import uuid
 import zipfile
+import zlib
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -66,6 +69,9 @@ NS = {
 _R_ID = "{%s}id" % NS["r"]
 _R_EMBED = "{%s}embed" % NS["r"]
 _O_RELID = "{%s}relid" % NS["o"]
+
+# Ce qu'une archive abîmée peut lever à l'ouverture comme à la décompression.
+_ERREURS_ZIP = (zipfile.BadZipFile, OSError, ValueError, RuntimeError, zlib.error, EOFError)
 
 # Plafonds : un paquet client peut être une « bombe ». Le repérage ne lit que
 # des parties XML ; au-delà de ces bornes, la partie (ou le paquet) est ignorée.
@@ -154,7 +160,7 @@ class _Paquet:
                 parser = etree.XMLParser(resolve_entities=False, no_network=True,
                                          huge_tree=False)
                 racine = etree.fromstring(self.zf.read(nom), parser)
-        except (KeyError, etree.XMLSyntaxError, zipfile.BadZipFile, ValueError,
+        except (KeyError, etree.XMLSyntaxError, zipfile.BadZipFile, ValueError, zlib.error, EOFError,
                 OSError, RuntimeError):
             racine = None
         self._xml[nom] = racine
@@ -234,9 +240,10 @@ def _ratio_style(style: str | None) -> float | None:
 def _ratio(w, h) -> float | None:
     try:
         w, h = float(w), float(h)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
-    return w / h if w > 0 and h > 0 else None
+    ratio = w / h if w > 0 and h > 0 else None
+    return ratio if ratio and math.isfinite(ratio) else None
 
 
 def _forme_vml(paquet: _Paquet, partie: str, spid: str):
@@ -340,6 +347,8 @@ def _docx(paquet: _Paquet) -> list[ObjetIncorpore]:
 # Tailles par défaut d'Excel (Calibri 11) : colonne 8,43 caractères = 64 px,
 # ligne 15 pt. Sert seulement quand la forme VML ne donne pas le cadre.
 _PX_EMU = 9525
+_COLONNES_MAX, _LIGNES_MAX = 16_384, 1_048_576     # d'une feuille Excel
+_ANCRE_MAX = 10 ** 15
 
 
 def _ratio_ancre(feuille, ancre) -> float | None:
@@ -349,26 +358,34 @@ def _ratio_ancre(feuille, ancre) -> float | None:
         if m is None:
             return None
         try:
-            return tuple(int(m.findtext("xdr:%s" % k, namespaces=NS))
-                         for k in ("col", "colOff", "row", "rowOff"))
+            valeurs = tuple(int(m.findtext("xdr:%s" % k, namespaces=NS))
+                            for k in ("col", "colOff", "row", "rowOff"))
         except (TypeError, ValueError):
             return None
+        # Un entier démesuré ne se convertit pas en flottant : fichier forgé.
+        return valeurs if max(map(abs, valeurs)) <= _ANCRE_MAX else None
     de, a = marque("from"), marque("to")
     if not de or not a:
         return None
     fmt = feuille.find("x:sheetFormatPr", NS)
     def flt(v, defaut):
         try:
-            return float(v)
+            valeur = float(v)
         except (TypeError, ValueError):
             return defaut
+        return valeur if math.isfinite(valeur) else defaut
     larg_def = flt(None if fmt is None else fmt.get("defaultColWidth"), 8.43)
     haut_def = flt(None if fmt is None else fmt.get("defaultRowHeight"), 15.0)
     larg = {}
+    reste = _COLONNES_MAX
     for c in feuille.iterfind("x:cols/x:col", NS):
         lo, hi = int(flt(c.get("min"), 0)), int(flt(c.get("max"), 0))
-        for i in range(lo, min(hi, lo + 16384) + 1):
+        n = max(0, min(hi - lo + 1, reste))
+        for i in range(lo, lo + n):
             larg[i - 1] = flt(c.get("width"), larg_def)
+        reste -= n
+        if not reste:
+            break
     haut = {}
     for row in feuille.iterfind("x:sheetData/x:row", NS):
         if row.get("ht"):
@@ -377,8 +394,8 @@ def _ratio_ancre(feuille, ancre) -> float | None:
         return (larg.get(i, larg_def) * 7 + 5) * _PX_EMU
     def row_emu(i):
         return haut.get(i, haut_def) * EMU_PAR_PT
-    w = sum(col_emu(i) for i in range(de[0], a[0])) - de[1] + a[1]
-    h = sum(row_emu(i) for i in range(de[2], a[2])) - de[3] + a[3]
+    w = sum(col_emu(i) for i in range(de[0], min(a[0], de[0] + _COLONNES_MAX))) - de[1] + a[1]
+    h = sum(row_emu(i) for i in range(de[2], min(a[2], de[2] + _LIGNES_MAX))) - de[3] + a[3]
     return _ratio(w, h)
 
 
@@ -537,25 +554,29 @@ def reperer(source) -> list[ObjetIncorpore]:
                 if o.apercu:
                     o.relations_apercu = list(liens.get(o.apercu, []))
             return objets
-    except (zipfile.BadZipFile, OSError, ValueError):
+    except _ERREURS_ZIP:
         return []
 
 
-def rapport(objets: list[ObjetIncorpore]) -> dict:
+def rapport(objets: list[ObjetIncorpore], imbriques: Sequence[dict] = ()) -> dict:
     """Résumé pour le journal et le compte rendu client (D6).
 
     Un objet affiché à plusieurs endroits n'est signalé qu'une fois ; les
-    marqueurs de compléments ne le sont jamais."""
+    marqueurs de compléments ne le sont jamais. `non_traites` compte aussi les
+    `imbriques` (objets dans un objet), que `total` et `natures` ignorent : ils
+    ne se soustraient donc pas de `total - a_traiter`."""
     a_traiter = [o for o in objets if o.raison_non_traite is None]
     non_traites, vus = [], set()
     for o in objets:
         raison = o.raison_non_traite
-        if raison is None or raison == "marqueur" or (o.cible, raison) in vus:
+        nom = posixpath.basename(o.cible) or o.cible
+        if raison is None or raison == "marqueur" or (nom, raison) in vus:
             continue
-        vus.add((o.cible, raison))
-        non_traites.append({"cible": posixpath.basename(o.cible) or o.cible,
+        vus.add((nom, raison))
+        non_traites.append({"cible": nom,
                             "partie": o.partie, "nature": o.nature,
                             "raison": raison})
+    non_traites.extend(imbriques)
     natures: dict[str, int] = {}
     for o in objets:
         natures[o.nature] = natures.get(o.nature, 0) + 1
@@ -624,7 +645,7 @@ def taille_zip_sure(octets: bytes) -> int | None:
     try:
         with zipfile.ZipFile(io.BytesIO(octets)) as zf:
             infos = zf.infolist()
-    except (zipfile.BadZipFile, OSError, ValueError):
+    except _ERREURS_ZIP:
         return None
     total = sum(i.file_size for i in infos)
     if (len(infos) > ENTREES_MAX or total > OCTETS_OBJET_MAX
@@ -637,7 +658,7 @@ def _type_ooxml(octets: bytes) -> str | None:
     try:
         with zipfile.ZipFile(io.BytesIO(octets)) as zf:
             return _conteneur(set(zf.namelist()))
-    except (zipfile.BadZipFile, OSError, ValueError):
+    except _ERREURS_ZIP:
         return None
 
 
@@ -648,7 +669,10 @@ def _lire_cible(zf: zipfile.ZipFile, cible: str) -> bytes | None:
         return None
     if info.file_size > OCTETS_OBJET_MAX or _taux_suspect(info.file_size, info.compress_size):
         return None
-    return zf.read(info)
+    try:
+        return zf.read(info)
+    except _ERREURS_ZIP:
+        return None
 
 
 def _ole10_decouper(flux: bytes):
@@ -994,9 +1018,10 @@ def _relever(source, base, niveau: int, budget: Budget) -> tuple[list[dict], dic
     if not objets:
         return [], rapport([])
     elements: list[dict] = []
+    imbriques: list[dict] = []
     try:
         zf = _ouvrir(source)
-    except (zipfile.BadZipFile, OSError, ValueError):
+    except _ERREURS_ZIP:
         return [], rapport(objets)
     with zf:
         retenus, trouves = _retenir(zf, objets, base, niveau, budget)
@@ -1012,6 +1037,12 @@ def _relever(source, base, niveau: int, budget: Budget) -> tuple[list[dict], dic
                 raise _EchecConversion()
             _, _, data = _sous_extraction(moderne[0], moderne[1], dossier, niveau)
             classeur = _TYPE_NATURE[ex.type] == "classeur"
+            # Objets non traités de l'objet lui-même : « parent › enfant »,
+            # affichés par la partie qui montre le parent.
+            nom = posixpath.basename(cible) or cible
+            for sous in (data.get("objets_rapport") or {}).get("non_traites", []):
+                imbriques.append({**sous, "cible": f"{nom} › {sous.get('cible') or '?'}",
+                                  "partie": premier.partie})
             nouveaux = []
             for el in _elements_de(data):
                 contexte = {**(el.get("context") or {}), "objet": cible,
@@ -1031,7 +1062,7 @@ def _relever(source, base, niveau: int, budget: Budget) -> tuple[list[dict], dic
                     o.echec = "erreur"
         finally:
             shutil.rmtree(dossier, ignore_errors=True)
-    return elements, rapport(retenus)
+    return elements, rapport(retenus, imbriques)
 
 
 @dataclass
@@ -1044,6 +1075,35 @@ class Modifs:
     # ("defaut", extension, content_type)
     retouches: list[tuple] = field(default_factory=list)
     cibles: list[str] = field(default_factory=list)   # objets effectivement traduits
+    # Ce que le client doit savoir après coup : {cible, raison}. `reinjection` :
+    # l'objet reste en langue d'origine ; `apercu` : il est traduit mais son
+    # image affichée reste celle d'origine. Cible None : objet non identifié.
+    restes: list[dict] = field(default_factory=list)
+
+
+_verrou_cumul = threading.Lock()
+
+
+def cumuler(liste: list[dict], nouveaux: Iterable[dict]) -> None:
+    """Ajoute sans doublon sur (cible, raison), comme `rapport` : un objet montré
+    par deux diapositives n'est signalé qu'une fois. Sûr entre fils : le moteur
+    PPTX progressif traite ses diapositives en parallèle."""
+    with _verrou_cumul:
+        vus = {(o.get("cible"), o.get("raison")) for o in liste}
+        for o in nouveaux:
+            cle = (o.get("cible"), o.get("raison"))
+            if cle not in vus:
+                vus.add(cle)
+                liste.append(o)
+
+
+def reste_inconnu() -> dict:
+    """Réinjection perdue en bloc : on ne sait plus quels objets sont touchés."""
+    return {"cible": None, "raison": "reinjection"}
+
+
+def _reste(cible: str, raison: str) -> dict:
+    return {"cible": posixpath.basename(cible) or cible, "raison": raison}
 
 
 def _nom_libre(cible: str, type_: str, pris: set[str]) -> str:
@@ -1061,13 +1121,25 @@ def reinjecter(source, traductions: dict[str, str], base=_sans_base,
     """Remet dans le paquet les objets de `source` traduits.
 
     `traductions` : {id relevé par `relever`: texte traduit}. Même parcours et
-    mêmes préfixes que `relever`. Un objet sans changement, ou dont le moteur
-    échoue, est laissé tel quel. Un objet 97-2003 traduit devient une partie
-    OOXML nouvelle (D4) : sa relation et son progId sont réécrits ; l'ancien
-    `.bin` reste dans le paquet, orphelin — Office l'ignore."""
+    mêmes préfixes que `relever`. Un objet sans changement est laissé tel quel ;
+    un objet dont la remise en place échoue aussi, mais il est signalé dans
+    `Modifs.restes`. Un objet 97-2003 traduit devient une partie OOXML nouvelle
+    (D4) : sa relation et son progId sont réécrits ; l'ancien `.bin` reste dans
+    le paquet, orphelin — Office l'ignore."""
     if not traductions:
         return Modifs()
     return _avec_budget(lambda b: _reinjecter(source, traductions, base, niveau, b), budget)
+
+
+def _relire(type_: str, octets: bytes, dossier: str, niveau: int, budget: Budget):
+    """`_sous_extraction` pour la réinjection. La sous-injection qui suit décompte
+    les objets internes : décomptés aussi ici, ils le seraient deux fois et un
+    objet relevé sans peine à l'extraction échouerait à sa remise en place."""
+    jeton = _BUDGET_COURANT.set(Budget(budget.reste))
+    try:
+        return _sous_extraction(type_, octets, dossier, niveau)
+    finally:
+        _BUDGET_COURANT.reset(jeton)
 
 
 def _reinjecter(source, traductions: dict[str, str], base, niveau: int,
@@ -1081,7 +1153,8 @@ def _reinjecter(source, traductions: dict[str, str], base, niveau: int,
         return modifs
     try:
         zf = _ouvrir(source)
-    except (zipfile.BadZipFile, OSError, ValueError):
+    except _ERREURS_ZIP:
+        cumuler(modifs.restes, [reste_inconnu()])
         return modifs
     with zf:
         retenus, trouves = _retenir(zf, objets, base, niveau, budget)
@@ -1089,22 +1162,32 @@ def _reinjecter(source, traductions: dict[str, str], base, niveau: int,
     traduits: dict[str, tuple[str, bytes]] = {}
     for cible, trouve in trouves.items():
         if trouve is None:
+            # Relevé à l'extraction, plus lisible maintenant : traductions perdues.
+            if any(o.cible == cible and o.echec for o in retenus):
+                cumuler(modifs.restes, [_reste(cible, "reinjection")])
             continue
         ex, pref = trouve
         if not any(k.startswith(pref) for k in traductions):
             continue        # aucune traduction pour cet objet : inutile de l'ouvrir
         dossier = tempfile.mkdtemp(prefix="incorpore_")
+        echec = True    # sauf objet remis en place ou sans changement
         try:
             moderne = _moderne(ex)
             if moderne is None:
                 continue
             type_, octets = moderne
-            entree, chemin_json, data = _sous_extraction(type_, octets, dossier, niveau)
+            entree, chemin_json, data = _relire(type_, octets, dossier, niveau, budget)
+            elements = list(_elements_de(data))
+            ids = {pref + el["id"] for el in elements}
+            if any(k.startswith(pref) and k not in ids for k in traductions):
+                # Une partie de l'objet (un objet interne) ne se relit plus.
+                cumuler(modifs.restes, [_reste(cible, "reinjection")])
             change = False
-            for el in _elements_de(data):
+            for el in elements:
                 el["translated_text"] = traductions.get(pref + el["id"]) or el["text"]
                 change = change or el["translated_text"] != el["text"]
             if not change:
+                echec = False
                 continue
             with open(chemin_json, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False)
@@ -1129,6 +1212,11 @@ def _reinjecter(source, traductions: dict[str, str], base, niveau: int,
                 modifs.parties[cible] = reecrire(ex, nouveaux)
             modifs.cibles.append(cible)
             traduits[cible] = (type_, nouveaux)
+            echec = False
+            # Après la remise en place : un parent perdu est seul à signaler.
+            nom = posixpath.basename(cible) or cible
+            cumuler(modifs.restes, [{**r, "cible": f"{nom} › {r.get('cible') or '?'}"}
+                                    for r in getattr(moteur, "objets_restes", [])])
             for o in retenus:
                 r = ("graphique", o.graphique, nouveaux, ex.contenu)
                 if o.cible == cible and o.graphique and r not in modifs.retouches:
@@ -1137,6 +1225,8 @@ def _reinjecter(source, traductions: dict[str, str], base, niveau: int,
             logger.warning("Objet %s non réinjecté : %s", cible, exc)
             continue
         finally:
+            if echec:
+                cumuler(modifs.restes, [_reste(cible, "reinjection")])
             shutil.rmtree(dossier, ignore_errors=True)
     _redessiner_apercus(modifs, traduits, retenus, tous, pris)
     return modifs
@@ -1151,7 +1241,8 @@ def _redessiner_apercus(modifs: Modifs, traduits: dict[str, tuple[str, bytes]],
     """Refait l'image affichée des objets traduits (6.11.4) : un PNG neuf, vers
     lequel TOUTES les relations de l'aperçu (DrawingML et VML) sont réorientées.
     Une icône garde son image ; l'ancien aperçu reste, orphelin (il peut servir
-    ailleurs dans le paquet). Un aperçu non redessiné reste celui d'origine.
+    ailleurs dans le paquet). Un aperçu non redessiné reste celui d'origine et
+    l'objet est signalé dans `modifs.restes`.
     Une image partagée avec un objet NON traduit (diapositive dupliquée hors
     de la plage, objet sauté) n'est pas redessinée : elle le montrerait traduit."""
     from engines import apercus
@@ -1160,6 +1251,7 @@ def _redessiner_apercus(modifs: Modifs, traduits: dict[str, tuple[str, bytes]],
         if o.cible not in traduits or o.icone or o.lie or not o.apercu or o.apercu in objets:
             continue
         if any(a.apercu == o.apercu and a.cible not in traduits for a in tous):
+            cumuler(modifs.restes, [_reste(o.cible, "apercu")])
             continue
         type_, nouveaux = traduits[o.cible]
         demandes.append(apercus.Demande(o.apercu, type_, nouveaux, o.ratio))
@@ -1170,7 +1262,10 @@ def _redessiner_apercus(modifs: Modifs, traduits: dict[str, tuple[str, bytes]],
         rendus = apercus.redessiner(demandes)
     except Exception as exc:  # noqa: BLE001 — au mieux : les aperçus d'origine restent
         logger.warning("Aperçus non redessinés : %s", exc)
+        cumuler(modifs.restes, [_reste(o.cible, "apercu") for o in objets.values()])
         return
+    cumuler(modifs.restes, [_reste(o.cible, "apercu") for a, o in objets.items()
+                            if a not in rendus])
     for apercu, png in rendus.items():
         o = objets[apercu]
         nom = _nom_libre(posixpath.join(posixpath.dirname(apercu), stem(apercu) + "_traduit"),

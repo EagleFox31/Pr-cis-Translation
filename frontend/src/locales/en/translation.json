@@ -168,6 +168,18 @@
       "sans_credit_other": "{{count}} not translated (no credit left)",
       "echecs_one": "{{count}} failed",
       "echecs_other": "{{count}} failed"
+    },
+    "objects_report": {
+      "intro": "Embedded objects not translated: {{detail}}.",
+      "apercus": "Translated embedded objects whose displayed image is still the original (open the object to refresh it): {{detail}}.",
+      "sans_nom": "some objects",
+      "more_one": "… and {{count}} more",
+      "more_other": "… and {{count}} more",
+      "raisons": {
+        "lie": "linked", "visio": "Visio", "pdf": "PDF", "equation": "equation",
+        "paquet": "package", "absent": "missing", "conversion": "conversion failed",
+        "erreur": "error", "profondeur": "nested too deeply", "illisible": "unreadable", "reinjection": "could not be put back", "hors_diapo": "on a master, layout or notes page", "autre": "not supported"
+      }
     }
   },
   "library": {

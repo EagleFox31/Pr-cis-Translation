@@ -32,6 +32,7 @@ import re
 import threading
 import time
 import zipfile
+import zlib
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
@@ -40,6 +41,7 @@ from PIL import Image
 
 from app.services.ocr_v2 import image as ocr_image
 from app.services.ocr_v2.image import ImageRefusee
+from engines import incorpores
 
 logger = logging.getLogger(__name__)
 
@@ -173,14 +175,20 @@ def _pages_diapos(archive: zipfile.ZipFile) -> dict[str, list[int]]:
 
 def _lister_office(data: bytes, ext: str) -> list[ImageDoc]:
     motif = re.compile(rf"^{_MEDIA[ext]}/media/[^/]+$")
+    # Aperçus d'objets incorporés : redessinés depuis l'objet traduit (ou
+    # signalés s'il ne l'est pas), jamais lus par l'OCR ni facturés en image.
     with _ouvrir_zip(data) as archive:
+        # Après les garde-fous du zip : `reperer` décompresse.
+        apercus = {o.apercu.lower() for o in incorpores.reperer(data) if o.apercu}
         diapos = _pages_diapos(archive) if ext == "pptx" else {}
         out = []
         for e in sorted(archive.infolist(), key=lambda e: e.filename):
             if e.is_dir() or not motif.match(e.filename):
                 continue
             img = ImageDoc(e.filename, sorted(diapos.get(e.filename, [])))
-            if e.filename.lower().endswith(VECTORIELLES):
+            if e.filename.lower() in apercus:
+                img.exclusion = "apercu_objet"
+            elif e.filename.lower().endswith(VECTORIELLES):
                 img.exclusion = "vectorielle"
             elif e.file_size > ocr_image.OCTETS_MAX:
                 img.exclusion = "taille"
@@ -199,7 +207,11 @@ def lister(data: bytes, ext: str) -> list[ImageDoc]:
     if ext == "pdf":
         return _lister_pdf(data)
     if ext in _MEDIA:
-        return _lister_office(data, ext)
+        try:
+            return _lister_office(data, ext)
+        except (zlib.error, EOFError, zipfile.BadZipFile, RuntimeError) as e:
+            # Octets compressés abîmés : même refus qu'un zip illisible.
+            raise ValueError("Le fichier Office n'est pas valide.") from e
     return []
 
 

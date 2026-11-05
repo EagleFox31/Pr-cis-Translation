@@ -110,6 +110,27 @@ def _preparer_images(job_id: str, user_id: str | None, file_bytes: bytes, ext: s
         return {}
 
 
+def _signaler_objets(job_id: str, non_traites: list[dict] | None = None,
+                     extraction_path: str | None = None) -> None:
+    """Compte rendu client (D6) : objets incorporés laissés en langue
+    d'origine (liés, Visio, échecs…) ou dont l'image n'a pu être refaite. Lus
+    sur l'extraction quand la liste n'est pas fournie. Au mieux : un rapport
+    illisible ne signale rien ; un flux coupé perd l'événement (limite
+    acceptée, option A de l'étude)."""
+    if non_traites is None and extraction_path:
+        try:
+            with open(extraction_path, encoding="utf-8") as f:
+                non_traites = (json.load(f).get("objets_rapport") or {}).get("non_traites")
+        except (OSError, ValueError, AttributeError):
+            non_traites = None
+    if not isinstance(non_traites, list):
+        return
+    liste = [{"cible": o.get("cible"), "raison": o.get("raison")}
+             for o in non_traites if isinstance(o, dict)]
+    if liste:
+        jobs.emit(job_id, "objets", {"non_traites": liste})
+
+
 def _poser_images_fichier(chemin: str, table: dict[str, bytes]) -> None:
     """Remplace dans le fichier Office `chemin` les parties de `table`.
     Best-effort : en cas d'échec, le fichier garde ses images d'origine."""
@@ -186,6 +207,8 @@ def run_translation_job(
                 raise ValueError("Échec de l'extraction du texte.")
         else:
             jobs.emit(job_id, "progress", {"step": "extract", "message": "Extraction : cache utilisé.", "page": 0, "total": None})
+        if ext != "pdf":
+            _signaler_objets(job_id, extraction_path=extraction_path)
 
         # 4. Traduction IA — ou IDENTITÉ en mode structure/debug
         if debug:
@@ -222,8 +245,10 @@ def run_translation_job(
         # 5. Injection / génération (DOCX/PPTX — le PDF passe par le moteur v2).
         jobs.emit(job_id, "progress", {"step": "inject", "message": "Génération du document traduit...", "page": 0, "total": None})
         if ext == "docx":
-            inj_ok, inj_msg = engines.new_engine("docx").inject_translation(original_path, translated_path, output_path, format_options=format_opts)
+            moteur_injection = engines.new_engine("docx")
+            inj_ok, inj_msg = moteur_injection.inject_translation(original_path, translated_path, output_path, format_options=format_opts)
         elif ext == "pptx" and pptx_eng:
+            moteur_injection = pptx_eng
             inj_ok, inj_msg = pptx_eng.inject_translation(original_path, translated_path, output_path, format_options=format_opts)
             if inj_ok:
                 pptm_auto_path = output_path[:-5] + "_autorefresh.pptm" if output_path.endswith(".pptx") else output_path + "_autorefresh.pptm"
@@ -234,7 +259,8 @@ def run_translation_job(
             # partagent écrivent dans les mêmes fichiers (cf. engines/CONTEXTE).
             # Ce n'est PAS le moteur qui a servi à l'extraction : celui-là a
             # déjà nettoyé son dossier.
-            inj_ok, inj_msg = engines.new_engine("xlsx").inject_translation(
+            moteur_injection = engines.new_engine("xlsx")
+            inj_ok, inj_msg = moteur_injection.inject_translation(
                 original_path, translated_path, output_path,
                 format_options=format_opts)
         else:
@@ -244,6 +270,7 @@ def run_translation_job(
             if os.path.exists(output_path):
                 os.remove(output_path)
             raise ValueError(f"Injection échouée : {inj_msg}")
+        _signaler_objets(job_id, moteur_injection.objets_restes)
 
         if not os.path.exists(output_path):
             raise ValueError("Le fichier traduit est introuvable après génération.")
@@ -347,6 +374,7 @@ def run_xlsx_progressive_job(
             eng.extract_text(original_path, extraction_path,
                              progress_callback=jobs.progress_callback(
                                  job_id, "extract"))
+        _signaler_objets(job_id, extraction_path=extraction_path)
 
         # La carte feuille -> chaînes, et l'ordre d'affichage des onglets. Les
         # deux se lisent sur le dossier de travail ouvert par l'extraction.
@@ -446,6 +474,7 @@ def run_xlsx_progressive_job(
         if not os.path.exists(output_path):
             raise ValueError("Le fichier traduit est introuvable après génération.")
         eng.injecter_objets(output_path, traductions_objets)
+        _signaler_objets(job_id, eng.objets_restes)
 
         _poser_images_fichier(output_path, table_images)
         jobs.done(job_id, output_path, output_filename,
@@ -1152,6 +1181,9 @@ def run_pptx_progressive_job(
         jobs.emit(job_id, "progress", {"step": "inject", "message": "Génération du PPTX final...", "page": 0, "total": None})
         pptx_eng.build_partial_pptx(output_path, max(slides_to_process))
         _poser_images_fichier(output_path, table_images)
+        # Après la cohérence, qui réinjecte aussi.
+        _signaler_objets(job_id, pptx_eng.objets_non_traites + pptx_eng.objets_restes
+                         + pptx_eng.objets_hors_diapositives())
 
         # ── Sauvegarde de la traduction (JSON complet pour reprise) ───────
         # Assemblée depuis ce qu'on a retenu AVANT injection : `text` y est la
