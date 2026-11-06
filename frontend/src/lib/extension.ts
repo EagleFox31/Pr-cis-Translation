@@ -16,7 +16,7 @@ export const EXTENSION_URL = {
   edge: env.VITE_EXTENSION_URL_EDGE ?? '',
 };
 
-const DELAI_MS = 800;
+const DELAI_MS = 1500; // marge pour un fil principal chargé au premier rendu
 
 export function detecterNavigateur(): Navigateur {
   if (typeof navigator === 'undefined') return 'autre';
