@@ -43,6 +43,20 @@ export function detecterNavigateur(): Navigateur {
   return 'autre';
 }
 
+export type NavigateurPrecis = 'chrome' | 'edge' | 'brave' | 'opera' | 'vivaldi' | 'autre';
+
+// Distingue les navigateurs Chromium pour mettre le bon logo en avant (Brave se signale par navigator.brave).
+export function detecterNavigateurPrecis(): NavigateurPrecis {
+  if (typeof navigator === 'undefined') return 'autre';
+  const ua = navigator.userAgent || '';
+  if (ua.includes('Edg/')) return 'edge';
+  if (ua.includes('OPR/')) return 'opera';
+  if (ua.includes('Vivaldi')) return 'vivaldi';
+  if ('brave' in navigator) return 'brave';
+  if (/Chrome\/|Chromium\//.test(ua)) return 'chrome';
+  return 'autre';
+}
+
 export function estMobile(): boolean {
   if (typeof navigator === 'undefined') return false;
   const mobile = (navigator as Navigator & { userAgentData?: { mobile?: boolean } }).userAgentData?.mobile;

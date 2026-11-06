@@ -4,16 +4,24 @@ import { ArrowLeft, Check, Copy, Download, Monitor } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import MobileMenu from '../components/navbar/MobileMenu';
-import { ChromeLogo, EdgeLogo } from '../components/extension/BrowserLogos';
 import { useExtensionInstalled } from '../hooks/useExtensionInstalled';
 import {
-  detecterNavigateur, estMobile, EXTENSION_URL, EXTENSION_ZIP, versionPlusAncienne, type Navigateur,
+  detecterNavigateur, detecterNavigateurPrecis, estMobile, EXTENSION_URL, EXTENSION_ZIP, versionPlusAncienne, type Navigateur,
 } from '../lib/extension';
 import '../components/admin/admin.css';
 import '../legal.css';
 import '../extension-page.css';
 
 type Boutique = 'edge' | 'chrome';
+
+// Navigateurs pris en charge (même extension) ; Edge passe par sa boutique, les autres par le Chrome Web Store.
+const NAVIGATEURS = [
+  { id: 'chrome', nom: 'Google Chrome' },
+  { id: 'edge', nom: 'Microsoft Edge' },
+  { id: 'brave', nom: 'Brave' },
+  { id: 'opera', nom: 'Opera' },
+  { id: 'vivaldi', nom: 'Vivaldi' },
+] as const;
 type Copie = 'idle' | 'ok' | 'erreur';
 
 const FAQ = ['browsers', 'account', 'data', 'uninstall'] as const;
@@ -55,29 +63,31 @@ export default function ExtensionPage() {
 
   const libelleBoutique = (b: Boutique) => t(b === 'edge' ? 'extension_page.add_edge' : 'extension_page.add_chrome');
 
-  // Carte d'un navigateur : logo, nom, bouton boutique (inactif tant que l'adresse manque).
-  const carte = (b: Boutique) => {
+  // Carte d'un navigateur : logo officiel, nom, boutique d'origine et bouton (inactif tant que l'adresse manque).
+  const precis = detecterNavigateurPrecis();
+  const carte = (n: (typeof NAVIGATEURS)[number]) => {
+    const b: Boutique = n.id === 'edge' ? 'edge' : 'chrome';
     const url = EXTENSION_URL[b];
-    const courant = b === navigateur;
+    const courant = n.id === precis;
     return (
-      <li key={b} className={`ext-browser${courant ? ' ext-browser--current' : ''}`}>
+      <li key={n.id} className={`ext-browser${courant ? ' ext-browser--current' : ''}`}>
         {courant && <span className="ext-browser__badge">{t('extension_page.card_detected')}</span>}
-        {b === 'chrome' ? <ChromeLogo /> : <EdgeLogo />}
-        <strong className="ext-browser__name">{b === 'chrome' ? 'Google Chrome' : 'Microsoft Edge'}</strong>
-        <span className="ext-browser__sub">{t(`extension_page.card_${b}_also`)}</span>
+        <img className="ext-browser__logo" src={`/browsers/${n.id}.png`} alt="" width={56} height={56} />
+        <strong className="ext-browser__name">{n.nom}</strong>
+        <span className="ext-browser__sub">{t(`extension_page.card_via_${b}`)}</span>
         {url ? (
           <a className="ext-btn ext-btn--primary" href={url} target="_blank" rel="noopener">
             <Download size={16} strokeWidth={2.2} aria-hidden="true" />
-            {libelleBoutique(b)}
+            {t('extension_page.card_add')}
           </a>
         ) : (
-          <button type="button" className="ext-btn ext-btn--ghost" disabled>{t(`extension_page.soon_${b}`)}</button>
+          <button type="button" className="ext-btn ext-btn--ghost" disabled>{t('extension_page.soon')}</button>
         )}
       </li>
     );
   };
 
-  const ordre: Boutique[] = navigateur === 'edge' ? ['edge', 'chrome'] : ['chrome', 'edge'];
+  const ordre = [...NAVIGATEURS].sort((a, c) => Number(c.id === precis) - Number(a.id === precis));
   const cartes = (
     <div className="ext-browsers">
       <p className="ext-browsers__title">{t('extension_page.cards_title')}</p>
@@ -292,13 +302,13 @@ export default function ExtensionPage() {
             </section>
             )}
 
-            <section className="ext-section" aria-labelledby="ext-price">
+            <section className="ext-section ext-section--half" aria-labelledby="ext-price">
               <h2 id="ext-price">{t('extension_page.price.title')}</h2>
               <p>{t('extension_page.price.text')}</p>
               <p><Link className="ext-link" to="/home#pricing">{t('extension_page.price.link')}</Link></p>
             </section>
 
-            <section className="ext-section" aria-labelledby="ext-perms">
+            <section className="ext-section ext-section--half" aria-labelledby="ext-perms">
               <h2 id="ext-perms">{t('extension_page.permissions.title')}</h2>
               <ul className="ext-list">
                 {PERMISSIONS.map((k) => <li key={k}>{t(`extension_page.permissions.${k}`)}</li>)}
