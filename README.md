@@ -115,6 +115,7 @@ aperçus non-PDF.
 | [`docs/etude-objets-incorpores.md`](docs/etude-objets-incorpores.md) | Étude : objets incorporés (Excel, Word, PowerPoint, graphiques…) — traduire leur contenu et régénérer leur aperçu |
 | [`docs/etude-interface-extension.md`](docs/etude-interface-extension.md) | Étude : habiller l'interface de l'extension aux couleurs du site (jetons, polices, logo) |
 | [`docs/etude-distribution-extension.md`](docs/etude-distribution-extension.md) | Étude : présenter l'extension et la faire installer sans effort |
+| [`docs/fiches-boutiques-extension.md`](docs/fiches-boutiques-extension.md) | Textes à recopier pour les fiches Chrome Web Store et Edge Add-ons (permissions, données, visuels) |
 | [`docs/guide-premiere-mise-en-ligne.md`](docs/guide-premiere-mise-en-ligne.md) | Pas à pas de la toute première mise en ligne |
 | [`infra/aws/README.md`](infra/aws/README.md) | L'infrastructure AWS (CloudFormation, OIDC, secrets) |
 | `docs/api/index.html` | Les 32 opérations HTTP (`npm run docs:api`) |

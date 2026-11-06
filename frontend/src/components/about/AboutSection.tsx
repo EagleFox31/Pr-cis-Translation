@@ -183,6 +183,9 @@ function FooterSection() {
           <Link to="/confidentialite" style={{ color: 'inherit' }}>
             {t('footer.privacy')}
           </Link>
+          <Link to="/extension" style={{ color: 'inherit' }}>
+            {t('extension_page.footer_link')}
+          </Link>
           <Link to="/cookies" style={{ color: 'inherit' }}>
             {t('footer.cookies')}
           </Link>

@@ -1,0 +1,64 @@
+/* Page /extension et bandeau d'invitation : jetons du site uniquement. */
+.ext-body { max-width: 860px; }
+.ext-page :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+.ext-welcome { margin: 0 0 32px; padding: 20px 24px; border: 1px solid var(--blue); border-radius: var(--radius); background: var(--blue-light); color: var(--navy); }
+.ext-welcome h2 { margin: 0 0 10px; font-family: var(--font-display); font-size: 22px; font-weight: 600; color: var(--navy); }
+.ext-welcome ol { margin: 0; padding-left: 22px; }
+.ext-welcome li { margin: 0 0 6px; font-size: 15.5px; line-height: 1.6; }
+
+.ext-hero { margin: 0 0 44px; padding: 28px 24px; border: 1px solid var(--gray-200); border-radius: var(--radius-lg); background: var(--white); box-shadow: var(--shadow-sm); }
+.ext-hero__lead { margin: 0 0 22px; font-family: var(--font-display); font-size: 24px; line-height: 1.35; font-weight: 600; color: var(--navy); }
+
+.ext-cta { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.ext-cta__row { display: flex; flex-wrap: wrap; gap: 10px; }
+.ext-cta__note { display: inline-flex; align-items: center; gap: 8px; margin: 0; font-size: 15.5px; font-weight: 600; color: var(--navy); }
+.ext-cta__hint { margin: 0; font-size: 14.5px; line-height: 1.6; color: var(--gray-700); }
+.ext-cta__status { min-height: 1.2em; font-size: 13.5px; color: var(--gray-700); }
+
+.ext-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 20px; border: 1px solid var(--blue); border-radius: var(--radius); font-family: var(--font-body); font-size: 15px; font-weight: 600; text-decoration: none; cursor: pointer; transition: background var(--transition), border-color var(--transition); }
+.ext-btn--primary { background: var(--blue); color: var(--white); }
+.ext-btn--primary:hover:not(:disabled) { background: var(--navy); border-color: var(--navy); }
+.ext-btn--ghost { background: var(--white); color: var(--navy); border-color: var(--gray-300); }
+.ext-btn--ghost:hover:not(:disabled) { border-color: var(--blue); }
+.ext-btn:disabled { background: var(--gray-100); border-color: var(--gray-200); color: var(--gray-700); cursor: not-allowed; }
+
+.ext-link { color: var(--blue); font-size: 14.5px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.ext-link:hover { color: var(--navy); }
+
+.ext-installed { display: inline-flex; align-items: center; gap: 8px; margin: 0; padding: 10px 16px; border: 1px solid var(--blue); border-radius: var(--radius); background: var(--blue-light); font-size: 15.5px; font-weight: 600; color: var(--navy); }
+
+.ext-section { margin: 0 0 40px; }
+.ext-section h2 { margin: 0 0 14px; font-family: var(--font-display); font-size: 24px; line-height: 1.25; font-weight: 600; color: var(--navy); }
+.ext-section p { margin: 0 0 12px; font-size: 15.5px; line-height: 1.75; color: var(--gray-700); overflow-wrap: anywhere; }
+
+.ext-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.ext-steps li { display: flex; gap: 14px; align-items: flex-start; padding: 16px; border: 1px solid var(--gray-200); border-radius: var(--radius); background: var(--white); }
+.ext-steps__num { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--navy); color: var(--white); font-family: var(--font-mono); font-size: 14px; font-weight: 600; }
+.ext-steps strong { display: block; margin: 3px 0 4px; color: var(--navy); font-size: 16px; }
+.ext-steps p { margin: 0; }
+
+.ext-list { margin: 0 0 14px; padding-left: 20px; }
+.ext-list li { margin: 0 0 8px; font-size: 15.5px; line-height: 1.7; color: var(--gray-700); overflow-wrap: anywhere; }
+
+.ext-faq { border-bottom: 1px solid var(--gray-200); }
+.ext-faq summary { padding: 14px 4px; cursor: pointer; font-weight: 600; color: var(--navy); font-size: 16px; line-height: 1.4; }
+.ext-faq p { margin: 0 0 14px; padding: 0 4px; }
+
+/* Bandeau d'invitation dans l'espace de traduction. */
+.ext-banner { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--blue); border-radius: var(--radius); background: var(--blue-light); color: var(--navy); font-size: 14px; line-height: 1.5; }
+.ext-banner__text { flex: 1; min-width: 0; }
+.ext-banner__link { color: var(--blue); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+.ext-banner__link:hover { color: var(--navy); }
+.ext-banner__close { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: 50%; background: transparent; color: var(--navy); cursor: pointer; }
+.ext-banner__close:hover { background: var(--white); }
+.ext-banner a:focus-visible, .ext-banner button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+@media (max-width: 600px) {
+  .ext-hero { padding: 20px 16px; }
+  .ext-hero__lead { font-size: 20px; }
+  .ext-section h2 { font-size: 21px; }
+  .ext-cta__row { flex-direction: column; align-self: stretch; }
+  .ext-cta__row .ext-btn { width: 100%; }
+  .ext-banner { flex-wrap: wrap; }
+}

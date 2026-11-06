@@ -16,6 +16,7 @@ import { Link } from 'react-router-dom';
 import { useBeta, type BetaFormat } from '../../hooks/useBeta';
 import { BETA_FORMATS } from '../library/BetaAllowances';
 import { useAnalyseImages, formatAvecImages } from '../../hooks/useAnalyseImages';
+import ExtensionBanner from './ExtensionBanner';
 
 export interface TranslateConfig {
   file: File;
@@ -167,6 +168,7 @@ export default function TranslationSection({
       onSubmit={submit}
       style={{ display: 'flex', flexDirection: 'column', gap: '18px', flex: 1, width: '100%' }}
     >
+      <ExtensionBanner />
       {betaAccess.data?.enrollment && (
         <div className="beta-upload">
           {betaUsable && <label><input type="checkbox" checked={useBetaCredits} disabled={isTranslating}

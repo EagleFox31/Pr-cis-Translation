@@ -27,6 +27,7 @@ export default function Navbar({ activeSection, onNavClick, onLibraryOpen }: Nav
     { id: 'story', label: t('nav.howItWorks') },
     { id: 'pricing', label: t('nav.pricing') },
     { id: 'about', label: t('nav.about') },
+    { id: 'extension', label: t('extension_page.nav_label'), href: '/extension' },
     // Administration : une page, pas une section — `href` la distingue des ancres.
     ...(user?.plan === 'admin' ? [{ id: 'admin', label: t('admin.menu', 'Administration'), href: '/admin/users' }] : []),
   ];

@@ -877,5 +877,73 @@
     "copy": "Copier le lien",
     "copied": "Lien copié",
     "copy_error": "Copie impossible"
+  },
+  "extension_page": {
+    "doc_title": "Extension navigateur · Précis",
+    "nav_label": "Extension",
+    "nav_aria": "Pages du site",
+    "footer_link": "Extension navigateur",
+    "back": "Retour",
+    "title": "Extension navigateur",
+    "lead": "Traduisez le texte et les images d'une page web en un clic, avec la mise en page conservée.",
+    "add_edge": "Ajouter à Edge",
+    "add_chrome": "Ajouter à Chrome",
+    "also_edge": "Aussi disponible pour Edge",
+    "also_chrome": "Aussi disponible pour Chrome",
+    "soon": "Bientôt disponible",
+    "installed": "Extension installée (version {{version}})",
+    "installed_nov": "Extension installée",
+    "other_browser": "Disponible pour Chrome et Edge",
+    "mobile_title": "À installer sur ordinateur",
+    "mobile_hint": "L'extension fonctionne sur Chrome et Edge pour ordinateur. Copiez le lien pour le rouvrir depuis votre poste.",
+    "copy_link": "Copier le lien de cette page",
+    "copied": "Lien copié",
+    "copy_error": "Copie impossible, copiez l'adresse depuis la barre du navigateur.",
+    "welcome": {
+      "title": "L'extension est installée",
+      "pin": "Épinglez l'icône : ouvrez le menu en forme de puzzle de la barre d'outils, puis cliquez sur l'épingle à côté de Précis.",
+      "login": "Connectez-vous dans la fenêtre de l'extension avec votre compte Précis.",
+      "try": "Essayez sur une page en langue étrangère : cliquez sur l'icône, puis sur Traduire."
+    },
+    "how": {
+      "title": "Comment ça marche",
+      "add_title": "Ajoutez l'extension",
+      "add_text": "Depuis la boutique de votre navigateur, cliquez sur « Ajouter ». L'installation prend quelques secondes.",
+      "pin_title": "Épinglez l'icône et connectez-vous",
+      "pin_text": "Épinglez l'icône Précis dans la barre d'outils, puis connectez-vous avec votre compte Précis.",
+      "use_title": "Traduisez la page",
+      "use_text": "Sur une page en langue étrangère, cliquez sur l'icône, puis sur Traduire. Le texte et les images sont traduits sur place."
+    },
+    "price": {
+      "title": "Tarif",
+      "text": "L'extension utilise les crédits de votre compte Précis : aucun abonnement ni achat supplémentaire pour l'installer.",
+      "link": "Voir les tarifs"
+    },
+    "permissions": {
+      "title": "Permissions et données",
+      "storage": "Stockage : conserve votre session et vos préférences dans le navigateur.",
+      "tab": "Onglet actif : l'extension ne lit la page que lorsque vous cliquez sur l'icône.",
+      "sites": "Accès aux sites : demandé pour le site affiché, au premier clic sur « Traduire », jamais pour tous les sites.",
+      "send": "Le texte et les images de la page sont envoyés aux serveurs Précis pour être traduits.",
+      "sale": "Rien n'est vendu, et aucune publicité n'est affichée.",
+      "privacy": "Lire la politique de confidentialité"
+    },
+    "faq": {
+      "title": "Questions fréquentes",
+      "browsers_q": "Quels navigateurs sont pris en charge ?",
+      "browsers_a": "Google Chrome et Microsoft Edge sur ordinateur. Les navigateurs mobiles ne permettent pas d'installer l'extension.",
+      "account_q": "Faut-il un compte Précis ?",
+      "account_a": "Oui. L'extension utilise les crédits de votre compte. Vous pouvez en créer un gratuitement sur le site.",
+      "data_q": "Que deviennent mes données ?",
+      "data_a": "Le texte et les images de la page ne sont envoyés que lorsque vous demandez la traduction. Nous ne vendons aucune donnée et n'affichons aucune publicité.",
+      "uninstall_q": "Comment la désinstaller ?",
+      "uninstall_a": "Faites un clic droit sur l'icône Précis, puis choisissez « Supprimer de Chrome » ou « Supprimer de Microsoft Edge ». Vous pouvez aussi passer par la page des extensions du navigateur."
+    },
+    "banner": {
+      "label": "Extension navigateur",
+      "text": "Traduisez aussi les pages web en un clic avec l'extension Précis.",
+      "link": "Découvrir l'extension",
+      "close": "Fermer cette proposition"
+    }
   }
 }

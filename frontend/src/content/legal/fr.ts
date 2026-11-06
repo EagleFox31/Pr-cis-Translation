@@ -1,6 +1,6 @@
 import type { LegalDoc } from './types';
 
-export const LEGAL_UPDATED = '31 octobre 2026';
+export const LEGAL_UPDATED = '6 novembre 2026';
 
 export const LEGAL_FR: LegalDoc[] = [
   {
@@ -232,6 +232,23 @@ export const LEGAL_FR: LegalDoc[] = [
         heading: 'Sécurité',
         paragraphs: [
           'Les échanges avec le site sont chiffrés par HTTPS. Les mots de passe sont hachés avec bcrypt, les identifiants d\'appareil et d\'adresse IP sont hachés, et chaque accès de notre équipe à un document est journalisé.',
+        ],
+      },
+      {
+        heading: 'Extension navigateur',
+        paragraphs: [
+          'Si vous utilisez l\'extension Précis pour Chrome ou Edge, les règles ci-dessous s\'ajoutent à celles du site.',
+        ],
+        list: [
+          'Texte et images de la page : ils sont envoyés à nos serveurs uniquement lorsque vous demandez la traduction, pour être traduits, puis renvoyés vers votre navigateur.',
+          'Connexion : les jetons de connexion à votre compte Précis sont stockés dans le navigateur (stockage de l\'extension).',
+          'Mémoire locale : les traductions déjà effectuées sont conservées localement dans votre navigateur pour éviter de retraduire ; elles ne quittent pas votre appareil.',
+          'Aucune donnée de navigation n\'est collectée en dehors de la page que vous choisissez de traduire : ni historique, ni liste des sites visités.',
+          'Aucune vente de données et aucune publicité.',
+          'Permission « stockage » : conserver votre session et vos préférences.',
+          'Permissions « onglet actif » et « injection de scripts » : lire et remplacer le contenu de l\'onglet actif, seulement après votre clic sur l\'icône.',
+          'Accès aux sites : demandé pour le seul site affiché, la première fois que vous cliquez sur « Traduire » ; vous pouvez le retirer à tout moment dans les paramètres de l\'extension.',
+          'Accès au site de Précis : dialoguer avec votre compte et nos serveurs de traduction.',
         ],
       },
       {
