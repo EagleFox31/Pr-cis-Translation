@@ -1,0 +1,43 @@
+/* Pastille « Extension » : à droite du menu, avant FR/EN.
+   Le menu central passe dans le flux (marges auto) : centré dans l'espace
+   libre, il ne peut plus recouvrir la colonne de droite. */
+.nav-inner .nav-links {
+  position: static;
+  transform: none;
+  margin: 0 auto;
+  gap: 28px;
+}
+.nav-aside {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.nav-aside .lang-toggle { margin-left: 0; }
+.nav-ext {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--gray-200);
+  color: var(--gray-700);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: border-color var(--transition), color var(--transition), background var(--transition);
+}
+.nav-ext:hover, .nav-ext.active {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+.nav-ext:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+/* Peu de place à côté du menu central : icône seule. */
+@media (max-width: 1279px) {
+  .nav-ext { padding: 7px; }
+  .nav-ext span { display: none; }
+}
+/* Sous 1100 px, le menu mobile la contient déjà. */
+@media (max-width: 1100px) {
+  .nav-ext { display: none; }
+}

@@ -17,9 +17,13 @@ from pathlib import Path
 from collections import defaultdict
 from lxml import etree
 
+from engines import incorpores
+from engines import runtags
+
 # ── Namespace WordprocessingML ────────────────────────────────────────────────
 W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 A = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+C = 'http://schemas.openxmlformats.org/drawingml/2006/chart'
 # Markup Compatibility : encapsule deux représentations du MÊME contenu —
 # mc:Choice (moderne, rendu par Word/LibreOffice) et mc:Fallback (VML legacy,
 # jamais rendu). Les deux portent un w:txbxContent → sans filtrage on extrait et
@@ -39,6 +43,7 @@ def _mc(tag):
 class DOCXTranslatorEngine:
     def __init__(self):
         self.temp_dir = None
+        self.objets_restes: list[dict] = []
 
     def _get_temp_dir(self):
         if self.temp_dir is None:
@@ -192,17 +197,41 @@ class DOCXTranslatorEngine:
             for idx, t_node in enumerate(t_nodes):
                 t_node.text = match_dict.get(idx, '')
 
+    # ── Graphiques natifs (word/charts) ──────────────────────────────────────
+
+    def _chart_values(self, chart_file, croot):
+        """Valeurs textuelles d'un graphique (noms de séries, catégories),
+        dans un ordre stable. Les caches liés au classeur caché sont laissés au
+        traitement des objets incorporés, qui les réaligne sur le classeur
+        traduit : ils ne sont ni facturés ni traduits deux fois."""
+        a_classeur = incorpores.a_classeur_interne(chart_file)
+        valeurs = []
+        for v in croot.iter(f'{{{C}}}v'):
+            texte = (v.text or '').strip()
+            if not texte or any(etree.QName(a).localname in ('numCache', 'numLit')
+                                for a in v.iterancestors()):
+                continue
+            try:
+                float(texte)
+                continue
+            except ValueError:
+                pass
+            if a_classeur and incorpores.sous_strref(v):
+                continue
+            valeurs.append(v)
+        return valeurs
+
     # ══════════════════════════════════════════════════════════════════════════
     # 1. EXTRACTION
     # ══════════════════════════════════════════════════════════════════════════
 
     def extract_text(self, docx_path, output_json='extraction_docx.json',
-                     filters=None, progress_callback=None):
+                     filters=None, progress_callback=None, niveau_objets=1):
         if filters is None:
             filters = {
                 'paragraphs': True, 'tables': True,
                 'headers_footers': True, 'text_boxes': True,
-                'smartarts': True
+                'smartarts': True, 'charts': True
             }
 
         self._extract_zip(docx_path)
@@ -210,7 +239,7 @@ class DOCXTranslatorEngine:
         extraction = {
             'document': {
                 'elements': [], 'headers': [], 'footers': [],
-                'textboxes': [], 'smartarts': []
+                'textboxes': [], 'smartarts': [], 'charts': []
             }
         }
         types_used = {'document': set()}
@@ -268,7 +297,29 @@ class DOCXTranslatorEngine:
                         self._process_drawing_paragraph(p, f'dgm_{diag_file.stem}_{d_ctr}', extraction['document']['smartarts'], types_used['document'], 'smartart')
                         d_ctr += 1
 
+        if filters.get('charts', True):
+            chart_dir = self._get_temp_dir() / 'word' / 'charts'
+            if chart_dir.exists():
+                for chart_file in sorted(chart_dir.glob('chart*.xml')):
+                    croot = self._parse_xml(chart_file).getroot()
+                    for n, p in enumerate(croot.iter(_a('p'))):
+                        self._process_drawing_paragraph(p, f'chart_{chart_file.stem}_{n}', extraction['document']['charts'], types_used['document'], 'chart')
+                    for i, v in enumerate(self._chart_values(chart_file, croot)):
+                        extraction['document']['charts'].append({
+                            'id': f'chartv_{chart_file.stem}_{i}',
+                            'text': f'[[0]]{v.text}[[/0]]',
+                            'context': {'type': 'chart', 'run_count': 1},
+                        })
+                        types_used['document'].add('chart')
+
         self._cleanup_temp()
+
+        # Objets incorporés (Excel, Word, PowerPoint) : leurs textes, à plat.
+        # `niveau_objets` : profondeur de ce document dans la chaîne d'objets.
+        objets, rapport_objets = incorpores.relever(docx_path, niveau=niveau_objets)
+        extraction['objets'] = objets
+        extraction['objets_rapport'] = rapport_objets
+
         with open(output_json, 'w', encoding='utf-8') as f:
             json.dump(extraction, f, ensure_ascii=False, indent=2)
 
@@ -282,7 +333,7 @@ class DOCXTranslatorEngine:
 
     def inject_translation(self, original_docx, translated_json_path,
                            output_docx, progress_callback=None,
-                           format_options=None):
+                           format_options=None, niveau_objets=1):
         if not os.path.exists(translated_json_path):
             return False, 'Fichier JSON de traduction introuvable.'
 
@@ -291,11 +342,15 @@ class DOCXTranslatorEngine:
 
         translation_map = {}
         doc_data = translation_data.get('document', {})
-        for section in ('elements', 'headers', 'footers', 'textboxes', 'smartarts'):
+        for section in ('elements', 'headers', 'footers', 'textboxes', 'smartarts', 'charts'):
             for elem in doc_data.get(section, []):
                 translation_map[elem['id']] = elem.get('translated_text', elem['text'])
 
-        if not translation_map: return False, 'Aucun élément traduit dans le JSON.'
+        traductions_objets = {e['id']: e.get('translated_text') or e['text']
+                              for e in translation_data.get('objets', [])}
+
+        if not translation_map and not traductions_objets:
+            return False, 'Aucun élément traduit dans le JSON.'
 
         self._extract_zip(original_docx)
         temp_path = self._get_temp_dir()
@@ -362,6 +417,34 @@ class DOCXTranslatorEngine:
                     d_ctr += 1
                 if d_mod: self._save_xml(dtree, diag_file)
 
+        chart_dir = word_dir / 'charts'
+        if chart_dir.exists():
+            for chart_file in sorted(chart_dir.glob('chart*.xml')):
+                ctree = self._parse_xml(chart_file)
+                croot = ctree.getroot()
+                c_mod = False
+                for n, p in enumerate(croot.iter(_a('p'))):
+                    eid = f'chart_{chart_file.stem}_{n}'
+                    if eid in translation_map: self._inject_drawing_paragraph(p, translation_map[eid]); c_mod = True
+                for i, v in enumerate(self._chart_values(chart_file, croot)):
+                    eid = f'chartv_{chart_file.stem}_{i}'
+                    if eid in translation_map:
+                        v.text = runtags.sans_balises(translation_map[eid])
+                        c_mod = True
+                if c_mod: self._save_xml(ctree, chart_file)
+
         self._repack_zip(output_docx)
         self._cleanup_temp()
+
+        # Objets incorporés : traduits à part, puis remis dans le fichier produit
+        # (au mieux : un objet qui échoue reste dans sa langue d'origine).
+        if traductions_objets:
+            try:
+                modifs = incorpores.reinjecter(
+                    output_docx, traductions_objets, niveau=niveau_objets)
+                incorpores.appliquer_fichier(output_docx, modifs)
+                incorpores.cumuler(self.objets_restes, modifs.restes)
+            except Exception as exc:  # noqa: BLE001
+                incorpores.logger.warning("Objets DOCX non réinjectés : %s", exc)
+                incorpores.cumuler(self.objets_restes, [incorpores.reste_inconnu()])
         return True, f'Fichier DOCX traduit généré : {output_docx}'

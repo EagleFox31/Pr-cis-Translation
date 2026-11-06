@@ -33,8 +33,10 @@ from fastapi.testclient import TestClient                # noqa: E402
 
 from app.core.database import DATABASE_URL               # noqa: E402
 from app.core.pricing import (CURRENCY, MIN_PAYMENT_AMOUNT,  # noqa: E402
+                              CARD_FEE_FIXED, CARD_FEE_PERCENT,
                               ZONE_AFRICA, ZONE_EMERGING, ZONE_GLOBAL,
-                              billable_pages, page_price)
+                              billable_pages, card_fee, page_price,
+                              transaction_fee)
 from app.models import User, Payment, Document           # noqa: E402
 from app import config as cfg                            # noqa: E402
 from app import create_app                               # noqa: E402
@@ -93,6 +95,34 @@ def check_calcul(ok):
        billable_pages(ZONE_AFRICA, 1) == 2, str(billable_pages(ZONE_AFRICA, 1)))
     ok("CALCUL  hors XAF : aucun arrondi",
        billable_pages(ZONE_EMERGING, 1) == 1 and billable_pages(ZONE_GLOBAL, 1) == 1)
+    # Carte : minimum technique de Paddle (427 F, 0,70 $, 0,65 €) sur le montant net.
+    juste = all(billable_pages(z, 1, "card") * page_price(z) >= m
+                and (billable_pages(z, 1, "card") - 1) * page_price(z) < m
+                for z, m in ((ZONE_AFRICA, 427), (ZONE_EMERGING, 70), (ZONE_GLOBAL, 65)))
+    ok("CALCUL  carte : minimum atteint dans chaque zone, sans page superflue", juste)
+    ok("CALCUL  carte : 6 / 6 / 4 pages minimum (zones A / B / C)",
+       [billable_pages(z, 1, "card") for z in (ZONE_AFRICA, ZONE_EMERGING, ZONE_GLOBAL)]
+       == [6, 6, 4])
+
+    # Frais carte : après la commission de Paddle (taux + part fixe, arrondis
+    # au plus défavorable), il reste au moins le net, et une unité de frais en
+    # moins ne le garantirait plus.
+    juste = True
+    for cur in ("XAF", "EUR", "USD"):
+        fixe = CARD_FEE_FIXED[cur]
+        for net in list(range(1, 2000)) + [3000, 4500, 19900, 54000, 10 ** 6]:
+            fee = card_fee(net, cur)
+            for f in (fee, fee - 1):
+                total = net + f
+                reste = total - (-(-total * CARD_FEE_PERCENT // 100)) - fixe
+                if (f == fee) != (reste >= net):
+                    juste = False
+    ok("CALCUL  frais carte : net preserve, au centime pres (XAF, EUR, USD)", juste)
+    ok("CALCUL  frais carte : 3 000 F -> 484 F ; 19,90 EUR -> 1,55 EUR",
+       card_fee(3000, "XAF") == 484 and card_fee(1990, "EUR") == 155,
+       str([card_fee(3000, "XAF"), card_fee(1990, "EUR")]))
+    ok("CALCUL  frais mobile money inchanges (3 %)",
+       transaction_fee(3000) == 90 and transaction_fee(3000, "XAF", "mtn_momo") == 90)
 
 
 async def check_routes(client, ok):
@@ -119,6 +149,11 @@ async def check_routes(client, ok):
            r.status_code == 200 and q.get("billed_pages") == 2
            and q.get("subtotal") == 150 and q.get("fee") == 5
            and q.get("amount") == 155 and q.get("min_amount") == 100, str(q))
+        carte = q.get("card") or {}
+        ok("ROUTE   /quote carte 1 page : 6 facturees, 450 F + 349 F de frais, minimum 427 F",
+           carte.get("billed_pages") == 6 and carte.get("subtotal") == 450
+           and carte.get("fee") == 349 and carte.get("amount") == 799
+           and carte.get("min_amount") == 427, str(carte))
 
         r = client.post("/api/payments/collect",
                         json={"pages": 1, "phone": "237670000000"}, headers=ent)
@@ -236,6 +271,24 @@ async def check_credit(ok):
         await _supprimer(u.id)
 
 
+async def check_document_vide(ok):
+    """Un TXT sans mot ne se chiffre pas : 422 clair, pas une erreur 500."""
+    import tempfile
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    with tempfile.TemporaryDirectory() as dossier:
+        chemin = os.path.join(dossier, "vide.txt")
+        with open(chemin, "w", encoding="utf-8") as f:
+            f.write("   \n")
+        doc = SimpleNamespace(page_count=None, original_path=chemin, original_name="vide.txt")
+        try:
+            await route_payments._document_pages(None, doc)
+            statut = None
+        except HTTPException as exc:
+            statut = exc.status_code
+    ok("ROUTE   devis d'un TXT vide : 422", statut == 422, str(statut))
+
+
 async def run():
     checks = []
 
@@ -243,6 +296,7 @@ async def run():
         checks.append((nom, bool(cond), detail))
 
     check_calcul(ok)
+    await check_document_vide(ok)
     await check_credit(ok)
     # The collection transport is replaced by faux_collect above. Its local
     # availability gate must also represent a configured synthetic provider;

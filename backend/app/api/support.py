@@ -133,10 +133,9 @@ async def list_tickets(
     if status:
         conds.append(SupportTicket.status == status)
     if q:
-        like = f"%{q}%"
-        conds.append(or_(SupportTicket.subject.ilike(like),
-                         SupportTicket.message.ilike(like),
-                         SupportTicket.user_email.ilike(like)))
+        conds.append(or_(SupportTicket.subject.icontains(q, autoescape=True),
+                         SupportTicket.message.icontains(q, autoescape=True),
+                         SupportTicket.user_email.icontains(q, autoescape=True)))
 
     stmt = (select(SupportTicket)
             .order_by(SupportTicket.created_at.desc())

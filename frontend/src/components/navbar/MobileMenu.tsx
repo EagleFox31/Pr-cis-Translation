@@ -2,7 +2,7 @@ import { motion, AnimatePresence } from 'motion/react';
 
 interface MobileMenuProps {
   isOpen: boolean;
-  links: Array<{ id: string; label: string }>;
+  links: Array<{ id: string; label: string; href?: string }>;
   activeSection: string;
   onNavClick: (sectionId: string) => void;
   onClose: () => void;
@@ -27,7 +27,7 @@ export default function MobileMenu({ isOpen, links, activeSection, onNavClick, o
             return (
               <a
                 key={link.id}
-                href={`#${link.id}`}
+                href={link.href ?? `#${link.id}`}
                 onClick={(e) => { e.preventDefault(); onNavClick(link.id); }}
                 style={{
                   color: isActive ? '#1a4dc7' : undefined,

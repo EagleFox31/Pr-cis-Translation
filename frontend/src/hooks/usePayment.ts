@@ -23,6 +23,8 @@ export interface Quote {
   /** Montant DÉBITÉ : `subtotal + fee`. */
   amount: number;
   min_amount: number;
+  /** Mêmes chiffres par carte : minimum et frais de Paddle sont plus hauts. */
+  card?: Pick<Quote, 'billed_pages' | 'subtotal' | 'fee' | 'amount' | 'min_amount'>;
   currency: string;
   zone: string;
   /** Achat d'abonnement : durée payée d'avance (1 ou 12 mois). */
@@ -121,6 +123,7 @@ export function usePayment() {
       pages: 0, billed_pages: 0, unit_price: d.monthly_price,
       subtotal: d.subtotal, fee: d.fee, amount: d.amount,
       min_amount: 0, currency: d.currency, zone: d.zone, months: d.months,
+      card: d.card && { billed_pages: 0, min_amount: 0, ...d.card },
     };
     setState((s) => ({ ...s, phase: 'idle', quote }));
     return quote;

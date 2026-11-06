@@ -31,7 +31,7 @@ import threading
 from typing import Any, Callable
 
 from app.config import TRANSLATION_WORKERS, logger
-from app.services.jobs import jobs
+from app.services.jobs import ArretDemande, jobs
 
 
 class TranslationScheduler:
@@ -83,7 +83,16 @@ class TranslationScheduler:
             with self._lock:
                 self._running += 1
             try:
-                target(*args)
+                # Un job mis en pause ou annulé pendant qu'il attendait ne
+                # démarre pas : la route l'a déjà arrêté et consigné.
+                if jobs.demarrer(job_id):
+                    target(*args)
+            except ArretDemande as arret:
+                logger.info("Job %s arrêté à la demande (%s)", job_id, arret.mode)
+                try:
+                    jobs.arreter(job_id, arret.mode)
+                except Exception as e:
+                    logger.error("Arrêt du job %s non consigné : %s", job_id, e)
             except Exception as e:
                 # Le job lui-même signale déjà ses propres erreurs (`jobs.error`).
                 # Ce filet n'existe que pour qu'une exception inattendue ne TUE

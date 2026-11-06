@@ -101,7 +101,7 @@ def main():
             pass
         else:
             raise AssertionError("A blank page must not become a paid translation")
-    with patch("app.services.ocr.shutil.which", return_value=None):
+    with patch("app.services.ocr_v2.detect.shutil.which", return_value=None):
         try:
             prepare_scanned_pdf(original, {1})
         except OCRUnavailable:
