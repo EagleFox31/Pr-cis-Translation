@@ -10,7 +10,7 @@ import MobileMenu from '../components/navbar/MobileMenu';
 import '../components/admin/admin.css';
 import '../legal.css';
 
-const CONTACT_EMAIL = 'contact@trigenys.com';
+const CONTACT_EMAIL = 'support.precis@trigenys.com';
 
 export default function LegalPage({ slug }: { slug: LegalDoc['slug'] }) {
   const { t, i18n } = useTranslation();

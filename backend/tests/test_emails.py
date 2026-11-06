@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 import sys
+from email.header import decode_header, make_header
 
 import racine  # noqa: F401  -- met backend/ sur le chemin
 
@@ -84,7 +85,7 @@ def main() -> int:
     ok("IDENTITE  aucune image DISTANTE (bloquee par defaut, et mouchard)",
        not re.search(r'<img[^>]+src="https?://', html), html[:200])
     ok("IDENTITE  la marque apparait dans l'expediteur",
-       "Précis" in str(msg["From"]), str(msg["From"]))
+       "Précis" in str(make_header(decode_header(msg["From"]))), str(msg["From"]))
 
     # ── 4. La structure MIME ─────────────────────────────────────────────
     ok("STRUCTURE  le message est `related` (HTML + son image)",

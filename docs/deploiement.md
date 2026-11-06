@@ -104,7 +104,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(24))"   # POSTGRES_PASSW
 | `DEEPSEEK_API_KEY` | la clé réelle — sans elle, aucune traduction |
 | `ALLOWED_ORIGINS` | `https://votre-domaine` **seul**, sans localhost |
 | `FRONTEND_URL` | `https://votre-domaine` |
-| `SMTP_*`, `EMAIL_ENABLED` | ou `EMAIL_ENABLED=false`, et alors aucun compte ne s'active |
+| `SMTP_*` (dont `SMTP_FROM` : alias expéditeur, `SMTP_REPLY_TO` : adresse de réponse), `EMAIL_ENABLED` | ou `EMAIL_ENABLED=false`, et alors aucun compte ne s'active |
 | `ADMIN_ALERT_EMAIL` | destinataire des alertes d'erreurs et des tickets |
 | `ADMIN_EMAIL` | comptes administrateurs créés au démarrage, plusieurs adresses séparées par des virgules (`seed_admin.py`, défaut `mbowouibrah@gmail.com`) ; connexion par code e-mail ou Google |
 

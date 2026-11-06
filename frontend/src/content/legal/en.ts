@@ -13,7 +13,7 @@ export const LEGAL_EN: LegalDoc[] = [
         heading: 'Publisher',
         paragraphs: [
           'The Précis website and service are published by Trigenys Group, a collective of independent digital professionals based in Douala, Cameroon. Trigenys Group is not a registered company: the services are provided by the members of the collective, who act together under this name.',
-          'Contact: contact@trigenys.com.',
+          'Contact: support.precis@trigenys.com.',
         ],
       },
       {
@@ -40,7 +40,7 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'Reporting content or a problem',
         paragraphs: [
-          'To report content, an error or a malfunction, write to contact@trigenys.com and describe the page concerned. We reply as soon as we can.',
+          'To report content, an error or a malfunction, write to support.precis@trigenys.com and describe the page concerned. We reply as soon as we can.',
         ],
       },
     ],
@@ -61,7 +61,7 @@ export const LEGAL_EN: LegalDoc[] = [
         heading: 'The service',
         paragraphs: [
           'Précis translates documents in txt, pdf, docx, pptx and xlsx formats, up to 100 MB per document, with care taken to faithfully render the meaning and the original layout. Some complex documents (nested tables, unusual layouts) may show minor differences in presentation.',
-          'Translation relies on an automated process that we continuously improve. Like any translation, it may occasionally contain inaccuracies: if you notice one, report it to contact@trigenys.com so that we can correct it and improve the service. For official, legal, medical or contractual use, we recommend having the result reviewed before using it.',
+          'Translation relies on an automated process that we continuously improve. Like any translation, it may occasionally contain inaccuracies: if you notice one, report it to support.precis@trigenys.com so that we can correct it and improve the service. For official, legal, medical or contractual use, we recommend having the result reviewed before using it.',
         ],
       },
       {
@@ -100,7 +100,7 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'Refunds',
         paragraphs: [
-          'Pages that have been used are not refundable. However, if you were charged twice, or if a payment was not applied to your account, it is refunded on request to contact@trigenys.com.',
+          'Pages that have been used are not refundable. However, if you were charged twice, or if a payment was not applied to your account, it is refunded on request to support.precis@trigenys.com.',
           'The refund is made through the original payment method when the payment provider allows it.',
         ],
       },
@@ -153,12 +153,12 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'Governing law',
         paragraphs: [
-          'These terms are governed by Cameroonian law. In case of a dispute, we first look for an amicable solution by e-mail at contact@trigenys.com. Failing that, the dispute falls under the jurisdiction of the courts of Douala.',
+          'These terms are governed by Cameroonian law. In case of a dispute, we first look for an amicable solution by e-mail at support.precis@trigenys.com. Failing that, the dispute falls under the jurisdiction of the courts of Douala.',
         ],
       },
       {
         heading: 'Contact',
-        paragraphs: ['For any question about these terms: contact@trigenys.com.'],
+        paragraphs: ['For any question about these terms: support.precis@trigenys.com.'],
       },
     ],
   },
@@ -171,7 +171,7 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'Data controller',
         paragraphs: [
-          'The controller of your data is Trigenys Group, based in Douala (Cameroon). Contact: contact@trigenys.com.',
+          'The controller of your data is Trigenys Group, based in Douala (Cameroon). Contact: support.precis@trigenys.com.',
         ],
       },
       {
@@ -236,7 +236,7 @@ export const LEGAL_EN: LegalDoc[] = [
         heading: 'Your rights',
         paragraphs: [
           'Under Law No. 2024/017 of 23 December 2024 on the protection of personal data in Cameroon, you may request access to your data, its correction or its deletion, and object to certain processing. Your account can be deleted on request by e-mail.',
-          'Write to contact@trigenys.com: we reply within a reasonable time.',
+          'Write to support.precis@trigenys.com: we reply within a reasonable time.',
         ],
       },
       {
@@ -253,7 +253,7 @@ export const LEGAL_EN: LegalDoc[] = [
       },
       {
         heading: 'Contact',
-        paragraphs: ['For any question about your data: contact@trigenys.com.'],
+        paragraphs: ['For any question about your data: support.precis@trigenys.com.'],
       },
     ],
   },
@@ -305,7 +305,7 @@ export const LEGAL_EN: LegalDoc[] = [
       },
       {
         heading: 'Contact',
-        paragraphs: ['For any question: contact@trigenys.com.'],
+        paragraphs: ['For any question: support.precis@trigenys.com.'],
       },
     ],
   },
