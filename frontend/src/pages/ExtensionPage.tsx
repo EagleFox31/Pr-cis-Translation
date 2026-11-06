@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Check, Copy, Download, Monitor } from 'lucide-react';
+import { ArrowLeft, Check, Download, Monitor } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import MobileMenu from '../components/navbar/MobileMenu';
 import { useExtensionInstalled } from '../hooks/useExtensionInstalled';
 import {
-  detecterNavigateur, detecterNavigateurPrecis, estMobile, EXTENSION_URL, EXTENSION_ZIP, versionPlusAncienne, type Navigateur,
+  detecterNavigateurPrecis, estMobile, EXTENSION_URL, EXTENSION_ZIP, versionPlusAncienne,
 } from '../lib/extension';
 import '../components/admin/admin.css';
 import '../legal.css';
@@ -22,11 +22,25 @@ const NAVIGATEURS = [
   { id: 'opera', nom: 'Opera' },
   { id: 'vivaldi', nom: 'Vivaldi' },
 ] as const;
+type NavId = (typeof NAVIGATEURS)[number]['id'];
 type Copie = 'idle' | 'ok' | 'erreur';
 
 const FAQ = ['browsers', 'account', 'data', 'uninstall'] as const;
 const PERMISSIONS = ['storage', 'tab', 'sites', 'send', 'sale'] as const;
-const NOTES = ['note_folder', 'note_update', 'note_alert'] as const;
+
+// Rubriques du menu latéral : l'ancre de l'adresse ouvre directement la bonne.
+const RUBRIQUES = [
+  { id: 'install', cle: 'extension_page.tab_install' },
+  { id: 'price', cle: 'extension_page.price.title' },
+  { id: 'perms', cle: 'extension_page.permissions.title' },
+  { id: 'faq', cle: 'extension_page.faq.title' },
+] as const;
+type Rubrique = (typeof RUBRIQUES)[number]['id'];
+
+const rubriqueInitiale = (): Rubrique => {
+  const h = window.location.hash.slice(1);
+  return RUBRIQUES.some((r) => r.id === h) ? (h as Rubrique) : 'install';
+};
 
 export default function ExtensionPage() {
   const { t, i18n } = useTranslation();
@@ -36,18 +50,20 @@ export default function ExtensionPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [copie, setCopie] = useState<Copie>('idle');
-  const [copieAdresse, setCopieAdresse] = useState<Copie>('idle');
 
-  const navigateur: Navigateur = detecterNavigateur();
+  const precis = detecterNavigateurPrecis();
+  const [choix, setChoix] = useState<NavId>(precis === 'autre' ? 'chrome' : precis);
+  const [rubrique, setRubrique] = useState<Rubrique>(rubriqueInitiale);
+
   const mobile = estMobile();
   const { installe, version } = useExtensionInstalled();
   const bienvenue = params.get('bienvenue') === '1';
 
-  // Installation manuelle (ZIP) tant qu'aucune boutique n'est renseignée pour ce navigateur.
-  const manuel = navigateur === 'autre' ? !EXTENSION_URL.chrome && !EXTENSION_URL.edge : !EXTENSION_URL[navigateur];
-  const navManuel: Boutique = navigateur === 'edge' ? 'edge' : 'chrome';
-  const pageExtensions = `${navManuel}://extensions`;
-  const miseAJour = manuel && installe && !!version && !!EXTENSION_ZIP.version
+  // Guide du navigateur choisi : sa boutique (Edge Add-ons ou Chrome Web Store).
+  const nomChoix = NAVIGATEURS.find((n) => n.id === choix)!.nom;
+  const boutique: Boutique = choix === 'edge' ? 'edge' : 'chrome';
+  const urlBoutique = EXTENSION_URL[boutique];
+  const miseAJour = !urlBoutique && installe && !!version && !!EXTENSION_ZIP.version
     && versionPlusAncienne(version, EXTENSION_ZIP.version);
 
   const links = [
@@ -61,43 +77,15 @@ export default function ExtensionPage() {
     scrollRef.current?.scrollTo(0, 0);
   }, [t, i18n.language]);
 
-  const libelleBoutique = (b: Boutique) => t(b === 'edge' ? 'extension_page.add_edge' : 'extension_page.add_chrome');
-
-  // Carte d'un navigateur : logo officiel, nom, boutique d'origine et bouton (inactif tant que l'adresse manque).
-  const precis = detecterNavigateurPrecis();
-  const carte = (n: (typeof NAVIGATEURS)[number]) => {
-    const b: Boutique = n.id === 'edge' ? 'edge' : 'chrome';
-    const url = EXTENSION_URL[b];
-    const courant = n.id === precis;
-    return (
-      <li key={n.id} className={`ext-browser${courant ? ' ext-browser--current' : ''}`}>
-        {courant && <span className="ext-browser__badge">{t('extension_page.card_detected')}</span>}
-        <img className="ext-browser__logo" src={`/browsers/${n.id}.png`} alt="" width={56} height={56} />
-        <strong className="ext-browser__name">{n.nom}</strong>
-        <span className="ext-browser__sub">{t(`extension_page.card_via_${b}`)}</span>
-        {url ? (
-          <a className="ext-btn ext-btn--primary" href={url} target="_blank" rel="noopener">
-            <Download size={16} strokeWidth={2.2} aria-hidden="true" />
-            {t('extension_page.card_add')}
-          </a>
-        ) : (
-          <button type="button" className="ext-btn ext-btn--ghost" disabled>{t('extension_page.soon')}</button>
-        )}
-      </li>
-    );
+  const choisirRubrique = (r: Rubrique) => {
+    setRubrique(r);
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${r}`);
+    scrollRef.current?.scrollTo(0, 0);
   };
 
-  const ordre = [...NAVIGATEURS].sort((a, c) => Number(c.id === precis) - Number(a.id === precis));
-  const cartes = (
-    <div className="ext-browsers">
-      <p className="ext-browsers__title">{t('extension_page.cards_title')}</p>
-      <ul className="ext-browsers__grid">{ordre.map(carte)}</ul>
-      <p className="ext-cta__hint">
-        {!manuel && `${t('extension_page.card_one_click')} `}
-        {t('extension_page.card_unsupported')}
-      </p>
-    </div>
-  );
+  const choisirNavigateur = (id: NavId) => {
+    setChoix(id);
+  };
 
   const copierLien = async () => {
     try {
@@ -108,15 +96,6 @@ export default function ExtensionPage() {
     }
   };
 
-  const copierAdresse = async () => {
-    try {
-      await navigator.clipboard.writeText(pageExtensions);
-      setCopieAdresse('ok');
-    } catch {
-      setCopieAdresse('erreur');
-    }
-  };
-
   const telecharger = (libelle: string) => (
     <a className="ext-btn ext-btn--primary" href={EXTENSION_ZIP.url} download="precis-extension.zip">
       <Download size={16} strokeWidth={2.2} aria-hidden="true" />
@@ -124,7 +103,8 @@ export default function ExtensionPage() {
     </a>
   );
 
-  const action = () => {
+  // État en tête de l'installation : mobile (copier le lien) ou extension déjà présente.
+  const statut = () => {
     if (mobile) {
       return (
         <div className="ext-cta">
@@ -145,9 +125,7 @@ export default function ExtensionPage() {
         <div className="ext-cta">
           <p className="ext-installed" role="status">
             <Check size={18} strokeWidth={2.4} aria-hidden="true" />
-            {version
-              ? t('extension_page.installed', { version })
-              : t('extension_page.installed_nov')}
+            {version ? t('extension_page.installed', { version }) : t('extension_page.installed_nov')}
           </p>
           {miseAJour && (
             <>
@@ -158,7 +136,114 @@ export default function ExtensionPage() {
         </div>
       );
     }
-    return <div className="ext-cta">{cartes}</div>;
+    return null;
+  };
+
+  const etape = (num: number, titre: string, texte: string) => (
+    <li key={num}>
+      <span className="ext-steps__num" aria-hidden="true">{num}</span>
+      <div>
+        <strong>{titre}</strong>
+        <p>{texte}</p>
+      </div>
+    </li>
+  );
+
+  const etapes = (['add', 'pin', 'use'] as const).map((k, i) =>
+    etape(i + 1, t(`extension_page.how.${k}_title`), t(`extension_page.how.${k}_text`)));
+
+
+  // En-tête fixe, pleine largeur : accroche, statut et choix du navigateur.
+  const entete = (
+    <>
+      <section className="ext-hero">
+        <p className="ext-hero__lead">{t('extension_page.lead')}</p>
+        {statut()}
+      </section>
+
+      {!mobile && (
+          <div className="ext-browsers ext-pick">
+            <p className="ext-browsers__title" id="ext-pick">{t('extension_page.cards_title')}</p>
+            <div className="ext-browsers__grid" role="radiogroup" aria-labelledby="ext-pick">
+              {NAVIGATEURS.map((n) => (
+                <button
+                  key={n.id} type="button" role="radio" aria-checked={choix === n.id}
+                  className={`ext-browser${choix === n.id ? ' ext-browser--current' : ''}`}
+                  onClick={() => choisirNavigateur(n.id)}
+                >
+                  {n.id === precis && <span className="ext-browser__badge">{t('extension_page.card_detected')}</span>}
+                  <img className="ext-browser__logo" src={`/browsers/${n.id}.png`} alt="" width={48} height={48} />
+                  <span className="ext-browser__name">{n.nom}</span>
+                </button>
+              ))}
+            </div>
+            <p className="ext-cta__hint">{t('extension_page.card_unsupported')}</p>
+          </div>
+      )}
+    </>
+  );
+
+  const installation = mobile ? null : (
+        <section className="ext-section ext-guide" aria-labelledby="ext-guide-title">
+          <div className="ext-install">
+            <div className="ext-install__steps">
+              <h2 id="ext-guide-title">{t('extension_page.install_for', { browser: nomChoix })}</h2>
+              <p>{t('extension_page.card_one_click')}</p>
+              <ol className="ext-steps">{etapes}</ol>
+            </div>
+
+            <aside className="ext-install__card" aria-label={nomChoix}>
+              <img src={`/browsers/${choix}.png`} alt="" width={64} height={64} />
+              <strong>{nomChoix}</strong>
+              <span className="ext-browser__sub">{t(`extension_page.card_via_${boutique}`)}</span>
+              {urlBoutique ? (
+                <a className="ext-btn ext-btn--primary" href={urlBoutique} target="_blank" rel="noopener">
+                  <Download size={16} strokeWidth={2.2} aria-hidden="true" />
+                  {t('extension_page.download_for', { browser: nomChoix })}
+                </a>
+              ) : (
+                <button type="button" className="ext-btn ext-btn--ghost" disabled>{t('extension_page.soon')}</button>
+              )}
+            </aside>
+          </div>
+        </section>
+  );
+
+  const contenu = () => {
+    switch (rubrique) {
+      case 'price':
+        return (
+          <section className="ext-section" aria-labelledby="ext-price">
+            <h2 id="ext-price">{t('extension_page.price.title')}</h2>
+            <p>{t('extension_page.price.text')}</p>
+            <p><Link className="ext-link" to="/home#pricing">{t('extension_page.price.link')}</Link></p>
+          </section>
+        );
+      case 'perms':
+        return (
+          <section className="ext-section" aria-labelledby="ext-perms">
+            <h2 id="ext-perms">{t('extension_page.permissions.title')}</h2>
+            <ul className="ext-list">
+              {PERMISSIONS.map((k) => <li key={k}>{t(`extension_page.permissions.${k}`)}</li>)}
+            </ul>
+            <p><Link className="ext-link" to="/confidentialite">{t('extension_page.permissions.privacy')}</Link></p>
+          </section>
+        );
+      case 'faq':
+        return (
+          <section className="ext-section" aria-labelledby="ext-faq">
+            <h2 id="ext-faq">{t('extension_page.faq.title')}</h2>
+            {FAQ.map((k) => (
+              <details key={k} className="ext-faq">
+                <summary>{t(`extension_page.faq.${k}_q`)}</summary>
+                <p>{t(`extension_page.faq.${k}_a`)}</p>
+              </details>
+            ))}
+          </section>
+        );
+      default:
+        return installation;
+    }
   };
 
   return (
@@ -221,110 +306,28 @@ export default function ExtensionPage() {
               </section>
             )}
 
-            <section className="ext-hero">
-              <p className="ext-hero__lead">{t('extension_page.lead')}</p>
-              {action()}
-            </section>
+            {entete}
 
-            {manuel ? (
-            <details className="ext-section ext-manual" id="ext-manual">
-              <summary>{t('extension_page.manual_toggle')}</summary>
-              <h2>{t('extension_page.manual.title')}</h2>
-              <p>{t('extension_page.manual.intro')}</p>
-              <div className="ext-cta__row">{telecharger(t('extension_page.download'))}</div>
-              {EXTENSION_ZIP.version && (
-                <p className="ext-cta__hint">{t('extension_page.download_hint', { version: EXTENSION_ZIP.version })}</p>
-              )}
-              <ol className="ext-steps">
-                <li>
-                  <span className="ext-steps__num" aria-hidden="true">1</span>
-                  <div>
-                    <strong>{t('extension_page.manual.s1_title')}</strong>
-                    <p>{t('extension_page.manual.s1_text')}</p>
-                  </div>
-                </li>
-                <li>
-                  <span className="ext-steps__num" aria-hidden="true">2</span>
-                  <div>
-                    <strong>{t('extension_page.manual.s2_title')}</strong>
-                    <p>{t('extension_page.manual.s2_text', { browser: navManuel === 'edge' ? 'Microsoft Edge' : 'Google Chrome' })}</p>
-                    <div className="ext-address">
-                      <code>{pageExtensions}</code>
-                      <button type="button" className="ext-btn ext-btn--ghost ext-btn--small" onClick={copierAdresse}>
-                        <Copy size={15} strokeWidth={2.2} aria-hidden="true" />
-                        {t('extension_page.manual.copy')}
+            <div className="ext-layout">
+              <nav className="ext-menu" aria-label={t('extension_page.menu_title')}>
+                <p className="ext-menu__title">{t('extension_page.menu_title')}</p>
+                <ul>
+                  {RUBRIQUES.map((r) => (
+                    <li key={r.id}>
+                      <button
+                        type="button" className={`ext-menu__item${rubrique === r.id ? ' is-active' : ''}`}
+                        aria-current={rubrique === r.id ? 'page' : undefined}
+                        onClick={() => choisirRubrique(r.id)}
+                      >
+                        {t(r.cle)}
                       </button>
-                      <span className="ext-cta__status" role="status">
-                        {copieAdresse === 'ok' && t('extension_page.manual.copied')}
-                        {copieAdresse === 'erreur' && t('extension_page.copy_error')}
-                      </span>
-                    </div>
-                  </div>
-                </li>
-                {(['s3', 's4'] as const).map((k, i) => (
-                  <li key={k}>
-                    <span className="ext-steps__num" aria-hidden="true">{i + 3}</span>
-                    <div>
-                      <strong>{t(`extension_page.manual.${k}_title`)}</strong>
-                      <p>{t(`extension_page.manual.${k}_text_${navManuel}`)}</p>
-                    </div>
-                  </li>
-                ))}
-                <li>
-                  <span className="ext-steps__num" aria-hidden="true">5</span>
-                  <div>
-                    <strong>{t('extension_page.manual.s5_title')}</strong>
-                    <p>{t('extension_page.manual.s5_text')}</p>
-                  </div>
-                </li>
-              </ol>
-              <div className="ext-notes">
-                <h3>{t('extension_page.manual.notes_title')}</h3>
-                <ul className="ext-list">
-                  {NOTES.map((k) => <li key={k}>{t(`extension_page.manual.${k}`)}</li>)}
+                    </li>
+                  ))}
                 </ul>
-              </div>
-            </details>
-            ) : (
-            <section className="ext-section" aria-labelledby="ext-how">
-              <h2 id="ext-how">{t('extension_page.how.title')}</h2>
-              <ol className="ext-steps">
-                {(['add', 'pin', 'use'] as const).map((k, i) => (
-                  <li key={k}>
-                    <span className="ext-steps__num" aria-hidden="true">{i + 1}</span>
-                    <div>
-                      <strong>{t(`extension_page.how.${k}_title`)}</strong>
-                      <p>{t(`extension_page.how.${k}_text`)}</p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </section>
-            )}
+              </nav>
 
-            <section className="ext-section ext-section--half" aria-labelledby="ext-price">
-              <h2 id="ext-price">{t('extension_page.price.title')}</h2>
-              <p>{t('extension_page.price.text')}</p>
-              <p><Link className="ext-link" to="/home#pricing">{t('extension_page.price.link')}</Link></p>
-            </section>
-
-            <section className="ext-section ext-section--half" aria-labelledby="ext-perms">
-              <h2 id="ext-perms">{t('extension_page.permissions.title')}</h2>
-              <ul className="ext-list">
-                {PERMISSIONS.map((k) => <li key={k}>{t(`extension_page.permissions.${k}`)}</li>)}
-              </ul>
-              <p><Link className="ext-link" to="/confidentialite">{t('extension_page.permissions.privacy')}</Link></p>
-            </section>
-
-            <section className="ext-section" aria-labelledby="ext-faq">
-              <h2 id="ext-faq">{t('extension_page.faq.title')}</h2>
-              {FAQ.map((k) => (
-                <details key={k} className="ext-faq">
-                  <summary>{t(`extension_page.faq.${k}_q`)}</summary>
-                  <p>{t(`extension_page.faq.${k}_a`)}</p>
-                </details>
-              ))}
-            </section>
+              <div className="ext-content">{contenu()}</div>
+            </div>
           </div>
         </div>
       </main>

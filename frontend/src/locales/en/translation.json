@@ -911,7 +911,10 @@
     "card_add": "Add to browser",
     "card_one_click": "One-click install, automatic updates.",
     "card_unsupported": "Firefox and Safari are not supported yet.",
-    "manual_toggle": "Testers: manual install (advanced)",
+    "menu_title": "Sections",
+    "tab_install": "Installation",
+    "install_for": "Install on {{browser}}",
+    "download_for": "Download for {{browser}}",
     "manual": {
       "title": "Install in 5 steps",
       "intro": "Until it is published in the stores, the extension is installed by hand. It takes about two minutes.",

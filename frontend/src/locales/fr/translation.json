@@ -911,7 +911,10 @@
     "card_add": "Ajouter au navigateur",
     "card_one_click": "Installation en un clic, mises à jour automatiques.",
     "card_unsupported": "Firefox et Safari ne sont pas encore pris en charge.",
-    "manual_toggle": "Testeurs : installation manuelle (avancé)",
+    "menu_title": "Rubriques",
+    "tab_install": "Installation",
+    "install_for": "Installer sur {{browser}}",
+    "download_for": "Télécharger pour {{browser}}",
     "manual": {
       "title": "Installer en 5 étapes",
       "intro": "En attendant la publication dans les boutiques, l'extension s'installe à la main. Comptez deux minutes.",

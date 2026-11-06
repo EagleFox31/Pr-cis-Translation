@@ -75,29 +75,53 @@
 /* Cartes navigateur : un logo reconnaissable, un bouton boutique. */
 .ext-browsers { width: 100%; display: flex; flex-direction: column; gap: 12px; }
 .ext-browsers__title { margin: 0; font-size: 15px; font-weight: 600; color: var(--navy); }
-.ext-browsers__grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
-.ext-browser { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 34px 16px 16px; border: 1px solid var(--gray-200); border-radius: var(--radius); background: var(--white); text-align: center; }
+.ext-browsers__grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.ext-browser { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 30px 10px 16px; border: 1px solid var(--gray-200); border-radius: var(--radius); background: var(--white); text-align: center; font: inherit; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.ext-browser:hover { border-color: var(--blue); }
 .ext-browser--current { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-light); }
 .ext-browser__badge { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); white-space: nowrap; padding: 2px 10px; border-radius: 999px; background: var(--blue-light); color: var(--blue); font-size: 12px; font-weight: 600; }
-.ext-browser__name { margin-top: 4px; font-size: 17px; color: var(--navy); }
+.ext-browser__name { font-size: 15px; font-weight: 600; color: var(--navy); }
 .ext-browser__sub { font-size: 13.5px; color: var(--gray-500); margin-bottom: 8px; }
-.ext-browser .ext-btn { width: 100%; margin-top: auto; }
-.ext-browser__logo { width: 56px; height: 56px; object-fit: contain; }
+.ext-browser__logo { width: 48px; height: 48px; object-fit: contain; }
 
-/* Installation manuelle : repliée, réservée aux testeurs. */
-.ext-manual > summary { cursor: pointer; font-size: 14.5px; font-weight: 600; color: var(--gray-700); }
-.ext-manual > summary:hover { color: var(--blue); }
-.ext-manual[open] > summary { margin-bottom: 16px; }
-
-/* Grand écran : largeur du site, blocs répartis en colonnes. */
+/* Menu des rubriques à gauche, contenu à droite. */
 .ext-page .legal-head__inner, .ext-page .ext-body { max-width: var(--frame-max); }
+.ext-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; align-items: start; }
+.ext-menu { position: sticky; top: 0; padding: 16px 12px; border: 1px solid var(--gray-200); border-radius: var(--radius-lg); background: var(--white); }
+.ext-menu__title { margin: 0 0 8px 10px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--gray-500); }
+.ext-menu ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.ext-menu__item { width: 100%; padding: 10px 12px; border: 0; border-radius: var(--radius); background: none; font: inherit; font-size: 15px; font-weight: 500; color: var(--gray-700); text-align: left; cursor: pointer; }
+.ext-menu__item:hover { background: var(--gray-100, #f3f4f6); color: var(--navy); }
+.ext-menu__item.is-active { background: var(--blue-light); color: var(--blue); font-weight: 600; }
+.ext-content > :last-child { margin-bottom: 0; }
+
+/* Guide : étapes à gauche, carte de téléchargement à droite. */
+.ext-pick { margin: 0 0 36px; }
+.ext-install { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 32px; align-items: start; }
+.ext-install__steps h2 { margin-top: 0; }
+.ext-install__card { position: sticky; top: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 24px 20px; border: 1px solid var(--gray-200); border-radius: var(--radius-lg); background: var(--white); box-shadow: var(--shadow-sm); text-align: center; }
+.ext-install__card > strong { font-size: 18px; color: var(--navy); }
+.ext-install__card .ext-btn { width: 100%; justify-content: center; }
+.ext-install__card .ext-notes { margin: 8px 0 0; text-align: left; width: 100%; }
+.ext-install__card .ext-notes h3 { font-size: 14px; }
+.ext-install__card .ext-list li { font-size: 13.5px; }
+.ext-address code { overflow-wrap: anywhere; }
+.ext-steps li > div { min-width: 0; }
+
 @media (min-width: 1024px) {
-  .ext-body { display: grid; grid-template-columns: 1fr 1fr; column-gap: 40px; align-items: start; }
-  .ext-body > * { grid-column: 1 / -1; }
-  .ext-body > .ext-section--half { grid-column: auto; }
-  .ext-hero { padding: 36px 40px; }
-  .ext-hero__lead { margin: 0 0 26px; font-size: 28px; max-width: 760px; }
-  .ext-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .ext-steps li > div { min-width: 0; }
-  .ext-address code { overflow-wrap: anywhere; }
+  .ext-hero { padding: 32px 36px; }
+  .ext-hero__lead { font-size: 26px; max-width: 760px; }
+  .ext-hero__lead:last-child { margin-bottom: 0; }
+}
+@media (max-width: 1023px) {
+  .ext-layout { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .ext-menu { position: static; padding: 6px; overflow-x: auto; }
+  .ext-menu__title { display: none; }
+  .ext-menu ul { flex-direction: row; }
+  .ext-menu__item { white-space: nowrap; text-align: center; }
+  .ext-install { grid-template-columns: minmax(0, 1fr); }
+  .ext-install__card { position: static; order: -1; }
+}
+@media (max-width: 600px) {
+  .ext-browsers__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
