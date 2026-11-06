@@ -2,7 +2,9 @@ import { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { Puzzle } from 'lucide-react';
 import MobileMenu from './MobileMenu';
+import './navbar-extension.css';
 
 const logo = "/Logo.png";
 
@@ -27,10 +29,12 @@ export default function Navbar({ activeSection, onNavClick, onLibraryOpen }: Nav
     { id: 'story', label: t('nav.howItWorks') },
     { id: 'pricing', label: t('nav.pricing') },
     { id: 'about', label: t('nav.about') },
-    { id: 'extension', label: t('extension_page.nav_label'), href: '/extension' },
     // Administration : une page, pas une section — `href` la distingue des ancres.
     ...(user?.plan === 'admin' ? [{ id: 'admin', label: t('admin.menu', 'Administration'), href: '/admin/users' }] : []),
   ];
+  // Produit à part, pas une section : pastille à droite ; dans la liste du menu mobile.
+  const extensionLink = { id: 'extension', label: t('extension_page.nav_label'), href: '/extension' };
+  const mobileLinks = [...navLinks, extensionLink];
 
   useEffect(() => {
     const handleScroll = () => {
@@ -46,7 +50,7 @@ export default function Navbar({ activeSection, onNavClick, onLibraryOpen }: Nav
 
   const handleClick = (sectionId: string) => {
     setIsMenuOpen(false);
-    const page = navLinks.find((l) => l.id === sectionId)?.href;
+    const page = mobileLinks.find((l) => l.id === sectionId)?.href;
     if (page) navigate(page);
     else onNavClick(sectionId);
   };
@@ -82,9 +86,17 @@ export default function Navbar({ activeSection, onNavClick, onLibraryOpen }: Nav
             })}
           </ul>
 
+          <div className="nav-aside">
+          <a href="/extension" className={`nav-ext ${activeSection === 'extension' ? 'active' : ''}`}
+            title={t('extension_page.nav_label')} aria-label={t('extension_page.nav_label')}
+            onClick={(e) => { e.preventDefault(); handleClick('extension'); }}>
+            <Puzzle size={15} strokeWidth={2} aria-hidden="true" />
+            <span>{t('extension_page.nav_label')}</span>
+          </a>
           <div className="lang-toggle">
             <button className={i18n.language === 'fr' ? 'active' : ''} onClick={() => i18n.changeLanguage('fr')}>FR</button>
             <button className={i18n.language === 'en' ? 'active' : ''} onClick={() => i18n.changeLanguage('en')}>EN</button>
+          </div>
           </div>
 
           {/* Profil ou Connexion */}
@@ -121,7 +133,7 @@ export default function Navbar({ activeSection, onNavClick, onLibraryOpen }: Nav
         </div>
       </nav>
 
-      <MobileMenu isOpen={isMenuOpen} links={navLinks} activeSection={activeSection} onNavClick={handleClick} onClose={() => setIsMenuOpen(false)} />
+      <MobileMenu isOpen={isMenuOpen} links={mobileLinks} activeSection={activeSection} onNavClick={handleClick} onClose={() => setIsMenuOpen(false)} />
     </>
   );
 }
