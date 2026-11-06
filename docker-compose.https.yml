@@ -12,8 +12,19 @@ services:
       - ./deploy/Caddyfile.runtime:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+    networks:
+      default:
+        # Adresse fixe : seule source dont nginx croit X-Forwarded-For
+        # (frontend/nginx.conf). Changer l'une impose de changer l'autre.
+        ipv4_address: 172.30.250.10
     depends_on:
       - web
 volumes:
   caddy_data:
   caddy_config:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.250.0/24

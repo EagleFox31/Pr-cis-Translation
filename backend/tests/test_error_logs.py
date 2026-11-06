@@ -87,6 +87,32 @@ async def main() -> None:
     check(grp is not None and grp["count"] == 3 and grp["status"] == STATUS_NEW,
           "la liste regroupe 3 occurrences en une entrée (count=3, new)")
 
+    # ── 3b. La recherche trouve aussi par e-mail du compte ────────────────────
+    mail_fp = svc.fingerprint("backend", "error", f"{TOKEN} mail", "L")
+    async with async_session() as db:
+        db.add(ErrorLog(source="backend", level="error", message=f"{TOKEN} mail",
+                        fingerprint=mail_fp, status=STATUS_NEW,
+                        user_email=normal.email))
+        await db.commit()
+        res = await list_groups(q=normal.email, _admin=admin, db=db)
+    check(any(g["fingerprint"] == mail_fp for g in res["groups"]),
+          "la recherche du journal trouve une erreur par l'e-mail du compte")
+
+    # ── 3c. Filtre exact par compte, jokers de recherche neutralisés ──────────
+    autre_fp = svc.fingerprint("backend", "error", f"{TOKEN} autre", "L")
+    async with async_session() as db:
+        db.add(ErrorLog(source="backend", level="error", message=f"{TOKEN} autre",
+                        fingerprint=autre_fp, status=STATUS_NEW,
+                        user_email=f"x{normal.email}"))
+        await db.commit()
+        exact = await list_groups(user_email=normal.email.upper(), _admin=admin, db=db)
+        joker = await list_groups(q="%", _admin=admin, db=db)
+    fps = {g["fingerprint"] for g in exact["groups"]}
+    check(mail_fp in fps and autre_fp not in fps,
+          "le filtre user_email ne garde que ce compte (pas un e-mail qui le contient)")
+    check(not any(g["fingerprint"] in (mail_fp, autre_fp) for g in joker["groups"]),
+          "un « % » dans la recherche est cherché tel quel, pas comme joker")
+
     # ── 4. Garde admin ────────────────────────────────────────────────────────
     blocked = False
     try:

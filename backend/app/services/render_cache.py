@@ -69,17 +69,33 @@ def cache_valid(translation_path: str) -> str | None:
     return None
 
 
+def mtime_de(chemin: str) -> float | None:
+    try:
+        return os.path.getmtime(chemin)
+    except OSError:
+        return None
+
+
 def marque_polices() -> int:
     """À relever AVANT le rendu, puis passer à `store_render`."""
     return polices.degradations()
 
 
-def store_render(data: bytes, translation_path: str, marque: int) -> None:
+def store_render(data: bytes, translation_path: str, marque: int,
+                 mtime_source: float | None = None) -> None:
     """Écrit le rendu ATOMIQUEMENT — un lecteur ne voit jamais un demi-PDF.
+
+    `mtime_source` : mtime de la traduction relevé AVANT le rendu. Si un job
+    l'a complétée pendant le rendu, il y manque des pages, et il serait
+    pourtant plus récent qu'elle donc tenu pour valide : on ne le conserve pas.
 
     Un rendu fait réseau coupé (police « proche » faute d'identique) n'est pas
     conservé : la clé ne porte que ENGINE_VERSION, il serait servi à vie. Le
     suivant retentera le téléchargement."""
+    if mtime_source is not None and mtime_de(translation_path) != mtime_source:
+        logger.info("Rendu non mis en cache (traduction modifiée pendant le "
+                    "rendu) : %s", translation_path)
+        return
     if polices.degradations() != marque:
         logger.info("Rendu non mis en cache (polices dégradées) : %s",
                     translation_path)
@@ -158,12 +174,12 @@ def ensure_background_build(original_path: str, translation_path: str,
             with build_lock(translation_path):
                 if cache_valid(translation_path):
                     return          # une requête l'a construit entre-temps
-                marque = marque_polices()
+                marque, avant = marque_polices(), mtime_de(translation_path)
                 data = _app.render_translation_bytes(
                     original_path, translation_path, ext, target_lang)
                 if ext != "pdf":
                     data = _app.convert_to_pdf_bytes(data, ext)
-                store_render(data, translation_path, marque)
+                store_render(data, translation_path, marque, avant)
             logger.info("Rendu complet mis en cache (PDF) : %s", cp)
         except Exception as e:
             logger.warning("Construction du rendu en cache échouée (%s) : %s",

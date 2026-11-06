@@ -1,254 +1,380 @@
-"""Aperçu des objets Excel incorporés — ne rien perdre, ne rien déformer.
+"""Redessin des aperçus des objets incorporés (6.11.4) — `engines/apercus.py`
+et son branchement dans `incorpores.reinjecter`.
 
-LE DÉFAUT. Un classeur incorporé porte couramment un tableau ET un graphique
-posés côte à côte. LibreOffice imprime cette feuille sur du A4 : trop étroit, il
-PAGINE — tableau page 1, graphique page 2. On ne rendait que la première page.
-
-Résultat mesuré sur une diapositive réelle : le graphique disparaissait, et
-l'image restante — bien plus étroite que le cadre — s'y affichait ÉTIRÉE sur
-toute la largeur. Deux défauts d'un seul geste, l'un de CONTENU, l'autre de
-FORME.
+Un objet incorporé s'affiche par une IMAGE figée à sa création : traduire
+l'objet ne change pas ce qu'on voit tant que l'image n'est pas refaite.
 
 Ce que ce fichier verrouille :
-  1. `_forcer_fit_to_page` pose bien le réglage qui tient la feuille sur une
-     page, sans casser le classeur ni en perdre une partie ;
-  2. `_crop_xlsx_pdf_to_png` rend TOUTES les pages (l'ancienne version en jetait
-     — c'est là que le graphique se perdait) ;
-  3. l'image produite prend les proportions du CADRE d'affichage, par ajout de
-     blanc et JAMAIS par rognage : PowerPoint étire l'image sur le cadre, une
-     image mal proportionnée y apparaît déformée.
+  - PDF -> PNG : rogné à ce qui est peint, transparent ailleurs, pages
+    empilées (un tableau et son graphique paginés ne se perdent pas), complété
+    — jamais rogné — aux proportions du cadre ;
+  - copie de rendu d'un classeur : zone visible (`oleSize`) en zone
+    d'impression, autres feuilles masquées, une page, % explicite, octets
+    stables (l'empreinte du cache en dépend) ;
+  - redessin groupé : UN appel LibreOffice pour tous les objets, nouvel essai
+    si rien n'est sorti, cache, règle D3 (page aux mauvaises proportions :
+    aperçu d'origine gardé), rien sans LibreOffice ;
+  - de bout en bout dans un PPTX : le nouveau PNG est posé, TOUTES les
+    relations vers l'ancien aperçu (diapositive et dessin VML) le visent, le
+    type PNG est déclaré ; une icône garde son image.
 
-Tout est SYNTHÉTIQUE : un PDF fabriqué à la volée, un classeur minimal fabriqué
-à la volée. Aucun document de test, aucun LibreOffice, aucun réseau.
+Tout est SYNTHÉTIQUE : LibreOffice est simulé (il « convertit » en un PDF
+fabriqué), les fichiers sont fabriqués en mémoire.
 
-Exécution :  backend/venv/Scripts/python.exe backend/test_ole_apercu.py
+Exécution :  PYTHONUTF8=1 <venv>/python.exe tests/test_ole_apercu.py
 """
 from __future__ import annotations
+
 import io
 import os
-import sys
-import tempfile
+import re
+import unittest
 import zipfile
-from pathlib import Path
+from unittest import mock
 
 import racine  # noqa: F401  -- met backend/ sur le chemin
 
-import fitz                                               # noqa: E402
-from lxml import etree                                    # noqa: E402
-from PIL import Image                                     # noqa: E402
+import fitz  # noqa: E402
+from lxml import etree  # noqa: E402
+from PIL import Image  # noqa: E402
 
-from engines.pptx.engine import PPTXTranslatorEngine, NAMESPACES  # noqa: E402
+from engines import apercus as A  # noqa: E402
+from engines import incorpores as I  # noqa: E402
+from engines import office  # noqa: E402
+from test_incorpores_recursion import (  # noqa: E402
+    T_PACKAGE, greffer, partie_de, noms_de, reel_docx, reel_pptx, reel_xlsx, traduire)
 
-S = NAMESPACES['s']
+S = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+PR = "http://schemas.openxmlformats.org/package/2006/relationships"
+T_IMAGE = R + "/image"
 
 
-def _pdf_deux_pages(path: str) -> None:
-    """Un PDF de deux pages, chacune avec une marque à un endroit différent.
-
-    C'est la forme exacte que LibreOffice donne à un classeur paginé : le
-    tableau sur une page, le graphique sur la suivante.
-    """
+def pdf(pages: list[tuple[float, float]], formes=None) -> bytes:
+    """PDF de pages (largeur, hauteur) ; une marque noire par page."""
     doc = fitz.open()
-    p1 = doc.new_page(width=595, height=842)
-    p1.draw_rect(fitz.Rect(50, 50, 300, 150), color=(0, 0, 0), fill=(0, 0, 0))
-    p2 = doc.new_page(width=595, height=842)
-    p2.draw_circle(fitz.Point(150, 400), 60, color=(0, 0, 0), fill=(0, 0, 0))
-    doc.save(path)
+    for i, (l, h) in enumerate(pages):
+        p = doc.new_page(width=l, height=h)
+        rect = (formes or [None] * len(pages))[i] or fitz.Rect(50, 50, 300, 150)
+        p.draw_rect(rect, color=(0, 0, 0), fill=(0, 0, 0))
+    octets = doc.tobytes()
     doc.close()
+    return octets
 
 
-def _xlsx_minimal(path: str, avec_pagesetup: bool) -> None:
-    """Un classeur réduit à ce que la fonction touche, plus des parts témoins
-    dont on vérifie qu'elles SURVIVENT à la copie."""
-    feuille = ('<worksheet xmlns="%s"><sheetData/>%s</worksheet>'
-               % (S, '<pageSetup orientation="portrait"/>'
-                  if avec_pagesetup else ''))
-    with zipfile.ZipFile(path, "w") as z:
-        z.writestr("[Content_Types].xml", "<Types/>")
-        z.writestr("xl/worksheets/sheet1.xml", feuille)
-        z.writestr("xl/charts/chart1.xml", "<chart/>")     # témoin
-        z.writestr("xl/sharedStrings.xml", "<sst/>")       # témoin
+def image(png: bytes) -> Image.Image:
+    return Image.open(io.BytesIO(png))
 
 
-def main() -> int:
-    checks: list[tuple[str, bool, str]] = []
+def faux_soffice(sortie_pdf: bytes | None = None, rate: int = 0):
+    """Remplace `subprocess.run` : écrit un PDF par fichier dans --outdir.
+    `rate` : nombre d'appels qui ne produisent rien (profil neuf)."""
+    appels = []
 
-    def ok(nom, cond, detail=""):
-        checks.append((nom, bool(cond), detail))
+    def run(cmd, **_kw):
+        appels.append(cmd)
+        if len(appels) <= rate:
+            return None
+        dossier = cmd[cmd.index("--outdir") + 1]
+        for f in cmd[cmd.index("--outdir") + 2:]:
+            nom = os.path.splitext(os.path.basename(f))[0] + ".pdf"
+            with open(os.path.join(dossier, nom), "wb") as h:
+                h.write(sortie_pdf if sortie_pdf is not None
+                        else pdf([(842, 595)], [fitz.Rect(100, 100, 400, 250)]))
+        return None
+    return run, appels
 
-    eng = PPTXTranslatorEngine()
 
-    # ── 1. Le réglage « une seule page » ─────────────────────────────────
-    for avec in (False, True):
-        etiquette = "avec pageSetup" if avec else "sans pageSetup"
-        brut = ('<worksheet xmlns="%s"><sheetData/>%s</worksheet>'
-                % (S, '<pageSetup orientation="portrait"/>' if avec else ''))
-        sortie = eng._forcer_fit_to_page(brut.encode(), S)
-        root = etree.fromstring(sortie)
-        pu = root.find("{%s}sheetPr/{%s}pageSetUpPr" % (S, S))
-        ps = root.find("{%s}pageSetup" % S)
-        ok(f"FIT ({etiquette})  fitToPage est posé",
-           pu is not None and pu.get("fitToPage") == "1")
-        ok(f"FIT ({etiquette})  la feuille tient en largeur ET en hauteur",
-           ps is not None and ps.get("fitToWidth") == "1"
-           and ps.get("fitToHeight") == "1")
-        # L'ORDRE compte dans le schéma : sheetPr en tête, pageSetup à la fin.
-        enfants = [etree.QName(e).localname for e in root]
-        ok(f"FIT ({etiquette})  sheetPr est le premier élément",
-           enfants and enfants[0] == "sheetPr", str(enfants))
-        ok(f"FIT ({etiquette})  pageSetup est le dernier",
-           enfants and enfants[-1] == "pageSetup", str(enfants))
-        ok(f"FIT ({etiquette})  un seul pageSetup",
-           enfants.count("pageSetup") == 1, str(enfants))
+class _AvecSoffice(unittest.TestCase):
+    def setUp(self):
+        A.vider_cache()
+        self._p = mock.patch.object(office, "SOFFICE_PATH", "soffice")
+        self._p.start()
 
-    # ── 2. La copie de rendu ne perd aucune part ─────────────────────────
-    with tempfile.TemporaryDirectory() as td:
-        src = os.path.join(td, "src.xlsx")
-        dst = os.path.join(td, "dst.xlsx")
-        _xlsx_minimal(src, avec_pagesetup=False)
-        ok("COPIE  la copie ajustée est produite",
-           eng._xlsx_ajuste_une_page(src, dst) and os.path.isfile(dst))
-        with zipfile.ZipFile(src) as a, zipfile.ZipFile(dst) as b:
-            ok("COPIE  toutes les parts sont conservées",
-               set(a.namelist()) == set(b.namelist()),
-               f"{set(a.namelist()) ^ set(b.namelist())}")
-            ok("COPIE  le graphique du classeur survit",
-               b.read("xl/charts/chart1.xml") == a.read("xl/charts/chart1.xml"))
-            ok("COPIE  la feuille porte désormais fitToPage",
-               b"fitToPage" in b.read("xl/worksheets/sheet1.xml"))
-        # L'ORIGINAL n'est pas touché : c'est le classeur qu'on LIVRE.
-        with zipfile.ZipFile(src) as a:
-            ok("COPIE  le classeur d'origine reste intact",
-               b"fitToPage" not in a.read("xl/worksheets/sheet1.xml"))
+    def tearDown(self):
+        self._p.stop()
+        A.vider_cache()
 
-    # ── 3. Aucune page n'est jetée ───────────────────────────────────────
-    with tempfile.TemporaryDirectory() as td:
-        pdf = os.path.join(td, "deux.pdf")
-        _pdf_deux_pages(pdf)
-        png = eng._crop_xlsx_pdf_to_png(pdf)
-        ok("PAGES  une image est produite", png is not None)
-        if png:
-            im = Image.open(io.BytesIO(png))
-            # Les deux marques sont à des hauteurs différentes : si une seule
-            # page avait été rendue, l'image serait bien plus courte. On compare
-            # à la page seule pour ne pas dépendre d'une taille en dur.
-            une_page = fitz.open()
-            une_page.insert_pdf(fitz.open(pdf), from_page=0, to_page=0)
-            solo = os.path.join(td, "une.pdf")
-            une_page.save(solo)
-            une_page.close()
-            png1 = eng._crop_xlsx_pdf_to_png(solo)
-            im1 = Image.open(io.BytesIO(png1))
-            ok("PAGES  la 2e page n'est PAS jetée (image plus haute)",
-               im.height > im1.height,
-               f"deux pages={im.size} une page={im1.size}")
 
-        # ── 4. Proportions du cadre : on complète, on ne rogne pas ───────
+# --------------------------------------------------------------------------- #
+# PDF -> PNG
+# --------------------------------------------------------------------------- #
+
+class RenduPng(unittest.TestCase):
+    def test_deux_pages_empilees_rognees_transparentes(self):
+        png, ratio = A.rendre_png(pdf([(595, 842), (595, 842)],
+                                      [fitz.Rect(50, 50, 300, 150), fitz.Rect(90, 340, 210, 460)]))
+        im = image(png)
+        self.assertEqual(im.mode, "RGBA")
+        # Deux morceaux : 100 pt + 120 pt de haut, plus les marges, à 150 dpi.
+        self.assertGreater(im.height, (100 + 120) * 150 / 72)
+        self.assertLess(im.height, (100 + 120) * 150 / 72 + 40)
+        self.assertAlmostEqual(ratio, im.width / im.height, places=3)
+        self.assertEqual(im.getpixel((0, 0))[3], 0, "marge transparente")
+        self.assertEqual(im.getpixel((im.width // 2, 20))[3], 255, "contenu opaque")
+
+    def test_premiere_page_seulement(self):
+        deux = pdf([(595, 842), (595, 842)])
+        h1 = image(A.rendre_png(deux, premiere_seulement=True)[0]).height
+        h2 = image(A.rendre_png(deux)[0]).height
+        self.assertLess(h1, h2)
+
+    def test_complete_au_ratio_sans_rogner(self):
+        brut = image(A.rendre_png(pdf([(595, 842)]))[0])
         for ratio in (2.33, 0.5):
-            png = eng._crop_xlsx_pdf_to_png(pdf, ratio_cible=ratio)
-            im = Image.open(io.BytesIO(png))
-            obtenu = im.width / im.height
-            ok(f"RATIO {ratio}  l'image prend les proportions du cadre",
-               abs(obtenu - ratio) < 0.02, f"obtenu={obtenu:.3f}")
+            im = image(A.rendre_png(pdf([(595, 842)]), ratio_cible=ratio)[0])
+            self.assertAlmostEqual(im.width / im.height, ratio, delta=0.02)
+            self.assertGreaterEqual(im.width, brut.width)
+            self.assertGreaterEqual(im.height, brut.height)
+        large = image(A.rendre_png(pdf([(595, 842)]), ratio_cible=4)[0])
+        self.assertEqual(large.getpixel((0, large.height // 2))[3], 0, "complément transparent")
 
-        brut = Image.open(io.BytesIO(eng._crop_xlsx_pdf_to_png(pdf)))
-        cible = Image.open(io.BytesIO(
-            eng._crop_xlsx_pdf_to_png(pdf, ratio_cible=2.33)))
-        ok("RATIO  le complément AGRANDIT le cadre, ne rogne jamais",
-           cible.width >= brut.width and cible.height >= brut.height,
-           f"brut={brut.size} complete={cible.size}")
+    def test_page_vide_ou_pdf_illisible(self):
+        doc = fitz.open()
+        doc.new_page()
+        self.assertIsNone(A.rendre_png(doc.tobytes()))
+        self.assertIsNone(A.rendre_png(b"pas un pdf"))
 
-        # ── 5. Rien n'est peint là où la source ne peint rien ────────────
-        # Un aperçu OLE remplace une image VECTORIELLE : ce qui est posé sous
-        # le cadre dans la diapositive doit rester visible au travers. Un
-        # aplat opaque masquait la flèche « Groupe 13 ».
-        ok("FOND  l'image porte un canal alpha", brut.mode == "RGBA",
-           f"mode={brut.mode}")
-        px = brut.load()
-        ok("FOND  un coin jamais peint est TOTALEMENT transparent",
-           px[0, 0][3] == 0, f"coin={px[0, 0]}")
-        # Le contenu, lui, reste plein : la transparence ne doit pas manger
-        # le dessin. Le rectangle noir occupe le haut de la première page.
-        import numpy as np
-        a = np.asarray(brut.getchannel("A"))
-        ok("FOND  le contenu peint reste opaque",
-           int((a == 255).sum()) > 0.05 * a.size,
-           f"opaques={int((a == 255).sum())}/{a.size}")
-        # Entre les deux pages empilées, la marge de recadrage est du VIDE :
-        # elle ne doit pas non plus être blanchie.
-        ok("FOND  la majorité de la surface reste traversable",
-           int((a == 0).sum()) > 0, f"alpha0={int((a == 0).sum())}")
-        # Le complément au ratio est de la marge d'échelle, pas un fond.
-        ac = np.asarray(cible.getchannel("A"))
-        ok("FOND  le complément au ratio est transparent",
-           cible.mode == "RGBA"
-           and int((ac == 0).sum()) > int((a == 0).sum()),
-           f"mode={cible.mode} avant={int((a==0).sum())} "
-           f"apres={int((ac==0).sum())}")
 
-    # ── 6. Le filtre par diapositive ─────────────────────────────────────
-    # L'apercu progressif refait les apercus Excel d'un LOT de diapositives,
-    # pas de tout le document : sans cela, une diapositive « terminee »
-    # montrerait son tableau en langue SOURCE jusqu'a la fin du job.
-    #
-    # On verifie que le filtre EXCLUT vraiment, en comptant les diapositives
-    # visitees -- une signature qui accepterait `only_slides` sans s'en servir
-    # passerait tous les autres controles.
-    with tempfile.TemporaryDirectory() as td:
-        e2 = PPTXTranslatorEngine()
-        temp = Path(td) / "paquet"
-        (temp / "ppt" / "slides" / "_rels").mkdir(parents=True)
-        for n in (1, 2, 3):
-            (temp / "ppt" / "slides" / f"slide{n}.xml").write_text(
-                '<p:sld xmlns:p="%s"/>' % NAMESPACES['p'], encoding="utf-8")
-            (temp / "ppt" / "slides" / "_rels" / f"slide{n}.xml.rels").write_text(
-                '<Relationships xmlns="http://schemas.openxmlformats.org/'
-                'package/2006/relationships"/>', encoding="utf-8")
-        e2.temp_dir = temp
+# --------------------------------------------------------------------------- #
+# Copie de rendu d'un classeur
+# --------------------------------------------------------------------------- #
 
-        vues = []
-        vraie = e2._get_temp_dir
+def classeur_a_imprimer() -> bytes:
+    """Deux feuilles, la seconde active, zone visible B2:D5, un format %."""
+    base = reel_xlsx(["Ventes", "Marge"], onglet="Synthèse d'été")
+    with zipfile.ZipFile(io.BytesIO(base)) as z:
+        parties = {n: z.read(n) for n in z.namelist()}
+    parties["xl/workbook.xml"] = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<workbook xmlns="{S}" xmlns:r="{R}"><bookViews><workbookView activeTab="1"/></bookViews>'
+        '<sheets><sheet name="Brut" sheetId="1" r:id="rId3"/>'
+        "<sheet name=\"Synthèse d'été\" sheetId=\"2\" r:id=\"rId1\"/></sheets>"
+        '<oleSize ref="b2:D5"/></workbook>').encode()
+    parties["xl/_rels/workbook.xml.rels"] = parties["xl/_rels/workbook.xml.rels"].replace(
+        b"</Relationships>", (f'<Relationship Id="rId3" Type="{R}/worksheet" '
+                              'Target="worksheets/sheet2.xml"/></Relationships>').encode())
+    parties["xl/worksheets/sheet2.xml"] = f'<worksheet xmlns="{S}"><sheetData/></worksheet>'.encode()
+    parties["xl/worksheets/sheet1.xml"] = (
+        f'<worksheet xmlns="{S}" xmlns:r="{R}"><sheetData/>'
+        '<pageSetup orientation="portrait" r:id="rId9"/><drawing r:id="rId8"/></worksheet>').encode()
+    parties["xl/styles.xml"] = (
+        f'<styleSheet xmlns="{S}"><cellXfs count="2"><xf numFmtId="0"/>'
+        '<xf numFmtId="9" applyNumberFormat="1"/></cellXfs></styleSheet>').encode()
+    sortie = io.BytesIO()
+    with zipfile.ZipFile(sortie, "w") as z:
+        for n, b in parties.items():
+            z.writestr(n, b)
+    return sortie.getvalue()
 
-        import re as _re
-        # On instrumente la lecture des rels : c'est le seul point ou une
-        # diapositive est reellement examinee.
-        from lxml import etree as _et
-        vrai_parse = _et.parse
 
-        def parse_espion(chemin, *a, **k):
-            m = _re.search(r"slide(\d+)\.xml\.rels$", str(chemin))
-            if m:
-                vues.append(int(m.group(1)))
-            return vrai_parse(chemin, *a, **k)
+class CopieDeRendu(unittest.TestCase):
+    def setUp(self):
+        self.copie = A.copie_de_rendu_classeur(classeur_a_imprimer())
+        self.parties = A._parties(self.copie)
 
-        _et.parse = parse_espion
-        try:
-            e2.regenerate_ole_previews(soffice_path="soffice",
-                                       only_slides={2})
-            vues_filtre = sorted(set(vues))
-            vues.clear()
-            e2.regenerate_ole_previews(soffice_path="soffice")
-            vues_toutes = sorted(set(vues))
-        finally:
-            _et.parse = vrai_parse
-            e2.temp_dir = None
+    def test_zone_visible_en_zone_d_impression_de_la_feuille_active(self):
+        cl = etree.fromstring(self.parties["xl/workbook.xml"])
+        zone = cl.find(f"{{{S}}}definedNames/{{{S}}}definedName")
+        self.assertEqual(zone.get("name"), "_xlnm.Print_Area")
+        self.assertEqual(zone.get("localSheetId"), "1")
+        self.assertEqual(zone.text, "'Synthèse d''été'!$B$2:$D$5")
+        etats = [f.get("state") for f in cl.iter(f"{{{S}}}sheet")]
+        self.assertEqual(etats, ["hidden", None])
 
-        ok("FILTRE  only_slides={2} n'examine QUE la diapositive 2",
-           vues_filtre == [2], str(vues_filtre))
-        ok("FILTRE  sans filtre, les trois diapositives sont examinees",
-           vues_toutes == [1, 2, 3], str(vues_toutes))
+    def test_une_page_sur_la_feuille_active_seulement(self):
+        f = etree.fromstring(self.parties["xl/worksheets/sheet1.xml"])
+        self.assertEqual(f.find(f"{{{S}}}sheetPr/{{{S}}}pageSetUpPr").get("fitToPage"), "1")
+        ps = f.find(f"{{{S}}}pageSetup")
+        self.assertEqual((ps.get("orientation"), ps.get("fitToWidth"), ps.get("fitToHeight"),
+                          ps.get("paperSize")), ("landscape", "1", "1", "9"))
+        self.assertIsNone(ps.get(f"{{{R}}}id"), "réglages imprimante retirés")
+        ordre = [etree.QName(e).localname for e in f]
+        self.assertLess(ordre.index("pageSetup"), ordre.index("drawing"))
+        self.assertEqual(ordre[0], "sheetPr")
+        self.assertNotIn(b"fitToPage", self.parties["xl/worksheets/sheet2.xml"])
 
-    print()
-    n_ok = sum(1 for _, c, _ in checks if c)
-    for nom, cond, detail in checks:
-        etat = "  OK  " if cond else " FAIL "
-        ligne = f"{etat}  {nom}"
-        if not cond and detail:
-            ligne += f"   [{detail}]"
-        print(ligne)
-    print(f"\n{n_ok}/{len(checks)}")
-    return 0 if n_ok == len(checks) else 1
+    def test_pourcentage_explicite(self):
+        st = etree.fromstring(self.parties["xl/styles.xml"])
+        self.assertEqual([x.get("numFmtId") for x in st.iter(f"{{{S}}}xf")], ["0", "164"])
+        fmt = st.find(f"{{{S}}}numFmts/{{{S}}}numFmt")
+        self.assertEqual((fmt.get("numFmtId"), fmt.get("formatCode")), ("164", "0%"))
+        self.assertEqual(etree.QName(st[0]).localname, "numFmts")
+
+    def test_identifiants_de_format_libres(self):
+        styles = (f'<styleSheet xmlns="{S}"><numFmts count="1"><numFmt numFmtId="190" '
+                  'formatCode="dd/mm/yyyy"/></numFmts><cellXfs count="2"><xf numFmtId="190"/>'
+                  '<xf numFmtId="9"/></cellXfs></styleSheet>').encode()
+        st = etree.fromstring(A._pourcentages_explicites(styles))
+        self.assertEqual([x.get("numFmtId") for x in st.iter(f"{{{S}}}xf")], ["190", "191"])
+        ids = [f.get("numFmtId") for f in st.iter(f"{{{S}}}numFmt")]
+        self.assertEqual(len(ids), len(set(ids)), "aucun identifiant en double")
+
+    def test_octets_stables(self):
+        self.assertEqual(self.copie, A.copie_de_rendu_classeur(classeur_a_imprimer()))
+
+    def test_sans_olesize_ni_styles(self):
+        p = A._parties(A.copie_de_rendu_classeur(reel_xlsx(["a"])))
+        self.assertNotIn(b"Print_Area", p["xl/workbook.xml"])
+        self.assertIn(b"fitToPage", p["xl/worksheets/sheet1.xml"])
+
+
+# --------------------------------------------------------------------------- #
+# Redessin groupé
+# --------------------------------------------------------------------------- #
+
+class Redessin(_AvecSoffice):
+    def test_un_seul_appel_pour_tous_les_objets(self):
+        run, appels = faux_soffice()
+        demandes = [A.Demande("a", "xlsx", reel_xlsx(["x"]), 2.0),
+                    A.Demande("b", "xlsx", reel_xlsx(["y"]), 1.0),
+                    A.Demande("c", "docx", reel_docx(["z"]), None)]
+        with mock.patch.object(A.subprocess, "run", run):
+            r = A.redessiner(demandes)
+        self.assertEqual(set(r), {"a", "b", "c"})
+        self.assertEqual(len(appels), 1)
+        self.assertEqual(len([a for a in appels[0] if a.endswith((".xlsx", ".docx"))]), 3)
+        self.assertAlmostEqual(image(r["a"]).width / image(r["a"]).height, 2.0, delta=0.02)
+
+    def test_nouvel_essai_si_le_profil_neuf_n_a_rien_converti(self):
+        run, appels = faux_soffice(rate=1)
+        with mock.patch.object(A.subprocess, "run", run):
+            r = A.redessiner([A.Demande("a", "xlsx", reel_xlsx(["x"]), None)])
+        self.assertEqual((len(appels), set(r)), (2, {"a"}))
+
+    def test_cache_aucun_second_appel(self):
+        run, appels = faux_soffice()
+        d = A.Demande("a", "xlsx", reel_xlsx(["x"]), 1.5)
+        with mock.patch.object(A.subprocess, "run", run):
+            r1 = A.redessiner([d])
+            r2 = A.redessiner([A.Demande("autre", d.type, d.octets, d.ratio)])
+        self.assertEqual(len(appels), 1)
+        self.assertEqual(r1["a"], r2["autre"])
+
+    def test_d3_proportions_trop_eloignees_aperçu_d_origine(self):
+        # Page portrait rendue pour un cadre très large : refusée (document).
+        run, _ = faux_soffice(pdf([(595, 842)], [fitz.Rect(50, 50, 250, 450)]))
+        with mock.patch.object(A.subprocess, "run", run):
+            r = A.redessiner([A.Demande("doc", "docx", reel_docx(["z"]), 3.0),
+                              A.Demande("pres", "pptx", reel_pptx("t"), 0.5)])
+        self.assertEqual(set(r), {"pres"})
+
+    def test_echec_de_rendu_non_mis_en_cache(self):
+        run, appels = faux_soffice(b"pas un pdf")
+        d = A.Demande("a", "xlsx", reel_xlsx(["x"]), 1.0)
+        with mock.patch.object(A.subprocess, "run", run):
+            self.assertEqual(A.redessiner([d]), {})
+            A.redessiner([d])
+        self.assertEqual(len(appels), 2, "retenté au passage suivant")
+
+    def test_sans_libreoffice_rien(self):
+        with mock.patch.object(office, "SOFFICE_PATH", None), \
+                mock.patch.object(A.subprocess, "run", side_effect=AssertionError):
+            self.assertEqual(A.redessiner([A.Demande("a", "xlsx", reel_xlsx(["x"]), 1.0)]), {})
+
+    def test_libreoffice_en_echec_rien(self):
+        with mock.patch.object(A.subprocess, "run", side_effect=OSError("absent")):
+            self.assertEqual(A.redessiner([A.Demande("a", "xlsx", reel_xlsx(["x"]), 1.0)]), {})
+
+
+# --------------------------------------------------------------------------- #
+# De bout en bout dans un PPTX
+# --------------------------------------------------------------------------- #
+
+EMF = b"\x01\x00\x00\x00ancien-apercu"
+
+
+def pptx_avec_apercu(icone: bool = False) -> bytes:
+    """PPTX : un classeur incorporé, son aperçu EMF visé par la diapositive
+    (blip) ET par un dessin VML."""
+    hote = greffer(reel_pptx("Titre"), "ppt/slides/slide1.xml",
+                   [("Feuille1.xlsx", "Excel.Sheet.12", reel_xlsx(["Bonjour", "Monde"]),
+                     T_PACKAGE)])
+    with zipfile.ZipFile(io.BytesIO(hote)) as z:
+        ordre = z.namelist()
+        p = {n: z.read(n) for n in ordre}
+    pic = ('<p:pic><p:nvPicPr><p:cNvPr id="0" name=""/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>'
+           '<p:blipFill><a:blip r:embed="rIdImg"/></p:blipFill><p:spPr/></p:pic>')
+    xml = p["ppt/slides/slide1.xml"].decode().replace("<p:embed/></p:oleObj>",
+                                                      "<p:embed/>" + pic + "</p:oleObj>")
+    if icone:
+        xml = xml.replace('progId="Excel.Sheet.12"', 'progId="Excel.Sheet.12" showAsIcon="1"')
+    p["ppt/slides/slide1.xml"] = xml.encode()
+    p["ppt/slides/_rels/slide1.xml.rels"] = p["ppt/slides/_rels/slide1.xml.rels"].replace(
+        b"</Relationships>",
+        f'<Relationship Id="rIdImg" Type="{T_IMAGE}" Target="../media/image9.emf"/>'
+        "</Relationships>".encode())
+    p["ppt/drawings/vmlDrawing1.vml"] = b"<xml/>"
+    p["ppt/drawings/_rels/vmlDrawing1.vml.rels"] = (
+        f'<Relationships xmlns="{PR}"><Relationship Id="rId1" Type="{T_IMAGE}" '
+        'Target="../media/image9.emf"/></Relationships>').encode()
+    p["ppt/media/image9.emf"] = EMF
+    types = p["[Content_Types].xml"].decode()
+    if 'Extension="emf"' not in types:
+        types = re.sub(r"(<Types[^>]*>)", r'\1<Default Extension="emf" ContentType="image/x-emf"/>',
+                       types, count=1)
+    p["[Content_Types].xml"] = re.sub(r'<Default Extension="png"[^>]*/>', "", types).encode()
+    sortie = io.BytesIO()
+    with zipfile.ZipFile(sortie, "w", zipfile.ZIP_DEFLATED) as z:
+        for n in list(ordre) + [n for n in p if n not in ordre]:
+            z.writestr(n, p[n])
+    return sortie.getvalue()
+
+
+def cible_rel(octets: bytes, rels: str, rid: str) -> tuple[str, str]:
+    for e in etree.fromstring(partie_de(octets, rels)):
+        if e.get("Id") == rid:
+            return e.get("Target"), e.get("Type")
+    raise KeyError(rid)
+
+
+class BoutEnBout(_AvecSoffice):
+    def test_pptx_apercu_redessine_et_toutes_les_relations_rebranchees(self):
+        source = pptx_avec_apercu()
+        objets = I.reperer(source)
+        self.assertEqual(objets[0].apercu, "ppt/media/image9.emf")
+        self.assertEqual(len(objets[0].relations_apercu), 2)
+        run, appels = faux_soffice()
+        with mock.patch.object(A.subprocess, "run", run):
+            sortie, _ = traduire("pptx", source)
+        self.assertGreaterEqual(len(appels), 1)
+        noms = noms_de(sortie)
+        self.assertIn("ppt/media/image9_traduit.png", noms)
+        self.assertIn("ppt/media/image9.emf", noms, "ancien aperçu laissé (peut servir ailleurs)")
+        self.assertEqual(cible_rel(sortie, "ppt/slides/_rels/slide1.xml.rels", "rIdImg"),
+                         ("../media/image9_traduit.png", T_IMAGE))
+        self.assertEqual(cible_rel(sortie, "ppt/drawings/_rels/vmlDrawing1.vml.rels", "rId1"),
+                         ("../media/image9_traduit.png", T_IMAGE))
+        self.assertIn(b'Extension="png"', partie_de(sortie, "[Content_Types].xml"))
+        self.assertEqual(image(partie_de(sortie, "ppt/media/image9_traduit.png")).format, "PNG")
+
+    def test_image_partagee_avec_un_objet_non_traduit(self):
+        import dataclasses
+        o = I.reperer(pptx_avec_apercu())[0]
+        jumeau = dataclasses.replace(o, cible="ppt/embeddings/Copie.xlsx")
+        modifs = I.Modifs()
+        run, appels = faux_soffice()
+        with mock.patch.object(A.subprocess, "run", run):
+            I._redessiner_apercus(modifs, {o.cible: ("xlsx", reel_xlsx(["x"]))},
+                                  [o], [o, jumeau], set())
+        self.assertEqual((appels, modifs.parties, modifs.retouches), ([], {}, []))
+
+    def test_icone_jamais_redessinee(self):
+        run, appels = faux_soffice()
+        with mock.patch.object(A.subprocess, "run", run):
+            sortie, _ = traduire("pptx", pptx_avec_apercu(icone=True))
+        self.assertEqual(appels, [])
+        self.assertEqual(cible_rel(sortie, "ppt/slides/_rels/slide1.xml.rels", "rIdImg")[0],
+                         "../media/image9.emf")
+
+    def test_redessin_en_echec_aperçu_d_origine(self):
+        with mock.patch.object(A.subprocess, "run", side_effect=OSError("absent")):
+            sortie, _ = traduire("pptx", pptx_avec_apercu())
+        self.assertEqual(cible_rel(sortie, "ppt/slides/_rels/slide1.xml.rels", "rIdImg")[0],
+                         "../media/image9.emf")
+        self.assertFalse(any(n.endswith(".png") for n in noms_de(sortie)
+                             if n.startswith("ppt/media/image9")))
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    unittest.main(verbosity=1)

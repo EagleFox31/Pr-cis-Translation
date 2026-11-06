@@ -1,0 +1,20 @@
+{
+  "name": "precis-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Extension navigateur Précis (prototype MV3)",
+  "scripts": {
+    "build": "node build.mjs",
+    "package": "node package.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --no-warnings --test tests/*.test.ts"
+  },
+  "devDependencies": {
+    "@fontsource/dm-sans": "^5.3.0",
+    "@fontsource/pinyon-script": "^5.3.0",
+    "@types/chrome": "^0.3.7",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}

@@ -2,8 +2,9 @@ import { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { Puzzle } from 'lucide-react';
 import MobileMenu from './MobileMenu';
-import AdminMenu from './AdminMenu';
+import './navbar-extension.css';
 
 const logo = "/Logo.png";
 
@@ -28,7 +29,12 @@ export default function Navbar({ activeSection, onNavClick, onLibraryOpen }: Nav
     { id: 'story', label: t('nav.howItWorks') },
     { id: 'pricing', label: t('nav.pricing') },
     { id: 'about', label: t('nav.about') },
+    // Administration : une page, pas une section — `href` la distingue des ancres.
+    ...(user?.plan === 'admin' ? [{ id: 'admin', label: t('admin.menu', 'Administration'), href: '/admin/users' }] : []),
   ];
+  // Produit à part, pas une section : pastille à droite ; dans la liste du menu mobile.
+  const extensionLink = { id: 'extension', label: t('extension_page.nav_label'), href: '/extension' };
+  const mobileLinks = [...navLinks, extensionLink];
 
   useEffect(() => {
     const handleScroll = () => {
@@ -44,7 +50,9 @@ export default function Navbar({ activeSection, onNavClick, onLibraryOpen }: Nav
 
   const handleClick = (sectionId: string) => {
     setIsMenuOpen(false);
-    onNavClick(sectionId);
+    const page = mobileLinks.find((l) => l.id === sectionId)?.href;
+    if (page) navigate(page);
+    else onNavClick(sectionId);
   };
 
   const avatarLetter = user?.name ? user.name[0].toUpperCase() : (user?.email?.[0].toUpperCase() || '?');
@@ -72,25 +80,30 @@ export default function Navbar({ activeSection, onNavClick, onLibraryOpen }: Nav
                 : (activeSection === link.id || (link.id === 'features' && (activeSection === 'features' || activeSection === 'comparison')));
               return (
                 <li key={link.id}>
-                  <a href={`#${link.id}`} className={isActive ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleClick(link.id); }}>{link.label}</a>
+                  <a href={link.href ?? `#${link.id}`} className={isActive ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleClick(link.id); }}>{link.label}</a>
                 </li>
               );
             })}
           </ul>
 
+          <div className="nav-aside">
+          <a href="/extension" className={`nav-ext ${activeSection === 'extension' ? 'active' : ''}`}
+            title={t('extension_page.nav_label')} aria-label={t('extension_page.nav_label')}
+            onClick={(e) => { e.preventDefault(); handleClick('extension'); }}>
+            <Puzzle size={15} strokeWidth={2} aria-hidden="true" />
+            <span>{t('extension_page.nav_label')}</span>
+          </a>
           <div className="lang-toggle">
             <button className={i18n.language === 'fr' ? 'active' : ''} onClick={() => i18n.changeLanguage('fr')}>FR</button>
             <button className={i18n.language === 'en' ? 'active' : ''} onClick={() => i18n.changeLanguage('en')}>EN</button>
           </div>
-
-          {/* Administration — menu déroulant partagé (se rend null hors admin) */}
-          <AdminMenu />
+          </div>
 
           {/* Profil ou Connexion */}
           {user ? (
             <button
               onClick={onLibraryOpen}
-              title="Mon compte"
+              title={t('nav.my_account')}
               style={{
                 width: '34px', height: '34px', borderRadius: '999px',
                 background: 'var(--blue)', color: 'white', border: 'none',
@@ -120,7 +133,7 @@ export default function Navbar({ activeSection, onNavClick, onLibraryOpen }: Nav
         </div>
       </nav>
 
-      <MobileMenu isOpen={isMenuOpen} links={navLinks} activeSection={activeSection} onNavClick={handleClick} onClose={() => setIsMenuOpen(false)} />
+      <MobileMenu isOpen={isMenuOpen} links={mobileLinks} activeSection={activeSection} onNavClick={handleClick} onClose={() => setIsMenuOpen(false)} />
     </>
   );
 }

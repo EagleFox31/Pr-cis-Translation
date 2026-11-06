@@ -21,8 +21,10 @@ function FormatIcon({ format }: { format: Format }) {
   );
 }
 
-export default function BetaProgramDetails({ program, heading: Heading = 'h3' }: {
+export default function BetaProgramDetails({ program, heading: Heading = 'h3', badges = false }: {
   program: BetaProgram; heading?: 'h2' | 'h3';
+  /** Page /beta : état, durée et sélection en pastilles sous la description. */
+  badges?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const number = (value: number) => value.toLocaleString(i18n.language);
@@ -39,6 +41,12 @@ export default function BetaProgramDetails({ program, heading: Heading = 'h3' }:
     <span className="beta-program-tag">{t('beta.public.tag')}</span>
     <Heading className="beta-program-title">{t('beta.public.title', { days: program.access_days })}</Heading>
     <p className="beta-program-description">{t('beta.public.description')}</p>
+    {badges && <ul className="beta-program-badges">
+      <li className={'beta-status beta-status--campaign-' + (program.applications_open ? 'open' : 'closed')}>
+        {t(`beta.public.availability.${program.availability}`)}</li>
+      <li className="beta-status">{t('beta.public.duration', { days: program.access_days })}</li>
+      <li className="beta-status">{t('beta.public.selection')}</li>
+    </ul>}
     <ul className="beta-program-quotas" aria-label={t('beta.default_limits')}>
       {formats.map(format => (
         <li key={format.key}>
@@ -50,7 +58,7 @@ export default function BetaProgramDetails({ program, heading: Heading = 'h3' }:
         </li>
       ))}
     </ul>
-    {!program.applications_open && (
+    {!badges && !program.applications_open && (
       <p className="beta-program-status" role="status">{t(`beta.public.availability.${program.availability}`)}</p>
     )}
   </>;

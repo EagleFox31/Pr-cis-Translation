@@ -190,8 +190,23 @@ Le `/health` ne prouve que le démarrage. Faire le parcours réel, une fois :
 - **Moyens de paiement** : `PAYMENT_METHODS` (défaut
   `mtn_momo=campay,orange_money=campay,card=`) relie chaque moyen à son
   prestataire. Un moyen sans prestataire, ou dont le prestataire n'est pas
-  configuré, s'affiche grisé « Pas encore disponible ». La carte attend son
-  prestataire (ZitoPay pressenti).
+  configuré, s'affiche grisé « Pas encore disponible ».
+- **Paddle** (`card=paddle`, carte bancaire dont Visa prépayée) : `PADDLE_API_KEY`,
+  `PADDLE_PRODUCT_ID`, `PADDLE_WEBHOOK_SECRET`, `PADDLE_ENV=SANDBOX|LIVE` côté
+  backend ; `VITE_PADDLE_ENV=sandbox|production` et `VITE_PADDLE_CLIENT_TOKEN`
+  côté front (même environnement, rebuild nécessaire). Chez Paddle :
+  - notification `https://<domaine>/api/payments/paddle/webhook`, événements
+    `transaction.*`, secret = `PADDLE_WEBHOOK_SECRET` ; le crédit n'intervient
+    qu'après relecture de la transaction par l'API ;
+  - *Default payment link* `https://<domaine>/paiement/carte` (page affichée
+    dans la modale, formulaire Paddle en mode inline) ; en LIVE, le domaine
+    doit être approuvé par Paddle ;
+  - zone A facturée en EUR au taux fixe 655,957 XAF (arrondi supérieur), zone B
+    en USD, zone C en EUR ; la base garde le montant en XAF. Paiements uniques,
+    pas d'abonnement Paddle. L'e-mail n'est pas pré-rempli ;
+  - minimum Paddle 0,65 € / 0,70 $ (427 F en zone A) : sous ce seuil, le
+    paiement par carte est refusé dans la modale.
+  Détail, test sandbox et passage en live : [paiement-carte-paddle.md](paiement-carte-paddle.md).
 - **Fapshi** (`mtn_momo=fapshi,orange_money=fapshi`) : `FAPSHI_API_USER`,
   `FAPSHI_API_KEY`, `FAPSHI_WEBHOOK_SECRET`, `FAPSHI_ENV=SANDBOX|LIVE`, `FAPSHI_FLOW=direct|checkout`.
   `direct` (défaut) pousse l'invite sur le téléphone du client (`direct-pay`,

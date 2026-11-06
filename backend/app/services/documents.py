@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 
 from app.config import TRANSLATIONS_DIR, logger
+from app.core.files import pages_token
 
 WORDS_PER_PAGE = 500
 
@@ -36,6 +37,61 @@ def build_job_paths(file_hash: str, target_lang: str) -> tuple[str, str]:
     job_dir = os.path.join(TRANSLATIONS_DIR, file_hash)
     lang_dir = os.path.join(job_dir, target_lang)
     return job_dir, lang_dir
+
+
+def translation_path_for(lang_dir: str, ext: str, pages_set, qsuffix: str) -> str:
+    """La traduction persistante d'une sélection : `pages*.json` (PDF, moteur
+    v2) ou `translated*.json` (DOCX/PPTX/XLSX). La route qui lance le job et la
+    facturation d'une reprise doivent nommer le MÊME fichier."""
+    ptok = pages_token(pages_set)
+    psuffix = f"_{ptok}" if ptok else ""
+    base = "pages" if ext == "pdf" else "translated"
+    return os.path.join(lang_dir, f"{base}{qsuffix}{psuffix}.json")
+
+
+def pages_faites(translation_path: str, ext: str, pages_set, total: int) -> int:
+    """Nombre de pages de la sélection (`total` au plus) déjà traduites sur disque."""
+    return min(total, len(pages_traduites(translation_path, ext, pages_set, total)))
+
+
+def pages_traduites(translation_path: str, ext: str, pages_set, total: int) -> set[int]:
+    """Pages de la sélection déjà traduites sur disque.
+
+    Lu au démarrage pour ne rendre que les pages NON traduites d'un job coupé
+    (redémarrage, pause, annulation),
+    et à la reprise pour ne débiter que le reste. Seuls le PDF (cache page par
+    page) et le PPTX (fichier de reprise par diapositive) gardent un travail
+    partiel ; un DOCX/XLSX n'a rien tant que la traduction n'est pas écrite.
+    Une lecture impossible vaut « rien de fait » : on rend trop plutôt que de
+    facturer une page que l'on ne peut pas montrer."""
+    import json
+
+    def _dans(n: int) -> bool:
+        return not pages_set or n in pages_set
+
+    if ext != "pdf" and os.path.exists(translation_path):
+        # Traduction écrite : le job avait fini, toute la sélection est faite.
+        return set(pages_set) if pages_set else set(range(1, total + 1))
+    try:
+        if ext == "pdf":
+            with open(translation_path, encoding="utf-8") as f:
+                data = json.load(f)
+            # Même critère que le moteur (`engines/pdf/stream.py`) pour
+            # tenir une page pour traduite : un paragraphe porte sa traduction.
+            faites = {pg["page_num"] for pg in data.get("pages", [])
+                      if _dans(pg.get("page_num") or 0) and any(
+                          e.get("tr_tagged") for e in pg.get("elements", [])
+                          if e.get("type") == "paragraph")}
+            return faites
+        if ext == "pptx":
+            dossier, nom = os.path.split(translation_path)
+            with open(os.path.join(dossier, "reprise_" + nom), encoding="utf-8") as f:
+                slides = json.load(f)["slides"]
+            return {int(k) for k, v in slides.items()
+                    if isinstance(v, dict) and _dans(int(k))}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        pass
+    return set()
 
 
 def cap_pages_for_plan(pages_set, ext: str, page_limit: int):
@@ -138,3 +194,81 @@ def pages_avec_texte(file_bytes: bytes, ext: str) -> set[int] | None:
         logger.warning("Analyse du texte impossible (%s) — document traité "
                        "comme s'il contenait du texte.", ext)
         return None
+
+
+def reglages_de(doc) -> dict:
+    """Réglages enregistrés d'un Document ({} si absents ou illisibles)."""
+    import json
+    try:
+        r = json.loads(doc.reglages or "{}")
+    except (ValueError, TypeError):
+        return {}
+    return r if isinstance(r, dict) else {}
+
+
+def _selection_du_document(doc):
+    """(chemin de traduction, ext, sélection) que le job du Document écrivait,
+    depuis ses réglages enregistrés ; None sans original."""
+    if doc is None or not doc.original_path:
+        return None
+    reglages = reglages_de(doc)
+    pages = {int(p) for p in str(reglages.get("pages") or "").split(",") if p.strip()}
+    ext = os.path.splitext(doc.original_path)[1].lstrip(".").lower()
+    lang_dir = os.path.join(os.path.dirname(doc.original_path), doc.target_lang)
+    # Suffixe COMPLET (qualité, version OCR) ; les documents d'avant ce
+    # champ n'ont que la qualité.
+    qsuffix = reglages.get("qsuffix")
+    if not isinstance(qsuffix, str):
+        qsuffix = "_precise" if reglages.get("precise") else ""
+    return translation_path_for(lang_dir, ext, pages or None, qsuffix), ext, pages or None
+
+
+def chemin_traduction_du_document(doc) -> str | None:
+    """Fichier de traduction (partielle) d'un Document : le ménage doit le
+    garder tant que le document peut être repris."""
+    sel = _selection_du_document(doc)
+    return sel[0] if sel else None
+
+
+def pages_faites_du_document(doc) -> int:
+    """`pages_faites` d'un Document, depuis ses réglages enregistrés
+    (sélection effective, qualité) : le fichier que son job écrivait."""
+    sel = _selection_du_document(doc)
+    if sel is None:
+        return 0
+    chemin, ext, pages = sel
+    return pages_faites(chemin, ext, pages, doc.page_count or 0)
+
+
+def traduction_partielle_du_document(doc, payees: int) -> tuple[str, set[int]] | None:
+    """(fichier, pages livrables) d'un document arrêté (interrompu, en pause,
+    annulé) ; None si rien de traduit n'est à livrer.
+
+    Ses pages traduites sont payées : il les reçoit, en aperçu comme en
+    téléchargement, le reste en langue d'origine (décision E de l'étude
+    reprise/pause/annulation). Le fichier est PARTAGÉ par empreinte entre
+    comptes : un autre a pu y traduire plus que ce document n'a payé. On ne
+    livre donc que `payees` pages traduites au plus, les premières de la
+    sélection. Le PDF se rend depuis son cache page par page, le PPTX depuis
+    son fichier de reprise par diapositive, ou depuis la traduction finale
+    qu'un autre compte a terminée entre-temps (elle remplace la reprise) ; un
+    DOCX/XLSX n'a rien de partiel tant que sa traduction n'est pas écrite."""
+    from app.services.jobs import STATUTS_REPRENABLES
+    if doc.status not in STATUTS_REPRENABLES or payees <= 0:
+        return None
+    sel = _selection_du_document(doc)
+    if sel is None:
+        return None
+    chemin, ext, pages = sel
+    if ext not in ("pdf", "pptx"):
+        return None
+    faites = pages_traduites(chemin, ext, pages, doc.page_count or 0)
+    livrables = set(sorted(faites)[:payees])
+    if ext == "pptx":
+        dossier, nom = os.path.split(chemin)
+        reprise = os.path.join(dossier, "reprise_" + nom)
+        if os.path.isfile(reprise):
+            chemin = reprise
+    if not livrables or not os.path.isfile(chemin):
+        return None
+    return chemin, livrables

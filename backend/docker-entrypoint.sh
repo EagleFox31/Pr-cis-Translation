@@ -19,6 +19,10 @@ if [ "$#" -gt 0 ]; then
     exec "$@"
 fi
 
+# Deux fins de suite ne se resolvent pas en reessayant : on le dit tout de suite,
+# plutot que d'annoncer une base injoignable apres dix tentatives.
+python scripts/verifier_migrations.py || exit 1
+
 echo "[precis] Application des migrations de base de donnees..."
 # La base met quelques secondes à accepter les connexions au tout premier
 # démarrage de la pile. `depends_on: condition: service_healthy` couvre le cas
@@ -28,7 +32,7 @@ essais=0
 until alembic upgrade head; do
     essais=$((essais + 1))
     if [ "$essais" -ge 10 ]; then
-        echo "[precis] ECHEC : la base reste injoignable apres 10 tentatives." >&2
+        echo "[precis] ECHEC : migrations non appliquees apres 10 tentatives (voir l'erreur ci-dessus)." >&2
         exit 1
     fi
     echo "[precis] Base pas encore prete, nouvelle tentative dans 3s ($essais/10)..."
@@ -47,10 +51,14 @@ python seed_admin.py
 # recevrait « inconnu », et son flux SSE se fermerait sur une traduction
 # pourtant en cours. Le parallélisme se règle par TRANSLATION_WORKERS, à
 # l'intérieur de ce processus unique.
+#
+# X-Forwarded-For n'est cru que s'il vient du réseau Docker (nginx, qui l'écrase
+# avec l'adresse réelle). Avec '*', n'importe quel émetteur pourrait choisir son
+# adresse et contourner les limites par IP.
 exec uvicorn main:app \
     --host 0.0.0.0 \
     --port 8000 \
     --workers 1 \
     --proxy-headers \
-    --forwarded-allow-ips '*' \
+    --forwarded-allow-ips "${FORWARDED_ALLOW_IPS:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}" \
     --timeout-keep-alive 65

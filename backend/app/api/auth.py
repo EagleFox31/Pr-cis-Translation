@@ -8,7 +8,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import (APIRouter, Body, Depends, Header, HTTPException,
-                     Request)
+                     Request, Response)
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
@@ -34,6 +34,7 @@ from app.core.security import (
 # `limiter` vaut None si slowapi manque : le decorateur devient alors neutre et
 # rien ne casse. Le plafond est par IP.
 from app.rate_limit import rate_limit_decorator
+from app.services import anti_abus, turnstile
 from app.services.usage import usage_summary
 from app.core.email import EmailIndisponible, send_verification_email
 
@@ -90,6 +91,8 @@ def _aware(dt):
 class EmailBody(BaseModel):
     email: EmailStr
     name: str | None = None
+    # Jeton du widget anti-robots ; exigé seulement quand un compte est créé.
+    turnstile_token: str | None = None
 
 class RefreshBody(BaseModel):
     refresh_token: str
@@ -115,6 +118,7 @@ class PasswordRegisterBody(BaseModel):
     email: EmailStr
     password: str
     name: str | None = None
+    turnstile_token: str | None = None
 
 class ForgotBody(BaseModel):
     email: EmailStr
@@ -200,11 +204,13 @@ async def _generate_verification(db: AsyncSession, user: User) -> VerificationCo
 
 @router.post("/register", status_code=201)
 @rate_limit_decorator("5/minute")
-async def register(request: Request, body: EmailBody,
+async def register(request: Request, response: Response, body: EmailBody,
                    db: AsyncSession = Depends(get_db),
                    langue: str | None = Depends(langue_ui)):
     """Inscription sans mot de passe : crée le compte, envoie le code de vérification."""
     email = body.email.lower().strip()
+    anti_abus.reject_disposable(email)
+    await turnstile.require(request, body.turnstile_token)
     existing = await db.execute(select(User).where(User.email == email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Cet email est déjà utilisé.")
@@ -216,6 +222,7 @@ async def register(request: Request, body: EmailBody,
 
     vc = await _generate_verification(db, user)
     await _envoyer_ou_503(user.email, vc.code, vc.token, langue)
+    await anti_abus.touch(db, request, response)
 
     return {"message": "Code envoyé. Vérifiez votre email pour continuer.", "email": email}
 
@@ -224,7 +231,7 @@ async def register(request: Request, body: EmailBody,
 
 @router.post("/login", status_code=201)
 @rate_limit_decorator("5/minute")
-async def login(request: Request, body: EmailBody,
+async def login(request: Request, response: Response, body: EmailBody,
                 db: AsyncSession = Depends(get_db),
                 langue: str | None = Depends(langue_ui)):
     """Connexion sans mot de passe : envoie un code de vérification.
@@ -237,6 +244,8 @@ async def login(request: Request, body: EmailBody,
 
     if user is None:
         # Inscription implicite
+        anti_abus.reject_disposable(email)
+        await turnstile.require(request, body.turnstile_token)
         user = User(email=email, name=body.name)
         db.add(user)
         await db.commit()
@@ -246,6 +255,7 @@ async def login(request: Request, body: EmailBody,
     await _envoyer_ou_503(user.email, vc.code, vc.token, langue)
 
     is_new = not user.email_verified
+    await anti_abus.touch(db, request, response)
     return {
         "message": "Code envoyé. Vérifiez votre email pour continuer.",
         "email": email,
@@ -276,12 +286,14 @@ async def _issue(db: AsyncSession, user: User) -> AuthResponse:
 
 @router.post("/register-password", status_code=201)
 @rate_limit_decorator("5/minute")
-async def register_password(request: Request, body: PasswordRegisterBody,
+async def register_password(request: Request, response: Response, body: PasswordRegisterBody,
                             db: AsyncSession = Depends(get_db),
                             langue: str | None = Depends(langue_ui)):
     """Inscription avec mot de passe. L'email reste à vérifier par code."""
     email = body.email.lower().strip()
+    anti_abus.reject_disposable(email)
     _check_password_strength(body.password)
+    await turnstile.require(request, body.turnstile_token)
 
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if user is not None and user.password_hash:
@@ -296,6 +308,7 @@ async def register_password(request: Request, body: PasswordRegisterBody,
 
     vc = await _generate_verification(db, user)
     await _envoyer_ou_503(user.email, vc.code, vc.token, langue)
+    await anti_abus.touch(db, request, response)
     return {"message": "Compte créé. Vérifiez votre email pour l'activer.",
             "email": email, "is_new": True}
 
@@ -464,7 +477,7 @@ async def verify_email_link(token: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/verify-email")
 @rate_limit_decorator("10/minute")
-async def verify_email_code(request: Request, body: VerifyCodeBody,
+async def verify_email_code(request: Request, response: Response, body: VerifyCodeBody,
                             db: AsyncSession = Depends(get_db)):
     """Vérification par code 6 chiffres saisi manuellement.
     Connecte directement l'utilisateur."""
@@ -516,18 +529,21 @@ async def verify_email_code(request: Request, body: VerifyCodeBody,
     access_token = create_access_token(user.id, user.email)
     refresh_token = await create_refresh_token(db, user.id)
 
-    return AuthResponse(
+    resultat = AuthResponse(
         access_token=access_token,
         refresh_token=refresh_token,
         user=_user_response(user),
     )
+    await anti_abus.touch(db, request, response)
+    return resultat
 
 
 # ── POST /google ─────────────────────────────────────────────────────────────
 
 @router.post("/google")
 @rate_limit_decorator("5/minute")
-async def google_auth(body: GoogleBody, db: AsyncSession = Depends(get_db), *, request: Request):
+async def google_auth(body: GoogleBody, db: AsyncSession = Depends(get_db), *,
+                      request: Request, response: Response):
     """Connexion/inscription via Google OAuth."""
     import google.auth.transport.requests
     from google.oauth2 import id_token
@@ -600,11 +616,13 @@ async def google_auth(body: GoogleBody, db: AsyncSession = Depends(get_db), *, r
     access_token = create_access_token(user.id, user.email)
     refresh_token = await create_refresh_token(db, user.id)
 
-    return AuthResponse(
+    resultat = AuthResponse(
         access_token=access_token,
         refresh_token=refresh_token,
         user=_user_response(user),
     )
+    await anti_abus.touch(db, request, response)
+    return resultat
 
 
 # ── POST /resend-verification ────────────────────────────────────────────────
