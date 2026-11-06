@@ -1,6 +1,7 @@
 import { afficherErreur, obtenirBandeau, retirerBandeau } from "./contenu/bandeau.ts";
 import { ATTR_UI } from "./contenu/commun.ts";
 import { demarrerImages, restaurerImages, scannerImages } from "./contenu/images.ts";
+import { idPage } from "./lib/page.ts";
 import { appliquer, collecter, crochets, estNotreEcriture, restaurerTexte, voisins } from "./contenu/texte.ts";
 import { arreterVideos, demarrerVideos } from "./contenu/video.ts";
 import { versBackground } from "./pont.ts";
@@ -89,6 +90,7 @@ async function passeTexte(racines: Iterable<Node>, premiere: boolean): Promise<v
       langue: etat.langue,
       titre: document.title.trim().slice(0, TITRE_MAX),
       contexte: premiere ? [] : voisins(cibles),
+      page: idPage(),
     });
   } catch {
     rep = undefined;
@@ -98,7 +100,7 @@ async function passeTexte(racines: Iterable<Node>, premiere: boolean): Promise<v
   if (session !== etat.session) return;
   if (!rep?.ok) {
     const code = rep ? rep.erreur : "indisponible";
-    if (code === "credits" || code === "deconnecte") etat.texteBloque = true;
+    if (code === "credits" || code === "deconnecte" || code === "limite") etat.texteBloque = true;
     afficherErreur(bandeau, code);
     return;
   }
@@ -107,6 +109,10 @@ async function passeTexte(racines: Iterable<Node>, premiere: boolean): Promise<v
   appliquer(cibles, new Map(coeurs.map((c, i) => [c, traductions[i] ?? c])));
   // Écarte les notifications causées par nos propres écritures.
   observateur?.takeRecords();
+  if (rep.limite) {
+    etat.texteBloque = true;
+    afficherErreur(bandeau, "limite");
+  }
 }
 
 function observer(): void {

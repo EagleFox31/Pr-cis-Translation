@@ -164,16 +164,33 @@ async function memoireEffacer(): Promise<ReponseMemoire> {
 
 // --- Texte
 
-async function segments(textes: string[], langue: string, titre: string, contexte: string[]): Promise<ReponseSegments> {
+// 413 « page_limit » : la page a épuisé son budget côté serveur ; autre 413 : demande trop grosse.
+async function limitePage(rep: Response): Promise<boolean> {
+  if (rep.status !== 413) return false;
+  try {
+    return ((await rep.clone().json()) as { reason?: string }).reason === "page_limit";
+  } catch {
+    return false;
+  }
+}
+
+async function segments(
+  textes: string[],
+  langue: string,
+  titre: string,
+  contexte: string[],
+  page: string,
+): Promise<ReponseSegments> {
   const compte = await compteActif();
   const connus = compte ? await memoire.lireTextes(compte, langue, textes) : new Map<string, string>();
+  let limite = false;
   try {
     for (const lot of decouperEnLots(aEnvoyer(textes, connus))) {
       const rep = await appelAvecReprises(
         "/api/extension/segments",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Page": page },
           body: JSON.stringify({ textes: lot, langue, titre, contexte }),
         },
         [503],
@@ -182,6 +199,11 @@ async function segments(textes: string[], langue: string, titre: string, context
       );
       if (!(rep instanceof Response)) return { ok: false, erreur: "deconnecte" };
       if (rep.status === 402) return { ok: false, erreur: "credits" };
+      if (await limitePage(rep)) {
+        // Les lots déjà traduits (et payés) s'affichent ; le reste reste en original.
+        limite = true;
+        break;
+      }
       if (rep.status === 413 || rep.status === 429) return { ok: false, erreur: "trop" };
       if (!rep.ok) return { ok: false, erreur: "indisponible" };
       const corps = (await rep.json()) as { traductions: string[] };
@@ -193,7 +215,7 @@ async function segments(textes: string[], langue: string, titre: string, context
   } catch {
     return { ok: false, erreur: "indisponible" };
   }
-  return { ok: true, traductions: textes.map((t) => connus.get(t) ?? t) };
+  return { ok: true, traductions: textes.map((t) => connus.get(t) ?? t), limite };
 }
 
 // --- Images
@@ -234,6 +256,7 @@ async function image(msg: {
   donnees?: string;
   mime?: string;
   langue: string;
+  page: string;
   sansMemoire?: boolean;
 }): Promise<ReponseImageBg> {
   const blob = await lireImage(msg);
@@ -249,17 +272,20 @@ async function image(msg: {
   const formulaire = new FormData();
   formulaire.append("file", blob, `image.${extensionDe(blob.type)}`);
   formulaire.append("langue", msg.langue);
+  // Images de vidéo (sans mémoire) : budget à part sur le serveur.
+  if (msg.sansMemoire) formulaire.append("video", "true");
 
   try {
     const rep = await appelAvecReprises(
       "/api/extension/image",
-      { method: "POST", body: formulaire },
+      { method: "POST", body: formulaire, headers: { "X-Page": msg.page } },
       [429, 503],
       3,
       1500,
     );
     if (!(rep instanceof Response)) return { ok: false, erreur: "deconnecte" };
     if (rep.status === 402) return { ok: false, erreur: "credits" };
+    if (await limitePage(rep)) return { ok: false, erreur: "limite" };
     if (rep.status === 413 || rep.status === 415) return { ok: false, erreur: "refusee" };
     if (!rep.ok) return { ok: false, erreur: "indisponible" };
     const reponse = (await rep.json()) as ReponseImage;
@@ -281,7 +307,7 @@ function traiter(msg: VersBackground): Promise<ReponseDe<VersBackground>> {
     case "etat":
       return etat();
     case "segments":
-      return segments(msg.textes, msg.langue, msg.titre, msg.contexte);
+      return segments(msg.textes, msg.langue, msg.titre, msg.contexte, msg.page);
     case "image":
       return image(msg);
     case "memoire_etat":

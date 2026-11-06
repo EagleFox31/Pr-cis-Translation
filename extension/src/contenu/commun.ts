@@ -1,3 +1,4 @@
+import { idPage } from "../lib/page.ts";
 import { versBackground } from "../pont.ts";
 import type { ReponseImageBg } from "../types.ts";
 
@@ -14,7 +15,7 @@ export const estHttp = (url: string): boolean => /^https?:/i.test(url);
 
 export async function envoyerImage(langue: string, charge: Charge, sansMemoire = false): Promise<ReponseImageBg> {
   try {
-    const rep = await versBackground({ type: "image", langue, sansMemoire, ...charge });
+    const rep = await versBackground({ type: "image", langue, page: idPage(), sansMemoire, ...charge });
     return rep ?? { ok: false, erreur: "indisponible" };
   } catch {
     return { ok: false, erreur: "indisponible" };

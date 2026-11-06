@@ -131,6 +131,9 @@ export function afficherErreur(bandeau: Bandeau, erreur: string): void {
     case "deconnecte":
       bandeau.message("Reconnectez-vous dans l'extension.");
       break;
+    case "limite":
+      bandeau.message("Limite atteinte pour cette page : la suite reste en version originale.");
+      break;
     case "trop":
       bandeau.message("Trop de demandes : réessayez dans un instant.");
       break;

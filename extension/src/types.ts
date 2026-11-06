@@ -1,8 +1,8 @@
 // Protocole de messages entre popup, content script et background.
 
 export type ErreurConnexion = "identifiants" | "non_verifie" | "indisponible";
-export type ErreurSegments = "credits" | "deconnecte" | "indisponible" | "trop";
-export type ErreurImage = "credits" | "refusee" | "illisible" | "indisponible" | "deconnecte";
+export type ErreurSegments = "credits" | "deconnecte" | "indisponible" | "trop" | "limite";
+export type ErreurImage = "credits" | "refusee" | "illisible" | "indisponible" | "deconnecte" | "limite";
 
 export interface BlocImage {
   texte: string;
@@ -29,10 +29,13 @@ export type MsgSegments = {
   langue: string;
   titre: string;
   contexte: string[];
+  /** Identifiant de page (`lib/page.ts`) : le serveur y borne texte et images. */
+  page: string;
 };
 export type MsgImage = {
   type: "image";
   langue: string;
+  page: string;
   src?: string;
   donnees?: string;
   mime?: string;
@@ -54,7 +57,7 @@ export type VersBackground =
 export type ReponseConnexion = { ok: true; email: string } | { ok: false; erreur: ErreurConnexion };
 export type ReponseEtat = { connecte: boolean; email?: string };
 export type ReponseSegments =
-  | { ok: true; traductions: string[] }
+  | { ok: true; traductions: string[]; /** Budget de page épuisé en cours de route : le reste est en original. */ limite?: boolean }
   | { ok: false; erreur: ErreurSegments };
 export type ReponseImageBg =
   | { ok: true; reponse: ReponseImage }

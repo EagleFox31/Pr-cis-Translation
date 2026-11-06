@@ -21,6 +21,7 @@ from app.core.security import require_auth
 from app.models import User
 from app.rate_limit import rate_limit_decorator
 from app.services import extension as ext
+from app.services import limites_page
 from app.services.ocr_v2.detect import LectureEchouee
 from app.services.ocr_v2.image import OCTETS_MAX, ImageRefusee, traduire_image, verifier
 
@@ -37,6 +38,17 @@ class Segments(BaseModel):
     langue: str = "fr"
     titre: str = ""
     contexte: list[str] = []
+
+
+def _limite(request: Request, user: User, **quantites):
+    """413 si la page a épuisé son budget (étude limites-page-extension)."""
+    nom = limites_page.prendre(user.id, limites_page.cle_page(request and request.headers.get("x-page")), **quantites)
+    if nom is None:
+        return None
+    return JSONResponse(status_code=413, content={
+        "reason": "page_limit", "limite": nom,
+        "detail": "Limite atteinte pour cette page.",
+    })
 
 
 def _manque(pages):
@@ -60,6 +72,8 @@ async def traduire_segments(request: Request, corps: Segments,
     pages = ext.pages_pour_segments(textes, current_user.extension_avance)
     if pages and not ext.couvre(*(await ext.couverture(db, current_user))[:2], pages):
         return _manque(pages)
+    if refus := _limite(request, current_user, texte=sum(map(len, textes)), lots=1):
+        return refus
     try:
         traductions = await run_in_threadpool(
             ext.traduire_textes, textes, corps.langue, None, corps.titre, corps.contexte)
@@ -75,7 +89,7 @@ async def traduire_segments(request: Request, corps: Segments,
 @router.post("/image")
 @rate_limit_decorator("30/minute")
 async def traduire_une_image(request: Request, file: UploadFile = File(...),
-                             langue: str = Form("fr"),
+                             langue: str = Form("fr"), video: bool = Form(False),
                              current_user: User = Depends(require_auth),
                              db: AsyncSession = Depends(get_db)):
     data = await file.read(OCTETS_MAX + 1)
@@ -85,6 +99,8 @@ async def traduire_une_image(request: Request, file: UploadFile = File(...),
         raise HTTPException(status_code=_REFUS[e.code], detail=f"Image refusée : {e.code}.")
     if not ext.couvre(*(await ext.couverture(db, current_user))[:2], 1):
         return _manque(1)
+    if refus := _limite(request, current_user, **{"captures" if video is True else "images": 1}):
+        return refus
     if current_user.id in _en_cours:
         raise HTTPException(status_code=429, detail="Une image est déjà en cours.")
     _en_cours.add(current_user.id)
