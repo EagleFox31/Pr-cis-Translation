@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    String, Boolean, BigInteger, Integer, DateTime, ForeignKey,
+    String, Boolean, BigInteger, Integer, DateTime, ForeignKey, Text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -46,6 +46,10 @@ class Document(Base):
     # a exactement ce qu'il a payé, ni plus, ni moins.
     paid:            Mapped[bool] = mapped_column(Boolean, default=False,
                                                   nullable=False)
+    # Réglages d'origine (JSON : pages traduites, précis, bêta). « Reprendre »
+    # relance avec EUX : relancée sur le document entier en rapide, la
+    # traduction ne retrouvait pas les pages déjà faites (clé de cache autre).
+    reglages:        Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at:      Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at:      Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow,

@@ -1,139 +1,148 @@
-import { useRef } from 'react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { motion, useScroll, useTransform } from 'motion/react';
+import { Link } from 'react-router-dom';
+import { motion, AnimatePresence } from 'motion/react';
+import { Check, Mail, MessageCircle, Phone, X } from 'lucide-react';
 
-const mascot = "/Identite Precis.png";
+import { useAuth } from '../../contexts/AuthContext';
+import { openSupport } from '../support/supportBus';
+
+const CONTACT_EMAIL = 'contact@trigenys.com';
+const LINKEDIN_URL = 'https://www.linkedin.com/company/trigenys-group';
+const INSIGHT_URL = 'https://insight.trigenys.com/fr';
+const FACEBOOK_URL = 'https://www.facebook.com/p/Trigenys-Group-61594499048324/';
+// Numéros au format international, chiffres seuls (ex. 2376XXXXXXXX). Vides =
+// lignes masquées : rien d'inventé ne s'affiche.
+const PHONE = (import.meta.env.VITE_CONTACT_PHONE ?? '').replace(/\D/g, '');
+const WHATSAPP = (import.meta.env.VITE_CONTACT_WHATSAPP ?? '').replace(/\D/g, '');
+
+const PLEDGES = ['documents', 'billing', 'payment'] as const;
 
 export default function AboutSection() {
   const { t } = useTranslation();
-  const aboutRef = useRef<HTMLElement>(null);
+  const { user } = useAuth();
+  const [contactOpen, setContactOpen] = useState(false);
 
-  const { scrollYProgress: aboutScrollProgress } = useScroll({
-    target: aboutRef,
-    offset: ['start end', 'end start'],
-  });
-  const aboutVisualY = useTransform(aboutScrollProgress, [0, 1], [40, -40]);
+  // Connecté : la fenêtre d'assistance existante (le ticket porte son compte).
+  // Visiteur : l'assistance exige un compte, on propose donc les canaux directs.
+  const contact = () => (user ? openSupport({ category: 'other' }) : setContactOpen(true));
 
   return (
-    <section className="about-section" id="about" ref={aboutRef}>
-      <div
-        className="section-inner"
-        style={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          width: '100%',
-        }}
-      >
-        <div className="story-grid" style={{ width: '100%' }}>
-          <div>
-            <span className="section-tag">{t('about.tag')}</span>
-            <h2
-              className="section-title"
-              dangerouslySetInnerHTML={{ __html: t('about.title') }}
-            />
-            <p className="section-desc">{t('about.desc')}</p>
-            <p
-              className="text-gray-500 mt-4 text-sm max-w-lg"
-              style={{ lineHeight: 1.7, marginTop: '16px' }}
-            >
-              {t('about.mission')}
-            </p>
-            <div
-              className="about-values flex gap-6"
-              style={{
-                marginTop: '24px',
-                display: 'flex',
-                gap: '24px',
-                flexWrap: 'wrap',
-              }}
-            >
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: 0.1 }}
-              >
-                <div
-                  className="font-bold text-navy"
-                  style={{ color: 'var(--navy)', fontWeight: 700 }}
+    <section className="about-section" id="about">
+      <div className="section-inner about-inner">
+        <header className="about-head">
+          <span className="section-tag">{t('about.tag')}</span>
+          <h2
+            className="section-title"
+            dangerouslySetInnerHTML={{ __html: t('about.title') }}
+          />
+        </header>
+        <div className="story-grid about-grid">
+          <div className="about-story">
+            <p className="about-text">{t('about.desc')}</p>
+            <ul className="about-pledges">
+              {PLEDGES.map((key, i) => (
+                <motion.li
+                  key={key}
+                  initial={{ opacity: 0, y: 10 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: 0.1 * (i + 1) }}
                 >
-                  {t('about.val_innovation')}
-                </div>
-                <div className="text-xs text-gray-500">
-                  {t('about.val_innovation_desc')}
-                </div>
-              </motion.div>
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: 0.2 }}
-              >
-                <div
-                  className="font-bold text-navy"
-                  style={{ color: 'var(--navy)', fontWeight: 700 }}
-                >
-                  {t('about.val_quality')}
-                </div>
-                <div className="text-xs text-gray-500">
-                  {t('about.val_quality_desc')}
-                </div>
-              </motion.div>
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: 0.3 }}
-              >
-                <div
-                  className="font-bold text-navy"
-                  style={{ color: 'var(--navy)', fontWeight: 700 }}
-                >
-                  {t('about.val_security')}
-                </div>
-                <div className="text-xs text-gray-500">
-                  {t('about.val_security_desc')}
-                </div>
-              </motion.div>
-            </div>
+                  <Check size={18} aria-hidden="true" className="about-pledge-icon" />
+                  <div>
+                    <strong>{t(`about.pledge_${key}`)}</strong>
+                    <span>{t(`about.pledge_${key}_desc`)}</span>
+                  </div>
+                </motion.li>
+              ))}
+            </ul>
           </div>
 
-          <motion.div
-            className="story-visual"
-            style={{
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              y: aboutVisualY,
-            }}
-          >
-            <div
-              style={{
-                backgroundColor: 'white',
-                padding: '20px',
-                borderRadius: '20px',
-                boxShadow: 'var(--shadow-lg)',
-                border: '1px solid var(--gray-100)',
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                maxWidth: '360px',
-              }}
-            >
-              <img
-                src={mascot}
-                alt="Mascotte Précis"
-                style={{ width: '100%', height: 'auto', borderRadius: '12px' }}
-              />
-            </div>
-          </motion.div>
+          <div className="about-card-wrap">
+            <img src="/Identite Precis.png" alt="" aria-hidden="true" className="about-mascot" />
+            <aside className="about-card" aria-labelledby="about-card-title">
+              <p className="about-card-label">{t('about.card_label')}</p>
+              <h3 id="about-card-title" className="about-card-name">Trigenys Group</h3>
+              <dl className="about-card-facts">
+                <div><dt>{t('about.card_location_label')}</dt><dd>{t('about.card_location')}</dd></div>
+                <div><dt>{t('about.card_products_label')}</dt><dd>AgenStudio, <a href={INSIGHT_URL} target="_blank" rel="noopener noreferrer">Trigenys Insight</a></dd></div>
+              </dl>
+              <p className="about-card-links">
+                <Mail size={16} aria-hidden="true" />
+                <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
+                <span aria-hidden="true">·</span>
+                <a href={LINKEDIN_URL} target="_blank" rel="noopener noreferrer">LinkedIn</a>
+                <span aria-hidden="true">·</span>
+                <a href={FACEBOOK_URL} target="_blank" rel="noopener noreferrer">Facebook</a>
+              </p>
+              <button type="button" className="btn-primary about-card-cta" onClick={contact}>
+                {t('about.contact_cta')}
+              </button>
+            </aside>
+          </div>
         </div>
       </div>
-
       {/* Integrated Footer */}
       <FooterSection />
+      <ContactModal open={contactOpen} onClose={() => setContactOpen(false)} />
     </section>
+  );
+}
+
+function ContactModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t } = useTranslation();
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  const channels = [
+    { key: 'email', icon: Mail, label: t('about.contact_email'), value: CONTACT_EMAIL, href: `mailto:${CONTACT_EMAIL}` },
+    ...(WHATSAPP ? [{ key: 'whatsapp', icon: MessageCircle, label: t('about.contact_whatsapp'), value: `+${WHATSAPP}`, href: `https://wa.me/${WHATSAPP}` }] : []),
+    ...(PHONE ? [{ key: 'phone', icon: Phone, label: t('about.contact_phone'), value: `+${PHONE}`, href: `tel:+${PHONE}` }] : []),
+  ];
+
+  // Rendu dans <body> : la section crée son propre empilement et le menu passerait devant.
+  return createPortal(
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          className="contact-overlay"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          onClick={onClose}
+        >
+          <motion.div
+            className="contact-modal"
+            role="dialog" aria-modal="true" aria-labelledby="contact-modal-title"
+            initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button type="button" className="contact-close" onClick={onClose} aria-label={t('about.contact_close')} autoFocus>
+              <X size={18} />
+            </button>
+            <img src="/Identite Precis.png" alt="" aria-hidden="true" className="contact-mascot" />
+            <h3 id="contact-modal-title">{t('about.contact_title')}</h3>
+            <p className="contact-intro">{t('about.contact_intro')}</p>
+            <ul className="contact-channels">
+              {channels.map(({ key, icon: Icon, label, value, href }) => (
+                <li key={key}>
+                  <a href={href} {...(key === 'whatsapp' ? { target: '_blank', rel: 'noopener noreferrer' } : {})}>
+                    <span className="contact-channel-icon"><Icon size={18} aria-hidden="true" /></span>
+                    <span><strong>{label}</strong><small>{value}</small></span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body,
   );
 }
 
@@ -164,16 +173,19 @@ function FooterSection() {
         }}
       >
         <p>{t('footer.rights')}</p>
-        <div style={{ display: 'flex', gap: '16px' }}>
-          <a href="#" style={{ color: 'inherit' }}>
+        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+          <Link to="/mentions-legales" style={{ color: 'inherit' }}>
             {t('footer.legal')}
-          </a>
-          <a href="#" style={{ color: 'inherit' }}>
+          </Link>
+          <Link to="/conditions" style={{ color: 'inherit' }}>
             {t('footer.terms')}
-          </a>
-          <a href="#" style={{ color: 'inherit' }}>
+          </Link>
+          <Link to="/confidentialite" style={{ color: 'inherit' }}>
             {t('footer.privacy')}
-          </a>
+          </Link>
+          <Link to="/cookies" style={{ color: 'inherit' }}>
+            {t('footer.cookies')}
+          </Link>
         </div>
       </div>
     </div>

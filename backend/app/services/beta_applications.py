@@ -1,6 +1,6 @@
 """Public program information and private, reviewed applications."""
-from fastapi import HTTPException
 from sqlalchemy import select
+from app.models import User
 from app.models.beta import BetaApplication, BetaEnrollment
 from app.services import beta, beta_abuse
 from app.services.beta_meter import DEFAULT_LIMITS
@@ -17,7 +17,7 @@ def serialize(row):
 
 async def public_program(db):
     campaign = await beta.campaign_row(db)
-    occupied = await beta.capacity_used(db) if campaign else 0
+    occupied = await beta.capacity_used(db, campaign.id) if campaign else 0
     available = bool(campaign and beta.recruitment_open(campaign))
     ended = bool(campaign and campaign.recruitment_ends_at
                  and beta.aware(campaign.recruitment_ends_at) <= beta.now_utc())
@@ -33,32 +33,38 @@ async def public_program(db):
     }
 
 
-async def for_user(db, user):
+async def for_user(db, user, campaign=None):
+    campaign = campaign or await beta.campaign_row(db)
+    if not campaign:
+        return None
     return (await db.execute(select(BetaApplication).where(
-        BetaApplication.campaign_id == "pilot", BetaApplication.user_id == user.id,
-        BetaApplication.email == user.email.strip().casefold()))).scalar_one_or_none()
+        BetaApplication.campaign_id == campaign.id, BetaApplication.user_id == user.id,
+        BetaApplication.email == user.email.strip().lower()))).scalar_one_or_none()
 
 
 async def submit(db, user, *, primary_format, motivation, signals=None):
     if not user.email_verified:
-        raise HTTPException(403, "Vérifiez votre adresse e-mail avant de déposer une candidature.")
+        raise beta.error(403, "email_unverified", "Vérifiez votre adresse e-mail avant de déposer une candidature.")
     campaign = await beta.campaign_row(db, lock=True)
-    existing = await for_user(db, user)
+    existing = await for_user(db, user, campaign) if campaign else None
     if existing:
         return existing  # repeated clicks never create a second application
     if not campaign or not beta.recruitment_open(campaign):
-        raise HTTPException(409, "Les candidatures à la bêta sont fermées.")
-    if await beta.capacity_used(db) >= campaign.capacity:
-        raise HTTPException(409, "Toutes les places du programme sont engagées.")
-    if await beta.enrollment_for(db, user):
-        raise HTTPException(409, "Une invitation existe déjà pour ce compte.")
-    if await beta_abuse.mailbox_match(db, BetaEnrollment, user.email):
-        raise HTTPException(409, "Une invitation existe déjà pour cette boîte e-mail.")
-    if await beta_abuse.mailbox_match(db, BetaApplication, user.email):
-        raise HTTPException(409, "Une candidature a déjà été déposée avec cette boîte e-mail.")
-    await beta_abuse.check_submission_rate(db, signals)
-    row = BetaApplication(campaign_id="pilot", user_id=user.id,
-        email=user.email.strip().casefold(), mailbox_key=beta_abuse.canonical_mailbox(user.email),
+        raise beta.error(409, "applications_closed", "Les candidatures à la bêta sont fermées.")
+    if await beta.capacity_used(db, campaign.id) >= campaign.capacity:
+        raise beta.error(409, "program_full", "Toutes les places du programme sont engagées.")
+    latest = await beta.enrollment_for(db, user)
+    if latest and latest.campaign_id == campaign.id:
+        raise beta.error(409, "account_invited", "Une invitation existe déjà pour ce compte.")
+    if await beta.access_running_elsewhere(db, user.email, campaign.id):
+        raise beta.error(409, "previous_access_active", "Votre accès au programme précédent est encore en cours.")
+    if await beta_abuse.mailbox_match(db, BetaEnrollment, user.email, campaign_id=campaign.id):
+        raise beta.error(409, "mailbox_invited", "Une invitation existe déjà pour cette boîte e-mail.")
+    if await beta_abuse.mailbox_match(db, BetaApplication, user.email, campaign_id=campaign.id):
+        raise beta.error(409, "mailbox_applied", "Une candidature a déjà été déposée avec cette boîte e-mail.")
+    await beta_abuse.check_submission_rate(db, signals, campaign_id=campaign.id)
+    row = BetaApplication(campaign_id=campaign.id, user_id=user.id,
+        email=user.email.strip().lower(), mailbox_key=beta_abuse.canonical_mailbox(user.email),
         primary_format=primary_format, motivation=motivation,
         ip_hash=signals.ip_hash if signals else None,
         device_hash=signals.device_hash if signals else None)
@@ -68,20 +74,28 @@ async def submit(db, user, *, primary_format, motivation, signals=None):
 
 
 async def review(db, application_id, decision, admin):
+    found = (await db.execute(select(BetaApplication.campaign_id).where(
+        BetaApplication.id == application_id))).scalar_one_or_none()
+    if not found:
+        raise beta.error(404, "application_not_found", "Candidature introuvable.")
     # Same lock order as invitations: concurrent approvals share the seat cap.
-    await beta.campaign_row(db, lock=True)
+    campaign = await beta.campaign_by_id(db, found, lock=True)
     row = (await db.execute(select(BetaApplication).where(BetaApplication.id == application_id)
         .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
-    if not row:
-        raise HTTPException(404, "Candidature introuvable.")
     if row.state == decision:
         return row
     if row.state == "approved":
-        raise HTTPException(409, "Cette candidature a déjà été traitée.")
+        raise beta.error(409, "application_reviewed", "Cette candidature a déjà été traitée.")
     if decision == "approved":
         if not row.user_id:
-            raise HTTPException(409, "Le compte du candidat n'existe plus.")
-        await beta.invite(db, email=row.email, primary_format=row.primary_format, reviewer_id=admin.id)
+            raise beta.error(409, "candidate_deleted", "Le compte du candidat n'existe plus.")
+        await beta.invite(db, email=row.email, primary_format=row.primary_format, reviewer_id=admin.id,
+                          campaign=campaign)
+        # Direct access: the candidate's own signals; a refusal waits for their next visit.
+        candidate = await db.get(User, row.user_id)
+        if candidate and candidate.email.strip().lower() == row.email:
+            await beta.try_activate(db, candidate, signals=beta_abuse.ClientSignals(
+                ip_hash=row.ip_hash, device_hash=row.device_hash))
     row.state = decision
     row.reviewed_at = beta.now_utc()
     row.reviewer_id = admin.id

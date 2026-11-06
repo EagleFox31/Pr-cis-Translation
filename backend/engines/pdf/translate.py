@@ -488,7 +488,7 @@ def retranslate_overflows(data, engine, target_lang="fr", max_pages=None,
                      f"retraduction compacte (tour {rnd + 1}).")
         shrink = 1.0 - 0.08 * rnd               # budgets resserrés au 2e tour
         par_cadre = {}                          # id(cadre) -> (cadre, items)
-        refs, rang_de = {}, {}
+        refs, rang_de, src_len_de = {}, {}, {}
         for k, (el, fit, support, cadre) in enumerate(offenders):
             src_tagged, _meta = tagging.tag_paragraph(el)
             if not src_tagged.strip():
@@ -510,9 +510,11 @@ def retranslate_overflows(data, engine, target_lang="fr", max_pages=None,
                           "consigne": (f"MAXIMUM {budget} caractères (hors "
                                        "balises), par REFORMULATION uniquement :"
                                        " AUCUNE abréviation, AUCUN sigle absent"
-                                       " du texte source, ne rien omettre "
-                                       "d'essentiel.")})
+                                       " du texte source, ne rien omettre :"
+                                       " raccourcir la phrase, jamais la"
+                                       " résumer en titre.")})
             refs[_id] = el
+            src_len_de[_id] = src_len
             rang_de[_id] = cadre["rang"].get(id(el), 0)
         # Une page entière n'est pas renvoyée : n_page = ses paragraphes, le
         # lot n'en porte que les fautifs et reçoit la page autour d'eux.
@@ -529,6 +531,12 @@ def retranslate_overflows(data, engine, target_lang="fr", max_pages=None,
             for b in sub:
                 el = refs[b["id"]]
                 out = b.get("translated_text")
-                if out and _tags_ok(b["text"], out):
+                # PLANCHER DE FIDÉLITÉ : sous 60 % de la source, ce n'est plus
+                # une reformulation mais un résumé (cas réel : « In this
+                # section we will learn about 4S. » -> « Les 4S en bref »).
+                # On garde alors la traduction fidèle ; le rendu compresse.
+                if (out and _tags_ok(b["text"], out)
+                        and len(re.sub(r"\[\[/?\d+\]\]", "", out))
+                        >= 0.6 * src_len_de[b["id"]]):
                     el["tr_tagged"] = out
     return data

@@ -5,7 +5,7 @@ import uuid
 from unittest.mock import patch
 
 import racine  # noqa: F401
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, Response
 from sqlalchemy import select
 from app.api.auth import GoogleBody, google_auth
 from app.models import User
@@ -26,7 +26,7 @@ async def main():
                 "google.oauth2.id_token.verify_oauth2_token", return_value=payload):
             async with seed_admin._asm() as db:
                 return await google_handler(GoogleBody(credential="test-token"), db,
-                                            request=Request({"type": "http", "headers": []}))
+                                            request=Request({"type": "http", "headers": []}), response=Response())
 
     try:
         # Reproduit le compte administrateur amorce avant sa premiere connexion.
@@ -54,7 +54,7 @@ async def main():
             async with seed_admin._asm() as db:
                 try:
                     await google_handler(GoogleBody(credential="invalid-token"), db,
-                                         request=Request({"type": "http", "headers": []}))
+                                         request=Request({"type": "http", "headers": []}), response=Response())
                 except HTTPException as exc:
                     assert exc.status_code == 401
                 else:

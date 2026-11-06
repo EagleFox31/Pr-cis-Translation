@@ -11,11 +11,15 @@ import VerifyEmailPage from './pages/VerifyEmailPage';
 import AdminLogsPage from './pages/AdminLogsPage';
 import AdminUsersPage from './pages/AdminUsersPage';
 import AdminSupportPage from './pages/AdminSupportPage';
+import AdminDocumentsPage from './pages/AdminDocumentsPage';
+import CardPaymentPage from './pages/CardPaymentPage';
 import './beta.css';
+import ToastContainer from './components/ui/Toast';
 import { authReturnTo } from './lib/authReturn';
 
 const AdminBetaPage = lazy(() => import('./pages/AdminBetaPage'));
 const BetaPage = lazy(() => import('./pages/BetaPage'));
+const LegalPage = lazy(() => import('./pages/LegalPage'));
 
 /** Redirige vers /home si déjà connecté ( pages auth ). */
 function GuestRoute({ children }: { children: React.ReactNode }) {
@@ -39,6 +43,14 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 const GOOGLE_CLIENT_ID = (import.meta as any).env.VITE_GOOGLE_CLIENT_ID || '';
 
 export default function App() {
+  // La page carte s'affiche dans le cadre de la fenêtre de paiement : hors
+  // AuthProvider, pour qu'une seconde instance ne dispute pas le jeton de
+  // rafraîchissement à l'application qui l'héberge.
+  if (window.location.pathname === '/paiement/carte') return <CardPaymentPage />;
+  return <MainApp />;
+}
+
+function MainApp() {
   const [showSplash, setShowSplash] = useState(true);
 
   return (
@@ -58,11 +70,17 @@ export default function App() {
           <Route path="/verify-email" element={<VerifyEmailPage />} />
           <Route path="/admin/logs" element={<AdminRoute><AdminLogsPage /></AdminRoute>} />
           <Route path="/admin/users" element={<AdminRoute><AdminUsersPage /></AdminRoute>} />
+          <Route path="/admin/documents" element={<AdminRoute><AdminDocumentsPage /></AdminRoute>} />
           <Route path="/admin/support" element={<AdminRoute><AdminSupportPage /></AdminRoute>} />
           <Route path="/admin/beta" element={<AdminRoute><Suspense fallback={null}><AdminBetaPage /></Suspense></AdminRoute>} />
           <Route path="/beta" element={<Suspense fallback={null}><BetaPage /></Suspense>} />
+          <Route path="/mentions-legales" element={<Suspense fallback={null}><LegalPage slug="mentions-legales" /></Suspense>} />
+          <Route path="/conditions" element={<Suspense fallback={null}><LegalPage slug="conditions" /></Suspense>} />
+          <Route path="/confidentialite" element={<Suspense fallback={null}><LegalPage slug="confidentialite" /></Suspense>} />
+          <Route path="/cookies" element={<Suspense fallback={null}><LegalPage slug="cookies" /></Suspense>} />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
+        <ToastContainer />
       </AuthProvider>
     </BrowserRouter>
     </GoogleOAuthProvider>

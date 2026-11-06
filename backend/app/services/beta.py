@@ -2,12 +2,18 @@
 from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from app.models import User
 from app.models.beta import BetaApplication, BetaCampaign, BetaEnrollment, BetaUsage
 from app.services.beta_meter import BetaCost, DEFAULT_LIMITS, FORMATS, UNIT_NAMES
 from app.services.usage import add_months
 from app.services import beta_abuse
+
+
+def error(status, code, message, headers=None):
+    """A beta refusal: the stable code lets the page show it in the reader's language."""
+    return HTTPException(status, {"code": code, "message": message}, headers=headers)
 
 
 def now_utc():
@@ -43,19 +49,51 @@ def enrollment_state(enrollment, now=None):
 
 
 async def campaign_row(db, *, lock=False):
-    query = select(BetaCampaign).where(BetaCampaign.id == "pilot")
+    """The current program: the open one, otherwise the most recently created."""
+    query = select(BetaCampaign).order_by(
+        (BetaCampaign.state == "open").desc(), BetaCampaign.created_at.desc()).limit(1)
+    if lock:
+        query = query.with_for_update().execution_options(populate_existing=True)
+    return (await db.execute(query)).scalar_one_or_none()
+
+
+async def campaign_by_id(db, campaign_id, *, lock=False):
+    query = select(BetaCampaign).where(BetaCampaign.id == campaign_id)
     if lock:
         query = query.with_for_update().execution_options(populate_existing=True)
     return (await db.execute(query)).scalar_one_or_none()
 
 
 async def enrollment_for(db, user, *, lock=False):
+    """A running access first, otherwise the most recent invitation, whatever the program."""
+    running = and_(BetaEnrollment.activated_at.is_not(None), BetaEnrollment.revoked_at.is_(None),
+                   BetaEnrollment.expires_at > now_utc())
     query = select(BetaEnrollment).where(
-        BetaEnrollment.campaign_id == "pilot",
-        BetaEnrollment.email == user.email.strip().casefold())
+        BetaEnrollment.email == user.email.strip().lower()).order_by(
+        running.desc().nulls_last(), BetaEnrollment.invited_at.desc()).limit(1)
     if lock:
         query = query.with_for_update().execution_options(populate_existing=True)
     return (await db.execute(query)).scalar_one_or_none()
+
+
+async def enrollment_by_id(db, enrollment_id, *, lock=False):
+    query = select(BetaEnrollment).where(BetaEnrollment.id == enrollment_id)
+    if lock:
+        query = query.with_for_update().execution_options(populate_existing=True)
+    return (await db.execute(query)).scalar_one_or_none()
+
+
+async def access_running_elsewhere(db, email, campaign_id, *, now=None):
+    """Another program's access still running for this mailbox: the next program waits for its end."""
+    key = beta_abuse.canonical_mailbox(email)
+    hidden = beta_abuse.anonymous_mailbox(key)
+    rows = (await db.execute(select(BetaEnrollment).where(
+        BetaEnrollment.campaign_id != campaign_id,
+        or_(BetaEnrollment.mailbox_key.in_((key, hidden)), BetaEnrollment.mailbox_key.is_(None)),
+        BetaEnrollment.activated_at.is_not(None), BetaEnrollment.revoked_at.is_(None)))).scalars().all()
+    return any(enrollment_state(row, now) == "active"
+               and (row.mailbox_key == hidden or beta_abuse.canonical_mailbox(row.email) == key)
+               for row in rows)
 
 
 async def totals(db, enrollment_id):
@@ -92,12 +130,12 @@ async def serialize_enrollment(db, enrollment, *, now=None):
     }
 
 
-async def capacity_used(db):
+async def capacity_used(db, campaign_id):
     # Activated seats remain counted after expiry, revocation and account
     # deletion. Only a never-activated revoked invitation frees a seat.
     return int((await db.execute(
         select(func.count()).select_from(BetaEnrollment).where(
-            BetaEnrollment.campaign_id == "pilot",
+            BetaEnrollment.campaign_id == campaign_id,
             or_(BetaEnrollment.activated_at.is_not(None), BetaEnrollment.revoked_at.is_(None))
         ))).scalar() or 0)
 
@@ -108,33 +146,36 @@ async def serialize_campaign(db, campaign):
     return {
         "id": campaign.id, "name": campaign.name, "state": campaign.state,
         "capacity": campaign.capacity, "first_wave_capacity": campaign.first_wave_capacity,
-        "current_capacity": wave_capacity(campaign), "seats_used": await capacity_used(db),
+        "current_capacity": wave_capacity(campaign), "seats_used": await capacity_used(db, campaign.id),
         "access_days": campaign.access_days, "limits": campaign.limits,
         "starts_at": aware(campaign.starts_at).isoformat() if campaign.starts_at else None,
         "recruitment_ends_at": aware(campaign.recruitment_ends_at).isoformat() if campaign.recruitment_ends_at else None,
         "second_wave_at": add_months(aware(campaign.starts_at), 1).isoformat() if campaign.starts_at else None,
         "recruitment_open": recruitment_open(campaign),
+        "created_at": aware(campaign.created_at).isoformat() if campaign.created_at else None,
     }
 
 
-async def invite(db, *, email, primary_format, limits=None, reviewer_id=None):
-    campaign = await campaign_row(db, lock=True)
+async def invite(db, *, email, primary_format, limits=None, reviewer_id=None, campaign=None):
+    campaign = campaign or await campaign_row(db, lock=True)
     if not campaign or not recruitment_open(campaign):
-        raise HTTPException(409, "Les inscriptions à la bêta sont fermées.")
-    if await capacity_used(db) >= wave_capacity(campaign):
-        raise HTTPException(409, "La capacité de cette vague est atteinte.")
-    email = email.strip().casefold()
-    existing = await beta_abuse.mailbox_match(db, BetaEnrollment, email)
+        raise error(409, "campaign_closed", "Les inscriptions à la bêta sont fermées.")
+    if await capacity_used(db, campaign.id) >= wave_capacity(campaign):
+        raise error(409, "wave_full", "La capacité de cette vague est atteinte.")
+    email = email.strip().lower()
+    existing = await beta_abuse.mailbox_match(db, BetaEnrollment, email, campaign_id=campaign.id)
     if existing:
-        raise HTTPException(409, "Cette boîte e-mail possède déjà une invitation à cette campagne.")
-    item = BetaEnrollment(campaign_id="pilot", email=email, mailbox_key=beta_abuse.canonical_mailbox(email),
+        raise error(409, "already_invited", "Cette boîte e-mail possède déjà une invitation à cette campagne.")
+    if await access_running_elsewhere(db, email, campaign.id):
+        raise error(409, "previous_access_active", "L'accès à un programme précédent est encore en cours.")
+    item = BetaEnrollment(campaign_id=campaign.id, email=email, mailbox_key=beta_abuse.canonical_mailbox(email),
                           primary_format=primary_format,
                           limits=dict(limits or campaign.limits))
     db.add(item)
     await db.flush()
     # A manual invitation also resolves the matching pending application.
     application = (await db.execute(select(BetaApplication).where(
-        BetaApplication.campaign_id == "pilot", BetaApplication.email == email,
+        BetaApplication.campaign_id == campaign.id, BetaApplication.email == email,
         BetaApplication.state.in_(("pending", "declined"))))).scalar_one_or_none()
     if application:
         application.state = "approved"
@@ -145,22 +186,25 @@ async def invite(db, *, email, primary_format, limits=None, reviewer_id=None):
 
 async def activate(db, user, *, signals=None):
     if not user.email_verified:
-        raise HTTPException(403, "Vérifiez votre adresse e-mail avant d'activer la bêta.")
-    campaign = await campaign_row(db, lock=True)
-    if not campaign:
-        raise HTTPException(404, "Aucune invitation bêta.")
-    enrollment = await enrollment_for(db, user, lock=True)
+        raise error(403, "email_unverified", "Vérifiez votre adresse e-mail avant d'activer la bêta.")
+    enrollment = await enrollment_for(db, user)
+    if enrollment is not None:
+        # Same lock order as invitations: the program first, then the invitation.
+        campaign = await campaign_by_id(db, enrollment.campaign_id, lock=True)
+        enrollment = await enrollment_by_id(db, enrollment.id, lock=True)
     if enrollment is None or enrollment.revoked_at:
-        raise HTTPException(404, "Aucune invitation bêta.")
+        raise error(404, "no_invitation", "Aucune invitation bêta.")
     if enrollment.activated_at is not None:
         if enrollment.user_id != user.id:
-            raise HTTPException(409, "Cette invitation a déjà été utilisée.")
+            raise error(409, "invitation_used", "Cette invitation a déjà été utilisée.")
         return enrollment
     if not recruitment_open(campaign):
-        raise HTTPException(409, "La période d'activation est terminée.")
-    if await beta_abuse.mailbox_match(db, BetaEnrollment, user.email,
+        raise error(409, "activation_closed", "La période d'activation est terminée.")
+    if await beta_abuse.mailbox_match(db, BetaEnrollment, user.email, campaign_id=campaign.id,
             exclude_id=enrollment.id, activated_only=True):
-        raise HTTPException(409, "Cette boîte e-mail a déjà bénéficié de la bêta.")
+        raise error(409, "mailbox_used", "Cette boîte e-mail a déjà bénéficié de la bêta.")
+    if await access_running_elsewhere(db, user.email, campaign.id):
+        raise error(409, "previous_access_active", "Votre accès au programme précédent est encore en cours.")
     enrollment.user_id = user.id
     enrollment.mailbox_key = beta_abuse.canonical_mailbox(user.email)
     enrollment.ip_hash = signals.ip_hash if signals else None
@@ -169,6 +213,15 @@ async def activate(db, user, *, signals=None):
     enrollment.expires_at = enrollment.activated_at + timedelta(days=campaign.access_days)
     await db.flush()
     return enrollment
+
+
+async def try_activate(db, user, *, signals=None):
+    """Direct access: same checks as `activate`, but a refusal leaves the invitation pending."""
+    try:
+        async with db.begin_nested():
+            return await activate(db, user, signals=signals)
+    except (HTTPException, IntegrityError):
+        return None
 
 
 async def active_enrollment(db, user, *, lock=False):
@@ -210,3 +263,38 @@ async def refund_for_document(db, document_id, *, refunded=True):
         .with_for_update().execution_options(populate_existing=True))).scalars().all()
     for row in rows:
         row.refunded = refunded
+
+
+async def refund_unfinished(db, document_id, gardees):
+    """Job coupé : un PDF/PPTX (unités = pages) garde `gardees` unités, au
+    prorata de ce qui est traduit ; un DOCX/XLSX, sans travail partiel, est
+    gardé entier s'il a fini et rendu entier sinon."""
+    ids = (await db.execute(select(BetaUsage.enrollment_id).where(
+        BetaUsage.document_key == document_id))).scalars().all()
+    for enrollment_id in sorted(set(ids)):
+        await db.execute(select(BetaEnrollment).where(BetaEnrollment.id == enrollment_id).with_for_update())
+    rows = (await db.execute(select(BetaUsage).where(
+        BetaUsage.document_key == document_id, BetaUsage.refunded.is_(False))
+        .with_for_update().execution_options(populate_existing=True))).scalars().all()
+    for row in rows:
+        if gardees <= 0:
+            row.refunded = True
+        elif row.format in ("pdf", "pptx"):
+            row.units = min(row.units, gardees)
+
+
+async def office_billed(db, document_id) -> bool:
+    """Un DOCX/XLSX bêta de ce document reste débité (traduction écrite :
+    ses unités sont des mots, pas des pages)."""
+    n = (await db.execute(select(func.count()).select_from(BetaUsage).where(
+        BetaUsage.document_key == document_id, BetaUsage.refunded.is_(False),
+        BetaUsage.format.in_(("docx", "xlsx"))))).scalar()
+    return bool(n)
+
+
+async def units_billed(db, document_id):
+    """Pages bêta encore débitées pour ce document (PDF/PPTX seulement)."""
+    n = (await db.execute(select(func.coalesce(func.sum(BetaUsage.units), 0)).where(
+        BetaUsage.document_key == document_id, BetaUsage.refunded.is_(False),
+        BetaUsage.format.in_(("pdf", "pptx"))))).scalar()
+    return int(n or 0)

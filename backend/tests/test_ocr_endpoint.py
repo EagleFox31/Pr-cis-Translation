@@ -1,4 +1,4 @@
-"""Parcours accepte : OCR reel avant inscription de la consommation et mise en file."""
+"""Parcours accepte : le scan part dans la file des scans, sans lecture dans la requete."""
 import asyncio
 import io
 import json
@@ -8,7 +8,7 @@ import uuid
 from unittest.mock import patch
 
 import racine  # noqa: F401
-from fastapi import UploadFile
+from fastapi import Response, UploadFile
 from sqlalchemy import select
 from app.api.translate import translate_endpoint
 from app import config
@@ -28,8 +28,9 @@ async def main():
             user = User(email=email, name="OCR test", plan="admin", email_verified=True)
             db.add(user)
             await db.commit()
-            with patch("app.api.translate.scheduler.submit") as submit:
-                response = await translate_endpoint(request=None,
+            with patch("app.api.translate.Tesseract.manquant", return_value=None),                     patch("app.services.ocr.lire_page",
+                          side_effect=AssertionError("pas d'OCR dans la requete")),                     patch("app.api.translate.scheduler.submit") as normal,                     patch("app.api.translate.scheduler_scans.submit") as submit:
+                response = await translate_endpoint(request=racine.requete_test(), response=Response(),
                     file=UploadFile(filename="scan.pdf", file=io.BytesIO(data)), target_lang="en",
                     format_options="{}", quality="fast", precise="", pages="1", debug="",
                     x_api_key=config.FRONTEND_API_KEY, current_user=user, db=db)
@@ -38,16 +39,16 @@ async def main():
             assert body["ocr_pages"] == 1 and body["ocr_review_required"] is True
             job_id = body["job_id"]
             submit.assert_called_once()
+            normal.assert_not_called()
             args = submit.call_args.args[-1]
             assert args[1] == data, "Original bytes must stay intact"
-            assert args[-1] is not None and args[-1] != data
-            assert "_ocrv1" in args[6], "OCR translations need a distinct cache key"
+            assert "_ocrv3" in args[6], "OCR translations need a distinct cache key"
             document = (await db.execute(select(Document).where(Document.user_id == user.id))).scalar_one()
             original_path = document.original_path
             assert document.page_count == 1
             records = (await db.execute(select(UsageRecord).where(UsageRecord.user_id == user.id))).scalars().all()
             assert len(records) == 1, "Only the recognized selected page may be recorded"
-        print("PASS: scan accepted after real OCR; original retained; review notice; distinct cache; one selected page recorded")
+        print("PASS: scan queued without OCR in the request; original retained; review notice; distinct cache; one selected page recorded")
     finally:
         if job_id:
             jobs.forget(job_id)

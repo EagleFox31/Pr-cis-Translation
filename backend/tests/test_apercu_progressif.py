@@ -195,6 +195,15 @@ def main() -> int:
     ok("APPARIEMENT  l'apercu affiche EXACTEMENT ce qu'il affichait",
        _empreinte(apercu.assembler()) == avant)
 
+    # ── 5-ter. La liste annoncée au navigateur = les pages vraiment greffées ──
+    # Le serveur l'envoie avec le partiel (en-tête `X-Pages-Pretes`) ; le
+    # navigateur ne marque « traduite » QUE ces pages. Une page en trop, et une
+    # diapositive encore en langue source s'affiche comme traduite.
+    ok("LISTE  exactement les pages greffées, triées, rien de plus",
+       apercu.liste_pages == [1, 2, 3, 5, 6], f"{apercu.liste_pages}")
+    ok("LISTE  inchangée par une greffe refusée",
+       len(apercu.liste_pages) == apercu.pages_traduites)
+
     eng._cleanup_temp()
 
     print()

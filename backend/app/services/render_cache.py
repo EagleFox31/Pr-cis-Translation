@@ -69,17 +69,33 @@ def cache_valid(translation_path: str) -> str | None:
     return None
 
 
+def mtime_de(chemin: str) -> float | None:
+    try:
+        return os.path.getmtime(chemin)
+    except OSError:
+        return None
+
+
 def marque_polices() -> int:
     """À relever AVANT le rendu, puis passer à `store_render`."""
     return polices.degradations()
 
 
-def store_render(data: bytes, translation_path: str, marque: int) -> None:
+def store_render(data: bytes, translation_path: str, marque: int,
+                 mtime_source: float | None = None) -> None:
     """Écrit le rendu ATOMIQUEMENT — un lecteur ne voit jamais un demi-PDF.
+
+    `mtime_source` : mtime de la traduction relevé AVANT le rendu. Si un job
+    l'a complétée pendant le rendu, il y manque des pages, et il serait
+    pourtant plus récent qu'elle donc tenu pour valide : on ne le conserve pas.
 
     Un rendu fait réseau coupé (police « proche » faute d'identique) n'est pas
     conservé : la clé ne porte que ENGINE_VERSION, il serait servi à vie. Le
     suivant retentera le téléchargement."""
+    if mtime_source is not None and mtime_de(translation_path) != mtime_source:
+        logger.info("Rendu non mis en cache (traduction modifiée pendant le "
+                    "rendu) : %s", translation_path)
+        return
     if polices.degradations() != marque:
         logger.info("Rendu non mis en cache (polices dégradées) : %s",
                     translation_path)
@@ -150,20 +166,20 @@ def ensure_background_build(original_path: str, translation_path: str,
 
     def _run():
         try:
-            # Import TARDIF et par attribut : `app` importe les routes qui
-            # nous importent (cycle sinon), et les tests substituent
-            # `app.render_translation_bytes` — passer par l'attribut au moment
-            # de l'appel respecte leur substitution.
-            import app as _app
+            # Import TARDIF et par attribut : les routes de documents nous
+            # importent (cycle sinon), et les tests substituent
+            # `documents.render_translation_bytes` — passer par l'attribut au
+            # moment de l'appel respecte leur substitution.
+            from app.api import documents as _app
             with build_lock(translation_path):
                 if cache_valid(translation_path):
                     return          # une requête l'a construit entre-temps
-                marque = marque_polices()
+                marque, avant = marque_polices(), mtime_de(translation_path)
                 data = _app.render_translation_bytes(
                     original_path, translation_path, ext, target_lang)
                 if ext != "pdf":
                     data = _app.convert_to_pdf_bytes(data, ext)
-                store_render(data, translation_path, marque)
+                store_render(data, translation_path, marque, avant)
             logger.info("Rendu complet mis en cache (PDF) : %s", cp)
         except Exception as e:
             logger.warning("Construction du rendu en cache échouée (%s) : %s",
@@ -174,3 +190,76 @@ def ensure_background_build(original_path: str, translation_path: str,
 
     threading.Thread(target=_run, daemon=True,
                      name=f"render-cache-{os.path.basename(cp)}").start()
+
+
+def invalider(translation_path: str) -> None:
+    """Le rendu en cache date d'avant un changement de la traduction : elle
+    devient plus récente que lui (`cache_valid`), et un rendu en cours
+    d'écriture est écarté (`store_render` compare la date relevée avant)."""
+    import time
+    t = time.time()
+    try:
+        t = max(t, os.path.getmtime(cache_path_for(translation_path)) + 1)
+    except OSError:
+        pass
+    os.utime(translation_path, (t, t))
+
+
+# ── Lecture / remplacement d'une traduction ─────────────────────────────────
+#
+# Un rendu relit le JSON au début et peut le réécrire à la fin (page « à
+# améliorer ») : un remplacement fait entre les deux serait écrasé. Les rendus
+# se partagent la traduction ; un remplacement attend qu'ils finissent et les
+# retient le temps de l'écriture (quelques millisecondes).
+
+class _LectureEcriture:
+    def __init__(self) -> None:
+        self._cond = threading.Condition()
+        self._lecteurs = 0
+        self._ecrivain = False
+        # Un écrivain qui attend passe avant les nouveaux lecteurs : sinon des
+        # rendus qui se chevauchent le retiendraient indéfiniment.
+        self._ecrivains_en_attente = 0
+
+    def lire(self):
+        return _Prise(self, False)
+
+    def ecrire(self):
+        return _Prise(self, True)
+
+
+class _Prise:
+    def __init__(self, verrou: _LectureEcriture, exclusive: bool) -> None:
+        self.v, self.exclusive = verrou, exclusive
+
+    def __enter__(self):
+        v = self.v
+        with v._cond:
+            if self.exclusive:
+                v._ecrivains_en_attente += 1
+                try:
+                    v._cond.wait_for(lambda: not v._ecrivain and not v._lecteurs)
+                finally:
+                    v._ecrivains_en_attente -= 1
+                v._ecrivain = True
+            else:
+                v._cond.wait_for(lambda: not v._ecrivain and not v._ecrivains_en_attente)
+                v._lecteurs += 1
+        return self
+
+    def __exit__(self, *_):
+        v = self.v
+        with v._cond:
+            if self.exclusive:
+                v._ecrivain = False
+            else:
+                v._lecteurs -= 1
+            v._cond.notify_all()
+
+
+_traductions: dict[str, _LectureEcriture] = {}
+
+
+def verrou_traduction(translation_path: str) -> _LectureEcriture:
+    with _locks_guard:
+        return _traductions.setdefault(os.path.abspath(translation_path), _LectureEcriture())

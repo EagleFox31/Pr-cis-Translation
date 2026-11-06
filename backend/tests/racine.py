@@ -33,3 +33,16 @@ if "PRECIS_FONTS_CACHE" not in os.environ:
     _cache_polices = tempfile.mkdtemp(prefix="polices_test_")
     os.environ["PRECIS_FONTS_CACHE"] = _cache_polices
     atexit.register(shutil.rmtree, _cache_polices, ignore_errors=True)
+
+
+def requete_test(adresse: str = "203.0.113.7"):
+    """Vraie `Request` Starlette minimale, pour appeler une route directement."""
+    from starlette.requests import Request
+    return Request({"type": "http", "method": "POST", "path": "/", "headers": [],
+                    "client": (adresse, 50000)})
+
+
+def compte_ancien():
+    """Date de création assez ancienne pour ne pas déclencher le garde « compte neuf »."""
+    from datetime import datetime, timedelta, timezone
+    return datetime.now(timezone.utc) - timedelta(days=3)

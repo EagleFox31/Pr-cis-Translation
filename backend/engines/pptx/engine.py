@@ -4,12 +4,12 @@ import json
 import shutil
 import tempfile
 import re
-import io
 from lxml import etree
 from pathlib import Path
 from collections import defaultdict
 
 from engines import runtags        # contrat des balises de runs (et sa réparation)
+from engines import incorpores     # objets incorporés (Excel, Word, PowerPoint)
 
 NAMESPACES = {
     'p': 'http://schemas.openxmlformats.org/presentationml/2006/main',
@@ -18,6 +18,51 @@ NAMESPACES = {
     'c': 'http://schemas.openxmlformats.org/drawingml/2006/chart',
     's': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
 }
+
+_SLIDE_REL_TYPE = ("http://schemas.openxmlformats.org/officeDocument/"
+                   "2006/relationships/slide")
+
+
+def _ordre_diapositives(temp_path) -> list[int]:
+    """Numéros de FICHIER des diapositives, dans l'ordre d'AFFICHAGE.
+
+    La diapositive n°1 n'est pas forcément `slide1.xml` : un export Google
+    Slides nomme `slide1000.xml`, `slide1001.xml`…, et réordonner dans
+    PowerPoint ne renomme rien. Le seul ordre qui fait foi est `sldIdLst` de
+    `presentation.xml` (rId → Target dans ses rels). Toute méthode « par
+    diapositive » reçoit donc une POSITION (1..N) et passe par ici.
+
+    Repli sur le tri numérique des fichiers si ces deux parties manquent ou
+    sont illisibles ; une diapositive absente de `sldIdLst` n'est pas affichée
+    par PowerPoint et n'est pas comptée."""
+    temp_path = Path(temp_path)
+    slides_dir = temp_path / "ppt" / "slides"
+    presentes: set[int] = set()
+    if slides_dir.exists():
+        for p in slides_dir.glob("slide*.xml"):
+            m = re.fullmatch(r"slide(\d+)\.xml", p.name)
+            if m:
+                presentes.add(int(m.group(1)))
+
+    ordre: list[int] = []
+    rels_path = temp_path / "ppt" / "_rels" / "presentation.xml.rels"
+    pres_path = temp_path / "ppt" / "presentation.xml"
+    if rels_path.exists() and pres_path.exists():
+        try:
+            rid_to_num: dict[str, int] = {}
+            for rel in etree.parse(str(rels_path)).getroot():
+                if rel.get("Type") == _SLIDE_REL_TYPE:
+                    m = re.search(r"slide(\d+)\.xml$", rel.get("Target", ""))
+                    if m:
+                        rid_to_num[rel.get("Id")] = int(m.group(1))
+            for el in etree.parse(str(pres_path)).getroot().xpath(
+                    "//p:sldIdLst/p:sldId", namespaces=NAMESPACES):
+                num = rid_to_num.get(el.get(f"{{{NAMESPACES['r']}}}id"))
+                if num in presentes and num not in ordre:
+                    ordre.append(num)
+        except etree.XMLSyntaxError:
+            ordre = []
+    return ordre or sorted(presentes)
 
 
 def _find_soffice_engine() -> str | None:
@@ -141,6 +186,13 @@ class PPTXTranslatorEngine:
         # Parties partagées déjà extraites pour CE document (chemins de
         # fichiers). Remis à zéro avec le dossier temporaire.
         self._parts_vues: set[str] = set()
+        # PPTX d'origine du dossier temporaire : les objets incorporés se
+        # relèvent et se réinjectent depuis lui (chemin progressif, diapo à diapo).
+        self._source: str | None = None
+        # Objets non traités des diapositives relevées une à une (compte rendu
+        # client, D6) : même forme que `incorpores.rapport()["non_traites"]`.
+        self.objets_non_traites: list[dict] = []
+        self.objets_restes: list[dict] = []
 
     def generate_autorefresh_pptm(self, pptx_path: str, pptm_output_path: str = None) -> str:
         """Génère une version .pptm (PowerPoint Macro-Enabled) contenant la macro VBA
@@ -216,6 +268,7 @@ class PPTXTranslatorEngine:
         temp_path = self._get_temp_dir()
         with zipfile.ZipFile(pptx_path, 'r') as zf:
             zf.extractall(temp_path)
+        self._source = str(pptx_path)
         # Nouveau document : les parties partagées sont à revoir.
         self._parts_vues.clear()
 
@@ -237,7 +290,7 @@ class PPTXTranslatorEngine:
                     arcname = os.path.relpath(file_path, temp_path)
                     zf.write(file_path, arcname)
 
-    def extract_text(self, pptx_path, output_json="extraction_texte.json", filters=None, progress_callback=None, pages=None):
+    def extract_text(self, pptx_path, output_json="extraction_texte.json", filters=None, progress_callback=None, pages=None, niveau_objets=1):
         if filters is None:
             filters = {"shapes": True, "smartarts": True, "tables": True, "connectors": True}
 
@@ -257,14 +310,35 @@ class PPTXTranslatorEngine:
             self._cleanup_temp()
             return None, "Le fichier n'est pas un PowerPoint valide."
 
-        slide_files = sorted(slides_dir.glob("slide*.xml"), key=lambda x: int(x.stem.replace("slide", "")))
-        
+        # Ordre d'AFFICHAGE ; `slide_num` = position (cf. _ordre_diapositives).
+        slide_files = [slides_dir / f"slide{n}.xml" for n in _ordre_diapositives(temp_path)]
+
         extraction = {"slides": []}
         element_types_used = defaultdict(set)
         total_slides = len(slide_files)
 
+        # Objets incorporés : relevés UNE fois pour tout le document, puis rangés
+        # dans `excel_elements` de la diapositive qui les affiche. Ceux d'un
+        # masque, d'une disposition ou d'une page de notes vont à la première
+        # diapositive relevée.
+        objets_par_diapo: dict[int, list] = {}
+        if filters.get("tables"):
+            retenues = {int(p.stem.replace("slide", ""))
+                        for i, p in enumerate(slide_files)
+                        if pages is None or (i + 1) in pages}
+            if retenues:
+                elements_objets, rapport_objets = incorpores.relever(
+                    pptx_path, base=self._base_objets(retenues), niveau=niveau_objets)
+                extraction["objets_rapport"] = rapport_objets
+                for el in elements_objets:
+                    m = re.fullmatch(r"ppt/slides/slide(\d+)\.xml",
+                                     el["context"].get("partie", ""))
+                    num = int(m.group(1)) if m else min(retenues)
+                    objets_par_diapo.setdefault(num, []).append(el)
+                    element_types_used[num].add(el["context"]["shape_type"])
+
         for i, slide_path in enumerate(slide_files):
-            slide_num = int(slide_path.stem.replace("slide", ""))
+            slide_num = i + 1
             if pages is not None and (i + 1) not in pages:
                 continue
             if progress_callback:
@@ -279,7 +353,7 @@ class PPTXTranslatorEngine:
                 "diagram_elements": [],
                 "chart_elements": [],
                 "layout_elements": [],
-                "excel_elements": []
+                "excel_elements": objets_par_diapo.get(slide_num, [])
             }
 
             # 1. Extraction du texte de la slide
@@ -335,16 +409,7 @@ class PPTXTranslatorEngine:
                         if layout_data["text_elements"]:
                             slide_data["layout_elements"].append(layout_data)
 
-                # 5. Tableaux & Graphiques Excel incorporés (ppt/embeddings/*.xlsx)
-                if filters.get("tables"):
-                    pkg_rels = rels_tree.xpath("//*[@Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/package']")
-                    for rel in pkg_rels:
-                        target = rel.get("Target")
-                        emb_path = (slides_dir / target).resolve()
-                        if emb_path.exists() and emb_path.suffix.lower() in ('.xlsx', '.xlsm'):
-                            self._process_excel_file(emb_path, slide_num,
-                                                     slide_data["excel_elements"],
-                                                     element_types_used)
+            # (5. Objets incorporés : relevés plus haut, pour tout le document.)
 
             # 6. Masques principaux (slideMasters) — hors bloc rels_path
             masters_dir = temp_path / "ppt" / "slideMasters"
@@ -374,28 +439,56 @@ class PPTXTranslatorEngine:
         self._cleanup_temp()
         return extraction, element_types_used
 
-    def _process_excel_file(self, emb_path: Path, slide_num: int, excel_store: list, element_types_used: dict):
-        """Extrait les chaînes de texte partagées (xl/sharedStrings.xml) d'un fichier Excel incorporé."""
+    # Objets incorporés (Excel, Word, PowerPoint, jusqu'à PROFONDEUR_MAX niveaux) :
+    # relevés et réinjectés par le moteur de leur format, via `incorpores`. Les
+    # ids sont préfixés par la diapositive (ou la partie) et le nom du fichier.
+    @staticmethod
+    def _base_objets(retenues):
+        """Préfixe des ids d'un objet : `slide<N>_` pour une diapositive de
+        `retenues` (None pour les autres, ignorées), `<partie>_` pour un masque,
+        une disposition ou une page de notes."""
+        def base(objet):
+            m = re.fullmatch(r"ppt/slides/slide(\d+)\.xml", objet.partie)
+            if m:
+                n = int(m.group(1))
+                return f"slide{n}_" if n in retenues else None
+            return f"{Path(objet.partie).stem}_"
+        return base
+
+    @staticmethod
+    def _base_diapo(slide_num: int):
+        """Chemin progressif : seuls les objets affichés par CETTE diapositive."""
+        partie = f"ppt/slides/slide{slide_num}.xml"
+        return lambda objet: f"slide{slide_num}_" if objet.partie == partie else None
+
+    def _a_des_objets(self, slide_num: int) -> bool:
+        """La diapositive pointe-t-elle vers ppt/embeddings, vers un graphique
+        (son classeur caché, 6.11.5) ou vers un objet lié (fichier externe, à
+        signaler) ? Test bon marché qui évite de reparcourir tout le paquet pour
+        chaque diapositive sans objet."""
+        rels = Path(self._get_temp_dir()) / "ppt" / "slides" / "_rels" / f"slide{slide_num}.xml.rels"
         try:
-            with open(emb_path, "rb") as f:
-                excel_bytes = f.read()
-            with zipfile.ZipFile(io.BytesIO(excel_bytes), "r") as xzf:
-                if "xl/sharedStrings.xml" in xzf.namelist():
-                    ss_xml = xzf.read("xl/sharedStrings.xml")
-                    tree = etree.fromstring(ss_xml)
-                    t_nodes = tree.xpath(".//s:t", namespaces=NAMESPACES)
-                    for t_idx, t_node in enumerate(t_nodes):
-                        val = t_node.text or ""
-                        if val.strip() and not _is_numeric(val):
-                            elem_id = f"slide{slide_num}_excel_{emb_path.stem}_ss{t_idx}"
-                            excel_store.append({
-                                "id": elem_id,
-                                "text": f"[[0]]{val}[[/0]]",
-                                "context": {"shape_type": "Excel Cell", "paragraph_index": t_idx}
-                            })
-                            element_types_used[slide_num].add("Excel Cell")
-        except Exception:
-            pass
+            contenu = rels.read_bytes()
+            return any(m in contenu for m in (b"embeddings/", b"charts/",
+                                              b"relationships/oleObject", b"relationships/package"))
+        except OSError:
+            return False
+
+    def objets_hors_diapositives(self) -> list[dict]:
+        """Objets des masques, dispositions et notes : le parcours progressif ne
+        les traduit pas (seules les diapositives sont parcourues), le client en est
+        averti. Un objet aussi affiché sur une diapositive n'en fait pas partie."""
+        if not self._source:
+            return []
+        objets = incorpores.reperer(self._source)
+        sur_diapo = {o.cible for o in objets if o.partie.startswith("ppt/slides/")}
+        signales: list[dict] = []
+        for o in objets:
+            raison = o.raison_non_traite or "hors_diapo"
+            if o.cible not in sur_diapo and raison != "marqueur":
+                incorpores.cumuler(signales, [{"cible": o.cible.rsplit("/", 1)[-1],
+                                               "raison": raison}])
+        return signales
 
     def _process_xml_element(self, root, slide_num, data_store, element_types_used, id_prefix, filters):
         paragraphs = root.xpath(".//a:p", namespaces=NAMESPACES)
@@ -469,7 +562,7 @@ class PPTXTranslatorEngine:
                     })
                     element_types_used[slide_num].add("Chart Label")
 
-    def inject_translation(self, original_pptx, translated_json_path, output_pptx, progress_callback=None, format_options=None):
+    def inject_translation(self, original_pptx, translated_json_path, output_pptx, progress_callback=None, format_options=None, niveau_objets=1):
         if not os.path.exists(translated_json_path):
             return False, "Fichier JSON de traduction introuvable."
         
@@ -502,11 +595,11 @@ class PPTXTranslatorEngine:
 
         try:
             slides_dir = temp_path / "ppt" / "slides"
-            slide_files = sorted(slides_dir.glob("slide*.xml"), key=lambda x: int(x.stem.replace("slide", "")))
+            # Même numérotation que l'extraction : la POSITION d'affichage.
+            slide_files = [slides_dir / f"slide{n}.xml" for n in _ordre_diapositives(temp_path)]
             total_slides = len(slide_files)
 
-            for slide_path in slide_files:
-                slide_num = int(slide_path.stem.replace("slide", ""))
+            for slide_num, slide_path in enumerate(slide_files, start=1):
                 if progress_callback:
                     progress_callback(f"Réinjection slide {slide_num}/{total_slides}...")
                 
@@ -548,14 +641,6 @@ class PPTXTranslatorEngine:
                                                 translation_map,
                                                 num_alt=(slide_num,))
 
-                    # Excel incorporés (.xlsx) — injecter dans sharedStrings.xml
-                    pkg_rels = rels_tree.xpath("//*[@Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/package']")
-                    for rel in pkg_rels:
-                        target = rel.get("Target")
-                        emb_path = (slides_dir / target).resolve()
-                        if emb_path.exists() and emb_path.suffix.lower() in ('.xlsx', '.xlsm'):
-                            self._inject_excel_file(emb_path, slide_num, translation_map)
-
             # SlideMasters — UNE injection par masque, pas une par diapositive.
             # La boucle imbriquée réécrivait le même fichier autant de fois
             # qu'il y avait de diapositives, chaque passe écrasant la
@@ -571,14 +656,19 @@ class PPTXTranslatorEngine:
                                         f"master_{master_id}", translation_map,
                                         num_alt=nums_anciens)
 
-            # Aperçus des objets OLE Excel : régénérés depuis les classeurs
-            # traduits (best-effort — voir regenerate_ole_previews). Sans ça, les
-            # tableaux/graphiques Excel restent affichés en langue source tant que
-            # PowerPoint n'a pas activé l'objet.
+            # Objets incorporés : traduits par le moteur de leur format, puis remis
+            # dans le dossier avec leur aperçu redessiné (`engines/apercus.py`).
+            # Au mieux : un objet en échec reste tel quel.
             try:
-                self.regenerate_ole_previews(progress_callback=progress_callback)
-            except Exception:
-                pass
+                retenues = {sl.get("slide_id") for sl in translation_data.get("slides", [])}
+                modifs = incorpores.reinjecter(
+                    original_pptx, translation_map, self._base_objets(retenues),
+                    niveau=niveau_objets)
+                incorpores.appliquer_dossier(temp_path, modifs)
+                incorpores.cumuler(self.objets_restes, modifs.restes)
+            except Exception as exc:  # noqa: BLE001
+                incorpores.logger.warning("Objets PPTX non réinjectés : %s", exc)
+                incorpores.cumuler(self.objets_restes, [incorpores.reste_inconnu()])
 
             if progress_callback:
                 progress_callback("Re-compression du fichier PPTX...")
@@ -590,42 +680,6 @@ class PPTXTranslatorEngine:
         except Exception as e:
             self._cleanup_temp()
             return False, f"Erreur lors de la réinjection : {str(e)}"
-
-    def _inject_excel_file(self, emb_path: Path, slide_num: int, translation_map: dict) -> bool:
-        """Réinjecte la traduction dans le fichier Excel incorporé (xl/sharedStrings.xml) en mémoire."""
-        if not emb_path.exists():
-            return False
-        try:
-            with open(emb_path, "rb") as f:
-                excel_bytes = f.read()
-            
-            in_mem = io.BytesIO(excel_bytes)
-            out_mem = io.BytesIO()
-            ns = {'s': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
-            modified = False
-
-            with zipfile.ZipFile(in_mem, "r") as xin, zipfile.ZipFile(out_mem, "w", zipfile.ZIP_DEFLATED) as xout:
-                for item in xin.infolist():
-                    content = xin.read(item.filename)
-                    if item.filename == "xl/sharedStrings.xml":
-                        tree = etree.fromstring(content)
-                        t_nodes = tree.xpath(".//s:t", namespaces=ns)
-                        for t_idx, t_node in enumerate(t_nodes):
-                            elem_id = f"slide{slide_num}_excel_{emb_path.stem}_ss{t_idx}"
-                            if elem_id in translation_map:
-                                tr_text = translation_map[elem_id]
-                                clean_text = re.sub(r"\[\[\d+\]\](.*?)\[\[/\d+\]\]", r"\1", tr_text)
-                                t_node.text = clean_text
-                                modified = True
-                        content = etree.tostring(tree, encoding="utf-8", xml_declaration=True)
-                    xout.writestr(item, content)
-
-            if modified:
-                with open(emb_path, "wb") as f:
-                    f.write(out_mem.getvalue())
-            return modified
-        except Exception:
-            return False
 
     def _inject_in_xml(self, xml_path, slide_num, id_prefix, translation_map,
                        num_alt=()):
@@ -706,29 +760,40 @@ class PPTXTranslatorEngine:
 
     # ── Méthodes pour le pipeline PROGRESSIF (slide par slide) ──────────────
 
+    def _fichier_diapo(self, slide_num: int) -> int | None:
+        """Numéro de FICHIER (`slideNNN.xml`) de la diapositive en position N."""
+        ordre = _ordre_diapositives(self._get_temp_dir())
+        return ordre[slide_num - 1] if 1 <= slide_num <= len(ordre) else None
+
     def _slide_path(self, slide_num: int):
-        """Chemin du fichier XML de la slide N dans le dossier temporaire."""
-        return self._get_temp_dir() / "ppt" / "slides" / f"slide{slide_num}.xml"
+        """Chemin du fichier XML de la diapositive en position N (None si absente)."""
+        num = self._fichier_diapo(slide_num)
+        if num is None:
+            return None
+        return self._get_temp_dir() / "ppt" / "slides" / f"slide{num}.xml"
 
     def _rels_path(self, slide_num: int):
-        """Chemin du fichier .rels de la slide N."""
-        return self._get_temp_dir() / "ppt" / "slides" / "_rels" / f"slide{slide_num}.xml.rels"
+        """Chemin du fichier .rels de la diapositive en position N (None si absente)."""
+        num = self._fichier_diapo(slide_num)
+        if num is None:
+            return None
+        return self._get_temp_dir() / "ppt" / "slides" / "_rels" / f"slide{num}.xml.rels"
 
     def slide_count(self) -> int:
-        """Nombre de slides dans le PPTX déjà décompressé."""
-        slides_dir = self._get_temp_dir() / "ppt" / "slides"
-        if not slides_dir.exists():
-            return 0
-        return len(list(slides_dir.glob("slide*.xml")))
+        """Nombre de diapositives affichées du PPTX déjà décompressé."""
+        return len(_ordre_diapositives(self._get_temp_dir()))
 
     def extract_slide(self, slide_num: int, filters: dict | None = None):
-        """Extrait le texte d'une SEULE slide déjà décompressée."""
+        """Extrait le texte d'une SEULE diapositive (position N) déjà décompressée.
+
+        Une diapositive introuvable LÈVE : la confondre avec « rien à traduire »
+        a déclaré terminé un deck dont aucune diapositive n'avait été lue."""
         if filters is None:
             filters = {"shapes": True, "smartarts": True, "tables": True, "connectors": True}
 
         slide_path = self._slide_path(slide_num)
-        if not slide_path.exists():
-            return None, f"Slide {slide_num} introuvable."
+        if slide_path is None or not slide_path.exists():
+            raise ValueError(f"Diapositive {slide_num} introuvable.")
 
         tree = etree.parse(str(slide_path))
         root = tree.getroot()
@@ -804,27 +869,48 @@ class PPTXTranslatorEngine:
                                               element_types_used, f"layout_{layout_id}", filters)
                     if layout_data["text_elements"]:
                         slide_data["layout_elements"].append(layout_data)
+                # Masque du layout : même règle (une fois par document). Ses
+                # formes hors espace réservé s'affichent sur la diapositive.
+                master_path = self._master_du_layout(layout_path)
+                if master_path is not None and not self._part_deja_vue(master_path):
+                    master_data = {"master_id": master_path.stem, "text_elements": []}
+                    self._process_xml_element(etree.parse(str(master_path)).getroot(),
+                                              self.PART_PARTAGEE, master_data["text_elements"],
+                                              element_types_used, f"master_{master_path.stem}", filters)
+                    if master_data["text_elements"]:
+                        slide_data.setdefault("master_elements", []).append(master_data)
 
-            # Excel incorporés
-            if filters.get("tables"):
-                pkg_rels = rels_tree.xpath(
-                    "//*[@Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/package']")
-                for rel in pkg_rels:
-                    target = rel.get("Target")
-                    emb_path = (slides_dir / target).resolve()
-                    if emb_path.exists() and emb_path.suffix.lower() in ('.xlsx', '.xlsm'):
-                        self._process_excel_file(emb_path, slide_num, slide_data["excel_elements"], element_types_used)
+        # Objets incorporés affichés par cette diapositive.
+        if filters.get("tables") and self._source and self._a_des_objets(slide_num):
+            elements_objets, rapport_objets = incorpores.relever(
+                self._source, base=self._base_diapo(slide_num))
+            incorpores.cumuler(self.objets_non_traites, rapport_objets["non_traites"])
+            for el in elements_objets:
+                slide_data["excel_elements"].append(el)
+                element_types_used[slide_num].add(el["context"]["shape_type"])
 
         if not any([slide_data["text_elements"], slide_data["diagram_elements"],
                     slide_data["chart_elements"], slide_data["layout_elements"],
-                    slide_data["excel_elements"]]):
+                    slide_data.get("master_elements"), slide_data["excel_elements"]]):
             return None, "Aucun texte trouvé dans cette slide."
         return slide_data, element_types_used
+
+    @staticmethod
+    def _master_du_layout(layout_path: Path):
+        """Le slideMaster d'un layout (via ses relations), ou None."""
+        rels = layout_path.parent / "_rels" / (layout_path.name + ".rels")
+        if not rels.exists():
+            return None
+        for rel in etree.parse(str(rels)).getroot():
+            if (rel.get("Type") or "").endswith("/slideMaster"):
+                chemin = (layout_path.parent / rel.get("Target")).resolve()
+                return chemin if chemin.exists() else None
+        return None
 
     def inject_slide(self, slide_num: int, translation_map: dict):
         """Injecte la traduction dans les XML d'une SEULE slide déjà décompressée."""
         slide_path = self._slide_path(slide_num)
-        if not slide_path.exists():
+        if slide_path is None or not slide_path.exists():
             return False
         modified = self._inject_in_xml(slide_path, slide_num, "p", translation_map)
 
@@ -865,15 +951,24 @@ class PPTXTranslatorEngine:
                                            translation_map,
                                            num_alt=(slide_num,)):
                         modified = True
+                master_path = self._master_du_layout(layout_path)
+                if master_path is not None and self._inject_in_xml(
+                        master_path, self.PART_PARTAGEE,
+                        f"master_{master_path.stem}", translation_map):
+                    modified = True
 
-            pkg_rels = rels_tree.xpath(
-                "//*[@Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/package']")
-            for rel in pkg_rels:
-                target = rel.get("Target")
-                emb_path = (slides_dir / target).resolve()
-                if emb_path.exists() and emb_path.suffix.lower() in ('.xlsx', '.xlsm'):
-                    if self._inject_excel_file(emb_path, slide_num, translation_map):
-                        modified = True
+        # Objets incorporés affichés par cette diapositive.
+        if self._source and translation_map and self._a_des_objets(slide_num):
+            try:
+                modifs = incorpores.reinjecter(self._source, translation_map,
+                                               self._base_diapo(slide_num))
+                incorpores.appliquer_dossier(self._get_temp_dir(), modifs)
+                incorpores.cumuler(self.objets_restes, modifs.restes)
+                if modifs.cibles:
+                    modified = True
+            except Exception as exc:  # noqa: BLE001
+                incorpores.logger.warning("Objets diapo %s non réinjectés : %s", slide_num, exc)
+                incorpores.cumuler(self.objets_restes, [incorpores.reste_inconnu()])
 
         return bool(modified)
 
@@ -882,8 +977,8 @@ class PPTXTranslatorEngine:
         """Construit un PPTX partiel depuis le dossier temporaire, SANS JAMAIS
         LE MODIFIER.
 
-        `only_slides` : les seules slides à garder. Par défaut, toutes celles
-        jusqu'à `up_to_slide`. Sert à extraire UNE slide isolée pour la convertir
+        `only_slides` : les seules slides à garder (positions 1..N). Par
+        défaut, toutes celles jusqu'à la position `up_to_slide`. Sert à extraire UNE slide isolée pour la convertir
         seule en PDF — l'aperçu progressif ne peut pas se permettre de reconvertir
         tout le deck à chaque diapositive terminée (cf. app.py).
 
@@ -922,8 +1017,12 @@ class PPTXTranslatorEngine:
             if m:
                 toutes.add(int(m.group(1)))
 
-        garder = (set(only_slides) if only_slides is not None
-                  else {n for n in toutes if n <= up_to_slide})
+        # `only_slides` / `up_to_slide` sont des POSITIONS ; tout le reste de
+        # la méthode raisonne en numéros de FICHIER.
+        ordre = _ordre_diapositives(temp_path)
+        positions = (set(only_slides) if only_slides is not None
+                     else range(1, up_to_slide + 1))
+        garder = {ordre[p - 1] for p in positions if 1 <= p <= len(ordre)}
         garder &= toutes
 
         exclus = toutes - garder
@@ -1065,402 +1164,3 @@ class PPTXTranslatorEngine:
             out[f"ppt/slides/slide{num}.xml"] = etree.tostring(
                 tree, encoding="utf-8", xml_declaration=True, standalone=True)
         return out
-
-    # ── Aperçus des objets OLE Excel ─────────────────────────────────────────
-    #
-    # PROBLÈME : un classeur Excel incorporé dans un PPTX est affiché via une
-    # IMAGE de remplacement (.emf) générée par Office à la création. Cette image
-    # n'est JAMAIS régénérée par une modification XML : on traduit bien les
-    # cellules du xlsx incorporé, mais l'aperçu visuel reste en langue d'origine
-    # tant que PowerPoint n'active pas l'objet. Mesuré : le xlsx dit « Theoretical
-    # test during training », l'EMF montre encore « Test théorique durant
-    # formation ». LibreOffice, à l'affichage comme à l'export PDF, rend cette
-    # même EMF périmée — donc l'aperçu de l'app est touché autant que PowerPoint.
-    #
-    # SOLUTION (sans licence Windows, sans macro) : on rend le classeur TRADUIT
-    # en image avec LibreOffice, on recadre au contenu, et on remplace le média
-    # de remplacement. Un seul correctif rend l'aperçu ET le fichier téléchargé
-    # cohérents. L'ancienne piste COM/VBA (`_auto_refresh_powerpoint`,
-    # `generate_autorefresh_pptm`) est abandonnée : elle exigeait PowerPoint et
-    # déclenchait l'avertissement de sécurité macro.
-
-    def regenerate_ole_previews(self, soffice_path: str | None = None,
-                                progress_callback=None,
-                                only_slides: set[int] | None = None) -> int:
-        """Régénère l'image de remplacement de chaque objet OLE Excel depuis le
-        classeur TRADUIT (déjà réinjecté dans le dossier temporaire). À appeler
-        APRÈS l'injection, AVANT le repack. Retourne le nombre d'aperçus refaits.
-
-        `only_slides` — ne traiter que ces diapositives. L'aperçu progressif
-        affiche une diapositive dès qu'elle est traduite : sans ce filtre, il
-        faudrait attendre la fin du document pour que les tableaux Excel
-        passent en langue cible, et une diapositive « terminée » montrerait
-        encore un tableau en langue source. Le classeur d'une diapositive est
-        traduit en même temps qu'elle : on peut donc régénérer son aperçu tout
-        de suite.
-
-        Best-effort : en cas d'échec (LibreOffice absent, classeur illisible),
-        on laisse l'EMF d'origine plutôt que d'interrompre la traduction."""
-        if soffice_path is None:
-            soffice_path = _find_soffice_engine()
-        if not soffice_path:
-            return 0
-        temp_path = self._get_temp_dir()
-        slides_dir = temp_path / "ppt" / "slides"
-        if not slides_dir.exists():
-            return 0
-
-        R = NAMESPACES['r']
-        # 1. Collecte : pour chaque graphicFrame OLE Excel, le couple
-        #    (classeur incorporé, image de remplacement) via le XML + les rels.
-        tasks = []
-        rels_cache = {}
-        for slide_path in sorted(slides_dir.glob("slide*.xml")):
-            if only_slides is not None:
-                m = re.fullmatch(r"slide(\d+)\.xml", slide_path.name)
-                if m is None or int(m.group(1)) not in only_slides:
-                    continue
-            rels_path = slides_dir / "_rels" / (slide_path.name + ".rels")
-            if not rels_path.exists():
-                continue
-            try:
-                rels_tree = etree.parse(str(rels_path))
-                slide_tree = etree.parse(str(slide_path))
-            except Exception:
-                continue
-            rid_to_target = {r.get("Id"): r.get("Target")
-                             for r in rels_tree.getroot()}
-            found = False
-            for gf in slide_tree.iter("{%s}graphicFrame" % NAMESPACES['p']):
-                ole = gf.find(".//p:oleObj", NAMESPACES)
-                if ole is None or "Excel" not in (ole.get("progId") or ""):
-                    continue
-                blip = gf.find(".//a:blip", NAMESPACES)
-                if blip is None:
-                    continue
-                xlsx_rel = rid_to_target.get(ole.get("{%s}id" % R))
-                img_rid = blip.get("{%s}embed" % R)
-                img_rel = rid_to_target.get(img_rid)
-                if not xlsx_rel or not img_rel:
-                    continue
-                xlsx_path = (slides_dir / xlsx_rel).resolve()
-                if (not xlsx_path.exists()
-                        or xlsx_path.suffix.lower() not in (".xlsx", ".xlsm")):
-                    continue
-                # Proportions du CADRE d'affichage : PowerPoint y étire l'image
-                # de remplacement sans se soucier de ses proportions propres.
-                # Une image aux mauvaises proportions y apparaît déformée — et
-                # c'est ce qui donnait des tableaux étalés sur toute la largeur.
-                ratio = None
-                ext = gf.find("./p:xfrm/a:ext", NAMESPACES)
-                if ext is None:
-                    ext = gf.find(".//a:ext", NAMESPACES)
-                try:
-                    cx, cy = int(ext.get("cx")), int(ext.get("cy"))
-                    if cx > 0 and cy > 0:
-                        ratio = cx / cy
-                except (AttributeError, TypeError, ValueError):
-                    ratio = None            # cadre illisible : pas de complément
-                tasks.append({"xlsx": xlsx_path, "img_rel": img_rel,
-                              "img_rid": img_rid, "rels_path": str(rels_path),
-                              "ratio": ratio})
-                found = True
-            if found:
-                rels_cache[str(rels_path)] = rels_tree
-        if not tasks:
-            return 0
-
-        # 2. Rendu de TOUS les classeurs uniques en une SEULE invocation
-        #    LibreOffice (le coût de démarrage est amorti sur tous les fichiers).
-        import subprocess
-        uniq = sorted({str(t["xlsx"]) for t in tasks})
-        # Ratio du cadre par classeur. Un même classeur affiché dans deux cadres
-        # de proportions différentes est un cas tordu et rare : on prend le
-        # premier vu, plutôt que de rendre deux fois.
-        ratio_de = {}
-        for t in tasks:
-            ratio_de.setdefault(str(t["xlsx"]), t.get("ratio"))
-        png_for = {}
-        # `ignore_cleanup_errors` : le profil LibreOffice (`prof/user/…`) créé
-        # ici reste verrouillé par Windows un instant après la conversion.
-        # Sans ce drapeau, une régénération RÉUSSIE levait `PermissionError`
-        # au nettoyage — l'aperçu était produit puis perdu sur une erreur.
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
-            # On convertit des COPIES ajustées à une page, pas les classeurs
-            # livrés : sans cela LibreOffice pagine, et tout ce qui tombe au-delà
-            # de la première page disparaît de l'aperçu.
-            rendu_de = {}
-            for i, x in enumerate(uniq):
-                copie = os.path.join(td, f"rendu{i}_{Path(x).stem}.xlsx")
-                rendu_de[x] = copie if self._xlsx_ajuste_une_page(x, copie) else x
-            # PROFIL PARTAGE. Cette conversion construisait le sien dans `td`,
-            # donc payait 4,3 s de démarrage à CHAQUE appel (mesuré). Avec
-            # l'aperçu progressif, elle est appelée une fois par diapositive
-            # porteuse d'un classeur : le profil jetable la rendait inabordable.
-            from engines.office import profil_argument
-            cmd = ([soffice_path, "--headless", "--norestore", "--nolockcheck",
-                    profil_argument(),
-                    "--convert-to", "pdf", "--outdir", td]
-                   + list(rendu_de.values()))
-            # MÊME VERROU que les autres conversions. LibreOffice ne supporte
-            # pas deux invocations concurrentes, et cet appel-ci s'en
-            # affranchissait : il pouvait tomber en même temps que la
-            # conversion d'un aperçu.
-            #
-            # Le verrou vient d'`engines.office`, un VOISIN. Il venait
-            # auparavant de l'application, par un import tardif destiné à
-            # masquer le cycle : un moteur qui importe son application n'est
-            # plus réutilisable ailleurs.
-            from engines.office import preview_lock
-            try:
-                with preview_lock:
-                    subprocess.run(cmd, capture_output=True, timeout=600)
-            except Exception:
-                return 0
-            for x in uniq:
-                pdf = os.path.join(td, Path(rendu_de[x]).stem + ".pdf")
-                if os.path.exists(pdf):
-                    png_for[x] = self._crop_xlsx_pdf_to_png(
-                        pdf, ratio_cible=ratio_de.get(x))
-
-        # 3. Écrire les PNG et construire la carte {image_emf → image_png}.
-        media_dir = slides_dir.parent / "media"
-        media_dir.mkdir(exist_ok=True)
-        emf_to_png = {}
-        for t in tasks:
-            png = png_for.get(str(t["xlsx"]))
-            if not png:
-                continue
-            emf_name = t["img_rel"].rsplit("/", 1)[-1]        # image37.emf
-            png_name = Path(emf_name).stem + ".png"           # image37.png
-            with open(media_dir / png_name, "wb") as f:
-                f.write(png)
-            emf_to_png[emf_name] = png_name
-        if not emf_to_png:
-            return 0
-
-        # 4. Repointer TOUTES les relations qui référencent ces EMF vers le PNG.
-        #    CRUCIAL : un objet OLE est affiché via la branche `mc:Choice` (VML),
-        #    dont l'image est référencée par les rels du `vmlDrawing`, PAS par le
-        #    blip DrawingML du `mc:Fallback`. Ne repointer que le fallback (ce
-        #    qu'on faisait) laissait PowerPoint ET LibreOffice afficher l'EMF
-        #    d'origine, en langue source. On balaie donc TOUS les .rels du
-        #    paquet et on repointe par nom de fichier — les deux branches suivent.
-        IMG_TYPE = ("http://schemas.openxmlformats.org/officeDocument/2006/"
-                    "relationships/image")
-        for rels_file in temp_path.rglob("*.rels"):
-            try:
-                tree = etree.parse(str(rels_file))
-            except Exception:
-                continue
-            changed = False
-            for rel in tree.getroot():
-                tgt = rel.get("Target") or ""
-                base = tgt.rsplit("/", 1)[-1]
-                if base in emf_to_png:
-                    rel.set("Target", tgt[:len(tgt) - len(base)] + emf_to_png[base])
-                    rel.set("Type", IMG_TYPE)
-                    changed = True
-            if changed:
-                tree.write(str(rels_file), xml_declaration=True, encoding="UTF-8")
-
-        # 5. Supprimer les EMF devenus orphelins (plus aucune relation n'y
-        #    pointe) : une part non référencée fait afficher à PowerPoint un
-        #    avertissement de réparation.
-        for emf_name in emf_to_png:
-            old = media_dir / emf_name
-            try:
-                if old.exists():
-                    old.unlink()
-            except OSError:
-                pass
-
-        self._ensure_png_content_type(temp_path)
-        if progress_callback:
-            progress_callback(f"{len(emf_to_png)} aperçu(s) Excel régénéré(s)")
-        return len(emf_to_png)
-
-    def _xlsx_ajuste_une_page(self, src: str, dst: str) -> bool:
-        """Copie le classeur en forçant l'impression sur UNE SEULE PAGE.
-
-        POURQUOI. Un classeur incorporé tient couramment un tableau ET un
-        graphique posés côte à côte dans la feuille. LibreOffice imprime cette
-        feuille sur du A4 : trop étroit, il PAGINE — le tableau page 1, le
-        graphique page 2. On ne rendait que la première page : le graphique
-        disparaissait de l'aperçu, et l'image restante, bien plus étroite que le
-        cadre d'origine, s'y affichait ÉTIRÉE (mesuré : classeur rendu en ratio
-        1,2 posé dans un cadre de ratio 2,33).
-
-        `fitToPage` est le mécanisme OOXML prévu pour ça, et LibreOffice le
-        respecte : la feuille entière tient sur une page, dans sa disposition
-        réelle. Vérifié sur le classeur qui a révélé le défaut : 2 pages → 1,
-        graphique inclus.
-
-        La modification ne touche QUE la copie de rendu. Le classeur livré dans
-        le PPTX garde ses réglages d'impression : ce sont ceux de l'utilisateur,
-        on n'a pas à en décider.
-        """
-        S = NAMESPACES['s']
-        try:
-            with zipfile.ZipFile(src) as zin, \
-                    zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
-                for item in zin.infolist():
-                    data = zin.read(item.filename)
-                    if (item.filename.startswith("xl/worksheets/sheet")
-                            and item.filename.endswith(".xml")):
-                        data = self._forcer_fit_to_page(data, S)
-                    zout.writestr(item, data)
-            return True
-        except Exception:
-            return False
-
-    @staticmethod
-    def _forcer_fit_to_page(xml_bytes: bytes, S: str) -> bytes:
-        """`fitToPage` + paysage sur une feuille de calcul.
-
-        L'ORDRE DES ÉLÉMENTS COMPTE dans un schéma OOXML : `pageSetup` se place
-        après le contenu de la feuille, `sheetPr` tout au début. Un élément mal
-        placé rend le classeur illisible — on les insère donc aux bons endroits
-        plutôt qu'en fin d'arbre.
-        """
-        root = etree.fromstring(xml_bytes)
-        sheet_pr = root.find("{%s}sheetPr" % S)
-        if sheet_pr is None:
-            sheet_pr = etree.Element("{%s}sheetPr" % S)
-            root.insert(0, sheet_pr)
-        setup_pr = sheet_pr.find("{%s}pageSetUpPr" % S)
-        if setup_pr is None:
-            setup_pr = etree.SubElement(sheet_pr, "{%s}pageSetUpPr" % S)
-        setup_pr.set("fitToPage", "1")
-
-        page_setup = root.find("{%s}pageSetup" % S)
-        if page_setup is None:
-            page_setup = etree.SubElement(root, "{%s}pageSetup" % S)
-        page_setup.set("fitToWidth", "1")
-        page_setup.set("fitToHeight", "1")
-        page_setup.set("orientation", "landscape")
-        return etree.tostring(root, xml_declaration=True, encoding="UTF-8")
-
-    def _crop_xlsx_pdf_to_png(self, pdf_path: str, dpi: int = 150,
-                              margin: int = 8,
-                              ratio_cible: float | None = None) -> bytes | None:
-        """Rend le PDF d'un classeur en PNG, recadré au contenu.
-
-        TOUTES les pages sont rendues, empilées verticalement. `fitToPage` en
-        produit normalement une seule ; s'il en reste plusieurs (zones
-        d'impression multiples), les empiler garde le contenu — en jeter était
-        la cause de la disparition du graphique.
-
-        Le recadrage reste indispensable : LibreOffice pose le contenu dans un
-        coin de la page, sans lui l'aperçu serait à 90 % du blanc.
-
-        `ratio_cible` — proportions du cadre d'affichage dans la diapositive.
-        L'image y est complétée pour les atteindre, jamais rognée : PowerPoint
-        étire l'image sur tout le cadre, et une image aux mauvaises proportions
-        y apparaît déformée. Compléter, c'est laisser un peu d'air ; rogner, ce
-        serait perdre du contenu.
-
-        L'image produite est TRANSPARENTE là où rien n'est peint. Un aperçu OLE
-        remplace une image VECTORIELLE (EMF) qui ne peint que ses traits : ce
-        qu'un utilisateur a posé sous le cadre — flèche, filigrane, bandeau —
-        reste visible à travers. Un aplat opaque le masquerait. MESURÉ sur une
-        diapositive réelle : la flèche « Groupe 13 », dessinée avant le cadre
-        OLE et située dedans, disparaissait sous notre blanc ; et l'EMF
-        d'origine ne contient AUCUN rectangle couvrant son cadre. MESURÉ aussi
-        côté LibreOffice : son PDF ne peint pas de fond (0 dessin rempli
-        couvrant la page, 99,9 % des pixels à alpha=0 en rendu alpha=True) —
-        d'où le rendu direct en RGBA, sans détourage à deviner.
-
-        Corollaire : le contenu se repère à ce qui est PEINT (alpha > 0), non
-        plus à ce qui est sombre. C'est plus juste — une cellule au fond blanc
-        appartient au tableau et le recadrage la gardait à tort dehors.
-        """
-        try:
-            import fitz
-            import numpy as np
-            from PIL import Image
-            doc = fitz.open(pdf_path)
-            if doc.page_count == 0:
-                doc.close()
-                return None
-            morceaux = []
-            for page in doc:
-                pix = page.get_pixmap(dpi=dpi, alpha=True)
-                im = Image.frombytes("RGBA", (pix.width, pix.height),
-                                     pix.samples)
-                mask = np.asarray(im.getchannel("A")) > 0
-                if not mask.any():
-                    continue                      # page vide : rien à montrer
-                ys, xs = np.where(mask)
-                x0 = max(0, int(xs.min()) - margin)
-                y0 = max(0, int(ys.min()) - margin)
-                x1 = min(im.width, int(xs.max()) + margin + 1)
-                y1 = min(im.height, int(ys.max()) + margin + 1)
-                morceaux.append(im.crop((x0, y0, x1, y1)))
-            doc.close()
-            if not morceaux:
-                return None
-
-            if len(morceaux) == 1:
-                out = morceaux[0]
-            else:
-                larg = max(m.width for m in morceaux)
-                haut = sum(m.height for m in morceaux)
-                out = Image.new("RGBA", (larg, haut), (0, 0, 0, 0))
-                y = 0
-                for m in morceaux:
-                    out.paste(m, (0, y))
-                    y += m.height
-
-            if ratio_cible and ratio_cible > 0:
-                out = self._completer_au_ratio(out, ratio_cible)
-
-            buf = io.BytesIO()
-            out.save(buf, "PNG")
-            return buf.getvalue()
-        except Exception:
-            return None
-
-    @staticmethod
-    def _completer_au_ratio(im, ratio_cible: float):
-        """Complète l'image de VIDE, centrée, pour atteindre `ratio_cible`.
-
-        Le complément est transparent, pas blanc : c'est de la marge ajoutée
-        pour la seule mise à l'échelle, elle n'a rien à cacher de la
-        diapositive qui est dessous.
-        """
-        from PIL import Image
-        if im.mode != "RGBA":
-            im = im.convert("RGBA")
-        actuel = im.width / max(1, im.height)
-        if abs(actuel - ratio_cible) < 0.01:
-            return im
-        if actuel < ratio_cible:                  # trop étroite : élargir
-            larg, haut = int(round(im.height * ratio_cible)), im.height
-        else:                                     # trop large : rehausser
-            larg, haut = im.width, int(round(im.width / ratio_cible))
-        fond = Image.new("RGBA", (max(larg, im.width), max(haut, im.height)),
-                         (0, 0, 0, 0))
-        fond.paste(im, ((fond.width - im.width) // 2,
-                        (fond.height - im.height) // 2))
-        return fond
-
-    def _ensure_png_content_type(self, temp_path: Path) -> None:
-        """Garantit que [Content_Types].xml déclare le type PNG (le média de
-        remplacement passe de .emf à .png)."""
-        ct_path = temp_path / "[Content_Types].xml"
-        if not ct_path.exists():
-            return
-        CT = "http://schemas.openxmlformats.org/package/2006/content-types"
-        try:
-            tree = etree.parse(str(ct_path))
-            root = tree.getroot()
-            for d in root.findall("{%s}Default" % CT):
-                if (d.get("Extension") or "").lower() == "png":
-                    return
-            el = etree.SubElement(root, "{%s}Default" % CT)
-            el.set("Extension", "png")
-            el.set("ContentType", "image/png")
-            tree.write(str(ct_path), xml_declaration=True, encoding="UTF-8")
-        except Exception:
-            pass

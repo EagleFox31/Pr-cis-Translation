@@ -188,6 +188,29 @@ def _noise(line: str) -> bool:
     return any(n in s for n in _NOISE)
 
 
+def _verifier_migrations(py: str) -> None:
+    """Met la base à jour ; prévient clairement si elle ne correspond pas au code.
+
+    Ne bloque pas le lancement : les pages sans base restent utilisables.
+    """
+    try:
+        res = subprocess.run(
+            [py, "scripts/verifier_migrations.py", "--base"],
+            cwd=os.path.join(ROOT, "backend"),
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        print("[migrations] Vérification interrompue : la base ne répond pas.")
+        return
+    if res.returncode != 0:
+        print()
+        print("=" * 70)
+        print(res.stderr.strip() or "[migrations] Vérification en échec.")
+        print("=" * 70)
+        print()
+
+
 def main() -> int:
     py = os.path.join(ROOT, "backend", "venv", "Scripts",
                       "python.exe" if IS_WIN else "python")
@@ -195,6 +218,8 @@ def main() -> int:
         py = sys.executable
     node = "node"
     vite = os.path.join(ROOT, "frontend", "node_modules", "vite", "bin", "vite.js")
+
+    _verifier_migrations(py)
 
     backend = Server(
         "backend", "  api │", _CYAN,

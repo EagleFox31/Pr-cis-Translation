@@ -138,10 +138,29 @@ PAGE_PRICE: dict[str, int] = {
 # En pourcentage ENTIER : le calcul se fait en unités mineures, sans flottant.
 PSP_FEE_PERCENT = 3
 
+# Carte (Paddle) : 5 % + 0,50 $ prélevés sur le montant ENCAISSÉ (tarif du
+# 21/10/2026, cf. docs/etude-frais-carte.md). La part fixe pèse trop pour un
+# pourcentage : les frais sont « grossis » pour que le net reçu reste le prix.
+# Zone A facturée en euros par Paddle : 0,47 € (marge sur le dollar) = 309 F.
+CARD_FEE_PERCENT = 5
+CARD_FEE_FIXED: dict[str, int] = {"XAF": 309, "EUR": 47, "USD": 50}
 
-def transaction_fee(amount: int) -> int:
+
+def card_fee(amount: int, currency: str) -> int:
+    """Frais carte tels qu'après la commission de Paddle il reste `amount` :
+    total = ⌈(net + fixe) × 100 / (100 − taux)⌉, arrondi en notre faveur."""
+    fixed = CARD_FEE_FIXED[currency]
+    total = -(-(amount + fixed) * 100 // (100 - CARD_FEE_PERCENT))
+    return total - amount
+
+
+def transaction_fee(amount: int, currency: str | None = None,
+                    method: str | None = None) -> int:
     """Frais ajoutés à un montant net, en unités mineures, arrondis à
-    l'unité SUPÉRIEURE : un frais arrondi vers le bas serait payé par nous."""
+    l'unité SUPÉRIEURE : un frais arrondi vers le bas serait payé par nous.
+    La carte a son propre barème (`card_fee`), le reste `PSP_FEE_PERCENT`."""
+    if method == "card":
+        return card_fee(amount, currency)
     return -(-amount * PSP_FEE_PERCENT // 100)
 
 
@@ -172,12 +191,23 @@ def page_price(zone: str) -> int:
 # une page à 75 F seule échouerait chez l'opérateur, APRÈS l'invite USSD.
 # Les autres devises n'ont pas encore de moyen d'encaissement (pas de seuil).
 MIN_PAYMENT_AMOUNT: dict[str, int] = {"XAF": 100}
+# Carte (Paddle) : minimum technique de Paddle (`GET /currencies`,
+# `minimum_payment_amount` : 0,65 €, 0,70 $, vérifié le 22/10/2026). La zone A
+# est encaissée en EUR : 0,65 € × 655,957 = 427 F, arrondi supérieur. Seuil
+# posé sur le net : le débit (net + frais) le dépasse toujours.
+MIN_CARD_AMOUNT: dict[str, int] = {"XAF": 427, "EUR": 65, "USD": 70}
 
 
-def billable_pages(zone: str, pages: int) -> int:
+def min_payment_amount(zone: str, method: str | None = None) -> int:
+    """Montant minimum d'un encaissement dans la zone, selon le moyen choisi."""
+    table = MIN_CARD_AMOUNT if method == "card" else MIN_PAYMENT_AMOUNT
+    return table.get(CURRENCY[zone], 0)
+
+
+def billable_pages(zone: str, pages: int, method: str | None = None) -> int:
     """Pages réellement facturées : au moins `pages`, et assez pour atteindre
-    le montant minimum de la devise. Le surplus est crédité au compte, jamais
-    perdu."""
-    minimum = MIN_PAYMENT_AMOUNT.get(CURRENCY[zone], 0)
+    le montant minimum du moyen de paiement. Le surplus est crédité au compte,
+    jamais perdu."""
+    minimum = min_payment_amount(zone, method)
     unit = page_price(zone)
     return max(pages, -(-minimum // unit))

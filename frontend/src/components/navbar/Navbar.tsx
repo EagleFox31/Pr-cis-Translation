@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import MobileMenu from './MobileMenu';
-import AdminMenu from './AdminMenu';
 
 const logo = "/Logo.png";
 
@@ -28,6 +27,8 @@ export default function Navbar({ activeSection, onNavClick, onLibraryOpen }: Nav
     { id: 'story', label: t('nav.howItWorks') },
     { id: 'pricing', label: t('nav.pricing') },
     { id: 'about', label: t('nav.about') },
+    // Administration : une page, pas une section — `href` la distingue des ancres.
+    ...(user?.plan === 'admin' ? [{ id: 'admin', label: t('admin.menu', 'Administration'), href: '/admin/users' }] : []),
   ];
 
   useEffect(() => {
@@ -44,7 +45,9 @@ export default function Navbar({ activeSection, onNavClick, onLibraryOpen }: Nav
 
   const handleClick = (sectionId: string) => {
     setIsMenuOpen(false);
-    onNavClick(sectionId);
+    const page = navLinks.find((l) => l.id === sectionId)?.href;
+    if (page) navigate(page);
+    else onNavClick(sectionId);
   };
 
   const avatarLetter = user?.name ? user.name[0].toUpperCase() : (user?.email?.[0].toUpperCase() || '?');
@@ -72,7 +75,7 @@ export default function Navbar({ activeSection, onNavClick, onLibraryOpen }: Nav
                 : (activeSection === link.id || (link.id === 'features' && (activeSection === 'features' || activeSection === 'comparison')));
               return (
                 <li key={link.id}>
-                  <a href={`#${link.id}`} className={isActive ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleClick(link.id); }}>{link.label}</a>
+                  <a href={link.href ?? `#${link.id}`} className={isActive ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleClick(link.id); }}>{link.label}</a>
                 </li>
               );
             })}
@@ -83,14 +86,11 @@ export default function Navbar({ activeSection, onNavClick, onLibraryOpen }: Nav
             <button className={i18n.language === 'en' ? 'active' : ''} onClick={() => i18n.changeLanguage('en')}>EN</button>
           </div>
 
-          {/* Administration — menu déroulant partagé (se rend null hors admin) */}
-          <AdminMenu />
-
           {/* Profil ou Connexion */}
           {user ? (
             <button
               onClick={onLibraryOpen}
-              title="Mon compte"
+              title={t('nav.my_account')}
               style={{
                 width: '34px', height: '34px', borderRadius: '999px',
                 background: 'var(--blue)', color: 'white', border: 'none',

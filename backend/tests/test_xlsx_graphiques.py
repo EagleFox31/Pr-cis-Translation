@@ -25,6 +25,12 @@ MESURÉ sur un graphique produit par Excel (titre + 2 axes + série +
 catégories) : les 7 `<c:v>` sont TOUS sous un cache, et les 3 vrais textes du
 graphique sont TOUS des `<a:t>`.
 
+Le cache n'est pas pour autant laissé en langue source : un PowerPoint qui
+affiche un graphique incorporé n'en rafraîchit pas toujours les caches. Après
+l'injection, chaque `<c:strCache>` est RECOPIÉ depuis la cellule traduite qu'il
+reflète (`_aligner_graphiques`) : même texte que la feuille, sans second appel
+au modèle. Les `<c:numCache>` (nombres) ne changent pas.
+
 Reste le `<c:v>` SANS cache au-dessus : un texte saisi en dur, qui n'est le
 reflet de rien. Celui-là se traduit — c'est le sens du test d'ancêtres, et le
 classeur d'essai en contient un exprès.
@@ -116,8 +122,13 @@ def main() -> int:
 
     check(all((t or "").startswith("EN:") for t in a_t),
           "INJECTE le texte riche (<a:t>) est traduit", str(a_t))
-    check(all(t in c_v for t in CHART_INTOUCHABLES),
-          "INJECTE les CACHES sont rendus INTACTS", str(c_v))
+    # « Janvier » est le cache de Ventes!A2, qui porte un NOMBRE : la cellule
+    # n'a pas de texte à recopier, le cache reste tel quel.
+    check("EN:Marge brute" in c_v and "Marge brute" not in c_v
+          and "Janvier" in c_v,
+          "INJECTE les CACHES texte recopient la cellule traduite", str(c_v))
+    check("1200" in c_v and not any((v or "").startswith("EN:EN:") for v in c_v),
+          "INJECTE les CACHES nombre intacts, rien de traduit deux fois", str(c_v))
     check("EN:Legende en dur" in c_v,
           "INJECTE le <c:v> sans cache est bien traduit", str(c_v))
 
