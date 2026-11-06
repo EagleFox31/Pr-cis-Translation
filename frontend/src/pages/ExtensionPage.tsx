@@ -44,6 +44,16 @@ const DOCUMENTS = [
   ['/cookies', 'footer.cookies'],
 ] as const;
 const NOM_BOUTIQUE = { edge: 'Edge Add-ons', chrome: 'Chrome Web Store' } as const;
+
+// Installation directe (sans boutique) : adresse de la page des extensions, libellés propres
+// au navigateur et captures réelles (Chrome et Edge) rangées dans /public/guides.
+const GUIDES: Record<NavId, { adresse: string; dev: 'chrome' | 'edge'; charger: 'chrome' | 'edge' | 'opera'; captures: Partial<Record<number, string[]>> }> = {
+  chrome: { adresse: 'chrome://extensions', dev: 'chrome', charger: 'chrome', captures: { 3: ['chrome-1-mode-developpeur'], 4: ['chrome-2-charger'] } },
+  edge: { adresse: 'edge://extensions', dev: 'edge', charger: 'edge', captures: { 3: ['edge-1-mode-developpeur'], 4: ['edge-2-charger', 'edge-3-installee'] } },
+  brave: { adresse: 'brave://extensions', dev: 'chrome', charger: 'chrome', captures: {} },
+  opera: { adresse: 'opera://extensions', dev: 'chrome', charger: 'opera', captures: {} },
+  vivaldi: { adresse: 'vivaldi://extensions', dev: 'chrome', charger: 'chrome', captures: {} },
+};
 type Rubrique = (typeof RUBRIQUES)[number]['id'];
 
 const rubriqueInitiale = (): Rubrique => {
@@ -72,6 +82,7 @@ export default function ExtensionPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [copie, setCopie] = useState<Copie>('idle');
+  const [copieAdresse, setCopieAdresse] = useState<Copie>('idle');
 
   const precis = detecterNavigateurPrecis();
   const [choix, setChoix] = useState<NavId>(precis === 'autre' ? 'chrome' : precis);
@@ -107,6 +118,16 @@ export default function ExtensionPage() {
 
   const choisirNavigateur = (id: NavId) => {
     setChoix(id);
+    setCopieAdresse('idle');
+  };
+
+  const copierAdresse = async (adresse: string) => {
+    try {
+      await navigator.clipboard.writeText(adresse);
+      setCopieAdresse('ok');
+    } catch {
+      setCopieAdresse('erreur');
+    }
   };
 
   const copierLien = async () => {
@@ -161,18 +182,49 @@ export default function ExtensionPage() {
     return null;
   };
 
-  const etape = (num: number, titre: string, texte: string) => (
+  const etape = (num: number, titre: string, texte: string, suite?: ReactNode) => (
     <li key={num}>
       <span className="ext-steps__num" aria-hidden="true">{num}</span>
       <div>
         <strong>{titre}</strong>
         <p>{texte}</p>
+        {suite}
       </div>
     </li>
   );
 
-  const etapes = (['add', 'pin', 'use'] as const).map((k, i) =>
-    etape(i + 1, t(`extension_page.how.${k}_title`), t(`extension_page.how.${k}_text`)));
+  const guide = GUIDES[choix];
+  const captures = (num: number) => guide.captures[num]?.map((nom) => (
+    <figure key={nom} className="ext-shot">
+      <img
+        src={`/guides/${nom}.webp`} width={1280} height={720} loading="lazy"
+        alt={t('extension_page.manual.shot_alt', { step: t(`extension_page.manual.s${num}_title`), browser: nomChoix })}
+      />
+    </figure>
+  ));
+
+  // Boutique publiée : les trois étapes en un clic ; sinon le guide du navigateur choisi.
+  const etapes = urlBoutique
+    ? (['add', 'pin', 'use'] as const).map((k, i) =>
+      etape(i + 1, t(`extension_page.how.${k}_title`), t(`extension_page.how.${k}_text`)))
+    : [
+      etape(1, t('extension_page.manual.s1_title'), t('extension_page.manual.s1_text')),
+      etape(2, t('extension_page.manual.s2_title'), t('extension_page.manual.s2_text', { browser: nomChoix }), (
+        <div className="ext-address">
+          <code>{guide.adresse}</code>
+          <button type="button" className="ext-btn ext-btn--ghost ext-btn--small" onClick={() => copierAdresse(guide.adresse)}>
+            {t('extension_page.manual.copy')}
+          </button>
+          <span className="ext-cta__status" role="status">
+            {copieAdresse === 'ok' && t('extension_page.manual.copied')}
+            {copieAdresse === 'erreur' && t('extension_page.copy_error')}
+          </span>
+        </div>
+      )),
+      etape(3, t('extension_page.manual.s3_title'), t(`extension_page.manual.s3_text_${guide.dev}`), captures(3)),
+      etape(4, t('extension_page.manual.s4_title'), t(`extension_page.manual.s4_text_${guide.charger}`), captures(4)),
+      etape(5, t('extension_page.manual.s5_title'), t('extension_page.manual.s5_text')),
+    ];
 
 
   // En-tête fixe, pleine largeur : accroche, statut et choix du navigateur.
@@ -210,9 +262,7 @@ export default function ExtensionPage() {
       <Download size={16} strokeWidth={2.2} aria-hidden="true" />
       {t('extension_page.download_for', { browser: nomChoix })}
     </a>
-  ) : (
-    <button type="button" className="ext-btn ext-btn--ghost" disabled>{t('extension_page.soon')}</button>
-  );
+  ) : telecharger(t('extension_page.download_for', { browser: nomChoix }));
 
   // Fiche de droite, sur le modèle de la fiche utilisateur de l'administration.
   const fiche = (titre: string, corps: ReactNode, action?: ReactNode, sous?: string) => (
@@ -321,17 +371,29 @@ export default function ExtensionPage() {
                     <img src={`/browsers/${choix}.png`} alt="" width={20} height={20} />{nomChoix}
                   </span>
                 ))}
-                {fait('fact_store', NOM_BOUTIQUE[boutique])}
-                {fait('fact_install', t('extension_page.fact_install_v'))}
-                {fait('fact_updates', t('extension_page.fact_updates_v'))}
+                {fait('fact_store', urlBoutique ? NOM_BOUTIQUE[boutique] : t('extension_page.manual.fact_store_v'))}
+                {fait('fact_install', t(urlBoutique ? 'extension_page.fact_install_v' : 'extension_page.manual.fact_install_v'))}
+                {fait('fact_updates', t(urlBoutique ? 'extension_page.fact_updates_v' : 'extension_page.manual.fact_updates_v'))}
               </dl>
             </section>
             <section className="admin-panel__block ext-section" aria-labelledby="ext-steps-title">
               <div className="admin-panel__block-head"><h3 id="ext-steps-title">{t('extension_page.steps_title')}</h3></div>
               <ol className="ext-steps">{etapes}</ol>
             </section>
+            {!urlBoutique && (
+              <section className="admin-panel__block ext-section">
+                <div className="admin-panel__block-head"><h3>{t('extension_page.manual.notes_title')}</h3></div>
+                <ul className="ext-list">
+                  {(['note_folder', 'note_update', 'note_alert'] as const).map((k) => (
+                    <li key={k}>{t(`extension_page.manual.${k}`)}</li>
+                  ))}
+                </ul>
+              </section>
+            )}
           </>
-        ), bouton, t('extension_page.card_one_click'));
+        ), bouton, urlBoutique
+          ? t('extension_page.card_one_click')
+          : t('extension_page.manual.sub', { version: EXTENSION_ZIP.version }));
     }
   };
 
