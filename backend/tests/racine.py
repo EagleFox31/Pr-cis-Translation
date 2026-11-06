@@ -26,6 +26,9 @@ os.environ.setdefault("PRECIS_FONT_DOWNLOAD", "0")
 os.environ.setdefault("PRECIS_FONT_SYSTEM", "0")
 # Ni le catalogue pré-chargé sur ce poste : il varie d'une machine à l'autre.
 os.environ.setdefault("PRECIS_FONT_CATALOGUE", "0")
+# Ni le cache des images de l'extension : une image déjà vue d'une suite à
+# l'autre changerait le résultat (test_cache_images l'active dans un dossier temporaire).
+os.environ.setdefault("PRECIS_CACHE_IMAGES", "0")
 if "PRECIS_FONTS_CACHE" not in os.environ:
     import atexit
     import shutil

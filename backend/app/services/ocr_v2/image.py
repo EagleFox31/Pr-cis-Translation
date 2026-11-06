@@ -86,6 +86,10 @@ class ImageTraduite:
     data: bytes
     mime: str
     blocs: list[Bloc]
+    # Secondes par étape (lecture, traduction, effacement, total) : journal.
+    durees: dict = field(default_factory=dict)
+    # Faux si une zone a été remplie à la hâte faute de temps : rendu à ne pas garder en cache.
+    complet: bool = True
 
     @property
     def remplacee(self):
@@ -440,7 +444,9 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
     échoue. `tour()`, s'il est donné, encadre la seule reconnaissance (le
     guichet OCR n'est pas retenu pendant l'appel réseau de traduction).
     """
-    fin = time.monotonic() + delai_s
+    debut = time.monotonic()
+    fin = debut + delai_s
+    d = {}
     im = verifier(data)
     lecteur = lecteur or _ppocr()
     if lecteur.manquant():
@@ -461,13 +467,17 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
     with tour() if tour else contextlib.nullcontext():
         # Le délai court à partir du tour obtenu, pas de l'attente au guichet.
         fin = time.monotonic() + delai_s
-        lus = lignes(_lire(lecteur, bgr, max(fin - time.monotonic(), 1.0)))
+        t = time.monotonic()
+        lus = lignes(_lire(lecteur, bgr, max(fin - t, 1.0)))
+        d["lecture"] = time.monotonic() - t
     zones = {b: _elargie(b, bgr) for _, b in lus}
     m0 = masque_couleur(bgr, list(zones.values())) if lus else None
     tous = blocs(lus, [_couleur(bgr, m0, b) for _, b in lus])
     if tous:
-        for b, t in zip(tous, traduire([b.texte for b in tous])):
-            b.traduction = _joindre((t or "").split())  # retours à la ligne du traducteur
+        t = time.monotonic()
+        for b, tr in zip(tous, traduire([b.texte for b in tous])):
+            b.traduction = _joindre((tr or "").split())  # retours à la ligne du traducteur
+        d["traduction"] = time.monotonic() - t
 
     places, poses = [], []
     for b in tous:
@@ -493,8 +503,11 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
         boites = [zones[l] for b, _ in places for l in b.lignes]
         mask = masque_couleur(bgr, boites)
         styles = [(_couleur(bgr, mask, b.boite), _contour(bgr, mask, b.boite)) for b, _ in places]
-        reste = max(fin - time.monotonic(), 1.0)
-        efface, _ = effacer(bgr, boites, budget_s=reste, mask=mask, limite_s=reste)
+        t = time.monotonic()
+        reste = max(fin - t, 1.0)
+        efface, choix = effacer(bgr, boites, budget_s=reste, mask=mask, limite_s=reste)
+        complet = "telea (délai)" not in choix
+        d["effacement"] = time.monotonic() - t
         dessin = Image.fromarray(cv2.cvtColor(efface, cv2.COLOR_BGR2RGB))
         crayon = ImageDraw.Draw(dessin)
         for (b, p), (couleur, contour) in zip(places, styles):
@@ -507,14 +520,17 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
                             stroke_fill=opposee)
             b.remplace = True
     else:  # rien de dessiné : l'original, sans ré-encodage
-        return ImageTraduite(data, FORMATS[fmt], tous)
+        d["total"] = time.monotonic() - debut
+        return ImageTraduite(data, FORMATS[fmt], tous, d)
 
     sortie = io.BytesIO()
     extra = {"icc_profile": icc} if icc else {}
     if FORMATS[fmt] == "image/jpeg":
         dessin.save(sortie, "JPEG", quality=92, **extra)
-        return ImageTraduite(sortie.getvalue(), "image/jpeg", tous)
+        d["total"] = time.monotonic() - debut
+        return ImageTraduite(sortie.getvalue(), "image/jpeg", tous, d, complet)
     if a is not None:
         dessin.putalpha(Image.fromarray(a))
     dessin.save(sortie, "PNG", **extra)
-    return ImageTraduite(sortie.getvalue(), "image/png", tous)
+    d["total"] = time.monotonic() - debut
+    return ImageTraduite(sortie.getvalue(), "image/png", tous, d, complet)

@@ -1,4 +1,4 @@
-// Mémoire locale des traductions déjà payées : rien de plus n'est gardé côté serveur.
+// Mémoire locale des traductions déjà payées (le serveur garde aussi 30 jours les images traduites).
 // La logique reste ici, sans navigateur ; l'accès à IndexedDB est dans memoire-idb.ts.
 
 // À incrémenter quand le moteur change assez pour rendre les anciennes traductions caduques.

@@ -1,0 +1,162 @@
+/* Page /extension et bandeau d'invitation : jetons du site uniquement. */
+.ext-body { max-width: 860px; }
+.ext-page :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+.ext-welcome { margin: 0 0 32px; padding: 20px 24px; border: 1px solid var(--blue); border-radius: var(--radius); background: var(--blue-light); color: var(--navy); }
+.ext-welcome h2 { margin: 0 0 10px; font-family: var(--font-display); font-size: 22px; font-weight: 600; color: var(--navy); }
+.ext-welcome ol { margin: 0; padding-left: 22px; }
+.ext-welcome li { margin: 0 0 6px; font-size: 15.5px; line-height: 1.6; }
+
+.ext-hero { margin: 0 0 44px; padding: 28px 24px; border: 1px solid var(--gray-200); border-radius: var(--radius-lg); background: var(--white); box-shadow: var(--shadow-sm); }
+.ext-hero__lead { margin: 0 0 22px; font-family: var(--font-display); font-size: 24px; line-height: 1.35; font-weight: 600; color: var(--navy); }
+
+.ext-cta { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.ext-cta__row { display: flex; flex-wrap: wrap; gap: 10px; }
+.ext-cta__note { display: inline-flex; align-items: center; gap: 8px; margin: 0; font-size: 15.5px; font-weight: 600; color: var(--navy); }
+.ext-cta__hint { margin: 0; font-size: 14.5px; line-height: 1.6; color: var(--gray-700); }
+.ext-cta__status { min-height: 1.2em; font-size: 13.5px; color: var(--gray-700); }
+
+.ext-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 20px; border: 1px solid var(--blue); border-radius: var(--radius); font-family: var(--font-body); font-size: 15px; font-weight: 600; text-decoration: none; cursor: pointer; transition: background var(--transition), border-color var(--transition); }
+.ext-btn--primary { background: var(--blue); color: var(--white); }
+.ext-btn--primary:hover:not(:disabled) { background: var(--navy); border-color: var(--navy); }
+.ext-btn--ghost { background: var(--white); color: var(--navy); border-color: var(--gray-300); }
+.ext-btn--ghost:hover:not(:disabled) { border-color: var(--blue); }
+.ext-btn:disabled { background: var(--gray-100); border-color: var(--gray-200); color: var(--gray-700); cursor: not-allowed; }
+
+.ext-link { color: var(--blue); font-size: 14.5px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.ext-link:hover { color: var(--navy); }
+
+.ext-installed { display: inline-flex; align-items: center; gap: 8px; margin: 0; padding: 10px 16px; border: 1px solid var(--blue); border-radius: var(--radius); background: var(--blue-light); font-size: 15.5px; font-weight: 600; color: var(--navy); }
+
+.ext-section { margin: 0 0 40px; }
+.ext-section h2 { margin: 0 0 14px; font-family: var(--font-display); font-size: 24px; line-height: 1.25; font-weight: 600; color: var(--navy); }
+.ext-section p { margin: 0 0 12px; font-size: 15.5px; line-height: 1.75; color: var(--gray-700); overflow-wrap: anywhere; }
+
+.ext-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.ext-steps li { display: flex; gap: 14px; align-items: flex-start; padding: 16px; border: 1px solid var(--gray-200); border-radius: var(--radius); background: var(--white); }
+.ext-steps__num { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--navy); color: var(--white); font-family: var(--font-mono); font-size: 14px; font-weight: 600; }
+.ext-steps strong { display: block; margin: 3px 0 4px; color: var(--navy); font-size: 16px; }
+.ext-steps p { margin: 0; }
+
+.ext-list { margin: 0 0 14px; padding-left: 20px; }
+.ext-list li { margin: 0 0 8px; font-size: 15.5px; line-height: 1.7; color: var(--gray-700); overflow-wrap: anywhere; }
+
+.ext-faq { border-bottom: 1px solid var(--gray-200); }
+.ext-faq summary { padding: 14px 4px; cursor: pointer; font-weight: 600; color: var(--navy); font-size: 16px; line-height: 1.4; }
+.ext-faq p { margin: 0 0 14px; padding: 0 4px; }
+
+/* Bandeau d'invitation dans l'espace de traduction. */
+.ext-banner { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--blue); border-radius: var(--radius); background: var(--blue-light); color: var(--navy); font-size: 14px; line-height: 1.5; }
+.ext-banner__text { flex: 1; min-width: 0; }
+.ext-banner__link { color: var(--blue); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+.ext-banner__link:hover { color: var(--navy); }
+.ext-banner__close { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: 50%; background: transparent; color: var(--navy); cursor: pointer; }
+.ext-banner__close:hover { background: var(--white); }
+.ext-banner a:focus-visible, .ext-banner button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+/* Installation manuelle : adresse à copier et points d'attention. */
+.ext-section { scroll-margin-top: 16px; }
+.ext-address { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; }
+.ext-address code { padding: 8px 12px; border: 1px solid var(--gray-200); border-radius: var(--radius); background: var(--gray-100); font-family: var(--font-mono); font-size: 14px; color: var(--navy); }
+.ext-btn--small { min-height: 38px; padding: 0 14px; font-size: 14px; }
+.ext-notes { margin-top: 20px; padding: 18px 20px; border: 1px solid var(--gray-200); border-left: 3px solid var(--blue); border-radius: var(--radius); background: var(--white); }
+.ext-notes h3 { margin: 0 0 10px; font-size: 16px; font-weight: 600; color: var(--navy); }
+.ext-notes .ext-list { margin: 0; }
+.ext-shot { margin: 12px 0 0; border: 1px solid var(--gray-200); border-radius: var(--radius); overflow: hidden; background: var(--gray-100); }
+.ext-shot img { display: block; width: 100%; height: auto; }
+
+@media (max-width: 600px) {
+  .ext-hero { padding: 20px 16px; }
+  .ext-hero__lead { font-size: 20px; }
+  .ext-section h2 { font-size: 21px; }
+  .ext-cta__row { flex-direction: column; align-self: stretch; }
+  .ext-cta__row .ext-btn { width: 100%; }
+  .ext-banner { flex-wrap: wrap; }
+}
+
+/* Cartes navigateur : un logo reconnaissable, un bouton boutique. */
+.ext-browsers { width: 100%; display: flex; flex-direction: column; gap: 12px; }
+.ext-browsers__title { margin: 0; font-size: 15px; font-weight: 600; color: var(--navy); }
+.ext-browsers__grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.ext-browser { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 30px 10px 16px; border: 1px solid var(--gray-200); border-radius: var(--radius); background: var(--white); text-align: center; font: inherit; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.ext-browser:hover { border-color: var(--blue); }
+.ext-browser--current { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-light); }
+.ext-browser__badge { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); white-space: nowrap; padding: 2px 10px; border-radius: 999px; background: var(--blue-light); color: var(--blue); font-size: 12px; font-weight: 600; }
+.ext-browser__name { font-size: 15px; font-weight: 600; color: var(--navy); }
+.ext-browser__sub { font-size: 13.5px; color: var(--gray-500); margin-bottom: 8px; }
+.ext-browser__logo { width: 48px; height: 48px; object-fit: contain; }
+
+/* Rubriques à gauche (liste), fiche à droite : même gabarit que la gestion des utilisateurs. */
+.ext-page .legal-head__inner, .ext-page .ext-body { max-width: var(--frame-max); }
+.ext-pick { margin: 0 0 32px; }
+.ext-layout { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: 20px; align-items: start; }
+.ext-menu { position: sticky; top: 0; display: flex; flex-direction: column; }
+.ext-menu__row { padding: 16px 18px; border-bottom: 1px solid var(--gray-100); }
+.ext-menu__row:last-child { border-bottom: 0; }
+.ext-menu__row .admin-row__title, .ext-menu__row .admin-row__meta { display: block; }
+.ext-menu__row .admin-row__title { font-size: 15px; }
+.ext-menu__row .admin-row__meta { font-size: 13px; margin-top: 3px; }
+.ext-menu__icon { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 10px; background: var(--gray-100); color: var(--navy); }
+.ext-menu__row[aria-current='true'] .ext-menu__icon { background: var(--white); color: var(--blue); }
+.ext-panel .admin-panel__head { align-items: center; padding: 20px 24px 16px; }
+.ext-panel .admin-panel__head h2 { margin: 2px 0 0; font-family: var(--font-display); font-size: 22px; font-weight: 600; }
+.ext-panel__sub { margin-top: 4px; font-size: 14px; }
+.ext-panel .admin-panel__body { padding: 4px 24px 24px; overflow: visible; }
+.ext-panel .admin-panel__block-head h3 { font-size: 14px; }
+.ext-panel .admin-panel__facts dd { font-size: 15px; }
+.ext-panel .ext-section { margin: 0; }
+.ext-fact-browser { display: inline-flex; align-items: center; gap: 8px; }
+.ext-fact-browser img { flex: none; object-fit: contain; }
+.ext-steps li > div { min-width: 0; }
+
+@media (min-width: 1024px) {
+  .ext-hero { padding: 32px 36px; }
+  .ext-hero__lead { font-size: 26px; max-width: 760px; }
+  .ext-hero__lead:last-child { margin-bottom: 0; }
+}
+@media (max-width: 1023px) {
+  .ext-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .ext-menu { position: static; display: grid; grid-template-columns: repeat(4, minmax(max-content, 1fr)); overflow-x: auto; }
+  .ext-menu .ext-menu__row { width: auto; padding: 12px 14px; border-bottom: 0; border-right: 1px solid var(--gray-100); }
+  .ext-menu__row:last-child { border-right: 0; }
+  .ext-menu__row .admin-row__meta { display: none; }
+  .ext-menu__row .admin-row__title { white-space: nowrap; }
+  .ext-menu__icon { width: 30px; height: 30px; }
+}
+@media (max-width: 600px) {
+  .ext-panel .admin-panel__head { flex-direction: column; align-items: stretch; }
+  .ext-panel .admin-panel__head-actions .ext-btn { width: 100%; }
+  .ext-browsers__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* Tarif : forfaits en lignes, documents en liens. */
+.ext-plans { list-style: none; margin: 0; padding: 0; border: 1px solid var(--gray-200); border-radius: var(--radius); }
+.ext-plans li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto; gap: 12px; align-items: baseline; padding: 12px 16px; border-bottom: 1px solid var(--gray-100); font-size: 15px; color: var(--gray-700); }
+.ext-plans li:last-child { border-bottom: 0; }
+.ext-plans strong { color: var(--navy); }
+.ext-plans__price { font-weight: 600; color: var(--navy); white-space: nowrap; }
+.ext-docs { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px 24px; }
+@media (max-width: 600px) { .ext-plans li { grid-template-columns: minmax(0, 1fr) auto; } .ext-plans li > span:not(.ext-plans__price) { grid-column: 1 / -1; grid-row: 2; font-size: 14px; } }
+.ext-plans li > span { text-align: left; }
+.ext-plans li > .ext-plans__price { text-align: right; }
+.ext-panel .admin-panel__head-actions .ext-btn { white-space: nowrap; }
+
+/* Menu des intégrations : entrée annoncée, pas encore de page. */
+.ext-nav-lien { display: inline-flex; align-items: center; gap: 6px; }
+.ext-nav-badge { font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 999px; background: #fef3c7; color: #92400e; }
+
+/* Page API : chantier en cours, annoncé en tête et bien visible. */
+.api-chantier { display: flex; gap: 14px; align-items: flex-start; padding: 16px 18px; margin-bottom: 20px; border: 1px solid #f59e0b; border-left-width: 5px; border-radius: 12px; background: #fffbeb; color: #78350f; }
+.api-chantier svg { flex-shrink: 0; color: #d97706; margin-top: 2px; }
+.api-chantier strong { display: block; font-size: 16px; margin-bottom: 4px; color: #92400e; }
+.api-chantier p { margin: 0; font-size: 14px; line-height: 1.5; }
+.api-statut { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; background: #fef3c7; color: #92400e; vertical-align: middle; }
+.api-grille { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 18px 0; }
+.api-bloc { padding: 18px 20px; border: 1px solid var(--gray-200); border-radius: var(--radius); background: var(--white); }
+.api-bloc h3 { margin: 0 0 12px; font-size: 15px; font-weight: 600; color: var(--navy); }
+.api-bloc .ext-list { margin: 0; padding-left: 18px; }
+.api-bloc .ext-list li { font-size: 14.5px; line-height: 1.6; }
+.api-bloc .ext-list li:last-child { margin-bottom: 0; }
+.api-hero { text-align: center; }
+.api-hero .ext-hero__lead { margin-inline: auto; }
+.api-statut { font-family: var(--font-body, inherit); }

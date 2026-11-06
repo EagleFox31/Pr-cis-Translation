@@ -1,8 +1,14 @@
 import { SITE_TARIFS } from "../config.ts";
 import { ATTR_UI } from "./commun.ts";
+import { THEME } from "./theme.ts";
 
 export interface Accord {
   accepte: boolean;
+  toujours: boolean;
+}
+
+export interface Choix {
+  mode: "traduire" | "original";
   toujours: boolean;
 }
 
@@ -10,23 +16,29 @@ export interface Bandeau {
   progression(texte: string | null): void;
   message(texte: string, lien?: { libelle: string; href: string }): void;
   demanderAccord(texte: string): Promise<Accord>;
+  proposer(texte: string): Promise<Choix | null>;
 }
 
-const STYLE = `
+const STYLE = `${THEME}
   [hidden] { display: none !important; }
   .barre { pointer-events: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
-    box-sizing: border-box; max-width: 680px; margin: 0 auto 12px; padding: 10px 14px;
-    background: #1f2937; color: #fff; font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
-    border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,.35); }
+    box-sizing: border-box; max-width: 680px; margin: 0 auto 12px; padding: 12px 16px;
+    background: var(--navy); color: var(--white); font: 13px/1.45 var(--police);
+    border-radius: 12px; box-shadow: 0 10px 40px rgba(13,27,62,.35); }
   .barre span.texte { flex: 1 1 260px; }
-  .barre a { color: #93c5fd; }
+  .barre a { color: var(--gold-light); font-weight: 600; }
+  .barre a:focus-visible { outline: 2px solid var(--gold-light); outline-offset: 2px; }
   .barre label { display: flex; align-items: center; gap: 6px; }
-  button { font: inherit; padding: 5px 10px; border-radius: 6px; cursor: pointer;
-    border: 1px solid #fff; background: #fff; color: #1f2937; }
-  button.secondaire { background: transparent; color: #fff; }
-  .pastille { position: fixed; top: 12px; right: 12px; pointer-events: none; padding: 5px 10px;
-    background: rgba(31,41,55,.9); color: #fff; border-radius: 999px;
-    font: 12px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .barre input[type="checkbox"] { margin: 0; accent-color: var(--blue-bright); }
+  button { font-size: 13px; font-weight: 600; line-height: 1; padding: 8px 14px; border-radius: 9px;
+    cursor: pointer; border: 1px solid transparent; background: var(--blue); color: var(--white);
+    transition: background .15s ease, border-color .15s ease; }
+  button:hover { background: var(--blue-bright); }
+  button.secondaire { background: transparent; color: rgba(255,255,255,.85); border-color: rgba(255,255,255,.35); }
+  button.secondaire:hover { color: var(--white); border-color: var(--white); }
+  .pastille { position: fixed; top: 12px; right: 12px; pointer-events: none; padding: 6px 12px;
+    background: rgba(13,27,62,.92); color: var(--white); border-radius: 999px;
+    box-shadow: 0 4px 16px rgba(13,27,62,.25); font: 500 12px/1.3 var(--police); }
 `;
 
 let courant: { hote: HTMLElement; api: Bandeau } | null = null;
@@ -101,6 +113,29 @@ function creer(): { hote: HTMLElement; api: Bandeau } {
         barre.hidden = false;
       });
     },
+
+    proposer(t) {
+      accordEnCours = true;
+      return new Promise<Choix | null>((resolve) => {
+        const caseToujours = document.createElement("input");
+        caseToujours.type = "checkbox";
+        const etiquette = document.createElement("label");
+        etiquette.append(caseToujours, "Toujours appliquer pour ce site");
+        const repondre = (mode: Choix["mode"] | null) => {
+          accordEnCours = false;
+          barre.hidden = true;
+          resolve(mode ? { mode, toujours: caseToujours.checked } : null);
+        };
+        barre.replaceChildren(
+          texte(t),
+          etiquette,
+          bouton("Traduire", false, () => repondre("traduire")),
+          bouton("Afficher l'original", true, () => repondre("original")),
+          bouton("Fermer", true, () => repondre(null)),
+        );
+        barre.hidden = false;
+      });
+    },
   };
 
   document.documentElement.appendChild(hote);
@@ -124,6 +159,9 @@ export function afficherErreur(bandeau: Bandeau, erreur: string): void {
       break;
     case "deconnecte":
       bandeau.message("Reconnectez-vous dans l'extension.");
+      break;
+    case "limite":
+      bandeau.message("Limite atteinte pour cette page : la suite reste en version originale.");
       break;
     case "trop":
       bandeau.message("Trop de demandes : réessayez dans un instant.");

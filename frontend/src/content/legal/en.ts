@@ -1,6 +1,6 @@
 import type { LegalDoc } from './types';
 
-export const LEGAL_UPDATED = 'October 31, 2026';
+export const LEGAL_UPDATED = 'November 6, 2026';
 
 export const LEGAL_EN: LegalDoc[] = [
   {
@@ -230,6 +230,23 @@ export const LEGAL_EN: LegalDoc[] = [
         heading: 'Security',
         paragraphs: [
           'Exchanges with the site are encrypted with HTTPS. Passwords are hashed with bcrypt, device and IP identifiers are hashed, and every access by our team to a document is logged.',
+        ],
+      },
+      {
+        heading: 'Browser extension',
+        paragraphs: [
+          'If you use the Précis extension for Chrome or Edge, the rules below apply in addition to those for the website.',
+        ],
+        list: [
+          'Page text and images: they are sent to our servers only when you ask for a translation, to be translated and sent back to your browser.',
+          'Sign-in: the sign-in tokens for your Précis account are stored in the browser (extension storage).',
+          'Local memory: translations already made are kept locally in your browser to avoid translating again; they never leave your device.',
+          'No browsing data is collected outside the page you choose to translate: no history and no list of visited sites.',
+          'No sale of data and no advertising.',
+          '"Storage" permission: keep your session and preferences.',
+          '"Active tab" and "script injection" permissions: read and replace the content of the active tab, only after you click the icon.',
+          'Site access: requested for the site you are on only, the first time you click “Translate”; you can remove it at any time in the extension settings.',
+          'Access to the Précis website: communicate with your account and our translation servers.',
         ],
       },
       {

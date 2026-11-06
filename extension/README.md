@@ -17,17 +17,25 @@ npm run build
 
 Puis `edge://extensions` ou `chrome://extensions` : activer le mode développeur, « Charger l'extension non empaquetée », choisir le dossier `extension/dist`.
 
+Sans compilation : télécharger le ZIP depuis la page `/extension` du site (bouton « Télécharger l'extension », tant qu'aucune boutique n'est renseignée), le décompresser dans un dossier fixe, puis charger ce dossier de la même façon. Pas de mise à jour automatique : re-télécharger, remplacer le dossier, puis « Actualiser » sur la page des extensions.
+
 À la première traduction sur un site, le navigateur demande l'accès à ce site. Si la fenêtre de l'extension se ferme à ce moment, rouvrir l'extension et cliquer de nouveau sur « Traduire cette page ».
 
 ## Basculer entre local et production
 
-Dans `src/config.ts`, `API_BASE` (et l'adresse du site pour la page des tarifs) vaut `http://localhost:8000` par défaut. Pour la production, mettre `https://precis-translator.com`, puis relancer `npm run build` et recharger l'extension.
+`npm run build` vise le poste local (API `localhost:8000`, site `localhost:3000`). `npm run build -- --prod` injecte `https://precis-translator.com` et retire `localhost` du manifest ; rien à modifier à la main.
 
 ## Commandes
 
 - `npm run typecheck` : vérification des types.
 - `npm test` : tests de la logique pure (`src/lib`), Node 22.
-- `npm run build` : génère `dist/`.
+- `npm run build` : génère `dist/` (local).
+- `npm run package` : build de production + `precis-extension-<version>.zip`, l'archive à envoyer aux boutiques (voir `docs/fiches-boutiques-extension.md`). Monter `version` dans `manifest.json` avant chaque envoi. L'archive est aussi copiée vers `frontend/public/extension/precis-extension.zip` (gitignoré), servie par le site pour l'installation manuelle ; relancer `npm run package` avant de construire le site.
+
+## Lien avec le site
+
+- À l'installation, l'extension ouvre `/extension?bienvenue=1` sur le site.
+- Le site demande si l'extension est présente (`externally_connectable`, message `precis-ping`) ; seule l'origine du site est admise.
 
 ## Couvert et limites
 

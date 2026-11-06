@@ -87,6 +87,25 @@ options D et E viennent plus tard, à la demande.
    « Hidden » sur Edge. Les deux options sont confirmées par la documentation
    officielle (voir Sources).
 
+## 11. Mise en œuvre technique (06/11/2026)
+
+| Sujet | Choix | Pourquoi |
+|---|---|---|
+| Adresses de production | `node build.mjs --prod` injecte l'API et le site (`define` esbuild) ; `config.ts` garde les adresses locales par défaut | Un seul code, aucune édition manuelle avant envoi |
+| Manifest | Généré par `build.mjs` : en production, plus de `localhost`, nom visible « Précis », icônes 16/32/48/128 | Exigence des boutiques ; un oubli de `localhost` vaut un refus |
+| Archive à envoyer | `npm run package` → `extension/precis-extension-<version>.zip` (contenu de `dist/` à la racine) | Format attendu par Chrome et Edge |
+| Détection par le site | `externally_connectable` limité au site ; message `precis-ping` → `{ installe, version }`, origine vérifiée | Masquer le bouton et le bandeau si déjà installée ; aucune route serveur |
+| Identifiants de boutique | Variables `VITE_EXTENSION_ID_{CHROME,EDGE}` et `VITE_EXTENSION_URL_{CHROME,EDGE}` ; sans adresse, installation manuelle (ligne suivante) | Les comptes éditeur ne sont pas encore créés (décision 2) |
+| Installation manuelle (6.12.6) | Sans boutique pour le navigateur détecté : bouton « Télécharger l'extension » (`/extension/precis-extension.zip`, surchargeable par `VITE_EXTENSION_ZIP_URL`) et section « Installer en 5 étapes » (adresse `chrome://` ou `edge://` à copier, mode développeur, chargement du dossier, épinglage) ; `npm run package` copie le ZIP dans `frontend/public/extension/` ; version du ZIP injectée au build depuis `manifest.json` (`VITE_EXTENSION_ZIP_VERSION` pour forcer) → « mise à jour disponible » si l'extension détectée est plus ancienne | Installation personnelle d'abord, boutiques plus tard (demande du 06/11) ; pas de mise à jour automatique, signalé sur la page |
+| Bienvenue | `onInstalled` (installation seulement) ouvre `/extension?bienvenue=1` : épingler, se connecter, premier essai | Page du site, traduite, sans double formulaire de connexion |
+| Bandeau dans l'app | Composant refermable dans l'espace de traduction : ordinateur, connecté, non installée ; refus mémorisé localement | Une seule proposition, jamais insistante |
+| Section de `/home` | Reportée : `Home.tsx` est en cours de modification ailleurs | Règle anti-conflit ; lien du menu et du pied de page en attendant |
+| Confidentialité | Section « Extension navigateur » dans `/confidentialite` (FR, EN) | Exigée par les deux boutiques |
+| Fiches boutiques | `docs/fiches-boutiques-extension.md` : textes, justification de chaque permission, déclarations de données | Prêtes à recopier lors de la création des comptes |
+
+Reste au propriétaire du produit : créer les comptes éditeur (5 $ Chrome, Edge gratuit),
+envoyer l'archive, renseigner les quatre variables `VITE_EXTENSION_*` (le bouton de boutique remplace alors le téléchargement manuel).
+
 ## Sources
 
 - https://developer.chrome.com/docs/extensions/how-to/distribute/install-extensions
