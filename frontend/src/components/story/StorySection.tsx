@@ -400,7 +400,11 @@ export default function StorySection({
                     // de page : un lot échoué laissait une page « terminée » en
                     // langue source.
                     const isReady = isTranslating ? !!readyPages[pageNo]
-                      : status === 'done' || status === 'copied' || !!readyPages[pageNo] || Object.keys(pageStatuses).length === 0;
+                      : status === 'done' || status === 'copied' || !!readyPages[pageNo]
+                        // Document rouvert sans suivi page à page : traduit
+                        // seulement si une traduction est affichée (avant le
+                        // lancement, l'aperçu montre l'original).
+                        || (Object.keys(pageStatuses).length === 0 && !!translatedBlob);
                     const inProgress = status === 'ocr' || status === 'extracting' || status === 'translating' || status === 'rendering';
                     // État lisible d'un coup d'œil : bordure verte + coche = prête,
                     // spinner bleu = en cours, grisée = en attente. La page affichée

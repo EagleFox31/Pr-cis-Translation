@@ -166,11 +166,11 @@ def ensure_background_build(original_path: str, translation_path: str,
 
     def _run():
         try:
-            # Import TARDIF et par attribut : `app` importe les routes qui
-            # nous importent (cycle sinon), et les tests substituent
-            # `app.render_translation_bytes` — passer par l'attribut au moment
-            # de l'appel respecte leur substitution.
-            import app as _app
+            # Import TARDIF et par attribut : les routes de documents nous
+            # importent (cycle sinon), et les tests substituent
+            # `documents.render_translation_bytes` — passer par l'attribut au
+            # moment de l'appel respecte leur substitution.
+            from app.api import documents as _app
             with build_lock(translation_path):
                 if cache_valid(translation_path):
                     return          # une requête l'a construit entre-temps

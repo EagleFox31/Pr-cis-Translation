@@ -425,8 +425,13 @@ export default function Home() {
   }, [libraryDocId, currentPage, showPreview, getPreviewBlob, previewPoll]);
 
   // ---- Download (le résultat complet, une fois la traduction terminée) ----
-  const handleDownload = useCallback(() => {
-    const blob = stream.result?.blob ?? translatedBlob;
+  const handleDownload = useCallback(async () => {
+    // Le document est en bibliothèque : on redemande le rendu au serveur. Le
+    // blob reçu en fin de traduction ignore les choix faits ensuite sur les
+    // pages illisibles (garder, laisser vide, traduire quand même).
+    const id = libraryDocId ?? stream.documentId;
+    const frais = id ? await getBlob(id).catch(() => undefined) : undefined;
+    const blob = frais ?? stream.result?.blob ?? translatedBlob;
     if (blob && translatedFilename) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -437,7 +442,7 @@ export default function Home() {
       URL.revokeObjectURL(url);
       document.body.removeChild(a);
     }
-  }, [stream.result, translatedBlob, translatedFilename]);
+  }, [libraryDocId, stream.documentId, stream.result, translatedBlob, translatedFilename, getBlob]);
 
   // ---- Pause / Annuler ----
   // Traduction lancée ici : le flux connaît le job. Document rouvert depuis la
