@@ -40,7 +40,13 @@ async function afficherVue(): Promise<void> {
   vueConnexion.hidden = etat.connecte;
   vueConnecte.hidden = !etat.connecte;
   if (etat.connecte) {
-    $("compte").textContent = etat.email ?? "";
+    const email = etat.email ?? "";
+    $("compte").textContent = email;
+    $("compte").title = email;
+    $("initiale").textContent = email.charAt(0);
+    const forfait = $("forfait");
+    forfait.hidden = !etat.plan;
+    forfait.textContent = etat.plan === "free" ? "Forfait gratuit" : `Forfait ${etat.plan ?? ""}`;
     const { langue } = await chrome.storage.local.get("langue");
     selectLangue.value = (langue as string | undefined) ?? "fr";
     afficherMemoire((await versBackground({ type: "memoire_etat" })).traductions);
@@ -82,8 +88,7 @@ vueConnexion.addEventListener("submit", async (e) => {
   }
 });
 
-$("btn-deconnexion").addEventListener("click", async (e) => {
-  e.preventDefault();
+$("btn-deconnexion").addEventListener("click", async () => {
   await versBackground({ type: "deconnexion" });
   afficher("");
   await afficherVue();
@@ -155,6 +160,7 @@ async function afficherMaj(): Promise<void> {
 }
 
 void (async () => {
+  $("version").textContent = `v${chrome.runtime.getManifest().version}`;
   void afficherMaj();
   [onglet] = await chrome.tabs.query({ active: true, currentWindow: true });
   await afficherVue();

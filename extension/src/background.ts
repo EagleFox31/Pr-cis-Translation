@@ -20,7 +20,7 @@ type Deconnecte = { erreur: "deconnecte" };
 interface ReponseJetons {
   access_token: string;
   refresh_token: string;
-  user?: { email?: string };
+  user?: { email?: string; plan?: string };
 }
 
 const attente = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -34,7 +34,7 @@ async function enregistrerJetons(acces: string, rafraichissement: string): Promi
 
 async function effacerJetons(): Promise<void> {
   await chrome.storage.session.remove("access_token");
-  await chrome.storage.local.remove(["refresh_token", "email"]);
+  await chrome.storage.local.remove(["refresh_token", "email", "plan"]);
 }
 
 async function lireAcces(): Promise<string | undefined> {
@@ -122,7 +122,7 @@ async function connexion(email: string, motDePasse: string): Promise<ReponseConn
     const jetons = (await rep.json()) as ReponseJetons;
     const adresse = jetons.user?.email ?? email;
     await enregistrerJetons(jetons.access_token, jetons.refresh_token);
-    await chrome.storage.local.set({ email: adresse });
+    await chrome.storage.local.set({ email: adresse, plan: jetons.user?.plan ?? null });
     return { ok: true, email: adresse };
   } catch {
     return { ok: false, erreur: "indisponible" };
@@ -140,8 +140,9 @@ async function deconnexion(): Promise<{ ok: true }> {
 }
 
 async function etat(): Promise<ReponseEtat> {
-  const { refresh_token, email } = await chrome.storage.local.get(["refresh_token", "email"]);
-  return refresh_token ? { connecte: true, email: email as string | undefined } : { connecte: false };
+  const { refresh_token, email, plan } = await chrome.storage.local.get(["refresh_token", "email", "plan"]);
+  if (!refresh_token) return { connecte: false };
+  return { connecte: true, email: email as string | undefined, plan: (plan as string | null | undefined) ?? undefined };
 }
 
 // --- Mémoire : gardée à la déconnexion, séparée par compte.

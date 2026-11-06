@@ -57,7 +57,7 @@ export type VersBackground =
   | MsgMaj;
 
 export type ReponseConnexion = { ok: true; email: string } | { ok: false; erreur: ErreurConnexion };
-export type ReponseEtat = { connecte: boolean; email?: string };
+export type ReponseEtat = { connecte: boolean; email?: string; plan?: string };
 export type ReponseSegments =
   | { ok: true; traductions: string[]; /** Budget de page épuisé en cours de route : le reste est en original. */ limite?: boolean }
   | { ok: false; erreur: ErreurSegments };

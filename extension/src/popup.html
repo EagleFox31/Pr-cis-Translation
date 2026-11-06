@@ -35,15 +35,27 @@
     button.secondaire:hover:not(:disabled) { background: var(--blue-light); box-shadow: none; }
     button:focus-visible, a:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: 2px; }
     button:disabled { opacity: .55; cursor: not-allowed; }
-    .compte { margin: 0 0 12px; font-size: 13px; color: var(--gray-500); word-break: break-all; }
+    .marque .version { margin-left: auto; margin-right: 0; font-family: inherit; font-size: 12px; line-height: 1; color: var(--gray-500); }
+    .compte { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 10px 12px;
+      background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 10px; }
+    .initiale { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+      background: var(--blue-light); color: var(--blue); font-size: 13px; font-weight: 600; text-transform: uppercase; }
+    .identite { flex: 1; min-width: 0; font-size: 13px; }
+    .identite span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .identite small { display: block; font-size: 11px; color: var(--gray-500); }
+    button.icone { flex: none; display: grid; place-items: center; width: 30px; height: 30px; margin: 0; padding: 0;
+      background: var(--white); color: var(--gray-500); border-color: var(--gray-200); border-radius: 8px; }
+    button.icone:hover:not(:disabled) { background: var(--gray-50); color: var(--gray-900); box-shadow: none; }
+    button.icone svg { width: 16px; height: 16px; }
+    .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+    .duo button { margin: 0; }
+    .pied { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 14px; padding-top: 12px;
+      border-top: 1px solid var(--gray-200); font-size: 12px; color: var(--gray-500); }
+    .pied a { color: var(--blue); }
+    .pied a:hover { color: var(--navy); }
     .message { margin: 12px 0 0; font-size: 13px; color: var(--gray-700); }
     .message:empty { display: none; }
     .message.erreur { padding: 10px 12px; border: 1px solid #fecaca; border-radius: 10px; background: #fef2f2; color: #991b1b; }
-    .note { margin: 12px 0 0; font-size: 12px; color: var(--gray-500); }
-    a.lien { align-self: flex-start; margin-top: 12px; font-size: 13px; color: var(--gray-500); }
-    a.lien:hover, .memoire a:hover { color: var(--gray-700); }
-    .memoire { display: flex; justify-content: space-between; gap: 8px; }
-    .memoire a { color: var(--gray-500); }
     .maj { margin: 0 0 14px; padding: 12px; border: 1px solid var(--blue-light); border-radius: 10px; background: #eff6ff; font-size: 13px; color: var(--gray-700); }
     .maj strong { display: block; color: var(--navy); }
     .maj ol { margin: 6px 0 0; padding-left: 18px; }
@@ -54,7 +66,7 @@
 </head>
 <body>
   <header class="marque">
-    <img src="logo.png" alt="P"><span>récis</span>
+    <img src="logo.png" alt="P"><span>récis</span><span class="version" id="version"></span>
   </header>
 
   <section id="maj" class="maj" hidden aria-live="polite">
@@ -79,7 +91,13 @@
   </form>
 
   <div id="vue-connecte" hidden>
-    <p class="compte" id="compte"></p>
+    <div class="compte">
+      <span class="initiale" id="initiale" aria-hidden="true"></span>
+      <span class="identite"><span id="compte"></span><small id="forfait" hidden></small></span>
+      <button id="btn-deconnexion" type="button" class="icone" title="Déconnexion" aria-label="Déconnexion">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+      </button>
+    </div>
     <label for="langue">Langue cible</label>
     <select id="langue">
       <option value="fr">Français</option>
@@ -90,14 +108,14 @@
       <option value="pt">Português</option>
       <option value="ar">العربية</option>
     </select>
-    <button id="btn-traduire" type="button">Traduire cette page</button>
-    <button id="btn-original" type="button" class="secondaire">Afficher l'original</button>
-    <p class="note memoire">
+    <div class="duo">
+      <button id="btn-traduire" type="button">Traduire</button>
+      <button id="btn-original" type="button" class="secondaire">Original</button>
+    </div>
+    <p class="pied">
       <span id="memoire"></span>
       <a id="btn-memoire" href="#" hidden>Effacer</a>
     </p>
-    <a id="btn-deconnexion" class="lien" href="#">Déconnexion</a>
-    <p class="note">Les cadres d'une autre origine non accordée ne sont pas traités.</p>
   </div>
 
   <p id="message" class="message" role="status"></p>
