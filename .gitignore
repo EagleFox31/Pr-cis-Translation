@@ -50,3 +50,5 @@ backend/tests/_generic_tmp/
 
 # Poids PP-OCRv6 (backend/scripts/telecharger_ppocr.py)
 backend/models/
+# ZIP d'installation manuelle de l'extension (npm run package)
+frontend/public/extension/

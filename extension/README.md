@@ -17,6 +17,8 @@ npm run build
 
 Puis `edge://extensions` ou `chrome://extensions` : activer le mode développeur, « Charger l'extension non empaquetée », choisir le dossier `extension/dist`.
 
+Sans compilation : télécharger le ZIP depuis la page `/extension` du site (bouton « Télécharger l'extension », tant qu'aucune boutique n'est renseignée), le décompresser dans un dossier fixe, puis charger ce dossier de la même façon. Pas de mise à jour automatique : re-télécharger, remplacer le dossier, puis « Actualiser » sur la page des extensions.
+
 À la première traduction sur un site, le navigateur demande l'accès à ce site. Si la fenêtre de l'extension se ferme à ce moment, rouvrir l'extension et cliquer de nouveau sur « Traduire cette page ».
 
 ## Basculer entre local et production
@@ -28,7 +30,7 @@ Puis `edge://extensions` ou `chrome://extensions` : activer le mode développeur
 - `npm run typecheck` : vérification des types.
 - `npm test` : tests de la logique pure (`src/lib`), Node 22.
 - `npm run build` : génère `dist/` (local).
-- `npm run package` : build de production + `precis-extension-<version>.zip`, l'archive à envoyer aux boutiques (voir `docs/fiches-boutiques-extension.md`). Monter `version` dans `manifest.json` avant chaque envoi.
+- `npm run package` : build de production + `precis-extension-<version>.zip`, l'archive à envoyer aux boutiques (voir `docs/fiches-boutiques-extension.md`). Monter `version` dans `manifest.json` avant chaque envoi. L'archive est aussi copiée vers `frontend/public/extension/precis-extension.zip` (gitignoré), servie par le site pour l'installation manuelle ; relancer `npm run package` avant de construire le site.
 
 ## Lien avec le site
 

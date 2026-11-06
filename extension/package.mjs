@@ -1,6 +1,6 @@
 // Archive à envoyer aux boutiques : build de production, contenu de dist/ à la racine du ZIP.
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { crc32, deflateRawSync } from "node:zlib";
@@ -61,3 +61,9 @@ const { version } = JSON.parse(readFileSync("dist/manifest.json", "utf8"));
 const sortie = `precis-extension-${version}.zip`;
 writeFileSync(sortie, Buffer.concat([...locaux, ...centraux, fin]));
 console.log(`${sortie} : ${centraux.length / 2} fichiers`);
+
+// Copie servie par le site (/extension) pour l'installation manuelle.
+const site = join("..", "frontend", "public", "extension");
+mkdirSync(site, { recursive: true });
+copyFileSync(sortie, join(site, "precis-extension.zip"));
+console.log(`copie : ${join(site, "precis-extension.zip")}`);

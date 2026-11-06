@@ -54,6 +54,15 @@
 .ext-banner__close:hover { background: var(--white); }
 .ext-banner a:focus-visible, .ext-banner button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 
+/* Installation manuelle : adresse à copier et points d'attention. */
+.ext-section { scroll-margin-top: 16px; }
+.ext-address { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; }
+.ext-address code { padding: 8px 12px; border: 1px solid var(--gray-200); border-radius: var(--radius); background: var(--gray-100); font-family: var(--font-mono); font-size: 14px; color: var(--navy); }
+.ext-btn--small { min-height: 38px; padding: 0 14px; font-size: 14px; }
+.ext-notes { margin-top: 20px; padding: 18px 20px; border: 1px solid var(--gray-200); border-left: 3px solid var(--blue); border-radius: var(--radius); background: var(--white); }
+.ext-notes h3 { margin: 0 0 10px; font-size: 16px; font-weight: 600; color: var(--navy); }
+.ext-notes .ext-list { margin: 0; }
+
 @media (max-width: 600px) {
   .ext-hero { padding: 20px 16px; }
   .ext-hero__lead { font-size: 20px; }

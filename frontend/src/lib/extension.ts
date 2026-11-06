@@ -16,6 +16,23 @@ export const EXTENSION_URL = {
   edge: env.VITE_EXTENSION_URL_EDGE ?? '',
 };
 
+/** ZIP d'installation manuelle, proposé tant qu'aucune boutique n'est renseignée. */
+export const EXTENSION_ZIP = {
+  url: env.VITE_EXTENSION_ZIP_URL || '/extension/precis-extension.zip',
+  version: __EXTENSION_VERSION__,
+};
+
+/** Vrai si `installee` est strictement plus ancienne que `disponible` (versions x.y.z). */
+export function versionPlusAncienne(installee: string, disponible: string): boolean {
+  const a = installee.split('.').map((n) => parseInt(n, 10) || 0);
+  const b = disponible.split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const d = (a[i] ?? 0) - (b[i] ?? 0);
+    if (d !== 0) return d < 0;
+  }
+  return false;
+}
+
 const DELAI_MS = 1500; // marge pour un fil principal chargé au premier rendu
 
 export function detecterNavigateur(): Navigateur {
