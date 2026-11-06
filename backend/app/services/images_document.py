@@ -39,6 +39,7 @@ from pathlib import PurePosixPath
 import numpy as np
 from PIL import Image
 
+from app.services import ocr_file
 from app.services.ocr_v2 import image as ocr_image
 from app.services.ocr_v2.image import ImageRefusee
 from engines import incorpores
@@ -449,7 +450,8 @@ def _ecrire_cache(dossier: str, sha: str, remplacee: bool, mime: str, octets: by
 
 
 def traduire_images(data: bytes, ext: str, traduire, dossier: str, budget: int | None,
-                    analyse: Analyse | None = None) -> tuple[dict[str, bytes], dict]:
+                    analyse: Analyse | None = None,
+                    arret=None) -> tuple[dict[str, bytes], dict]:
     """Traduit les images à texte du document ; renvoie `(table, rapport)`.
 
     `table` : {clé d'image: octets traduits}, pour les seules images remplacées.
@@ -457,9 +459,8 @@ def traduire_images(data: bytes, ext: str, traduire, dossier: str, budget: int |
     suivantes ne sont pas lues (`sans_credit`). Une image dont la lecture ou la
     traduction échoue reste en original (`echecs`) : jamais d'échec du document.
     Cache disque par empreinte des octets source, dans `dossier`.
+    `arret` : rappel appelé pendant l'attente du guichet OCR (peut lever l'arrêt).
     """
-    from app.services.ocr import _slot      # sémaphore OCR, partagé avec les scans
-
     a_texte = (analyse or analyser(data, ext)).a_texte
     table: dict[str, bytes] = {}
     rapport = {"proposees": len(a_texte), "traduites": 0, "inchangees": 0,
@@ -474,8 +475,8 @@ def traduire_images(data: bytes, ext: str, traduire, dossier: str, budget: int |
             sha = hashlib.sha256(img.octets).hexdigest()
             trouve = _lire_cache(dossier, sha)
             if trouve is None:
-                with _slot:
-                    rendu = ocr_image.traduire_image(img.octets, traduire)
+                rendu = ocr_image.traduire_image(
+                    img.octets, traduire, tour=lambda: ocr_file.tour(arret=arret))
                 trouve = (rendu.remplacee, rendu.mime, rendu.data)
                 _ecrire_cache(dossier, sha, *trouve)
         except Exception as e:

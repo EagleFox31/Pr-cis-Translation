@@ -295,10 +295,13 @@ class BetaTests(unittest.IsolatedAsyncioTestCase):
         for _ in range(3):
             scan.new_page()
         data = scan.tobytes(); scan.close()
-        with patch.object(translation, "prepare_scanned_pdf", return_value=(pdf(3), 3)) as recognize:
+        with patch.object(translation.Tesseract, "manquant", return_value=None), \
+                patch.object(translation.scheduler_scans, "submit",
+                             side_effect=lambda job_id, *_: self.queued.append(job_id)) as submit:
             result = await self.translate(data)
         self.assertEqual(result.status_code, 200, result.text)
-        self.assertEqual(recognize.call_args.args[1], {1, 2, 3})
+        self.assertEqual(result.json()["ocr_pages"], 3)
+        submit.assert_called_once()
         async with self.sessions() as db:
             self.assertEqual((await beta.totals(db, enrollment["id"]))["pdf"]["units"], 3)
 

@@ -12,7 +12,7 @@ import math
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import (User, get_plan_monthly_pages,
+from app.models import (Document, User, get_plan_monthly_pages,
                         KIND_CREDITS, KIND_FREE_OFFER, KIND_PLAN)
 from app.services import usage
 from engines import runtags
@@ -134,5 +134,12 @@ async def _debiter(db: AsyncSession, locked: User, pages: int,
         usage.record(db, locked.id, document_id, KIND_FREE_OFFER if gratuit else KIND_PLAN, du_plan)
     if achetees:
         usage.record(db, locked.id, document_id, KIND_CREDITS, achetees)
+        # Même règle qu'au lancement (`translate.py`) : un document d'essai qui
+        # consomme des pages achetées devient téléchargeable, sinon le client
+        # paierait ces pages sans pouvoir les récupérer, puis les repaierait.
+        if document_id and gratuit:
+            doc = await db.get(Document, document_id)
+            if doc is not None and doc.user_id == locked.id:
+                doc.paid = True
     await db.commit()
     return True

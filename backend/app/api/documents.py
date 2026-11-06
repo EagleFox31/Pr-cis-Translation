@@ -4,12 +4,12 @@ Routes documents — CRUD par utilisateur.
 from __future__ import annotations
 import json
 import os
-import re
-import shutil
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import Response
+from fastapi.responses import JSONResponse
+from typing import Literal
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 # FileResponse retiré : ses réponses Range/206 faisaient échouer
@@ -18,8 +18,13 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import TRANSLATIONS_DIR, logger
-from app.services import images_document, render_cache, stockage, usage
-from app.services.documents import reglages_de, traduction_partielle_du_document
+from app.services import beta, extension, images_document, ocr_pages, render_cache, stockage, translation_runner, usage
+from app.services.beta_meter import BetaCost
+from app.models.plans import get_plan_priority
+from app.services.scheduler import scheduler_scans
+from app.services.documents import copie_du_document as _copie_du_document, copie_prevue as _copie_prevue
+from app.services.documents import (chemin_traduction_du_document, pages_selectionnees,
+                                    reglages_de, traduction_partielle_du_document)
 from app.services.jobs import STATUTS_ARRET, STATUTS_REPRENABLES, jobs
 from app.services.office import convert_to_pdf_bytes
 from app.services.translation_runner import render_translation_bytes
@@ -73,6 +78,18 @@ def _garder_pages(pdf: bytes, pages: set[int]) -> bytes:
     with fitz.open(stream=pdf, filetype="pdf") as d:
         d.select([p - 1 for p in sorted(pages) if 0 < p <= len(d)])
         return d.tobytes(garbage=3, deflate=True)
+
+
+def _sans_pages_retirees(pdf: bytes, trad: str) -> bytes:
+    """Retire du fichier livré les pages hors sélection que le client a
+    retirées ; l'aperçu, lui, les garde à leur place."""
+    retirees = ocr_pages.pages_retirees(trad)
+    if not retirees:
+        return pdf
+    import fitz
+    with fitz.open(stream=pdf, filetype="pdf") as d:
+        total = len(d)
+    return _garder_pages(pdf, set(range(1, total + 1)) - retirees)
 
 
 def _inside_store(path: str) -> bool:
@@ -252,8 +269,24 @@ def _apercu_filigrane(user: User, doc: Document) -> bool:
     return not _may_read_clear(user, doc) or bool(reglages_de(doc).get("beta"))
 
 
+def _suivi_scan(doc: Document) -> dict:
+    """Pages illisibles d'un scan terminé : celles qui attendent un choix,
+    et celles en cours de relecture (« traduire quand même »)."""
+    trad = doc.translated_path
+    if doc.status == "translating" or not trad or not os.path.isfile(trad):
+        return {"pages_a_decider": 0, "pages_relues": 0}
+    illisibles = ocr_pages.pages_illisibles(trad)
+    if not illisibles:
+        return {"pages_a_decider": 0, "pages_relues": 0}
+    en_cours = translation_runner.pages_en_cours(trad) & set(illisibles)
+    choix = ocr_pages.lire_choix(trad)
+    return {"pages_a_decider": sum(1 for p in illisibles if p not in choix and p not in en_cours),
+            "pages_relues": len(en_cours)}
+
+
 def _doc_response(doc: Document) -> dict:
     return {
+        **_suivi_scan(doc),
         "id": doc.id,
         "paid": doc.paid,
         "original_name": doc.original_name,
@@ -287,7 +320,8 @@ async def list_documents(
     )
     result = await db.execute(stmt)
     docs = result.scalars().all()
-    return [_doc_response(d) for d in docs]
+    # Lit les pages illisibles sur disque : hors de la boucle.
+    return await run_in_threadpool(lambda: [_doc_response(d) for d in docs])
 
 
 # ── GET /documents/{id} ─────────────────────────────────────────────────────
@@ -381,6 +415,8 @@ async def download_document(
         return _render_or_404(doc, ext, trad=trad)
 
     data = await run_in_threadpool(_build)
+    if ext == "pdf" and livrables is None:
+        data = await run_in_threadpool(_sans_pages_retirees, data, trad)
     base = os.path.splitext(doc.original_name)[0]
     dl_name = f"{base}_TRADUIT{'_PARTIEL' if livrables is not None else ''}.{ext}"
     media = "application/pdf" if ext == "pdf" else "application/octet-stream"
@@ -677,35 +713,8 @@ def _images_du_document(doc: Document) -> list[dict]:
     return sortie
 
 
-def _copie_du_document(doc: Document) -> str:
-    """Traduction propre à CE document, créée au premier changement d'image.
-
-    La traduction d'origine peut servir à d'autres comptes (magasin partagé) :
-    on n'y touche pas. La copie (JSON, table et images) vit à côté, sous un nom
-    qui reste une traduction pour le balayage et que seul ce document vise."""
-    trad = doc.translated_path
-    base, extension = os.path.splitext(trad)
-    marque = "_d" + re.sub(r"[^0-9A-Za-z]", "", str(doc.id))[:12]
-    if base.endswith(marque):
-        return trad
-    copie = base + marque + extension
-    shutil.copy2(trad, copie)
-    if os.path.isdir(trad + ".images"):
-        shutil.copytree(trad + ".images", copie + ".images", dirs_exist_ok=True)
-    shutil.copy2(images_document.chemin_table(trad), images_document.chemin_table(copie))
-    return copie
-
-
 def _invalider_rendu(trad: str) -> None:
-    """Le rendu en cache date d'avant le changement : la traduction devient
-    plus récente que lui (`render_cache.cache_valid`), un rendu en cours
-    d'écriture est écarté (`store_render` compare la date relevée avant)."""
-    t = time.time()
-    try:
-        t = max(t, os.path.getmtime(render_cache.cache_path_for(trad)) + 1)
-    except OSError:
-        pass
-    os.utime(trad, (t, t))
+    render_cache.invalider(trad)
 
 
 @router.get("/{doc_id}/images")
@@ -743,6 +752,157 @@ async def choisir_image(
     await run_in_threadpool(images_document.marquer_originale, copie, choix.cle, choix.originale)
     await run_in_threadpool(_invalider_rendu, copie)
     return {"cle": choix.cle, "originale": choix.originale}
+
+
+# ── Pages illisibles d'un scan : original, vide ou traduire quand même ───────
+
+class ChoixPages(BaseModel):
+    pages: list[int] = Field(min_length=1, max_length=2000)
+    choix: Literal["original", "vide", "traduire", "retirer"]
+
+
+def _hors_selection(doc: Document, trad: str) -> set[int]:
+    """Pages d'un PDF laissées hors de la sélection du job et pas encore
+    incluses. Une traduction d'avant `selection.json` la retrouve dans les
+    réglages du document (son rendu, posé sans mention, est alors refait)."""
+    if not doc.original_path or not doc.original_path.lower().endswith(".pdf"):
+        return set()
+    if ocr_pages.lire_selection(trad) is None:
+        selection = pages_selectionnees(doc)
+        if not selection:
+            return set()
+        ocr_pages.ecrire_selection(trad, selection)
+        _invalider_rendu(trad)
+    import fitz
+    try:
+        with fitz.open(doc.original_path) as d:
+            total = d.page_count
+        with render_cache.verrou_traduction(trad).lire():
+            with open(trad, encoding="utf-8") as f:
+                presentes = {p.get("page_num") for p in json.load(f).get("pages", [])}
+    except (OSError, ValueError, RuntimeError):
+        return set()
+    return ocr_pages.pages_hors_selection(trad, total, presentes)
+
+
+def _pages_illisibles_du_document(doc: Document, trad: str | None = None) -> dict:
+    """`provisoire` : traduction encore en cours, les pages se lisent au fil
+    du scan mais aucun choix n'est encore possible (il porte sur la copie
+    du document, posée à la fin). Les pages hors sélection (motif
+    `hors_selection`) n'apparaissent qu'une fois la traduction terminée."""
+    provisoire = trad is not None and trad != doc.translated_path
+    trad = trad or doc.translated_path
+    choix = {} if provisoire else ocr_pages.lire_choix(trad)
+    entrees = dict(ocr_pages.pages_illisibles(trad))
+    if not provisoire:
+        entrees.update({p: "hors_selection" for p in _hors_selection(doc, trad)})
+    return {
+        "pages": [{"page": page, "motif": motif, "choix": choix.get(page)}
+                  for page, motif in sorted(entrees.items())],
+        "en_cours": [] if provisoire else sorted(translation_runner.pages_en_cours(trad)),
+        "provisoire": provisoire,
+        # Vignettes : une page blanche n'est ni traduite ni à décider.
+        "blanches": ocr_pages.pages_blanches(trad),
+    }
+
+
+@router.get("/{doc_id}/pages-illisibles")
+async def pages_illisibles(
+    doc_id: str,
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Pages d'un scan restées illisibles, avec le choix du client pour chacune.
+    Pendant la traduction, celles déjà lues (sans choix possible)."""
+    doc = await db.get(Document, doc_id)
+    if doc is None or doc.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Document introuvable.")
+    if doc.translated_path and os.path.isfile(doc.translated_path):
+        return await run_in_threadpool(_pages_illisibles_du_document, doc)
+    prevu = (await run_in_threadpool(chemin_traduction_du_document, doc)
+             if doc.status in ("pending", "translating") else None)
+    if not prevu:
+        raise HTTPException(status_code=404, detail="Ce document n'a pas de traduction disponible.")
+    return await run_in_threadpool(_pages_illisibles_du_document, doc, prevu)
+
+
+async def _couvre_les_pages(db: AsyncSession, user: User, doc: Document, n: int) -> JSONResponse | None:
+    """402 si ni le forfait, ni le solde (ou le quota bêta) ne couvrent `n` pages."""
+    if reglages_de(doc).get("beta"):
+        inscription = await beta.active_enrollment(db, user)
+        try:
+            if inscription is None:
+                raise HTTPException(402, {"reason": "beta_quota", "message":
+                                          "Votre accès bêta n'est plus actif."})
+            await beta.check_cost(db, inscription, BetaCost("pdf", n))
+        except HTTPException as exc:
+            return JSONResponse(status_code=402, content={**exc.detail, "detail": exc.detail["message"]})
+        return None
+    reste_plan, solde, _ = await extension.couverture(db, user)
+    if extension.couvre(reste_plan, solde, n):
+        return None
+    message = "Votre solde ne couvre pas ces pages. Rechargez vos crédits pour les traduire."
+    return JSONResponse(status_code=402, content={
+        "reason": "insufficient_credits", "required": n, "detail": message, "message": message})
+
+
+@router.patch("/{doc_id}/pages-illisibles")
+async def choisir_pages_illisibles(
+    doc_id: str,
+    corps: ChoixPages,
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """« original » ou « vide » change le rendu, sans débit. « traduire » relit
+    les pages plus permissivement ; seule une page traduite est débitée."""
+    doc = await _doc_traduit(db, user, doc_id)
+    pages = sorted(set(corps.pages))
+    illisibles = await run_in_threadpool(ocr_pages.pages_illisibles, doc.translated_path)
+    hors = await run_in_threadpool(_hors_selection, doc, doc.translated_path)
+    if any(p not in illisibles and p not in hors for p in pages):
+        raise HTTPException(status_code=409, detail="Ces pages ne sont plus à décider.")
+    # « vide » ne vaut que pour une page illisible, « retirer » que pour une
+    # page hors sélection.
+    if ((corps.choix == "vide" and any(p in hors for p in pages))
+            or (corps.choix == "retirer" and any(p in illisibles for p in pages))):
+        raise HTTPException(status_code=409, detail="Ce choix ne convient pas à ces pages.")
+    if corps.choix == "traduire":
+        # Les pages en cours sont marquées sur la copie propre au document.
+        cible = _copie_prevue(doc)
+        pages = [p for p in pages if p not in translation_runner.pages_en_cours(cible)]
+        if not pages:
+            return await run_in_threadpool(_pages_illisibles_du_document, doc)
+        refus = await _couvre_les_pages(db, user, doc, len(pages))
+        if refus is not None:
+            return refus
+    try:
+        copie = await run_in_threadpool(_copie_du_document, doc)
+    except OSError:
+        logger.exception("Copie de traduction impossible (doc %s)", doc.id)
+        raise HTTPException(status_code=500, detail="Le changement n'a pas pu être enregistré.")
+    if copie != doc.translated_path:
+        doc.translated_path = copie
+        await db.commit()
+    if corps.choix != "traduire":
+        # « original » est un choix enregistré comme « vide » : sans trace,
+        # la page reste « à décider » et la carte revient.
+        await run_in_threadpool(ocr_pages.ecrire_choix, copie, pages, corps.choix)
+        await run_in_threadpool(_invalider_rendu, copie)
+        return await run_in_threadpool(_pages_illisibles_du_document, doc)
+    nouvelles = translation_runner.reserver_pages(copie, pages)
+    if nouvelles:
+        job_id = jobs.create()
+        try:
+            scheduler_scans.submit(job_id, get_plan_priority(user.plan),
+                                   translation_runner.run_traduire_pages_job,
+                                   (job_id, doc.id, user.id, doc.original_path, copie,
+                                    doc.target_lang, sorted(nouvelles),
+                                    bool(reglages_de(doc).get("beta"))))
+        except Exception:
+            translation_runner.liberer_pages(copie, nouvelles)
+            jobs.forget(job_id)
+            raise
+    return await run_in_threadpool(_pages_illisibles_du_document, doc)
 
 
 @router.delete("/{doc_id}")

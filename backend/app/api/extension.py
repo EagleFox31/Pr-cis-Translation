@@ -15,13 +15,13 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import logger
+from app.config import OCR_DELAI_EXTENSION_S, logger
 from app.core.database import get_db
 from app.core.security import require_auth
-from app.models import User
+from app.models import User, get_plan_priority
 from app.rate_limit import rate_limit_decorator
 from app.services import extension as ext
-from app.services import limites_page
+from app.services import limites_page, ocr_file
 from app.services.ocr_v2.detect import LectureEchouee
 from app.services.ocr_v2.image import OCTETS_MAX, ImageRefusee, traduire_image, verifier
 
@@ -104,10 +104,18 @@ async def traduire_une_image(request: Request, file: UploadFile = File(...),
     if current_user.id in _en_cours:
         raise HTTPException(status_code=429, detail="Une image est déjà en cours.")
     _en_cours.add(current_user.id)
+    priorite = get_plan_priority(current_user.plan)
+
+    def _lire():
+        # Le tour se prend DANS le fil de travail : attendre ici ne bloque pas
+        # la boucle async.
+        return traduire_image(
+            data, lambda t: ext.traduire_textes(t, langue),
+            tour=lambda: ocr_file.tour(priorite=priorite, delai=OCR_DELAI_EXTENSION_S))
+
     try:
-        rendu = await run_in_threadpool(
-            traduire_image, data, lambda t: ext.traduire_textes(t, langue))
-    except (LectureEchouee, ext.TraductionIndisponible) as e:
+        rendu = await run_in_threadpool(_lire)
+    except (LectureEchouee, ext.TraductionIndisponible, ocr_file.OCROccupe) as e:
         logger.warning(f"Extension, image non traduite : {e}")
         raise HTTPException(status_code=503, detail="Image non traduite. Réessayez.")
     finally:

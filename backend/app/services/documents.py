@@ -8,6 +8,9 @@ tautologiques, et l'une d'elles cachait un vrai défaut de facturation
 from __future__ import annotations
 
 import os
+import re
+import shutil
+import threading
 
 from app.config import TRANSLATIONS_DIR, logger
 from app.core.files import pages_token
@@ -223,6 +226,12 @@ def _selection_du_document(doc):
     return translation_path_for(lang_dir, ext, pages or None, qsuffix), ext, pages or None
 
 
+def pages_selectionnees(doc) -> set[int] | None:
+    """Pages visées par le travail d'un Document ; None = tout le document."""
+    sel = _selection_du_document(doc)
+    return sel[2] if sel else None
+
+
 def chemin_traduction_du_document(doc) -> str | None:
     """Fichier de traduction (partielle) d'un Document : le ménage doit le
     garder tant que le document peut être repris."""
@@ -272,3 +281,53 @@ def traduction_partielle_du_document(doc, payees: int) -> tuple[str, set[int]] |
     if not livrables or not os.path.isfile(chemin):
         return None
     return chemin, livrables
+
+
+def copie_du_document(doc) -> str:
+    """Traduction propre à CE document, créée au premier changement d'image.
+
+    La traduction d'origine peut servir à d'autres comptes (magasin partagé) :
+    on n'y touche pas. La copie (JSON, table et images) vit à côté, sous un nom
+    qui reste une traduction pour le balayage et que seul ce document vise."""
+    from app.services import images_document, render_cache
+    trad = doc.translated_path
+    copie = copie_prevue(doc)
+    if copie == trad:
+        return trad
+    with verrou_copie(copie):
+        # Deux changements simultanés : le second réutilise la copie du premier
+        # au lieu de l'écraser (une page déjà reportée et débitée y serait perdue).
+        # La copie n'est pas comparée à la traduction courante : le seul cas où
+        # elle en diffère (clôture `done` rejouée, jobs.py) ramène de toute façon
+        # `translated_path` sur la traduction partagée, et la copie est refaite.
+        if os.path.isfile(copie):
+            return copie
+        for suffixe in (".images", ".ocr"):
+            if os.path.isdir(trad + suffixe):
+                shutil.copytree(trad + suffixe, copie + suffixe, dirs_exist_ok=True,
+                                ignore=shutil.ignore_patterns("*.tmp"))
+        for source, cible in ((images_document.chemin_table(trad), images_document.chemin_table(copie)),
+                              (trad + ".source.pdf", copie + ".source.pdf")):
+            if os.path.isfile(source):
+                shutil.copy2(source, cible)
+        # Le JSON en dernier et d'un seul coup : sa présence vaut copie complète.
+        with render_cache.verrou_traduction(trad).lire():
+            shutil.copy2(trad, copie + ".tmp")
+        os.replace(copie + ".tmp", copie)
+    return copie
+
+
+def copie_prevue(doc) -> str:
+    """Chemin de la traduction propre au document (existante ou à créer)."""
+    base, extension = os.path.splitext(doc.translated_path)
+    marque = "_d" + re.sub(r"[^0-9A-Za-z]", "", str(doc.id))[:12]
+    return doc.translated_path if base.endswith(marque) else base + marque + extension
+
+
+_verrous_copie: dict[str, threading.Lock] = {}
+_verrous_copie_garde = threading.Lock()
+
+
+def verrou_copie(copie: str) -> threading.Lock:
+    with _verrous_copie_garde:
+        return _verrous_copie.setdefault(os.path.abspath(copie), threading.Lock())
