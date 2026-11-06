@@ -4,6 +4,7 @@ import { ArrowLeft, Check, Copy, Download, Monitor } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import MobileMenu from '../components/navbar/MobileMenu';
+import { ChromeLogo, EdgeLogo } from '../components/extension/BrowserLogos';
 import { useExtensionInstalled } from '../hooks/useExtensionInstalled';
 import {
   detecterNavigateur, estMobile, EXTENSION_URL, EXTENSION_ZIP, versionPlusAncienne, type Navigateur,
@@ -54,24 +55,39 @@ export default function ExtensionPage() {
 
   const libelleBoutique = (b: Boutique) => t(b === 'edge' ? 'extension_page.add_edge' : 'extension_page.add_chrome');
 
-  // Bouton d'une boutique : lien réel si l'adresse est renseignée, sinon bouton inactif.
-  const boutique = (b: Boutique, principal: boolean) => {
+  // Carte d'un navigateur : logo, nom, bouton boutique (inactif tant que l'adresse manque).
+  const carte = (b: Boutique) => {
     const url = EXTENSION_URL[b];
-    const classe = `ext-btn ${principal ? 'ext-btn--primary' : 'ext-btn--ghost'}`;
-    if (!url) {
-      return (
-        <button type="button" className={classe} disabled>
-          {principal ? t('extension_page.soon') : `${libelleBoutique(b)} · ${t('extension_page.soon')}`}
-        </button>
-      );
-    }
+    const courant = b === navigateur;
     return (
-      <a className={classe} href={url} target="_blank" rel="noopener">
-        {principal && <Download size={16} strokeWidth={2.2} aria-hidden="true" />}
-        {libelleBoutique(b)}
-      </a>
+      <li key={b} className={`ext-browser${courant ? ' ext-browser--current' : ''}`}>
+        {courant && <span className="ext-browser__badge">{t('extension_page.card_detected')}</span>}
+        {b === 'chrome' ? <ChromeLogo /> : <EdgeLogo />}
+        <strong className="ext-browser__name">{b === 'chrome' ? 'Google Chrome' : 'Microsoft Edge'}</strong>
+        <span className="ext-browser__sub">{t(`extension_page.card_${b}_also`)}</span>
+        {url ? (
+          <a className="ext-btn ext-btn--primary" href={url} target="_blank" rel="noopener">
+            <Download size={16} strokeWidth={2.2} aria-hidden="true" />
+            {libelleBoutique(b)}
+          </a>
+        ) : (
+          <button type="button" className="ext-btn ext-btn--ghost" disabled>{t(`extension_page.soon_${b}`)}</button>
+        )}
+      </li>
     );
   };
+
+  const ordre: Boutique[] = navigateur === 'edge' ? ['edge', 'chrome'] : ['chrome', 'edge'];
+  const cartes = (
+    <div className="ext-browsers">
+      <p className="ext-browsers__title">{t('extension_page.cards_title')}</p>
+      <ul className="ext-browsers__grid">{ordre.map(carte)}</ul>
+      <p className="ext-cta__hint">
+        {!manuel && `${t('extension_page.card_one_click')} `}
+        {t('extension_page.card_unsupported')}
+      </p>
+    </div>
+  );
 
   const copierLien = async () => {
     try {
@@ -97,18 +113,6 @@ export default function ExtensionPage() {
       {libelle}
     </a>
   );
-
-  const offreManuelle = (
-    <>
-      <div className="ext-cta__row">{telecharger(t('extension_page.download'))}</div>
-      {EXTENSION_ZIP.version && (
-        <p className="ext-cta__hint">{t('extension_page.download_hint', { version: EXTENSION_ZIP.version })}</p>
-      )}
-      <a className="ext-link" href="#ext-manual">{t('extension_page.download_steps')}</a>
-    </>
-  );
-
-  const autre: Boutique = navigateur === 'edge' ? 'chrome' : 'edge';
 
   const action = () => {
     if (mobile) {
@@ -144,30 +148,7 @@ export default function ExtensionPage() {
         </div>
       );
     }
-    if (navigateur === 'autre') {
-      return (
-        <div className="ext-cta">
-          <p className="ext-cta__note">{t('extension_page.other_browser')}</p>
-          {manuel ? offreManuelle : (
-            <div className="ext-cta__row">
-              {boutique('chrome', false)}
-              {boutique('edge', false)}
-            </div>
-          )}
-        </div>
-      );
-    }
-    if (manuel) return <div className="ext-cta">{offreManuelle}</div>;
-    return (
-      <div className="ext-cta">
-        <div className="ext-cta__row">{boutique(navigateur, true)}</div>
-        {EXTENSION_URL[autre] && (
-          <a className="ext-link" href={EXTENSION_URL[autre]} target="_blank" rel="noopener">
-            {t(autre === 'edge' ? 'extension_page.also_edge' : 'extension_page.also_chrome')}
-          </a>
-        )}
-      </div>
-    );
+    return <div className="ext-cta">{cartes}</div>;
   };
 
   return (
@@ -236,9 +217,14 @@ export default function ExtensionPage() {
             </section>
 
             {manuel ? (
-            <section className="ext-section" id="ext-manual" aria-labelledby="ext-manual-title">
-              <h2 id="ext-manual-title">{t('extension_page.manual.title')}</h2>
+            <details className="ext-section ext-manual" id="ext-manual">
+              <summary>{t('extension_page.manual_toggle')}</summary>
+              <h2>{t('extension_page.manual.title')}</h2>
               <p>{t('extension_page.manual.intro')}</p>
+              <div className="ext-cta__row">{telecharger(t('extension_page.download'))}</div>
+              {EXTENSION_ZIP.version && (
+                <p className="ext-cta__hint">{t('extension_page.download_hint', { version: EXTENSION_ZIP.version })}</p>
+              )}
               <ol className="ext-steps">
                 <li>
                   <span className="ext-steps__num" aria-hidden="true">1</span>
@@ -288,7 +274,7 @@ export default function ExtensionPage() {
                   {NOTES.map((k) => <li key={k}>{t(`extension_page.manual.${k}`)}</li>)}
                 </ul>
               </div>
-            </section>
+            </details>
             ) : (
             <section className="ext-section" aria-labelledby="ext-how">
               <h2 id="ext-how">{t('extension_page.how.title')}</h2>
