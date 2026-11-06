@@ -362,6 +362,9 @@ function traiter(msg: VersBackground): Promise<ReponseDe<VersBackground>> {
       return Promise.resolve(null);
     case "appliquer":
       return Promise.resolve({ ok: false });
+    default:
+      // Message d'une version précédente (script de contenu resté chargé) : ignoré.
+      return Promise.resolve(undefined as never);
   }
 }
 
@@ -503,7 +506,8 @@ chrome.tabs.onRemoved.addListener((tabId) => void ecrireSuivi(tabId, null));
 chrome.runtime.onInstalled.addListener(({ reason }) => {
   if (reason === chrome.runtime.OnInstalledReason.INSTALL) void chrome.tabs.create({ url: SITE_BIENVENUE });
   planifierMaj();
-  void chrome.contextMenus.removeAll().then(() => {
+  // Forme à rappel : sous Edge, removeAll() ne renvoie pas toujours de promesse.
+  chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({ id: MENU_TRADUIRE, title: "Traduire cette page avec Précis", contexts: ["page"] });
     chrome.contextMenus.create({ id: MENU_ORIGINAL, title: "Afficher l'original (Précis)", contexts: ["page"] });
   });
