@@ -19,10 +19,12 @@ nombre d'appels et nombre d'images.
 ## Ce qui gonfle l'usage DeepSeek, par page
 | Facteur | Borne retenue |
 |---|---|
-| Texte envoyé (balises `[[n]]` comprises, car elles coûtent des jetons) | 150 000 caractères (~100 pages équivalentes, un très long article Wikipédia) |
-| Nombre de lots (chaque lot renvoie le prompt et jusqu'à 2 500 caractères de contexte) : défilement infini, mutations | 300 lots |
-| Images de la page (OCR + traduction) | 40 |
-| Images de vidéo (à la demande, sur pause) | 100 |
+| Texte envoyé (balises `[[n]]` comprises, car elles coûtent des jetons) | 50 000 caractères (~33 pages équivalentes, un long article de presse ou de documentation) |
+| Nombre de lots (chaque lot renvoie le prompt et jusqu'à 2 500 caractères de contexte) : défilement infini, mutations | 100 lots |
+| Images de la page (OCR + traduction, le poste le plus coûteux) | 10 |
+| Images de vidéo (à la demande, sur pause) | 20 |
+
+Valeurs resserrées le 06/11 (premier jet : 150 000 / 300 / 40 / 100, jugé trop large).
 
 Le texte déjà en mémoire locale ne part pas au serveur et ne compte donc pas.
 Un lot ou une image est accepté tant que le compteur est **sous** la borne :

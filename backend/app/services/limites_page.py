@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import time
 
-# Texte envoyé, balises comprises : environ 100 pages équivalentes.
-TEXTE_MAX = 150_000
+# Texte envoyé, balises comprises : environ 33 pages équivalentes.
+TEXTE_MAX = 50_000
 # Lots de texte : chacun renvoie le prompt et le contexte (défilement infini).
-LOTS_MAX = 300
-IMAGES_MAX = 40
+LOTS_MAX = 100
+# Images : OCR + traduction, le poste le plus coûteux.
+IMAGES_MAX = 10
 # Images de vidéo, prises à la demande sur pause.
-CAPTURES_MAX = 100
+CAPTURES_MAX = 20
 
 BORNES = {"texte": TEXTE_MAX, "lots": LOTS_MAX, "images": IMAGES_MAX, "captures": CAPTURES_MAX}
 
