@@ -1,5 +1,6 @@
 import { DetecteurAnimation } from "../lib/animation.ts";
 import { messageAccord, messageLimiteImages } from "../lib/cout.ts";
+import { enParallele } from "../lib/parallele.ts";
 import { afficherErreur, obtenirBandeau } from "./bandeau.ts";
 import { poserCalque, retirerCalques } from "./calques.ts";
 import {
@@ -14,6 +15,8 @@ import {
 import type { ReponseImage } from "../types.ts";
 
 const TAILLE_MIN = 64;
+/** Images traitées à la fois : le serveur en accepte autant par utilisateur. */
+const PARALLELE = 2;
 
 type Genre = "img" | "fond" | "canvas";
 
@@ -34,6 +37,8 @@ let traites = new WeakMap<Element, Set<string>>();
 let file = new Map<Element, Candidat>();
 let restaurations: (() => void)[] = [];
 const resultats = new Map<string, ReponseImage>();
+/** Envois en cours par adresse : une même image affichée deux fois ne part qu'une fois. */
+const enVol = new Map<string, ReturnType<typeof envoyerImage>>();
 
 const detecteur = new DetecteurAnimation();
 const identifiants = new WeakMap<Element, number>();
@@ -208,18 +213,37 @@ async function traiter(c: Candidat, session: number): Promise<boolean> {
   const mise = c.src ? resultats.get(c.src) : undefined;
   let reponse = mise ?? null;
 
+  let charge: Awaited<ReturnType<typeof preparer>> = null;
   if (!reponse) {
-    let charge = await preparer(c);
+    charge = await preparer(c);
+    // L'autre travailleur a pu traduire la même image pendant la préparation.
+    reponse = (c.src && resultats.get(c.src)) || null;
+  }
+
+  if (!reponse) {
     if (!charge) {
       marquer(c.el, c.cle);
       return false;
     }
-    let rep = await envoyerImage(etat.langue, charge);
-    if (!rep.ok && rep.erreur === "illisible" && charge.src) {
-      // Le background n'a pas accès à l'hôte de l'image : seconde chance depuis la page.
-      charge = await lireLocalement(charge.src);
-      rep = charge ? await envoyerImage(etat.langue, charge) : rep;
+    const envoi = async () => {
+      let rep = await envoyerImage(etat.langue, charge!);
+      if (!rep.ok && rep.erreur === "illisible" && charge!.src) {
+        // Le background n'a pas accès à l'hôte de l'image : seconde chance depuis la page.
+        charge = await lireLocalement(charge!.src);
+        rep = charge ? await envoyerImage(etat.langue, charge) : rep;
+      }
+      return rep;
+    };
+    const vol = c.src ? `${etat.langue} ${c.src}` : null;
+    let promesse = vol ? enVol.get(vol) : undefined;
+    if (!promesse) {
+      promesse = envoi();
+      if (vol) {
+        enVol.set(vol, promesse);
+        void promesse.finally(() => enVol.delete(vol));
+      }
     }
+    const rep = await promesse;
     if (session !== etat.session) return true;
     if (!rep.ok) {
       if (rep.erreur === "refusee" || rep.erreur === "illisible") {
@@ -249,17 +273,25 @@ async function boucle(): Promise<void> {
   etat.enCours = true;
   const session = etat.session;
   try {
-    while (file.size > 0 && session === etat.session) {
-      const c = plusVisible();
-      file.delete(c.el);
-      etat.fait++;
-      if (!c.el.isConnected) continue;
+    // Le plus visible d'abord, repris à chaque place libérée (l'utilisateur a pu défiler).
+    const prendre = (): Candidat | undefined => {
+      while (file.size > 0 && session === etat.session) {
+        const c = plusVisible();
+        file.delete(c.el);
+        etat.fait++;
+        if (c.el.isConnected) return c;
+      }
+      return undefined;
+    };
+    await enParallele(PARALLELE, prendre, async (c) => {
       obtenirBandeau().progression(`Traduction… ${etat.fait}/${etat.total}`);
       if (await traiter(c, session)) {
-        file.clear();
-        break;
+        // Une session plus récente a sa propre file : on ne la vide pas.
+        if (session === etat.session) file.clear();
+        return true;
       }
-    }
+      return false;
+    });
   } finally {
     if (session === etat.session) {
       etat.enCours = false;

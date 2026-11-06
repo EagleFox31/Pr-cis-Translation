@@ -116,6 +116,7 @@ aperçus non-PDF.
 | [`docs/etude-interface-extension.md`](docs/etude-interface-extension.md) | Étude : habiller l'interface de l'extension aux couleurs du site (jetons, polices, logo) |
 | [`docs/etude-distribution-extension.md`](docs/etude-distribution-extension.md) | Étude : présenter l'extension et la faire installer sans effort |
 | [`docs/etude-limites-page-extension.md`](docs/etude-limites-page-extension.md) | Étude : bornes par page de l'extension (texte, lots, images) contre les abus |
+| [`docs/etude-vitesse-images-extension.md`](docs/etude-vitesse-images-extension.md) | Étude : vitesse des images de l'extension (effacement allégé, 2 images à la fois, cache 30 jours) |
 | [`docs/fiches-boutiques-extension.md`](docs/fiches-boutiques-extension.md) | Textes à recopier pour les fiches Chrome Web Store et Edge Add-ons (permissions, données, visuels) |
 | [`docs/guide-premiere-mise-en-ligne.md`](docs/guide-premiere-mise-en-ligne.md) | Pas à pas de la toute première mise en ligne |
 | [`infra/aws/README.md`](infra/aws/README.md) | L'infrastructure AWS (CloudFormation, OIDC, secrets) |

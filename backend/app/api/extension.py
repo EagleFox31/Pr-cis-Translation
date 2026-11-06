@@ -1,7 +1,9 @@
 """Routes de l'extension navigateur (étude extension §6).
 
-Rien n'est conservé : ni le texte des pages, ni les images ; seul le débit
-entre au registre de consommation (nombre de pages, sans contenu).
+Le texte des pages n'est pas conservé. Les images traduites (hors vidéo)
+entrent 30 jours dans un cache partagé, retrouvable seulement en renvoyant
+la même image (services/cache_images.py, étude vitesse-images-extension) ;
+le débit entre au registre de consommation (nombre de pages, sans contenu).
 L'extension appelle depuis son service de fond (permissions d'hôte) : le
 CORS du site n'est pas en jeu.
 """
@@ -21,14 +23,16 @@ from app.core.security import require_auth
 from app.models import User
 from app.rate_limit import rate_limit_decorator
 from app.services import extension as ext
-from app.services import limites_page
+from app.services import cache_images, limites_page
 from app.services.ocr_v2.detect import LectureEchouee
 from app.services.ocr_v2.image import OCTETS_MAX, ImageRefusee, traduire_image, verifier
 
 router = APIRouter(prefix="/api/extension", tags=["Extension"])
 
-# Une image à la fois par utilisateur (étude §6) : l'OCR occupe un cœur.
-_en_cours: set[str] = set()
+# Deux images à la fois par utilisateur (étude vitesse-images-extension ;
+# auparavant une seule, étude §6) : chacune occupe un cœur pour l'OCR.
+PARALLELE = 2
+_en_cours: dict[str, int] = {}
 
 _REFUS = {"taille": 413, "pixels": 413, "type": 415, "animee": 415}
 
@@ -91,7 +95,8 @@ async def traduire_segments(request: Request, corps: Segments,
 
 
 @router.post("/image")
-@rate_limit_decorator("30/minute")
+# 60 : les images déjà en cache reviennent en quelques ms, deux à la fois.
+@rate_limit_decorator("60/minute")
 async def traduire_une_image(request: Request, file: UploadFile = File(...),
                              langue: str = Form("fr"), video: bool = Form(False),
                              current_user: User = Depends(require_auth),
@@ -103,14 +108,26 @@ async def traduire_une_image(request: Request, file: UploadFile = File(...),
         raise HTTPException(status_code=_REFUS[e.code], detail=f"Image refusée : {e.code}.")
     if not ext.couvre(*(await ext.couverture(db, current_user))[:2], 1):
         return _manque(1)
-    if current_user.id in _en_cours:
-        raise HTTPException(status_code=429, detail="Une image est déjà en cours.")
     # Seules les images traduites usent le budget « images » ; chaque analyse
     # consomme le budget « analyses », plus large.
-    if refus := _limite(request, current_user,
-                        **({"captures": 1} if video is True else {"analyses": 1, "images": 0})):
+    quantites = {"captures": 1} if video is True else {"analyses": 1, "images": 0}
+    cle = cache_images.cle(data, langue) if cache_images.ACTIF and video is not True else None
+    if cle and (connue := await run_in_threadpool(cache_images.lire, cle)):
+        # Déjà traduite : même débit et même budget, sans OCR ni traduction.
+        if refus := _limite(request, current_user, **quantites):
+            return refus
+        # Compté avant le débit : deux envois simultanés ne dépassent pas le budget.
+        limites_page.ajouter(current_user.id, _page(request), images=1)
+        if not await ext.debiter(db, current_user.id, 1):
+            return _manque(1)
+        return {"remplacee": True, "pages": 1, "mime": connue["mime"],
+                "image": base64.b64encode(connue["image"]).decode(),
+                "blocs": connue["blocs"]}
+    if _en_cours.get(current_user.id, 0) >= PARALLELE:
+        raise HTTPException(status_code=429, detail="Deux images sont déjà en cours.")
+    if refus := _limite(request, current_user, **quantites):
         return refus
-    _en_cours.add(current_user.id)
+    _en_cours[current_user.id] = _en_cours.get(current_user.id, 0) + 1
     try:
         rendu = await run_in_threadpool(
             traduire_image, data, lambda t: ext.traduire_textes(t, langue))
@@ -118,17 +135,23 @@ async def traduire_une_image(request: Request, file: UploadFile = File(...),
         logger.warning(f"Extension, image non traduite : {e}")
         raise HTTPException(status_code=503, detail="Image non traduite. Réessayez.")
     finally:
-        _en_cours.discard(current_user.id)
+        if (n := _en_cours.pop(current_user.id, 1) - 1) > 0:
+            _en_cours[current_user.id] = n
+    logger.info("Extension, image : " + ", ".join(
+        f"{k} {v:.1f} s" for k, v in rendu.durees.items()))
     # Honnêteté : une image non remplacée n'est ni rendue modifiée ni débitée.
     if rendu.remplacee and not await ext.debiter(db, current_user.id, 1):
         return _manque(1)
     if rendu.remplacee and video is not True:
         limites_page.ajouter(current_user.id, _page(request), images=1)
+    blocs = [{"texte": b.texte, "traduction": b.traduction,
+              "boite": list(b.boite), "remplace": b.remplace} for b in rendu.blocs]
+    if rendu.remplacee and rendu.complet and cle:
+        await run_in_threadpool(cache_images.ecrire, cle, rendu.mime, blocs, rendu.data)
     return {
         "remplacee": rendu.remplacee,
         "pages": 1 if rendu.remplacee else 0,
         "mime": rendu.mime,
         "image": base64.b64encode(rendu.data).decode() if rendu.remplacee else None,
-        "blocs": [{"texte": b.texte, "traduction": b.traduction,
-                   "boite": list(b.boite), "remplace": b.remplace} for b in rendu.blocs],
+        "blocs": blocs,
     }
