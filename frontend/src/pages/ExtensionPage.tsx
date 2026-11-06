@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, NavLink, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Check, Download, Monitor } from 'lucide-react';
+import { ArrowLeft, Check, CreditCard, Download, HelpCircle, Monitor, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import MobileMenu from '../components/navbar/MobileMenu';
@@ -30,11 +30,12 @@ const PERMISSIONS = ['storage', 'tab', 'sites', 'send', 'sale'] as const;
 
 // Rubriques du menu latéral : l'ancre de l'adresse ouvre directement la bonne.
 const RUBRIQUES = [
-  { id: 'install', cle: 'extension_page.tab_install' },
-  { id: 'price', cle: 'extension_page.price.title' },
-  { id: 'perms', cle: 'extension_page.permissions.title' },
-  { id: 'faq', cle: 'extension_page.faq.title' },
+  { id: 'install', cle: 'extension_page.tab_install', Icone: Download },
+  { id: 'price', cle: 'extension_page.price.title', Icone: CreditCard },
+  { id: 'perms', cle: 'extension_page.permissions.title', Icone: ShieldCheck },
+  { id: 'faq', cle: 'extension_page.faq.title', Icone: HelpCircle },
 ] as const;
+const NOM_BOUTIQUE = { edge: 'Edge Add-ons', chrome: 'Chrome Web Store' } as const;
 type Rubrique = (typeof RUBRIQUES)[number]['id'];
 
 const rubriqueInitiale = (): Rubrique => {
@@ -183,56 +184,55 @@ export default function ExtensionPage() {
     </>
   );
 
-  const installation = mobile ? null : (
-        <section className="ext-section ext-guide" aria-labelledby="ext-guide-title">
-          <div className="ext-install">
-            <div className="ext-install__steps">
-              <h2 id="ext-guide-title">{t('extension_page.install_for', { browser: nomChoix })}</h2>
-              <p>{t('extension_page.card_one_click')}</p>
-              <ol className="ext-steps">{etapes}</ol>
-            </div>
+  const bouton = urlBoutique ? (
+    <a className="ext-btn ext-btn--primary" href={urlBoutique} target="_blank" rel="noopener">
+      <Download size={16} strokeWidth={2.2} aria-hidden="true" />
+      {t('extension_page.download_for', { browser: nomChoix })}
+    </a>
+  ) : (
+    <button type="button" className="ext-btn ext-btn--ghost" disabled>{t('extension_page.soon')}</button>
+  );
 
-            <aside className="ext-install__card" aria-label={nomChoix}>
-              <img src={`/browsers/${choix}.png`} alt="" width={64} height={64} />
-              <strong>{nomChoix}</strong>
-              <span className="ext-browser__sub">{t(`extension_page.card_via_${boutique}`)}</span>
-              {urlBoutique ? (
-                <a className="ext-btn ext-btn--primary" href={urlBoutique} target="_blank" rel="noopener">
-                  <Download size={16} strokeWidth={2.2} aria-hidden="true" />
-                  {t('extension_page.download_for', { browser: nomChoix })}
-                </a>
-              ) : (
-                <button type="button" className="ext-btn ext-btn--ghost" disabled>{t('extension_page.soon')}</button>
-              )}
-            </aside>
-          </div>
-        </section>
+  // Fiche de droite, sur le modèle de la fiche utilisateur de l'administration.
+  const fiche = (titre: string, corps: ReactNode, action?: ReactNode, sous?: string) => (
+    <section className="admin-panel ext-panel" aria-labelledby="ext-panel-title">
+      <header className="admin-panel__head">
+        <div>
+          <span className="admin-panel__eyebrow">{t('extension_page.panel_eyebrow')}</span>
+          <h2 id="ext-panel-title">{titre}</h2>
+          {sous && <p className="admin-panel__muted ext-panel__sub">{sous}</p>}
+        </div>
+        {action && <div className="admin-panel__head-actions">{action}</div>}
+      </header>
+      <div className="admin-panel__body">{corps}</div>
+    </section>
+  );
+
+  const fait = (cle: string, valeur: ReactNode) => (
+    <div><dt>{t(`extension_page.${cle}`)}</dt><dd>{valeur}</dd></div>
   );
 
   const contenu = () => {
     switch (rubrique) {
       case 'price':
-        return (
-          <section className="ext-section" aria-labelledby="ext-price">
-            <h2 id="ext-price">{t('extension_page.price.title')}</h2>
+        return fiche(t('extension_page.price.title'), (
+          <section className="admin-panel__block ext-section">
             <p>{t('extension_page.price.text')}</p>
             <p><Link className="ext-link" to="/home#pricing">{t('extension_page.price.link')}</Link></p>
           </section>
-        );
+        ));
       case 'perms':
-        return (
-          <section className="ext-section" aria-labelledby="ext-perms">
-            <h2 id="ext-perms">{t('extension_page.permissions.title')}</h2>
+        return fiche(t('extension_page.permissions.title'), (
+          <section className="admin-panel__block ext-section">
             <ul className="ext-list">
               {PERMISSIONS.map((k) => <li key={k}>{t(`extension_page.permissions.${k}`)}</li>)}
             </ul>
             <p><Link className="ext-link" to="/confidentialite">{t('extension_page.permissions.privacy')}</Link></p>
           </section>
-        );
+        ));
       case 'faq':
-        return (
-          <section className="ext-section" aria-labelledby="ext-faq">
-            <h2 id="ext-faq">{t('extension_page.faq.title')}</h2>
+        return fiche(t('extension_page.faq.title'), (
+          <section className="admin-panel__block ext-section">
             {FAQ.map((k) => (
               <details key={k} className="ext-faq">
                 <summary>{t(`extension_page.faq.${k}_q`)}</summary>
@@ -240,9 +240,29 @@ export default function ExtensionPage() {
               </details>
             ))}
           </section>
-        );
+        ));
       default:
-        return installation;
+        if (mobile) return null;
+        return fiche(t('extension_page.install_for', { browser: nomChoix }), (
+          <>
+            <section className="admin-panel__block">
+              <dl className="admin-panel__facts">
+                {fait('fact_browser', (
+                  <span className="ext-fact-browser">
+                    <img src={`/browsers/${choix}.png`} alt="" width={20} height={20} />{nomChoix}
+                  </span>
+                ))}
+                {fait('fact_store', NOM_BOUTIQUE[boutique])}
+                {fait('fact_install', t('extension_page.fact_install_v'))}
+                {fait('fact_updates', t('extension_page.fact_updates_v'))}
+              </dl>
+            </section>
+            <section className="admin-panel__block ext-section" aria-labelledby="ext-steps-title">
+              <div className="admin-panel__block-head"><h3 id="ext-steps-title">{t('extension_page.steps_title')}</h3></div>
+              <ol className="ext-steps">{etapes}</ol>
+            </section>
+          </>
+        ), bouton, t('extension_page.card_one_click'));
     }
   };
 
@@ -309,21 +329,20 @@ export default function ExtensionPage() {
             {entete}
 
             <div className="ext-layout">
-              <nav className="ext-menu" aria-label={t('extension_page.menu_title')}>
-                <p className="ext-menu__title">{t('extension_page.menu_title')}</p>
-                <ul>
-                  {RUBRIQUES.map((r) => (
-                    <li key={r.id}>
-                      <button
-                        type="button" className={`ext-menu__item${rubrique === r.id ? ' is-active' : ''}`}
-                        aria-current={rubrique === r.id ? 'page' : undefined}
-                        onClick={() => choisirRubrique(r.id)}
-                      >
-                        {t(r.cle)}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+              <nav className="admin-list ext-menu" aria-label={t('extension_page.menu_title')}>
+                {RUBRIQUES.map(({ id, cle, Icone }) => (
+                  <button
+                    key={id} type="button" className="admin-row admin-row--button admin-duo__row ext-menu__row"
+                    aria-current={rubrique === id ? 'true' : undefined}
+                    onClick={() => choisirRubrique(id)}
+                  >
+                    <span className="ext-menu__icon"><Icone size={18} strokeWidth={2} aria-hidden="true" /></span>
+                    <span className="admin-row__main">
+                      <span className="admin-row__title">{t(cle)}</span>
+                      <span className="admin-row__meta">{t(`extension_page.menu_hint_${id}`)}</span>
+                    </span>
+                  </button>
+                ))}
               </nav>
 
               <div className="ext-content">{contenu()}</div>

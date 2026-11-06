@@ -84,28 +84,27 @@
 .ext-browser__sub { font-size: 13.5px; color: var(--gray-500); margin-bottom: 8px; }
 .ext-browser__logo { width: 48px; height: 48px; object-fit: contain; }
 
-/* Menu des rubriques à gauche, contenu à droite. */
+/* Rubriques à gauche (liste), fiche à droite : même gabarit que la gestion des utilisateurs. */
 .ext-page .legal-head__inner, .ext-page .ext-body { max-width: var(--frame-max); }
-.ext-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; align-items: start; }
-.ext-menu { position: sticky; top: 0; padding: 16px 12px; border: 1px solid var(--gray-200); border-radius: var(--radius-lg); background: var(--white); }
-.ext-menu__title { margin: 0 0 8px 10px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--gray-500); }
-.ext-menu ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.ext-menu__item { width: 100%; padding: 10px 12px; border: 0; border-radius: var(--radius); background: none; font: inherit; font-size: 15px; font-weight: 500; color: var(--gray-700); text-align: left; cursor: pointer; }
-.ext-menu__item:hover { background: var(--gray-100, #f3f4f6); color: var(--navy); }
-.ext-menu__item.is-active { background: var(--blue-light); color: var(--blue); font-weight: 600; }
-.ext-content > :last-child { margin-bottom: 0; }
-
-/* Guide : étapes à gauche, carte de téléchargement à droite. */
-.ext-pick { margin: 0 0 36px; }
-.ext-install { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 32px; align-items: start; }
-.ext-install__steps h2 { margin-top: 0; }
-.ext-install__card { position: sticky; top: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 24px 20px; border: 1px solid var(--gray-200); border-radius: var(--radius-lg); background: var(--white); box-shadow: var(--shadow-sm); text-align: center; }
-.ext-install__card > strong { font-size: 18px; color: var(--navy); }
-.ext-install__card .ext-btn { width: 100%; justify-content: center; }
-.ext-install__card .ext-notes { margin: 8px 0 0; text-align: left; width: 100%; }
-.ext-install__card .ext-notes h3 { font-size: 14px; }
-.ext-install__card .ext-list li { font-size: 13.5px; }
-.ext-address code { overflow-wrap: anywhere; }
+.ext-pick { margin: 0 0 32px; }
+.ext-layout { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: 20px; align-items: start; }
+.ext-menu { position: sticky; top: 0; display: flex; flex-direction: column; }
+.ext-menu__row { padding: 16px 18px; border-bottom: 1px solid var(--gray-100); }
+.ext-menu__row:last-child { border-bottom: 0; }
+.ext-menu__row .admin-row__title, .ext-menu__row .admin-row__meta { display: block; }
+.ext-menu__row .admin-row__title { font-size: 15px; }
+.ext-menu__row .admin-row__meta { font-size: 13px; margin-top: 3px; }
+.ext-menu__icon { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 10px; background: var(--gray-100); color: var(--navy); }
+.ext-menu__row[aria-current='true'] .ext-menu__icon { background: var(--white); color: var(--blue); }
+.ext-panel .admin-panel__head { align-items: center; padding: 20px 24px 16px; }
+.ext-panel .admin-panel__head h2 { margin: 2px 0 0; font-family: var(--font-display); font-size: 22px; font-weight: 600; }
+.ext-panel__sub { margin-top: 4px; font-size: 14px; }
+.ext-panel .admin-panel__body { padding: 4px 24px 24px; overflow: visible; }
+.ext-panel .admin-panel__block-head h3 { font-size: 14px; }
+.ext-panel .admin-panel__facts dd { font-size: 15px; }
+.ext-panel .ext-section { margin: 0; }
+.ext-fact-browser { display: inline-flex; align-items: center; gap: 8px; }
+.ext-fact-browser img { flex: none; object-fit: contain; }
 .ext-steps li > div { min-width: 0; }
 
 @media (min-width: 1024px) {
@@ -114,14 +113,16 @@
   .ext-hero__lead:last-child { margin-bottom: 0; }
 }
 @media (max-width: 1023px) {
-  .ext-layout { grid-template-columns: minmax(0, 1fr); gap: 20px; }
-  .ext-menu { position: static; padding: 6px; overflow-x: auto; }
-  .ext-menu__title { display: none; }
-  .ext-menu ul { flex-direction: row; }
-  .ext-menu__item { white-space: nowrap; text-align: center; }
-  .ext-install { grid-template-columns: minmax(0, 1fr); }
-  .ext-install__card { position: static; order: -1; }
+  .ext-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .ext-menu { position: static; display: grid; grid-template-columns: repeat(4, minmax(max-content, 1fr)); overflow-x: auto; }
+  .ext-menu .ext-menu__row { width: auto; padding: 12px 14px; border-bottom: 0; border-right: 1px solid var(--gray-100); }
+  .ext-menu__row:last-child { border-right: 0; }
+  .ext-menu__row .admin-row__meta { display: none; }
+  .ext-menu__row .admin-row__title { white-space: nowrap; }
+  .ext-menu__icon { width: 30px; height: 30px; }
 }
 @media (max-width: 600px) {
+  .ext-panel .admin-panel__head { flex-direction: column; align-items: stretch; }
+  .ext-panel .admin-panel__head-actions .ext-btn { width: 100%; }
   .ext-browsers__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
