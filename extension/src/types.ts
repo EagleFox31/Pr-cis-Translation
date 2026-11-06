@@ -45,6 +45,8 @@ export type MsgImage = {
 export type MsgMemoireEtat = { type: "memoire_etat" };
 export type MsgMemoireEffacer = { type: "memoire_effacer" };
 export type MsgMaj = { type: "maj" };
+/** content -> background : langue à appliquer d'office si l'onglet est suivi (nouveau document). */
+export type MsgSuivi = { type: "suivi" };
 
 export type VersBackground =
   | MsgConnexion
@@ -54,7 +56,8 @@ export type VersBackground =
   | MsgImage
   | MsgMemoireEtat
   | MsgMemoireEffacer
-  | MsgMaj;
+  | MsgMaj
+  | MsgSuivi;
 
 export type ReponseConnexion = { ok: true; email: string } | { ok: false; erreur: ErreurConnexion };
 export type ReponseEtat = { connecte: boolean; email?: string; plan?: string };
@@ -77,11 +80,13 @@ export interface ReponsesBackground {
   memoire_etat: ReponseMemoire;
   memoire_effacer: ReponseMemoire;
   maj: ReponseMaj;
+  suivi: { langue: string } | null;
 }
 
 export type ReponseDe<M extends VersBackground> = ReponsesBackground[M["type"]];
 
 // popup -> content (tous les cadres de l'onglet)
-export type MsgTraduire = { type: "traduire"; langue: string };
+/** silencieux : relance automatique après un changement de document, sans message « déjà traduite ». */
+export type MsgTraduire = { type: "traduire"; langue: string; silencieux?: boolean };
 export type MsgOriginal = { type: "original" };
 export type VersContent = MsgTraduire | MsgOriginal;

@@ -3,6 +3,7 @@ import { decouperEnLots } from "./lib/lots.ts";
 import { aEnvoyer, cleImage, empreinteCompte, Memoire } from "./lib/memoire.ts";
 import { MagasinIndexedDB } from "./lib/memoire-idb.ts";
 import { plusRecente } from "./lib/version.ts";
+import { ecrireSuivi, lireSuivi, resteSuivi, type Suivi } from "./lib/suivi.ts";
 import type {
   ReponseConnexion,
   ReponseDe,
@@ -343,13 +344,70 @@ function traiter(msg: VersBackground): Promise<ReponseDe<VersBackground>> {
       return memoireEffacer();
     case "maj":
       return verifierMaj();
+    case "suivi":
+      return Promise.resolve(null);
   }
 }
 
-chrome.runtime.onMessage.addListener((msg: VersBackground, _expediteur, repondre) => {
+// Onglet traduit : un script de contenu enregistré pour son origine démarre dans chaque
+// nouveau document (chapitre, cadre, rechargement) et demande la langue au background.
+const ID_SUIVI = "precis-suivi";
+let synchro: Promise<void> = Promise.resolve();
+function synchroniserScripts(): void {
+  synchro = synchro.then(async () => {
+    const tout = await chrome.storage.session.get(null);
+    const origines = [
+      ...new Set(
+        Object.entries(tout)
+          .filter(([cle]) => cle.startsWith("suivi:"))
+          .map(([, v]) => (v as Suivi).origine),
+      ),
+    ];
+    // Lève (même de façon synchrone) si rien n'est enregistré : sans effet.
+    try {
+      await chrome.scripting.unregisterContentScripts({ ids: [ID_SUIVI] });
+    } catch {}
+    if (origines.length === 0) return;
+    await chrome.scripting.registerContentScripts([
+      {
+        id: ID_SUIVI,
+        matches: origines.map((o) => o + "/*"),
+        allFrames: true,
+        runAt: "document_idle",
+        js: ["content.js"],
+        persistAcrossSessions: false,
+      },
+    ]);
+  }).catch(() => {}); // Une erreur ne doit pas bloquer les synchronisations suivantes.
+}
+chrome.storage.onChanged.addListener((changements, zone) => {
+  if (zone === "session" && Object.keys(changements).some((c) => c.startsWith("suivi:"))) synchroniserScripts();
+});
+synchroniserScripts();
+
+chrome.runtime.onMessage.addListener((msg: VersBackground, expediteur, repondre) => {
+  if (msg.type === "suivi") {
+    const tab = expediteur.tab;
+    if (tab?.id === undefined) repondre(null);
+    else
+      void lireSuivi(tab.id).then(
+        (s) => repondre(s && resteSuivi(s, tab.url) ? { langue: s.langue } : null),
+        () => repondre(null),
+      );
+    return true;
+  }
   traiter(msg).then(repondre, () => repondre(undefined));
   return true;
 });
+
+// Onglet parti sur une autre origine : on cesse de le suivre.
+chrome.tabs.onUpdated.addListener((tabId, changement, tab) => {
+  if (changement.status !== "complete") return;
+  void lireSuivi(tabId).then((suivi) => {
+    if (suivi && !resteSuivi(suivi, tab.url)) void ecrireSuivi(tabId, null);
+  });
+});
+chrome.tabs.onRemoved.addListener((tabId) => void ecrireSuivi(tabId, null));
 
 // Première installation seulement : page d'accueil du site (épingler, se connecter, essayer).
 chrome.runtime.onInstalled.addListener(({ reason }) => {

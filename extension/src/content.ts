@@ -152,7 +152,7 @@ function original(): void {
 async function traduire(msg: MsgTraduire): Promise<void> {
   // Même langue, rien de bloqué : on garde le travail fait (et le budget de la page).
   if (etat.active && !etat.texteBloque && msg.langue === etat.langue) {
-    if (!etat.enCours && window === window.top) obtenirBandeau().message("Page déjà traduite.");
+    if (!msg.silencieux && !etat.enCours && window === window.top) obtenirBandeau().message("Page déjà traduite.");
     return;
   }
   original();
@@ -180,4 +180,10 @@ if (!window.__precisInjecte) {
     else if (msg.type === "original") original();
     return false;
   });
+  // Nouveau document d'un onglet déjà traduit (chapitre, cadre) : on reprend la langue d'office.
+  void versBackground({ type: "suivi" })
+    .then((suivi) => {
+      if (suivi && !etat.active) void traduire({ type: "traduire", langue: suivi.langue, silencieux: true });
+    })
+    .catch(() => {});
 }

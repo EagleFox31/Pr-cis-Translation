@@ -1,5 +1,5 @@
 import { DetecteurAnimation } from "../lib/animation.ts";
-import { messageAccord } from "../lib/cout.ts";
+import { messageAccord, messageLimiteImages } from "../lib/cout.ts";
 import { afficherErreur, obtenirBandeau } from "./bandeau.ts";
 import { poserCalque, retirerCalques } from "./calques.ts";
 import {
@@ -27,6 +27,8 @@ interface Candidat {
 type Accord = "inconnu" | "attente" | "oui" | "non";
 
 const etat = { accord: "inconnu" as Accord, enCours: false, session: 0, langue: "fr", total: 0, fait: 0 };
+/** Bilan de la page : images candidates vues, images remplacées, budget du serveur épuisé. */
+const bilan = { vues: 0, traduites: 0, limite: false };
 
 let traites = new WeakMap<Element, Set<string>>();
 let file = new Map<Element, Candidat>();
@@ -125,6 +127,7 @@ function plusVisible(): Candidat {
 
 function appliquer(c: Candidat, rep: ReponseImage): void {
   if (rep.remplacee && rep.image) {
+    bilan.traduites++;
     const uri = `data:${rep.mime};base64,${rep.image}`;
     if (c.genre === "img") remplacerImg(c.el as HTMLImageElement, uri);
     else if (c.genre === "fond") remplacerFond(c.el as HTMLElement, uri);
@@ -221,7 +224,13 @@ async function traiter(c: Candidat, session: number): Promise<boolean> {
         marquer(c.el, c.cle);
         return false;
       }
-      afficherErreur(obtenirBandeau(), rep.erreur);
+      if (rep.erreur === "limite") {
+        // Seules les images à texte remplacées ont usé le budget : on le dit en chiffres.
+        bilan.limite = true;
+        obtenirBandeau().message(messageLimiteImages(bilan.traduites, bilan.vues));
+      } else {
+        afficherErreur(obtenirBandeau(), rep.erreur);
+      }
       return true;
     }
     reponse = rep.reponse;
@@ -260,11 +269,12 @@ async function boucle(): Promise<void> {
 }
 
 export async function scannerImages(): Promise<void> {
-  if (etat.accord === "non") return;
+  if (etat.accord === "non" || bilan.limite) return;
   const session = etat.session;
   for (const c of trouverCandidats()) {
     file.set(c.el, c);
     etat.total++;
+    bilan.vues++;
   }
   if (file.size === 0) return;
 
@@ -321,6 +331,7 @@ function arreterImages(): void {
   etat.enCours = false;
   etat.total = 0;
   etat.fait = 0;
+  Object.assign(bilan, { vues: 0, traduites: 0, limite: false });
   file = new Map();
   clearTimeout(minuteurChargement);
   observateurSrc?.disconnect();

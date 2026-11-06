@@ -1,4 +1,5 @@
 import { libelleMemoire } from "./lib/memoire.ts";
+import { ecrireSuivi, origineDe } from "./lib/suivi.ts";
 import { SITE } from "./config.ts";
 import { versBackground } from "./pont.ts";
 import type { ErreurConnexion, VersContent } from "./types.ts";
@@ -23,16 +24,6 @@ let onglet: chrome.tabs.Tab | undefined;
 function afficher(texte: string, erreur = false): void {
   message.textContent = texte;
   message.classList.toggle("erreur", erreur);
-}
-
-function origineDe(url: string | undefined): string | null {
-  if (!url) return null;
-  try {
-    const u = new URL(url);
-    return u.protocol === "http:" || u.protocol === "https:" ? u.origin : null;
-  } catch {
-    return null;
-  }
 }
 
 async function afficherVue(): Promise<void> {
@@ -124,6 +115,7 @@ btnTraduire.addEventListener("click", () => {
         files: ["content.js"],
       });
       await envoyerAuxCadres(tabId, { type: "traduire", langue });
+      await ecrireSuivi(tabId, { langue, origine });
       afficher("Traduction lancée sur la page.");
     })
     .catch(() => afficher("Impossible de traiter cette page.", true))
@@ -135,6 +127,7 @@ btnTraduire.addEventListener("click", () => {
 $("btn-original").addEventListener("click", async () => {
   const tabId = onglet?.id;
   if (tabId === undefined) return;
+  await ecrireSuivi(tabId, null);
   try {
     await envoyerAuxCadres(tabId, { type: "original" });
     afficher("Page d'origine rétablie.");
