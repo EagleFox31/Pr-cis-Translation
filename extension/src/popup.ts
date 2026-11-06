@@ -1,4 +1,5 @@
 import { libelleMemoire } from "./lib/memoire.ts";
+import { SITE } from "./config.ts";
 import { versBackground } from "./pont.ts";
 import type { ErreurConnexion, VersContent } from "./types.ts";
 
@@ -137,7 +138,24 @@ $("btn-original").addEventListener("click", async () => {
   }
 });
 
+// Mise à jour : téléchargement direct (le ZIP part en téléchargement, la fenêtre reste ouverte), puis rechargement depuis le dossier.
+$("btn-maj-telecharger").addEventListener("click", () => {
+  const lien = document.createElement("a");
+  lien.href = `${SITE}/extension/precis-extension.zip`;
+  lien.download = "precis-extension.zip";
+  lien.click();
+  afficher("Téléchargement lancé. Décompressez l'archive à la place du dossier actuel, puis cliquez sur « Recharger ».");
+});
+$("btn-maj-recharger").addEventListener("click", () => chrome.runtime.reload());
+
+async function afficherMaj(): Promise<void> {
+  const { version } = await versBackground({ type: "maj" });
+  $("maj-version").textContent = version ?? "";
+  $("maj").hidden = version === null;
+}
+
 void (async () => {
+  void afficherMaj();
   [onglet] = await chrome.tabs.query({ active: true, currentWindow: true });
   await afficherVue();
 })();

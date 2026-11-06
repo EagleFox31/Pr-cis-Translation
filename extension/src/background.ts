@@ -2,12 +2,14 @@ import { API_BASE, SITE, SITE_BIENVENUE } from "./config.ts";
 import { decouperEnLots } from "./lib/lots.ts";
 import { aEnvoyer, cleImage, empreinteCompte, Memoire } from "./lib/memoire.ts";
 import { MagasinIndexedDB } from "./lib/memoire-idb.ts";
+import { plusRecente } from "./lib/version.ts";
 import type {
   ReponseConnexion,
   ReponseDe,
   ReponseEtat,
   ReponseImage,
   ReponseImageBg,
+  ReponseMaj,
   ReponseMemoire,
   ReponseSegments,
   VersBackground,
@@ -298,6 +300,30 @@ async function image(msg: {
 
 // --- Messages
 
+// --- Mise à jour (installation par dossier : Chrome ne la fait pas seul ; les boutiques, si)
+
+const ALARME_MAJ = "maj";
+
+function planifierMaj(): void {
+  void chrome.alarms.create(ALARME_MAJ, { delayInMinutes: 1, periodInMinutes: 360 });
+}
+
+async function verifierMaj(): Promise<ReponseMaj> {
+  let version: string | null = null;
+  try {
+    if ((await chrome.management.getSelf()).installType === "development") {
+      const rep = await fetch(`${SITE}/extension/version.json`, { cache: "no-store" });
+      const distante = rep.ok ? ((await rep.json()) as { version?: unknown }).version : undefined;
+      if (typeof distante === "string" && plusRecente(distante, chrome.runtime.getManifest().version)) version = distante;
+    }
+  } catch {
+    // Site injoignable : on retentera à la prochaine vérification.
+  }
+  await chrome.action.setBadgeText({ text: version ? "1" : "" });
+  if (version) await chrome.action.setBadgeBackgroundColor({ color: "#1a4dc7" });
+  return { version };
+}
+
 function traiter(msg: VersBackground): Promise<ReponseDe<VersBackground>> {
   switch (msg.type) {
     case "connexion":
@@ -314,6 +340,8 @@ function traiter(msg: VersBackground): Promise<ReponseDe<VersBackground>> {
       return memoireEtat();
     case "memoire_effacer":
       return memoireEffacer();
+    case "maj":
+      return verifierMaj();
   }
 }
 
@@ -325,6 +353,11 @@ chrome.runtime.onMessage.addListener((msg: VersBackground, _expediteur, repondre
 // Première installation seulement : page d'accueil du site (épingler, se connecter, essayer).
 chrome.runtime.onInstalled.addListener(({ reason }) => {
   if (reason === chrome.runtime.OnInstalledReason.INSTALL) void chrome.tabs.create({ url: SITE_BIENVENUE });
+  planifierMaj();
+});
+chrome.runtime.onStartup.addListener(planifierMaj);
+chrome.alarms.onAlarm.addListener(({ name }) => {
+  if (name === ALARME_MAJ) void verifierMaj();
 });
 
 // Le site demande si l'extension est présente ; le manifest limite déjà l'origine, on la revérifie.

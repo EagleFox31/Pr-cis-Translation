@@ -44,6 +44,7 @@ export type MsgImage = {
 };
 export type MsgMemoireEtat = { type: "memoire_etat" };
 export type MsgMemoireEffacer = { type: "memoire_effacer" };
+export type MsgMaj = { type: "maj" };
 
 export type VersBackground =
   | MsgConnexion
@@ -52,7 +53,8 @@ export type VersBackground =
   | MsgSegments
   | MsgImage
   | MsgMemoireEtat
-  | MsgMemoireEffacer;
+  | MsgMemoireEffacer
+  | MsgMaj;
 
 export type ReponseConnexion = { ok: true; email: string } | { ok: false; erreur: ErreurConnexion };
 export type ReponseEtat = { connecte: boolean; email?: string };
@@ -63,6 +65,8 @@ export type ReponseImageBg =
   | { ok: true; reponse: ReponseImage }
   | { ok: false; erreur: ErreurImage };
 export type ReponseMemoire = { traductions: number };
+/** Version plus récente publiée sur le site (installation par dossier seulement), sinon null. */
+export type ReponseMaj = { version: string | null };
 
 export interface ReponsesBackground {
   connexion: ReponseConnexion;
@@ -72,6 +76,7 @@ export interface ReponsesBackground {
   image: ReponseImageBg;
   memoire_etat: ReponseMemoire;
   memoire_effacer: ReponseMemoire;
+  maj: ReponseMaj;
 }
 
 export type ReponseDe<M extends VersBackground> = ReponsesBackground[M["type"]];
