@@ -13,12 +13,16 @@ import time
 TEXTE_MAX = 50_000
 # Lots de texte : chacun renvoie le prompt et le contexte (défilement infini).
 LOTS_MAX = 100
-# Images : OCR + traduction, le poste le plus coûteux.
+# Images traduites (texte trouvé et remplacé), le poste le plus coûteux.
 IMAGES_MAX = 10
+# Images analysées, avec ou sans texte : l'OCR seul, borné plus largement pour
+# qu'une page riche en illustrations ne bloque pas ses vraies images à texte.
+ANALYSES_MAX = 60
 # Images de vidéo, prises à la demande sur pause.
 CAPTURES_MAX = 20
 
-BORNES = {"texte": TEXTE_MAX, "lots": LOTS_MAX, "images": IMAGES_MAX, "captures": CAPTURES_MAX}
+BORNES = {"texte": TEXTE_MAX, "lots": LOTS_MAX, "images": IMAGES_MAX,
+          "analyses": ANALYSES_MAX, "captures": CAPTURES_MAX}
 
 DUREE_S = 6 * 3600
 PAGES_SUIVIES_MAX = 50_000
@@ -40,9 +44,10 @@ def _purger(maintenant: float) -> None:
 
 
 def prendre(user_id: str, page: str, **quantites: int) -> str | None:
-    """Ajoute `quantites` (texte=, lots=, images=, captures=) au budget de la
-    page et renvoie None ; ou, si l'une de ces bornes est déjà atteinte, renvoie
-    son nom sans rien compter. Sans `await` : atomique dans la boucle async."""
+    """Ajoute `quantites` (texte=, lots=, images=, analyses=, captures=) au
+    budget de la page et renvoie None ; ou, si l'une de ces bornes est déjà
+    atteinte, renvoie son nom sans rien compter (une quantité 0 vérifie la
+    borne sans la consommer). Sans `await` : atomique dans la boucle async."""
     maintenant = time.monotonic()
     cle = (user_id, page)
     compteur = _compteurs.get(cle)
@@ -56,6 +61,14 @@ def prendre(user_id: str, page: str, **quantites: int) -> str | None:
         compteur[nom] += n
     compteur["vu"] = maintenant
     return None
+
+
+def ajouter(user_id: str, page: str, **quantites: int) -> None:
+    """Compte après coup (image traduite), sans vérifier la borne."""
+    compteur = _compteurs.get((user_id, page))
+    if compteur is not None:
+        for nom, n in quantites.items():
+            compteur[nom] += n
 
 
 def reinitialiser() -> None:

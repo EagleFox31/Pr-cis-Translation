@@ -77,3 +77,18 @@ if __name__ == "__main__":
                 echecs += 1
                 print(f"ÉCHEC {nom} {e}")
     sys.exit(1 if echecs else 0)
+
+
+def test_images_sans_texte_hors_budget_images():
+    lp.reinitialiser()
+    # Une analyse vérifie la borne « images » sans la consommer.
+    for _ in range(lp.IMAGES_MAX + 5):
+        assert lp.prendre("u1", "p", analyses=1, images=0) is None
+    for _ in range(lp.IMAGES_MAX):
+        lp.ajouter("u1", "p", images=1)
+    assert lp.prendre("u1", "p", analyses=1, images=0) == "images"
+    lp.reinitialiser()
+    for _ in range(lp.ANALYSES_MAX):
+        assert lp.prendre("u1", "p", analyses=1, images=0) is None
+    assert lp.prendre("u1", "p", analyses=1, images=0) == "analyses"
+    lp.ajouter("u1", "inconnue", images=1)  # page jamais vue : sans effet

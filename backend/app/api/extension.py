@@ -40,9 +40,13 @@ class Segments(BaseModel):
     contexte: list[str] = []
 
 
+def _page(request: Request) -> str:
+    return limites_page.cle_page(request and request.headers.get("x-page"))
+
+
 def _limite(request: Request, user: User, **quantites):
     """413 si la page a épuisé son budget (étude limites-page-extension)."""
-    nom = limites_page.prendre(user.id, limites_page.cle_page(request and request.headers.get("x-page")), **quantites)
+    nom = limites_page.prendre(user.id, _page(request), **quantites)
     if nom is None:
         return None
     return JSONResponse(status_code=413, content={
@@ -99,10 +103,13 @@ async def traduire_une_image(request: Request, file: UploadFile = File(...),
         raise HTTPException(status_code=_REFUS[e.code], detail=f"Image refusée : {e.code}.")
     if not ext.couvre(*(await ext.couverture(db, current_user))[:2], 1):
         return _manque(1)
-    if refus := _limite(request, current_user, **{"captures" if video is True else "images": 1}):
-        return refus
     if current_user.id in _en_cours:
         raise HTTPException(status_code=429, detail="Une image est déjà en cours.")
+    # Seules les images traduites usent le budget « images » ; chaque analyse
+    # consomme le budget « analyses », plus large.
+    if refus := _limite(request, current_user,
+                        **({"captures": 1} if video is True else {"analyses": 1, "images": 0})):
+        return refus
     _en_cours.add(current_user.id)
     try:
         rendu = await run_in_threadpool(
@@ -115,6 +122,8 @@ async def traduire_une_image(request: Request, file: UploadFile = File(...),
     # Honnêteté : une image non remplacée n'est ni rendue modifiée ni débitée.
     if rendu.remplacee and not await ext.debiter(db, current_user.id, 1):
         return _manque(1)
+    if rendu.remplacee and video is not True:
+        limites_page.ajouter(current_user.id, _page(request), images=1)
     return {
         "remplacee": rendu.remplacee,
         "pages": 1 if rendu.remplacee else 0,

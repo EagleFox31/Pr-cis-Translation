@@ -21,6 +21,8 @@ const etat = {
   langue: "fr",
   texteBloque: false,
   enCours: false,
+  /** Page traduite (ou en cours) : un second clic ne relance rien. */
+  active: false,
   minuteur: 0,
   racines: new Set<Node>(),
   nouveauxElements: false,
@@ -129,6 +131,7 @@ function arreter(): void {
   etat.nouveauxElements = false;
   etat.enCours = false;
   etat.texteBloque = false;
+  etat.active = false;
   observateur?.disconnect();
   observateur = null;
   crochets.surShadow = null;
@@ -143,7 +146,13 @@ function original(): void {
 }
 
 async function traduire(msg: MsgTraduire): Promise<void> {
+  // Même langue, rien de bloqué : on garde le travail fait (et le budget de la page).
+  if (etat.active && !etat.texteBloque && msg.langue === etat.langue) {
+    if (!etat.enCours && window === window.top) obtenirBandeau().message("Page déjà traduite.");
+    return;
+  }
   original();
+  etat.active = true;
   const session = etat.session;
   etat.langue = msg.langue;
 
