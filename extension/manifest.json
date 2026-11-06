@@ -26,8 +26,15 @@
     "storage",
     "activeTab",
     "scripting",
-    "alarms"
+    "alarms",
+    "contextMenus"
   ],
+  "commands": {
+    "basculer": {
+      "suggested_key": { "default": "Alt+Shift+T" },
+      "description": "Traduire la page ou rétablir l'original"
+    }
+  },
   "host_permissions": [
     "http://localhost:8000/*",
     "https://precis-translator.com/*"

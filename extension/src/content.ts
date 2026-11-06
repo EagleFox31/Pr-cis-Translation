@@ -1,6 +1,7 @@
 import { afficherErreur, obtenirBandeau, retirerBandeau } from "./contenu/bandeau.ts";
 import { ATTR_UI } from "./contenu/commun.ts";
 import { demarrerImages, imagesEnCours, restaurerImages, scannerImages } from "./contenu/images.ts";
+import { langueAProposer, nomLangue } from "./lib/langue.ts";
 import { idPage } from "./lib/page.ts";
 import { appliquer, collecter, crochets, estNotreEcriture, restaurerTexte, voisins } from "./contenu/texte.ts";
 import { arreterVideos, demarrerVideos } from "./contenu/video.ts";
@@ -184,6 +185,16 @@ async function traduire(msg: MsgTraduire): Promise<void> {
   }
 }
 
+// Page dans une autre langue que la cible : détection locale, puis bandeau de proposition.
+async function proposer(cible: string): Promise<void> {
+  const echantillon = document.body?.innerText.slice(0, 2000) ?? "";
+  const detection = await chrome.i18n.detectLanguage(echantillon);
+  const code = langueAProposer(detection, document.documentElement.lang, cible, echantillon.length);
+  if (!code) return;
+  const choix = await obtenirBandeau().proposer(`Cette page est en ${nomLangue(code)}.`);
+  if (choix) await versBackground({ type: "appliquer", mode: choix.mode, langue: cible, toujours: choix.toujours });
+}
+
 if (!window.__precisInjecte) {
   window.__precisInjecte = true;
   window.__precisOccupe = () => lancement || etat.enCours || imagesEnCours();
@@ -194,8 +205,10 @@ if (!window.__precisInjecte) {
   });
   // Nouveau document d'un onglet déjà traduit (chapitre, cadre) : on reprend la langue d'office.
   void versBackground({ type: "suivi" })
-    .then((suivi) => {
-      if (suivi && !etat.active) void traduire({ type: "traduire", langue: suivi.langue, silencieux: true });
+    .then(async (suivi) => {
+      if (!suivi || etat.active) return;
+      if ("langue" in suivi) void traduire({ type: "traduire", langue: suivi.langue, silencieux: true });
+      else if (window === window.top) await proposer(suivi.cible);
     })
     .catch(() => {});
 }

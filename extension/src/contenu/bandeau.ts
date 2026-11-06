@@ -7,10 +7,16 @@ export interface Accord {
   toujours: boolean;
 }
 
+export interface Choix {
+  mode: "traduire" | "original";
+  toujours: boolean;
+}
+
 export interface Bandeau {
   progression(texte: string | null): void;
   message(texte: string, lien?: { libelle: string; href: string }): void;
   demanderAccord(texte: string): Promise<Accord>;
+  proposer(texte: string): Promise<Choix | null>;
 }
 
 const STYLE = `${THEME}
@@ -103,6 +109,29 @@ function creer(): { hote: HTMLElement; api: Bandeau } {
           etiquette,
           bouton("Traduire les images", false, () => repondre(true)),
           bouton("Pas maintenant", true, () => repondre(false)),
+        );
+        barre.hidden = false;
+      });
+    },
+
+    proposer(t) {
+      accordEnCours = true;
+      return new Promise<Choix | null>((resolve) => {
+        const caseToujours = document.createElement("input");
+        caseToujours.type = "checkbox";
+        const etiquette = document.createElement("label");
+        etiquette.append(caseToujours, "Toujours appliquer pour ce site");
+        const repondre = (mode: Choix["mode"] | null) => {
+          accordEnCours = false;
+          barre.hidden = true;
+          resolve(mode ? { mode, toujours: caseToujours.checked } : null);
+        };
+        barre.replaceChildren(
+          texte(t),
+          etiquette,
+          bouton("Traduire", false, () => repondre("traduire")),
+          bouton("Afficher l'original", true, () => repondre("original")),
+          bouton("Fermer", true, () => repondre(null)),
         );
         barre.hidden = false;
       });

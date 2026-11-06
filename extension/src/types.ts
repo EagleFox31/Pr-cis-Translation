@@ -47,6 +47,8 @@ export type MsgMemoireEffacer = { type: "memoire_effacer" };
 export type MsgMaj = { type: "maj" };
 /** content -> background : langue à appliquer d'office si l'onglet est suivi (nouveau document). */
 export type MsgSuivi = { type: "suivi" };
+/** content -> background : choix du bandeau de proposition, appliqué à l'onglet (et au site si « toujours »). */
+export type MsgAppliquer = { type: "appliquer"; mode: "traduire" | "original"; langue: string; toujours: boolean };
 
 export type VersBackground =
   | MsgConnexion
@@ -57,7 +59,8 @@ export type VersBackground =
   | MsgMemoireEtat
   | MsgMemoireEffacer
   | MsgMaj
-  | MsgSuivi;
+  | MsgSuivi
+  | MsgAppliquer;
 
 export type ReponseConnexion = { ok: true; email: string } | { ok: false; erreur: ErreurConnexion };
 export type ReponseEtat = { connecte: boolean; email?: string; plan?: string };
@@ -80,7 +83,8 @@ export interface ReponsesBackground {
   memoire_etat: ReponseMemoire;
   memoire_effacer: ReponseMemoire;
   maj: ReponseMaj;
-  suivi: { langue: string } | null;
+  suivi: { langue: string } | { proposer: true; cible: string } | null;
+  appliquer: { ok: boolean };
 }
 
 export type ReponseDe<M extends VersBackground> = ReponsesBackground[M["type"]];

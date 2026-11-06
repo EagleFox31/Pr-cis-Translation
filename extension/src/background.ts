@@ -3,8 +3,22 @@ import { decouperEnLots } from "./lib/lots.ts";
 import { aEnvoyer, cleImage, empreinteCompte, Memoire } from "./lib/memoire.ts";
 import { MagasinIndexedDB } from "./lib/memoire-idb.ts";
 import { plusRecente } from "./lib/version.ts";
-import { ecrireSuivi, lireSuivi, resteSuivi, type Suivi } from "./lib/suivi.ts";
+import { originalOnglet, traduireOnglet } from "./lib/onglet.ts";
+import {
+  decision,
+  ecrireRegle,
+  ecrireSuivi,
+  LANGUES,
+  langueParDefaut,
+  lireRegle,
+  lireSuivi,
+  origineDe,
+  resteSuivi,
+  type RegleSite,
+  type Suivi,
+} from "./lib/suivi.ts";
 import type {
+  MsgAppliquer,
   ReponseConnexion,
   ReponseDe,
   ReponseEtat,
@@ -346,58 +360,134 @@ function traiter(msg: VersBackground): Promise<ReponseDe<VersBackground>> {
       return verifierMaj();
     case "suivi":
       return Promise.resolve(null);
+    case "appliquer":
+      return Promise.resolve({ ok: false });
   }
 }
 
-// Onglet traduit : un script de contenu enregistré pour son origine démarre dans chaque
-// nouveau document (chapitre, cadre, rechargement) et demande la langue au background.
+// Onglet traduit ou site « toujours traduire » : un script de contenu enregistré pour son origine
+// démarre dans chaque nouveau document (chapitre, cadre, rechargement) et demande la langue au background.
 const ID_SUIVI = "precis-suivi";
+// Proposition de traduction (option) : cadre principal de toutes les pages web.
+const ID_DETECTION = "precis-detection";
 let synchro: Promise<void> = Promise.resolve();
 function synchroniserScripts(): void {
   synchro = synchro.then(async () => {
-    const tout = await chrome.storage.session.get(null);
+    const session = await chrome.storage.session.get(null);
+    const local = await chrome.storage.local.get(null);
     const origines = [
-      ...new Set(
-        Object.entries(tout)
+      ...new Set([
+        ...Object.entries(session)
           .filter(([cle]) => cle.startsWith("suivi:"))
           .map(([, v]) => (v as Suivi).origine),
-      ),
+        ...Object.entries(local)
+          .filter(([cle, v]) => cle.startsWith("site:") && (v as RegleSite).mode === "traduire")
+          .map(([cle]) => cle.slice("site:".length)),
+      ]),
     ];
     // Lève (même de façon synchrone) si rien n'est enregistré : sans effet.
     try {
       await chrome.scripting.unregisterContentScripts({ ids: [ID_SUIVI] });
     } catch {}
-    if (origines.length === 0) return;
-    await chrome.scripting.registerContentScripts([
-      {
-        id: ID_SUIVI,
-        matches: origines.map((o) => o + "/*"),
-        allFrames: true,
-        runAt: "document_idle",
-        js: ["content.js"],
-        persistAcrossSessions: false,
-      },
-    ]);
+    try {
+      await chrome.scripting.unregisterContentScripts({ ids: [ID_DETECTION] });
+    } catch {}
+    if (origines.length > 0) {
+      try {
+        await chrome.scripting.registerContentScripts([
+          {
+            id: ID_SUIVI,
+            matches: origines.map((o) => o + "/*"),
+            allFrames: true,
+            runAt: "document_idle",
+            js: ["content.js"],
+            persistAcrossSessions: true,
+          },
+        ]);
+      } catch {}
+    }
+    if (local.proposer === true && (await chrome.permissions.contains({ origins: ["<all_urls>"] }))) {
+      await chrome.scripting.registerContentScripts([
+        {
+          id: ID_DETECTION,
+          matches: ["http://*/*", "https://*/*"],
+          allFrames: false,
+          runAt: "document_idle",
+          js: ["content.js"],
+          persistAcrossSessions: true,
+        },
+      ]);
+    }
   }).catch(() => {}); // Une erreur ne doit pas bloquer les synchronisations suivantes.
 }
 chrome.storage.onChanged.addListener((changements, zone) => {
-  if (zone === "session" && Object.keys(changements).some((c) => c.startsWith("suivi:"))) synchroniserScripts();
+  const cles = Object.keys(changements);
+  if (zone === "session" && cles.some((c) => c.startsWith("suivi:"))) synchroniserScripts();
+  if (zone === "local" && cles.some((c) => c.startsWith("site:") || c === "proposer")) synchroniserScripts();
 });
 synchroniserScripts();
+
+async function langueChoisie(): Promise<string> {
+  const { langue } = await chrome.storage.local.get("langue");
+  return typeof langue === "string" && langue ? langue : langueParDefaut(chrome.i18n.getUILanguage(), LANGUES);
+}
+
+// Réponse à un nouveau document : langue à appliquer, proposition de traduction, ou rien.
+async function reponseSuivi(
+  tab: chrome.tabs.Tab,
+  cadrePrincipal: boolean,
+): Promise<{ langue: string } | { proposer: true; cible: string } | null> {
+  const tabId = tab.id;
+  if (tabId === undefined) return null;
+  let suivi = await lireSuivi(tabId);
+  if (suivi && !resteSuivi(suivi, tab.url)) suivi = null;
+  const origine = origineDe(tab.url);
+  const regle = origine ? await lireRegle(origine) : null;
+  const { proposer } = await chrome.storage.local.get("proposer");
+  const choix = decision(suivi, regle, proposer === true, cadrePrincipal);
+  if (!choix) return null;
+  if ("proposer" in choix) return { proposer: true, cible: await langueChoisie() };
+  if (!suivi && origine && regle?.mode === "traduire") await ecrireSuivi(tabId, { langue: choix.langue, origine });
+  return choix;
+}
+
+// Choix du bandeau de proposition : mémorisé pour le site si « toujours », puis appliqué à l'onglet.
+async function appliquer(msg: MsgAppliquer, tab: chrome.tabs.Tab | undefined): Promise<boolean> {
+  const origine = origineDe(tab?.url);
+  if (tab?.id === undefined || !origine) return false;
+  if (msg.toujours) {
+    await ecrireRegle(origine, msg.mode === "traduire" ? { mode: "traduire", langue: msg.langue } : { mode: "original" });
+  }
+  if (msg.mode === "traduire") await traduireOnglet(tab.id, msg.langue, origine);
+  else await originalOnglet(tab.id, origine);
+  return true;
+}
 
 chrome.runtime.onMessage.addListener((msg: VersBackground, expediteur, repondre) => {
   if (msg.type === "suivi") {
     const tab = expediteur.tab;
-    if (tab?.id === undefined) repondre(null);
-    else
-      void lireSuivi(tab.id).then(
-        (s) => repondre(s && resteSuivi(s, tab.url) ? { langue: s.langue } : null),
-        () => repondre(null),
-      );
+    if (!tab) repondre(null);
+    else void reponseSuivi(tab, expediteur.frameId === 0).then(repondre, () => repondre(null));
+    return true;
+  }
+  if (msg.type === "appliquer") {
+    void appliquer(msg, expediteur.tab).then(
+      (ok) => repondre({ ok }),
+      () => repondre({ ok: false }),
+    );
     return true;
   }
   traiter(msg).then(repondre, () => repondre(undefined));
   return true;
+});
+
+// Fenêtre ouverte depuis un onglet traduit (window.open) : elle hérite de sa traduction.
+chrome.tabs.onCreated.addListener((tab) => {
+  if (tab.id === undefined || tab.openerTabId === undefined) return;
+  const id = tab.id;
+  void lireSuivi(tab.openerTabId).then((suivi) => {
+    if (suivi && !suivi.arret) void ecrireSuivi(id, { langue: suivi.langue, origine: suivi.origine });
+  });
 });
 
 // Onglet parti sur une autre origine : on cesse de le suivre.
@@ -413,8 +503,38 @@ chrome.tabs.onRemoved.addListener((tabId) => void ecrireSuivi(tabId, null));
 chrome.runtime.onInstalled.addListener(({ reason }) => {
   if (reason === chrome.runtime.OnInstalledReason.INSTALL) void chrome.tabs.create({ url: SITE_BIENVENUE });
   planifierMaj();
+  void chrome.contextMenus.removeAll().then(() => {
+    chrome.contextMenus.create({ id: MENU_TRADUIRE, title: "Traduire cette page avec Précis", contexts: ["page"] });
+    chrome.contextMenus.create({ id: MENU_ORIGINAL, title: "Afficher l'original (Précis)", contexts: ["page"] });
+  });
 });
 chrome.runtime.onStartup.addListener(planifierMaj);
+
+// Secours quand le bouton de l'extension est inaccessible (fenêtre sans barre) : raccourci et menu contextuel.
+const MENU_TRADUIRE = "precis-traduire";
+const MENU_ORIGINAL = "precis-original";
+
+async function traduirePage(tab: chrome.tabs.Tab | undefined): Promise<void> {
+  const origine = origineDe(tab?.url);
+  if (tab?.id === undefined || !origine) return;
+  await traduireOnglet(tab.id, await langueChoisie(), origine);
+}
+
+async function originalPage(tab: chrome.tabs.Tab | undefined): Promise<void> {
+  if (tab?.id !== undefined) await originalOnglet(tab.id, origineDe(tab.url));
+}
+
+chrome.commands.onCommand.addListener((commande, tab) => {
+  if (commande !== "basculer" || tab?.id === undefined) return;
+  void lireSuivi(tab.id)
+    .then((suivi) => (suivi && !suivi.arret ? originalPage(tab) : traduirePage(tab)))
+    .catch(() => {}); // Page interdite : rien à faire.
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  const action = info.menuItemId === MENU_TRADUIRE ? traduirePage : info.menuItemId === MENU_ORIGINAL ? originalPage : null;
+  void action?.(tab).catch(() => {});
+});
 chrome.alarms.onAlarm.addListener(({ name }) => {
   if (name === ALARME_MAJ) void verifierMaj();
 });

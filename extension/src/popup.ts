@@ -1,8 +1,9 @@
 import { libelleMemoire } from "./lib/memoire.ts";
-import { ecrireSuivi, origineDe } from "./lib/suivi.ts";
+import { originalOnglet, traduireOnglet } from "./lib/onglet.ts";
+import { ecrireRegle, LANGUES, langueParDefaut, lireRegle, origineDe } from "./lib/suivi.ts";
 import { SITE } from "./config.ts";
 import { versBackground } from "./pont.ts";
-import type { ErreurConnexion, VersContent } from "./types.ts";
+import type { ErreurConnexion } from "./types.ts";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -11,6 +12,8 @@ const vueConnecte = $<HTMLDivElement>("vue-connecte");
 const message = $<HTMLParagraphElement>("message");
 const selectLangue = $<HTMLSelectElement>("langue");
 const btnTraduire = $<HTMLButtonElement>("btn-traduire");
+const caseToujours = $<HTMLInputElement>("toujours");
+const caseProposer = $<HTMLInputElement>("proposer");
 
 const MESSAGES_CONNEXION: Record<ErreurConnexion, string> = {
   identifiants: "Adresse e-mail ou mot de passe incorrect.",
@@ -39,7 +42,11 @@ async function afficherVue(): Promise<void> {
     forfait.hidden = !etat.plan;
     forfait.textContent = etat.plan === "free" ? "Forfait gratuit" : `Forfait ${etat.plan ?? ""}`;
     const { langue } = await chrome.storage.local.get("langue");
-    selectLangue.value = (langue as string | undefined) ?? "fr";
+    selectLangue.value = (langue as string | undefined) ?? langueParDefaut(chrome.i18n.getUILanguage(), LANGUES);
+    const origine = origineDe(onglet?.url);
+    caseToujours.disabled = !origine;
+    caseToujours.checked = origine ? (await lireRegle(origine)) !== null : false;
+    caseProposer.checked = ((await chrome.storage.local.get("proposer")).proposer as boolean | undefined) === true;
     afficherMemoire((await versBackground({ type: "memoire_etat" })).traductions);
   }
 }
@@ -85,8 +92,41 @@ $("btn-deconnexion").addEventListener("click", async () => {
   await afficherVue();
 });
 
-selectLangue.addEventListener("change", () => {
+selectLangue.addEventListener("change", async () => {
   void chrome.storage.local.set({ langue: selectLangue.value });
+  // Site « toujours traduire » : la règle suit la langue choisie.
+  const origine = origineDe(onglet?.url);
+  if (!origine || !caseToujours.checked) return;
+  if ((await lireRegle(origine))?.mode === "traduire") await ecrireRegle(origine, { mode: "traduire", langue: selectLangue.value });
+});
+
+// Décocher retire la règle ; cocher prend effet au clic sur Traduire ou Original.
+caseToujours.addEventListener("change", () => {
+  const origine = origineDe(onglet?.url);
+  if (origine && !caseToujours.checked) void ecrireRegle(origine, null);
+});
+
+// La demande de permission part directement du geste de l'utilisateur.
+caseProposer.addEventListener("change", () => {
+  if (!caseProposer.checked) {
+    void chrome.storage.local.set({ proposer: false });
+    return;
+  }
+  chrome.permissions
+    .request({ origins: ["<all_urls>"] })
+    .then(async (accorde) => {
+      if (!accorde) {
+        caseProposer.checked = false;
+        afficher("Accès aux sites refusé : la proposition automatique reste désactivée.", true);
+        return;
+      }
+      await chrome.storage.local.set({ proposer: true });
+      afficher("");
+    })
+    .catch(() => {
+      caseProposer.checked = false;
+      afficher("Impossible d'activer la proposition automatique.", true);
+    });
 });
 
 // Bouton « Traduire » en chargement tant qu'un cadre de l'onglet traduit encore :
@@ -124,10 +164,6 @@ async function suivreTraduction(tabId: number, fin: string): Promise<void> {
   if (fin) afficher(fin);
 }
 
-async function envoyerAuxCadres(tabId: number, msg: VersContent): Promise<void> {
-  await chrome.tabs.sendMessage(tabId, msg);
-}
-
 btnTraduire.addEventListener("click", () => {
   const tabId = onglet?.id;
   const origine = origineDe(onglet?.url);
@@ -145,12 +181,8 @@ btnTraduire.addEventListener("click", () => {
         afficher("Accès au site refusé : la page ne peut pas être traduite.", true);
         return;
       }
-      await chrome.scripting.executeScript({
-        target: { tabId, allFrames: true },
-        files: ["content.js"],
-      });
-      await envoyerAuxCadres(tabId, { type: "traduire", langue });
-      await ecrireSuivi(tabId, { langue, origine });
+      await traduireOnglet(tabId, langue, origine);
+      if (caseToujours.checked) await ecrireRegle(origine, { mode: "traduire", langue });
       afficher("");
       await suivreTraduction(tabId, "Traduction terminée.");
     })
@@ -163,13 +195,10 @@ $("btn-original").addEventListener("click", async () => {
   if (tabId === undefined) return;
   suivi++;
   chargement(false);
-  await ecrireSuivi(tabId, null);
-  try {
-    await envoyerAuxCadres(tabId, { type: "original" });
-    afficher("Page d'origine rétablie.");
-  } catch {
-    afficher("Rien à rétablir sur cette page.", true);
-  }
+  const origine = origineDe(onglet?.url);
+  if (origine && caseToujours.checked) await ecrireRegle(origine, { mode: "original" });
+  if (await originalOnglet(tabId, origine)) afficher("Page d'origine rétablie.");
+  else afficher("Rien à rétablir sur cette page.", true);
 });
 
 // Mise à jour : téléchargement direct (le ZIP part en téléchargement, la fenêtre reste ouverte), puis rechargement depuis le dossier.
