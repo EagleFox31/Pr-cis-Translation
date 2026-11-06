@@ -64,7 +64,7 @@ LOGO_CID = "logo-precis"
 # dans Outlook, Gmail et Apple Mail à la fois. Aucune feuille de style externe,
 # aucun flex, aucune grille — ils sont ignorés ou cassés selon le client.
 #
-# Une seule CARTE pour tous les e-mails (code, invitation, alertes) : 600 px,
+# Une seule CARTE pour tous les e-mails (code, invitation, alertes) : 540 px,
 # texte aligné à gauche et justifié, boutons et blocs sur toute la largeur.
 # Une carte étroite et centrée laissait de grands vides de part et d'autre
 # dans les messageries de bureau. Tout texte venu d'un utilisateur est
@@ -93,7 +93,7 @@ def _carte(*, lang: str, niveau: str, bandeau: str, corps: str,
 <body style="margin:0;padding:0;background:{m['fond']};font-family:{_POLICE}">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{m['fond']}">
     <tr><td align="center" style="padding:28px 12px">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border:1px solid {m['trait']};border-radius:14px;overflow:hidden">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:540px;background:#ffffff;border:1px solid {m['trait']};border-radius:14px;overflow:hidden">
         <tr><td style="height:4px;background:{accent};font-size:0;line-height:0">&nbsp;</td></tr>
         <tr><td class="pz" style="padding:20px 36px 18px;border-bottom:1px solid {m['trait']}">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
