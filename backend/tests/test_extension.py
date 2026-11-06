@@ -169,7 +169,11 @@ async def run():
         return [f"[{langue}] {t}" for t in textes]
 
     def fausse_image(remplacee):
-        def f(data, traduire):
+        def f(data, traduire, tour=None):
+            # La reconnaissance passe par le guichet OCR, la traduction en dehors.
+            if tour is not None:
+                with tour():
+                    pass
             traduire(["ポンプ"])
             return ImageTraduite(b"PNG-TRADUIT" if remplacee else data, "image/png",
                                  [Bloc("ポンプ", (1, 2, 3, 4), traduction="Pompe", remplace=remplacee)])

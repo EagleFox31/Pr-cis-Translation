@@ -15,6 +15,8 @@ import DocumentLibrary from '../components/library/DocumentLibrary';
 import { useAuth } from '../contexts/AuthContext';
 import { useDocumentLibrary, STATUTS_REPRENABLES, type DocMeta } from '../hooks/useDocumentLibrary';
 import DocumentImagesPanel from '../components/preview/DocumentImagesPanel';
+import ScanPagesNotice from '../components/preview/ScanPagesNotice';
+import { usePagesIllisibles } from '../hooks/usePagesIllisibles';
 import {
   useStreamingTranslation, stopTranslation, type PageStatus, type StopMode,
 } from '../hooks/useStreamingTranslation';
@@ -105,13 +107,46 @@ export default function Home() {
   const stream = useStreamingTranslation(user?.plan === 'free');
 
   // ---- Document library ----
-  const { documents, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal } = useDocumentLibrary();
+  const { documents, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal, getIllegiblePages, setIllegiblePages } = useDocumentLibrary();
 
   // Les droits du document viennent du serveur ; une mise à jour de la
   // bibliothèque après paiement doit aussi débloquer l'aperçu déjà ouvert.
   const libraryRight = documents.find((doc) => doc.id === libraryDocId)?.paid ?? libraryCanReadClear;
+  // Image remplacée ou page de scan rechoisie : le rendu change, les pages
+  // en cache sont périmées. Juste après une traduction en direct, l'aperçu
+  // montre encore le flux, qui ne changera plus : il passe au rendu serveur
+  // du document enregistré.
+  const versRendu = useRef({ biblio: libraryDocId, flux: stream.documentId, clair: stream.canReadClear });
+  versRendu.current = { biblio: libraryDocId, flux: stream.documentId, clair: stream.canReadClear };
+  const rafraichirRendu = useCallback(() => {
+    pageBlobCache.current.clear();
+    fullDocFor.current = null;
+    const { biblio, flux, clair } = versRendu.current;
+    if (!biblio && flux) {
+      setLibraryCanReadClear(clair);
+      setLibraryDocId(flux);
+    }
+    setPreviewPoll((n) => n + 1);
+  }, []);
   const isTrialMode = isTrialFor(user)
     && !(libraryDocId ? libraryRight : stream.canReadClear);
+
+  // Pages illisibles d'un scan : document de la bibliothèque, ou celui que la
+  // traduction en direct vient d'enregistrer (la décision se prend sur la page).
+  const docIdPages = showPreview ? (libraryDocId ?? stream.documentId) : null;
+  const pagesIllisibles = usePagesIllisibles({
+    docId: docIdPages,
+    load: getIllegiblePages,
+    choose: setIllegiblePages,
+    onChanged: rafraichirRendu,
+    // Suivi seulement pour un scan : un document à texte n'a jamais de page
+    // illisible.
+    traduction: suiviBiblio || stream.ocrPages > 0 ? {
+      enCours: stream.isTranslating || !!suiviBiblio,
+      pagesFaites: Object.values(suiviBiblio?.etats ?? stream.pageStatuses)
+        .filter((s) => s === 'done').length,
+    } : null,
+  });
 
   // ---- Scroll spy ----
   useEffect(() => {
@@ -696,19 +731,26 @@ export default function Home() {
           onDownloadOriginal={selectedFile ? handleDownloadOriginal : undefined}
           onPagesLoaded={setNumPages}
           onLibraryOpen={() => setShowLibrary(true)}
-          imagesPanel={libraryDocId && !suiviBiblio ? (
-            <DocumentImagesPanel
-              docId={libraryDocId}
-              load={getDocumentImages}
-              setOriginal={setImageOriginal}
-              onChanged={() => {
-                // L'image remplacée change le rendu : les pages en cache sont périmées.
-                pageBlobCache.current.clear();
-                fullDocFor.current = null;
-                setPreviewPoll((n) => n + 1);
-              }}
-            />
-          ) : undefined}
+          scanPages={pagesIllisibles}
+          imagesPanel={(
+            <>
+              <ScanPagesNotice
+                key={docIdPages ?? ''}
+                pages={pagesIllisibles.pages}
+                enCours={pagesIllisibles.enCours}
+                provisoire={pagesIllisibles.provisoire}
+                onPageChange={setCurrentPage}
+              />
+              {libraryDocId && !suiviBiblio ? (
+                <DocumentImagesPanel
+                  docId={libraryDocId}
+                  load={getDocumentImages}
+                  setOriginal={setImageOriginal}
+                  onChanged={rafraichirRendu}
+                />
+              ) : null}
+            </>
+          )}
         />
 
         <PricingSection isAnnual={isAnnual} onAnnualChange={setIsAnnual} />

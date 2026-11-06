@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api, { authFetch } from '../services/api';
 import type { PageStatus } from './useStreamingTranslation';
@@ -25,6 +25,32 @@ export interface DocImage {
   vignette_originale: string | null;
 }
 
+/** Choix sur une page illisible (`vide`) ou hors sélection (`retirer`). */
+export type ChoixPage = 'original' | 'vide' | 'traduire' | 'retirer';
+
+/** Page de scan non lue (`GET /api/documents/{id}/pages-illisibles`). */
+export interface PageIllisible {
+  page: number;
+  /** `solde` si le solde manquait à la lecture, `hors_selection` pour une
+   *  page laissée hors de la sélection, sinon `null`. */
+  motif: string | null;
+  /** `null` : le client n'a pas encore décidé pour cette page. */
+  choix: Exclude<ChoixPage, 'traduire'> | null;
+}
+
+export interface PagesIllisibles {
+  pages: PageIllisible[];
+  /** Pages en cours de lecture forcée. */
+  en_cours: number[];
+  /** Traduction en cours : pages déjà lues, choix possible seulement à la fin. */
+  provisoire?: boolean;
+  /** Pages lues sans aucun texte : rien à traduire ni à décider. */
+  blanches?: number[];
+}
+
+/** Réponse d'un choix : l'état à jour, ou le message d'un refus. */
+export type ResultatChoix = { ok: true; etat: PagesIllisibles } | { ok: false; message: string | null };
+
 export interface DocMeta {
   id: string;
   filename: string;
@@ -49,6 +75,10 @@ export interface DocMeta {
   pagesDone: number;
   /** Job vivant d'un document `translating` : sert à Pause / Annuler. */
   jobId?: string | null;
+  /** Scan terminé : pages illisibles sans choix du client. */
+  pagesADecider?: number;
+  /** Scan terminé : pages en relecture (« traduire quand même »). */
+  pagesRelues?: number;
   /** Réglages d'origine : « Reprendre » relance avec eux, donc sur les pages
    *  déjà traduites. Absents sur les documents d'avant leur enregistrement. */
   reglages?: { pages: string; precise: boolean; beta: boolean; qsuffix?: string } | null;
@@ -79,6 +109,8 @@ function toMeta(d: any): DocMeta {
     pagesDone: d.pages_done ?? 0,
     reglages: d.reglages ?? null,
     jobId: d.job_id ?? null,
+    pagesADecider: d.pages_a_decider ?? 0,
+    pagesRelues: d.pages_relues ?? 0,
     _blob: undefined,
   };
 }
@@ -94,7 +126,7 @@ const LS_LEGACY = 'precis_doc_library';
  *   /api/documents/{id}/download. Pas de localStorage, pas d'IndexedDB.
  */
 export function useDocumentLibrary() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [documents, setDocuments] = useState<DocMeta[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -123,7 +155,16 @@ export function useDocumentLibrary() {
   }, [user, refresh]);
 
   /** Y a-t-il au moins une traduction en cours ? */
-  const enCours = documents.some(d => d.status === 'translating');
+  const enCours = documents.some(d => d.status === 'translating' || (d.pagesRelues ?? 0) > 0);
+
+  // Une relecture « traduire quand même » s'achève : la page a pu être
+  // débitée, le solde affiché doit suivre.
+  const relues = documents.reduce((n, d) => n + (d.pagesRelues ?? 0), 0);
+  const reluesAvant = useRef(relues);
+  useEffect(() => {
+    if (relues < reluesAvant.current) refreshUser();
+    reluesAvant.current = relues;
+  }, [relues, refreshUser]);
 
   // Tant qu'une traduction tourne, on relit la liste. C'est ce qui rend le
   // suivi INDÉPENDANT de la session qui a lancé le travail : l'avancement est
@@ -284,6 +325,35 @@ export function useDocumentLibrary() {
     return (await api.patch(`/api/documents/${id}/images`, { cle, originale })).ok;
   }, [user]);
 
+  /** Pages de scan illisibles d'un document ; vide si aucune ou sans compte.
+   *  Lève une erreur si la lecture échoue (réseau, serveur). */
+  const getIllegiblePages = useCallback(async (id: string): Promise<PagesIllisibles> => {
+    const vide = { pages: [], en_cours: [] };
+    if (!user) return vide;
+    const res = await api.get(`/api/documents/${id}/pages-illisibles`);
+    if (res.status === 404) return vide;
+    if (!res.ok) throw new Error(`pages-illisibles ${res.status}`);
+    return { ...vide, ...(res.data as Partial<PagesIllisibles>) };
+  }, [user]);
+
+  /** Garde l'original, laisse vide ou relance la lecture des pages données. */
+  const setIllegiblePages = useCallback(async (
+    id: string, pages: number[], choix: ChoixPage,
+  ): Promise<ResultatChoix> => {
+    if (!user) return { ok: false, message: null };
+    const res = await api.patch(`/api/documents/${id}/pages-illisibles`, { pages, choix });
+    if (res.ok) {
+      // La carte de la bibliothèque suit le choix (à décider → relecture).
+      refresh();
+      return { ok: true, etat: res.data as PagesIllisibles };
+    }
+    const corps = (res.data ?? {}) as { message?: unknown; detail?: unknown };
+    const message = typeof corps.message === 'string' ? corps.message
+      : typeof corps.detail === 'string' ? corps.detail : null;
+    return { ok: false, message: res.status === 402 || res.status === 409 ? message : null };
+  }, [user, refresh]);
+
   return { documents, loading, refresh, saveDocument, getBlob, getPreviewBlob,
-           getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal };
+           getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal,
+           getIllegiblePages, setIllegiblePages };
 }

@@ -2,12 +2,21 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
 import { Loader2, Hourglass, Lock, FileX } from 'lucide-react';
+import type { PagesIllisiblesVue } from '../../hooks/usePagesIllisibles';
+import ScanPageOverlay from './ScanPageOverlay';
 
 // Largeur du cadre d'aperçu (#scroll) sous laquelle deux volets côte à côte
 // tombent sous ~300 px chacun : texte illisible. C'est le CADRE qui compte, pas
 // l'écran — une barre latérale peut le rétrécir sur un écran large.
 const COMPACT_MAX_PX = 680;
 const COMPACT_MARGE_PX = 24;
+/** Action secondaire posée sur la page : contour gris neutre, pleine largeur. */
+const BOUTON_NEUTRE = {
+  width: '100%', padding: '8px 12px', borderRadius: '6px',
+  border: '1px solid #94a3b8', background: 'transparent',
+  color: 'var(--gray-700)', fontSize: '12.5px', fontWeight: 600,
+  fontFamily: 'inherit', cursor: 'pointer',
+} as const;
 
 const largeurCadre = () => document.getElementById('scroll')?.clientWidth ?? window.innerWidth;
 
@@ -98,6 +107,8 @@ interface PdfViewerProps {
   fileMissing?: 'translation' | 'all' | null;
   /** Format attendu de la page tant qu'aucun PDF n'est chargé (cadres vides). */
   formatHint?: 'landscape' | 'portrait';
+  /** Pages illisibles du scan : carte de décision sur la page traduite. */
+  scanPages?: PagesIllisiblesVue;
 }
 
 export default function PdfViewer({
@@ -127,11 +138,33 @@ export default function PdfViewer({
   onUnlock,
   fileMissing = null,
   formatHint = 'portrait',
+  scanPages,
 }: PdfViewerProps) {
   const { t } = useTranslation();
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   // True quand le canevas traduit affiche RÉELLEMENT la page courante.
   const [translatedShown, setTranslatedShown] = useState(false);
+  // Page réellement dessinée sur le canevas traduit (en retard d'un instant
+  // sur `currentPage` lors d'un changement de page).
+  const [pagePeinte, setPagePeinte] = useState<number | null>(null);
+  // Pages dont le choix vient de changer : le rendu affiché date d'avant, il
+  // reste caché jusqu'à l'arrivée du nouveau (`blob` : celui d'avant le choix).
+  const [perimees, setPerimees] = useState<{ blob: Blob | null | undefined; pages: number[] } | null>(null);
+  const choixVus = useRef<Map<number, string | null> | null>(null);
+  const blobCourant = useRef(translatedBlob);
+  blobCourant.current = translatedBlob;
+  useEffect(() => {
+    const maintenant = new Map((scanPages?.pages ?? []).map((p) => [p.page, p.choix] as const));
+    const avant = choixVus.current;
+    choixVus.current = maintenant;
+    if (!avant) return;
+    const changees = [...maintenant].filter(([n, c]) => c !== null && avant.has(n) && avant.get(n) !== c)
+      .map(([n]) => n);
+    if (changees.length === 0) return;
+    const blob = blobCourant.current;
+    setPerimees((p) => ({ blob, pages: [...(p && p.blob === blob ? p.pages : []), ...changees] }));
+  }, [scanPages?.pages]);
+  const rendusPerimes = perimees && perimees.blob === translatedBlob ? perimees.pages : [];
   // Orientation de la PAGE COURANTE : paysage → panneaux empilés (vertical),
   // portrait → panneaux côte à côte (horizontal). Détectée par page — un même
   // document peut mêler des pages paysage et portrait, et la disposition suit.
@@ -139,6 +172,7 @@ export default function PdfViewer({
   // Écran ÉTROIT (téléphone) : deux volets côte à côte n'y font que ~150 px
   // chacun, texte illisible. On n'en montre alors qu'UN, en pleine largeur, et
   // une bascule passe de l'un à l'autre — la traduction d'abord.
+  const [tailleCadre, setTailleCadre] = useState('');
   const [compact, setCompact] = useState(
     () => typeof window !== 'undefined' && largeurCadre() < COMPACT_MAX_PX,
   );
@@ -156,10 +190,18 @@ export default function PdfViewer({
     // Hystérésis : la barre de défilement qui apparaît ou disparaît change la
     // largeur de quelques pixels, de quoi faire osciller la bascule (et
     // recharger le PDF à chaque fois) si l'entrée et la sortie coïncidaient.
-    const suivre = () => setCompact((c) => {
-      const l = largeurCadre();
-      return c ? l < COMPACT_MAX_PX + COMPACT_MARGE_PX : l < COMPACT_MAX_PX;
-    });
+    const suivre = () => {
+      setCompact((c) => {
+        const l = largeurCadre();
+        return c ? l < COMPACT_MAX_PX + COMPACT_MARGE_PX : l < COMPACT_MAX_PX;
+      });
+      // Les deux pages sont calées sur la taille du cadre : un bandeau qui
+      // apparaît au-dessus (pages scannées, avancement) le réduit. Sans
+      // redessin, la page peinte avant garde l'ancienne taille et les deux
+      // volets ne correspondent plus.
+      const el = document.getElementById('scroll');
+      if (el) setTailleCadre(`${el.clientWidth}x${el.clientHeight}`);
+    };
     suivre();   // le cadre a pu changer entre le premier rendu et cet effet
     const cadre = document.getElementById('scroll');
     if (cadre && typeof ResizeObserver !== 'undefined') {
@@ -343,7 +385,7 @@ export default function PdfViewer({
       active = false;
       taches.forEach((t) => { try { t.cancel(); } catch { /* déjà fini */ } });
     };
-  }, [docOrig, currentPage, zoom, compact, gabaritVide]);
+  }, [docOrig, currentPage, zoom, compact, gabaritVide, tailleCadre]);
 
   // Panneau TRADUIT : la page n'y est dessinée que si le serveur l'a déclarée
   // traduite ET qu'elle existe dans le document. Sinon : un fond neutre à la
@@ -355,10 +397,11 @@ export default function PdfViewer({
     const pret = !!docTrad && translatedPageReady && currentPage <= docTrad.numPages;
     if (pret) {
       peindre(docTrad, 'pdf-canvas-translated', () => active, taches)
-        .then((ok) => { if (ok && active) setTranslatedShown(true); })
+        .then((ok) => { if (ok && active) { setTranslatedShown(true); setPagePeinte(currentPage); } })
         .catch((e) => signaler(active)(e));
     } else {
       setTranslatedShown(false);
+      setPagePeinte(null);
       const canvas = document.getElementById('pdf-canvas-translated') as HTMLCanvasElement | null;
       const gabarit = docOrig ?? docTrad ?? gabaritVide;
       if (canvas) {
@@ -374,7 +417,8 @@ export default function PdfViewer({
       active = false;
       taches.forEach((t) => { try { t.cancel(); } catch { /* déjà fini */ } });
     };
-  }, [docTrad, docOrig, currentPage, zoom, compact, translatedPageReady, attendOrig, gabaritVide]);
+  }, [docTrad, docOrig, currentPage, zoom, compact, translatedPageReady, attendOrig, gabaritVide,
+    tailleCadre]);
 
   const [isHovering, setIsHovering] = useState(false);
 
@@ -465,7 +509,8 @@ export default function PdfViewer({
               overflow: 'hidden',
               // Refus pour crédits : rien n'a été dessiné, le canevas garde sa
               // taille par défaut (300×150) et rognait les deux boutons.
-              ...(!translatedShown && creditsNeeded && onBuyPages
+              ...(!translatedShown && ((creditsNeeded && onBuyPages)
+                || scanPages?.pages.some((p) => p.page === currentPage))
                 ? { minWidth: '320px', minHeight: '300px' } : null),
               // Curseur masqué seulement là où le voile le remplace : sur l'écran
               // « pages à régler » ou d'attente, l'utilisateur doit le voir.
@@ -513,7 +558,7 @@ export default function PdfViewer({
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '12px',
-                background: 'rgba(248,250,252,0.75)',
+                background: creditsNeeded && onBuyPages ? '#fffefb' : 'rgba(248,250,252,0.75)',
                 backdropFilter: 'blur(1px)',
                 color: 'var(--gray-500)',
                 textAlign: 'center',
@@ -524,23 +569,36 @@ export default function PdfViewer({
                 /* Manque de crédits : ici, dans le panneau traduit, on dit
                    simplement qu'il faut régler les pages — et le bouton juste
                    dessous lance le paiement. Pas de bannière ailleurs. */
-                <>
-                  <Lock size={26} strokeWidth={1.8} style={{ color: 'var(--blue)' }} />
-                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--gray-900)', maxWidth: '280px' }}>
+                /* Même présentation que la décision « page illisible » : posée
+                   sur la page, sans cadre ni ombre, boutons en contour. */
+                <div style={{
+                  width: '100%', maxWidth: '340px',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
+                }}>
+                  <Lock size={26} strokeWidth={1.8} style={{ color: '#a8a29e' }} aria-hidden />
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--gray-800)',
+                                 textWrap: 'balance' }}>
                     {t('preview.credits_insufficient')}
                   </span>
-                  <span style={{ fontSize: '12.5px', color: 'var(--gray-600)', maxWidth: '280px', marginTop: '-6px' }}>
+                  {/* Même structure que la carte « page illisible » : le constat,
+                      puis ce que chaque bouton ci-dessous permet de faire. */}
+                  <span style={{ fontSize: '12.5px', color: 'var(--gray-600)', lineHeight: 1.55,
+                                 textAlign: 'justify', textAlignLast: 'center', hyphens: 'auto',
+                                 marginTop: '-4px' }}>
                     {creditsReason ?? t('preview.credits_needed', { count: creditsNeeded })}
                     {imagesNeeded ? ` ${t('preview.credits_images', { count: imagesNeeded })}` : ''}
+                    {' '}
+                    {t(imagesNeeded && onTranslateWithoutImages ? 'preview.credits_hint_images'
+                      : pagesCovered && onTranslateCovered ? 'preview.credits_hint_covered'
+                      : 'preview.credits_hint_buy')}
                   </span>
                   <button
                     onClick={() => onBuyPages(creditsNeeded)}
                     style={{
-                      marginTop: '4px', padding: '10px 20px', borderRadius: '10px', border: 'none',
-                      background: 'linear-gradient(135deg, var(--blue) 0%, #1d4ed8 100%)',
-                      color: 'white', fontSize: '13px', fontWeight: 600,
+                      width: '100%', marginTop: '4px', padding: '9px 14px', borderRadius: '6px',
+                      border: '1.5px solid var(--blue)', background: 'transparent',
+                      color: 'var(--blue)', fontSize: '13px', fontWeight: 600,
                       fontFamily: 'inherit', cursor: 'pointer',
-                      boxShadow: '0 4px 14px rgba(37,99,235,0.28)',
                     }}
                   >
                     {t('story.buy_pages_cta', { count: creditsNeeded })}
@@ -548,31 +606,15 @@ export default function PdfViewer({
                   {/* Sans les images d'abord : ne garder que les pages couvertes
                       facturerait quand même toutes les images du document. */}
                   {imagesNeeded && onTranslateWithoutImages ? (
-                    <button
-                      onClick={onTranslateWithoutImages}
-                      style={{
-                        padding: '8px 16px', borderRadius: '10px',
-                        border: '1px solid var(--gray-300)', background: 'white',
-                        color: 'var(--gray-700)', fontSize: '12.5px', fontWeight: 600,
-                        fontFamily: 'inherit', cursor: 'pointer',
-                      }}
-                    >
+                    <button onClick={onTranslateWithoutImages} style={BOUTON_NEUTRE}>
                       {t('preview.translate_without_images')}
                     </button>
                   ) : pagesCovered && onTranslateCovered ? (
-                    <button
-                      onClick={onTranslateCovered}
-                      style={{
-                        padding: '8px 16px', borderRadius: '10px',
-                        border: '1px solid var(--gray-300)', background: 'white',
-                        color: 'var(--gray-700)', fontSize: '12.5px', fontWeight: 600,
-                        fontFamily: 'inherit', cursor: 'pointer',
-                      }}
-                    >
+                    <button onClick={onTranslateCovered} style={BOUTON_NEUTRE}>
                       {t('preview.translate_covered', { count: pagesCovered })}
                     </button>
                   ) : null}
-                </>
+                </div>
               ) : fileMissing ? (
                 /* Fichier disparu du serveur : rien à attendre, on dit quoi faire. */
                 <>
@@ -596,6 +638,8 @@ export default function PdfViewer({
                   </motion.span>
                   <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--gray-700)' }}>
                     {!docTrad || previewLoading ? t('preview.loading')
+                      : translatedPageStatus === 'ocr_attente' ? t('preview.status_ocr_waiting')
+                      : translatedPageStatus === 'ocr' ? t('preview.status_ocr')
                       : translatedPageStatus === 'extracting' ? t('preview.status_extracting')
                       : translatedPageStatus === 'rendering' ? t('preview.status_rendering')
                       : t('preview.status_translating')}
@@ -608,6 +652,17 @@ export default function PdfViewer({
                 </>
               )}
             </div>
+          )}
+
+          {/* Page illisible du scan : la décision se prend ici, sur la page. */}
+          {scanPages && <ScanPageOverlay page={currentPage} scanPages={scanPages} />}
+          {/* Le canevas montre encore une page illisible non décidée (copie de
+              l'original) le temps que la suivante soit dessinée : la cacher. */}
+          {scanPages && pagePeinte !== null && ((pagePeinte !== currentPage
+            && scanPages.pages.some((p) => p.page === pagePeinte
+              && (p.choix === null || scanPages.enCours.includes(p.page))))
+            || rendusPerimes.includes(pagePeinte)) && (
+            <div aria-hidden style={{ position: 'absolute', inset: 0, zIndex: 25, background: '#f8fafc' }} />
           )}
 
           {/* Voile d'essai : tout est assombri SAUF une fenêtre sous le curseur.

@@ -190,3 +190,76 @@ def ensure_background_build(original_path: str, translation_path: str,
 
     threading.Thread(target=_run, daemon=True,
                      name=f"render-cache-{os.path.basename(cp)}").start()
+
+
+def invalider(translation_path: str) -> None:
+    """Le rendu en cache date d'avant un changement de la traduction : elle
+    devient plus récente que lui (`cache_valid`), et un rendu en cours
+    d'écriture est écarté (`store_render` compare la date relevée avant)."""
+    import time
+    t = time.time()
+    try:
+        t = max(t, os.path.getmtime(cache_path_for(translation_path)) + 1)
+    except OSError:
+        pass
+    os.utime(translation_path, (t, t))
+
+
+# ── Lecture / remplacement d'une traduction ─────────────────────────────────
+#
+# Un rendu relit le JSON au début et peut le réécrire à la fin (page « à
+# améliorer ») : un remplacement fait entre les deux serait écrasé. Les rendus
+# se partagent la traduction ; un remplacement attend qu'ils finissent et les
+# retient le temps de l'écriture (quelques millisecondes).
+
+class _LectureEcriture:
+    def __init__(self) -> None:
+        self._cond = threading.Condition()
+        self._lecteurs = 0
+        self._ecrivain = False
+        # Un écrivain qui attend passe avant les nouveaux lecteurs : sinon des
+        # rendus qui se chevauchent le retiendraient indéfiniment.
+        self._ecrivains_en_attente = 0
+
+    def lire(self):
+        return _Prise(self, False)
+
+    def ecrire(self):
+        return _Prise(self, True)
+
+
+class _Prise:
+    def __init__(self, verrou: _LectureEcriture, exclusive: bool) -> None:
+        self.v, self.exclusive = verrou, exclusive
+
+    def __enter__(self):
+        v = self.v
+        with v._cond:
+            if self.exclusive:
+                v._ecrivains_en_attente += 1
+                try:
+                    v._cond.wait_for(lambda: not v._ecrivain and not v._lecteurs)
+                finally:
+                    v._ecrivains_en_attente -= 1
+                v._ecrivain = True
+            else:
+                v._cond.wait_for(lambda: not v._ecrivain and not v._ecrivains_en_attente)
+                v._lecteurs += 1
+        return self
+
+    def __exit__(self, *_):
+        v = self.v
+        with v._cond:
+            if self.exclusive:
+                v._ecrivain = False
+            else:
+                v._lecteurs -= 1
+            v._cond.notify_all()
+
+
+_traductions: dict[str, _LectureEcriture] = {}
+
+
+def verrou_traduction(translation_path: str) -> _LectureEcriture:
+    with _locks_guard:
+        return _traductions.setdefault(os.path.abspath(translation_path), _LectureEcriture())

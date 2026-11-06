@@ -30,7 +30,8 @@ import queue
 import threading
 from typing import Any, Callable
 
-from app.config import TRANSLATION_WORKERS, logger
+from app.config import OCR_SCAN_WORKERS, TRANSLATION_WORKERS, logger
+from app.services import ocr_file
 from app.services.jobs import ArretDemande, jobs
 
 
@@ -86,6 +87,8 @@ class TranslationScheduler:
                 # Un job mis en pause ou annulé pendant qu'il attendait ne
                 # démarre pas : la route l'a déjà arrêté et consigné.
                 if jobs.demarrer(job_id):
+                    # Les lectures OCR de ce job se rangent à sa priorité.
+                    ocr_file.definir_priorite(-_negprio)
                     target(*args)
             except ArretDemande as arret:
                 logger.info("Job %s arrêté à la demande (%s)", job_id, arret.mode)
@@ -114,3 +117,8 @@ class TranslationScheduler:
 
 # Point d'accès unique du processus.
 scheduler = TranslationScheduler(TRANSLATION_WORKERS)
+
+# Documents scannés : file à part. Leurs workers passent l'essentiel du temps à
+# attendre le guichet OCR (une lecture à la fois) ; sur la file commune ils
+# bloqueraient les traductions de documents à texte.
+scheduler_scans = TranslationScheduler(OCR_SCAN_WORKERS)

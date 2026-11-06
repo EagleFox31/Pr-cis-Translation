@@ -228,8 +228,10 @@ Le `/health` ne prouve que le démarrage. Faire le parcours réel, une fois :
     « Nouvel onglet » prend le relais.
 - **Aucune expiration automatique des fichiers traduits.** Le volume ne fait que
   croître ; surveiller et purger (voir ci-dessous).
-- **Documents scannés exclus** : détectés, refusés, non facturés. L'OCR est une
-  étude en cours (`docs/etude-ocr.md`).
+- **Documents scannés** : lus page par page pendant la traduction, dans un
+  ordonnanceur à part (`OCR_SCAN_WORKERS`, 3 par défaut) et un guichet OCR
+  unique (une lecture à la fois). Pas encore ouverts au public : voir
+  `docs/bilan-ocr-deploiement.md` et `docs/ocr-production.md`.
 - **Un seul worker uvicorn**, imposé par l'entrypoint : la file de priorité et le
   registre des travaux vivent en mémoire. Monter en charge se fait en
   agrandissant la machine, pas en ajoutant des workers — deux workers auraient

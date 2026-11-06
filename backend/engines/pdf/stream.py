@@ -39,6 +39,58 @@ def _emit(on_event, payload):
             pass
 
 
+# Mention posée sur une page illisible restée en langue d'origine sans choix de
+# l'utilisateur : le fichier ne livre jamais l'original sans le dire. Écrite
+# dans la langue cible ; anglais pour une langue absente (police Helvetica).
+MENTION_NON_TRADUITE = {
+    "fr": "Page non traduite : laissée en langue d'origine.",
+    "en": "Page not translated: left in the original language.",
+    "es": "Página no traducida: se mantiene en el idioma original.",
+    "de": "Seite nicht übersetzt: in der Originalsprache belassen.",
+    "it": "Pagina non tradotta: lasciata nella lingua originale.",
+    "pt": "Página não traduzida: mantida no idioma original.",
+    "nl": "Pagina niet vertaald: in de oorspronkelijke taal gelaten.",
+}
+
+
+def mention_non_traduite(target_lang) -> str:
+    code = str(target_lang or "").lower()[:2]
+    return MENTION_NON_TRADUITE.get(code, MENTION_NON_TRADUITE["en"])
+
+
+# Mention posée sur une page laissée hors de la sélection, sans choix de
+# l'utilisateur.
+MENTION_NON_INCLUSE = {
+    "fr": "Page non incluse dans la traduction.",
+    "en": "Page not included in the translation.",
+    "es": "Página no incluida en la traducción.",
+    "de": "Seite nicht in der Übersetzung enthalten.",
+    "it": "Pagina non inclusa nella traduzione.",
+    "pt": "Página não incluída na tradução.",
+    "nl": "Pagina niet opgenomen in de vertaling.",
+}
+
+
+def mention_non_incluse(target_lang) -> str:
+    code = str(target_lang or "").lower()[:2]
+    return MENTION_NON_INCLUSE.get(code, MENTION_NON_INCLUSE["en"])
+
+
+def _poser_mention(page, texte):
+    """Bandeau discret en haut de la page : fond blanc pour rester lisible sur
+    un scan, texte gris foncé. Coordonnées de la page affichée (rotation prise
+    en compte)."""
+    vue = page.rect
+    hauteur = 18
+    bande = fitz.Rect(vue.x0, vue.y0, vue.x1, vue.y0 + hauteur)
+    reelle = bande * page.derotation_matrix
+    page.draw_rect(reelle, color=None, fill=(1, 1, 1), overlay=True)
+    page.insert_textbox(fitz.Rect(bande.x0 + 8, bande.y0 + 4, bande.x1 - 8, bande.y1)
+                        * page.derotation_matrix,
+                        texte, fontsize=8, fontname="helv", color=(0.25, 0.25, 0.25),
+                        align=fitz.TEXT_ALIGN_CENTER, rotate=page.rotation)
+
+
 def _save_partial(out_doc, partial_path):
     """Réécrit le PDF partiel de façon ATOMIQUE (tmp + rename) : un client qui
     le télécharge pendant l'écriture ne voit jamais un fichier tronqué."""
@@ -114,10 +166,32 @@ def _images_par_xref(images) -> dict:
     return out
 
 
+def _ajouter_polices(eng, data, doc):
+    """Ajoute les polices de `doc` (une page lue par l'OCR) à celles du document.
+
+    `_build_fonts` repart de zéro : on fusionne d'abord, et on ne reconstruit
+    que si une police est vraiment nouvelle (les pages lues d'un même scan
+    partagent les mêmes fichiers)."""
+    nouvelle = False
+    for nom, variantes in eng._extract_fonts(doc, data["font_profiles"]).items():
+        connues = data["fonts"].setdefault(nom, [])
+        deja = {v["b64"] for v in connues}
+        for variante in variantes:
+            if variante["b64"] not in deja:
+                connues.append(variante)
+                deja.add(variante["b64"])
+                nouvelle = True
+    if nouvelle:
+        eng._build_fonts(data)
+
+
 def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                               pages=None, partial_path=None, on_event=None,
                               debug=False, cache_path=None, engine=None,
-                              arret=None, images=None):
+                              arret=None, images=None, lecteur_ocr=None,
+                              pages_vides=None, pages_originales=None,
+                              signaler_illisibles=False,
+                              pages_non_incluses=None):
     """Traduit `pdf_path` page par page vers `output_path`.
 
     pages        : ensemble de numéros 1-basés à traduire (None = toutes) ; les
@@ -129,6 +203,18 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                    ajoutée aussitôt (un job interrompu reprend où il en était).
     images       : images traduites, {"xref:<n>" ou n: octets}, posées à la
                    place des images d'origine.
+    lecteur_ocr  : appelé `(numéro 1-basé, src, index)` avant la relecture du
+                   cache, même pour une page déjà traduite. Rend None (page non
+                   concernée) ou un objet `statut`/`pdf` : `ok` fait extraire et
+                   rendre la page depuis ce `pdf` d'une page ; tout autre statut
+                   recopie l'original, sans la compter comme traduite
+                   (`hors_budget` : mention « page non incluse »).
+    pages_vides  : pages rendues blanches, au format d'origine.
+    signaler_illisibles : une page lue `illisible` reçoit une mention « page non
+                   traduite » dans la langue cible, sauf si elle figure dans
+                   `pages_originales` (original choisi par l'utilisateur).
+    pages_non_incluses : pages hors sélection qui reçoivent la mention « page
+                   non incluse », sauf celles de `pages_originales`.
     """
     eng = engine or PDFObjectEngine()
     images = _images_par_xref(images)
@@ -198,6 +284,9 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
     done_pages = []
     traduites = {}          # page -> page_data : matière de la cohérence
     nouvelles = 0           # pages traduites PAR CE passage (hors reprise)
+    # Page lue par l'OCR -> son document d'une page. Ouverts jusqu'à la fin : le
+    # rendu y relit le fond du scan, et la cohérence peut rendre la page à nouveau.
+    docs_lus = {}
     try:
         total = len(src)
         _emit(on_event, {"type": "start", "total": total})
@@ -212,14 +301,49 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
 
         for page_num in range(total):
             human = page_num + 1
+            if pages_vides and human in pages_vides:
+                # Choix de l'utilisateur : testé avant la sélection, la page
+                # reste vide même quand un rendu n'en reconstruit que quelques-unes.
+                rect = src[page_num].rect
+                out.new_page(width=rect.width, height=rect.height)
+                _save_partial(out, partial_path)
+                _emit(on_event, {"type": "page", "page": human,
+                                 "status": "vide",
+                                 "done": human, "total": total})
+                continue
             if pages is not None and human not in pages:
                 # Hors sélection : copie fidèle de la page d'origine.
                 out.insert_pdf(src, from_page=page_num, to_page=page_num)
+                if (pages_non_incluses and human in pages_non_incluses
+                        and human not in (pages_originales or ())):
+                    _poser_mention(out[-1], mention_non_incluse(target_lang))
                 _save_partial(out, partial_path)
                 _emit(on_event, {"type": "page", "page": human,
                                  "status": "copied",
                                  "done": human, "total": total})
                 continue
+
+            page_src, page_idx = src, page_num
+            lecture = lecteur_ocr(human, src, page_num) if lecteur_ocr else None
+            if lecture is not None:
+                if lecture.statut != "ok":
+                    out.insert_pdf(src, from_page=page_num, to_page=page_num)
+                    hors_budget = lecture.statut == "hors_budget"
+                    if human not in (pages_originales or ()):
+                        if hors_budget:
+                            # Solde épuisé : la page n'a pas été lue, comme
+                            # une page laissée hors de la sélection.
+                            _poser_mention(out[-1], mention_non_incluse(target_lang))
+                        elif signaler_illisibles and lecture.statut == "illisible":
+                            _poser_mention(out[-1], mention_non_traduite(target_lang))
+                    _save_partial(out, partial_path)
+                    _emit(on_event, {"type": "page", "page": human,
+                                     "status": "copied" if hors_budget else lecture.statut,
+                                     "done": human, "total": total})
+                    continue
+                page_src, page_idx = fitz.open(stream=lecture.pdf, filetype="pdf"), 0
+                docs_lus[human] = page_src
+                _ajouter_polices(eng, data, page_src)
 
             page_data = cached_pages.get(human)
             # En mode structure, l'EXTRACTION sauvegardée suffit : elle n'a pas
@@ -238,7 +362,8 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                                  "status": "extracting",
                                  "done": human - 1, "total": total})
                 neuve = eng.extract_page_data(
-                    src, page_num, src[page_num], images_par_reference=True)
+                    page_src, page_idx, page_src[page_idx], images_par_reference=True)
+                neuve["page_num"] = human
                 if debug or translate.reattacher_traductions(neuve, page_data):
                     page_data = neuve
                 else:
@@ -259,7 +384,8 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                                  "status": "extracting",
                                  "done": human - 1, "total": total})
                 page_data = eng.extract_page_data(
-                    src, page_num, src[page_num], images_par_reference=True)
+                    page_src, page_idx, page_src[page_idx], images_par_reference=True)
+                page_data["page_num"] = human
 
                 if not debug:
                     _emit(on_event, {"type": "page", "page": human,
@@ -273,6 +399,10 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                     if cle_fiche not in fiches:
                         try:
                             matiere = translate.matiere_fiche_pdf(src)
+                            # Scan pur : l'original n'a aucun texte, seule la
+                            # page lue peut nourrir la fiche.
+                            if page_src is not src and not any(map(any, matiere)):
+                                matiere = translate.matiere_fiche_pdf(page_src)
                         except Exception:       # page illisible : sans fiche
                             matiere = ([], [])
 
@@ -307,8 +437,8 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                              "status": "rendering",
                              "done": human - 1, "total": total})
             eng.render_page_into(out, page_data, draw_borders=debug,
-                                 translated=not debug, src_doc=src,
-                                 images=images)
+                                 translated=not debug, src_doc=page_src,
+                                 images=None if page_src is not src else images)
             _save_partial(out, partial_path)
             done_pages.append(human)
             _emit(on_event, {"type": "page", "page": human, "status": "done",
@@ -338,8 +468,10 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                     pass
                 neuve = fitz.open()
                 try:
+                    lu = docs_lus.get(human)
                     eng.render_page_into(neuve, page_data, translated=True,
-                                         src_doc=src, images=images)
+                                         src_doc=lu or src,
+                                         images=None if lu else images)
                     out.delete_page(human - 1)
                     out.insert_pdf(neuve, start_at=human - 1)
                 finally:
@@ -353,8 +485,15 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                                      "status": "done",
                                      "done": total, "total": total})
 
+        # Document sans aucune page traduite (tout illisible) : la table existe
+        # quand même, la réouverture et la copie d'un document partagé en ont besoin.
+        if cache_path and not os.path.exists(cache_path):
+            _ecrire_cache()
+
         out.save(output_path, garbage=4, deflate=True, clean=True)
     finally:
         out.close()
         src.close()
+        for lu in docs_lus.values():
+            lu.close()
     return output_path

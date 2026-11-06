@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import PdfViewer from './PdfViewer';
 import { usePdfPreview } from '../../hooks/usePdfPreview';
+import type { PagesIllisiblesVue } from '../../hooks/usePagesIllisibles';
 
 interface DocumentPreviewProps {
   sourceFile?: File | null;
@@ -46,6 +47,8 @@ interface DocumentPreviewProps {
   onTranslateWithoutImages?: () => void;
   /** Essai : quitter l'aperçu pour les tarifs. */
   onUnlock?: () => void;
+  /** Pages illisibles du scan : carte de décision sur la page traduite. */
+  scanPages?: PagesIllisiblesVue;
 }
 
 /**
@@ -77,6 +80,7 @@ export default function DocumentPreview({
   imagesNeeded,
   onTranslateWithoutImages,
   onUnlock,
+  scanPages,
 }: DocumentPreviewProps) {
   const { t } = useTranslation();
   const { sourcePdf, translatedPdf, loading, error } = usePdfPreview(sourceFile, translatedBlob, ext, translatedExt);
@@ -155,6 +159,7 @@ export default function DocumentPreview({
       imagesNeeded={imagesNeeded}
       onTranslateWithoutImages={onTranslateWithoutImages}
       onUnlock={onUnlock}
+      scanPages={scanPages}
     />
   );
 }

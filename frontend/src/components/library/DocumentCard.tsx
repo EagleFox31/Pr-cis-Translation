@@ -21,7 +21,7 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import {
-  Eye, Download, Trash2, Lock, AlertTriangle, Loader2, RotateCcw, Flag, Pause, X,
+  Eye, Download, Trash2, Lock, AlertTriangle, Loader2, RotateCcw, Flag, Pause, X, ScanText,
   FileType2, FileText, Presentation, Sheet, File as FileIcon,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -137,6 +137,23 @@ export default function DocumentCard({
             value={percent(doc.pagesDone, doc.pageCount)}
             label={t('library.translating')}
           />
+        </div>
+      )}
+
+      {/* SCAN TERMINÉ — pages illisibles : décision en attente, ou relecture
+          (« traduire quand même ») en cours côté serveur. */}
+      {!enCours && (doc.pagesRelues ?? 0) > 0 && (
+        <div className="libdoc__progress" role="status">
+          <span className="libdoc__state">
+            <Loader2 size={12} strokeWidth={2.4} className="ui-spin" aria-hidden />
+            {t('library.scan_reading', { count: doc.pagesRelues })}
+          </span>
+        </div>
+      )}
+      {!enCours && (doc.pagesADecider ?? 0) > 0 && (
+        <div className="libdoc__error libdoc__error--held" role="status">
+          <ScanText size={14} strokeWidth={2.4} aria-hidden />
+          <span>{t('library.scan_to_decide', { count: doc.pagesADecider })}</span>
         </div>
       )}
 

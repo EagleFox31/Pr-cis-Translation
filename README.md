@@ -35,7 +35,7 @@ La séparation `api → services → engines` permet de tester les moteurs sans 
 | DOCX | Texte et structure Word | [Moteur DOCX](backend/engines/docx/CONTEXTE.md) |
 | PPTX | Texte et objets dans les diapositives | [Moteur PPTX](backend/engines/pptx/CONTEXTE.md) |
 | XLSX | Cellules, graphiques et contraintes de largeur | [Moteur XLSX](backend/engines/xlsx/CONTEXTE.md) |
-| PDF scanné | OCR étudié, non déclaré livré | [Étude OCR](docs/etude-ocr.md), [v2](docs/etude-ocr-v2.md) |
+| PDF scanné | OCR implémenté (lecture page par page pendant la traduction, choix du client pour les pages illisibles), **pas encore ouvert au public** | [OCR en production](docs/ocr-production.md), [bilan](docs/bilan-ocr-deploiement.md), [étude pages illisibles](docs/etude-ocr-file-pages-illisibles.md) |
 
 **Versions :** le `package.json` de ce dépôt déclare actuellement `1.6.2`. Cette valeur ne prouve pas qu'une release correspondante soit effectivement déployée ; consulter les manifestes des moteurs, le [changelog](CHANGELOG.md) et les étapes de recette.
 
@@ -54,7 +54,7 @@ Les appels lourds ne doivent pas bloquer la boucle asynchrone. Les moteurs sont 
 
 ## Limites et transparence
 
-- La traduction de scans et les traitements OCR font l'objet d'une [étude](docs/etude-ocr.md) : ils ne doivent pas être présentés comme livrés.
+- La traduction de scans est implémentée mais pas ouverte au public tant que les points du [bilan OCR](docs/bilan-ocr-deploiement.md) ne sont pas réglés : ne pas la présenter comme livrée.
 - Les conversions peuvent nécessiter **LibreOffice** et des polices de repli ; la géométrie des documents complexes reste un risque de rendu.
 - Une batterie de tests locale n'est pas une garantie de fidélité sur tous les documents réels ; voir la [recette de production](docs/feuille-de-route-production.md).
 - L'utilisation du fournisseur de traduction, le déploiement et les paiements doivent être validés dans l'environnement concerné, sans secrets dans les exemples publics.
@@ -87,7 +87,7 @@ aperçus non-PDF.
 | [`backend/engines/xlsx/CONTEXTE.md`](backend/engines/xlsx/CONTEXTE.md) | Le moteur XLSX — texte couvert (cellules, onglets, graphiques, commentaires, tableaux, croisés, formats) |
 | [`docs/feuille-de-route-production.md`](docs/feuille-de-route-production.md) | **Aller en production** : les 6 étapes dans l'ordre, qui fait quoi, et la preuve de chacune |
 | [`docs/deploiement.md`](docs/deploiement.md) | **Mettre en ligne** : machine AWS, configuration, HTTPS, limites connues |
-| [`docs/etude-ocr.md`](docs/etude-ocr.md) | Étude : traduire des PDF **scannés** (OCR) — feature à venir |
+| [`docs/etude-ocr.md`](docs/etude-ocr.md) | Étude initiale : traduire des PDF **scannés** (OCR) ; état actuel dans [`docs/ocr-production.md`](docs/ocr-production.md) |
 | [`docs/etude-visionneuse.md`](docs/etude-visionneuse.md) | Étude : visionneuse (navigation, molette, vignettes), fidélité de la retraduction compacte, originaux côté admin |
 | [`docs/etude-invitations.md`](docs/etude-invitations.md) | Étude : inviter des proches par e-mail — choix et points à trancher |
 | [`docs/etude-source-credits.md`](docs/etude-source-credits.md) | Étude : source des crédits — téléchargement et filigrane (gratuit, bêta, payant) |
@@ -109,6 +109,8 @@ aperçus non-PDF.
 - [Étude — aperçu d'un document aux fichiers disparus](docs/etude-apercu-fichier-manquant.md)
 - [Étude — page publique Bêta simplifiée](docs/etude-page-beta.md)
 | [`docs/etude-ocr-v2.md`](docs/etude-ocr-v2.md) | Étude : OCR v2 — lire, effacer et réécrire le texte d'une image (fonds chargés, japonais) |
+| [`docs/etude-ocr-file-pages-illisibles.md`](docs/etude-ocr-file-pages-illisibles.md) | Étude : OCR page par page en tâche de fond, file d'attente par priorité, choix du client sur une page illisible |
+| [`docs/bilan-ocr-deploiement.md`](docs/bilan-ocr-deploiement.md) | Bilan OCR pour le déploiement : mesures, limites, risques, check-list et décisions |
 | [`docs/etude-extension-navigateur.md`](docs/etude-extension-navigateur.md) | Étude : extension navigateur traduisant une page entière, images comprises après accord |
 | [`docs/etude-memoire-extension.md`](docs/etude-memoire-extension.md) | Étude : ne plus repayer une page déjà traduite (mémoire locale, texte compté au volume cumulé) |
 | [`docs/etude-images-documents.md`](docs/etude-images-documents.md) | Étude : traduire aussi les images à texte d'un document, avec le coût sans et avec images |

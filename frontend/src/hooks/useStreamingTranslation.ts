@@ -30,6 +30,8 @@ export async function stopTranslation(jobId: string, mode: StopMode): Promise<vo
 /** État d'une page dans le pipeline progressif. */
 export type PageStatus =
   | 'waiting'      // pas encore commencée
+  | 'ocr_attente'  // scan : en file pour la lecture
+  | 'ocr'          // scan : lecture de la page
   | 'extracting'   // extraction des objets
   | 'translating'  // traduction DeepSeek
   | 'rendering'    // reconstruction du PDF
@@ -39,6 +41,11 @@ export type PageStatus =
 export interface StreamingState {
   /** Droit de CE document, confirmé par le serveur après réservation. */
   canReadClear: boolean;
+  /** Document enregistré pour cette traduction (réponse de `/api/translate`) :
+   *  permet d'agir sur ses pages illisibles avant même la fin. */
+  documentId: string | null;
+  /** Pages scannées lues pendant cette traduction (0 : aucun scan). */
+  ocrPages: number;
   isTranslating: boolean;
   totalPages: number | null;
   /** Statut par numéro de page (1-basé). */
@@ -75,6 +82,8 @@ export interface StreamingState {
 
 const EMPTY: StreamingState = {
   canReadClear: false,
+  documentId: null,
+  ocrPages: 0,
   isTranslating: false,
   totalPages: null,
   pageStatuses: {},
@@ -272,8 +281,13 @@ export function useStreamingTranslation(deviceSignals = true) {
             }));
             throw new Error(detail);
           }
-          const { job_id, ocr_pages, can_download, images: imagesAcceptees } = await startRes.json();
-          setState((s) => ({ ...s, canReadClear: can_download === true }));
+          const { job_id, document_id, ocr_pages, can_download, images: imagesAcceptees } = await startRes.json();
+          setState((s) => ({
+            ...s,
+            canReadClear: can_download === true,
+            documentId: typeof document_id === 'string' ? document_id : null,
+            ocrPages: typeof ocr_pages === 'number' ? ocr_pages : 0,
+          }));
           // Images demandées mais écartées par le serveur (scan, par exemple) :
           // l'utilisateur doit le savoir, sa figure restera dans la langue d'origine.
           const avis = [

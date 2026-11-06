@@ -41,10 +41,11 @@ from app.services import anti_abus
 from app.services import beta
 from app.services.beta_meter import BetaCost, FORMATS as BETA_FORMATS, office_cost
 from app.services.images_document import Analyse, analyser as analyser_images, vignette
-from app.services.ocr import OCR_VERSION, OCRError, prepare_scanned_pdf
+from app.services.ocr import OCR_VERSION
+from app.services.ocr_v2.detect import Tesseract
 from app.services.jobs import STATUTS_ARRET, STATUTS_REPRENABLES, jobs
 from app.services.office import convert_to_pdf_bytes
-from app.services.scheduler import scheduler
+from app.services.scheduler import scheduler, scheduler_scans
 from app.services.translation_runner import (_chemin_reprise, run_pdf_v2_job,
                                              run_pptx_progressive_job,
                                              run_translation_job,
@@ -165,6 +166,7 @@ async def _save_document_for_user(user: "User | None", db: "AsyncSession",
         # Lien job → Document : permet à `jobs.done`/`jobs.error` de reporter
         # `status`/`translated_path` à la fin du traitement (thread worker).
         jobs.set(job_id, document_id=doc.id)
+        return doc.id
     except Exception as e:
         await db.rollback()
         logger.error("Document non enregistré pour le job %s : %s", job_id, e)
@@ -371,6 +373,7 @@ async def translate_endpoint(
     if pages_set and any(p < 1 or p > nb_pages for p in pages_set):
         raise HTTPException(400, "La sélection contient une page absente du document.")
     beta_cost = None
+    budget = None       # pages traduisibles d'un scan partiellement couvert
     if beta_mode:
         if pages_set and any(p < 1 or p > nb_pages for p in pages_set):
             raise HTTPException(400, "La sélection contient une page absente du document.")
@@ -396,84 +399,30 @@ async def translate_endpoint(
                     "partial_possible": ext in ("pdf", "pptx") and remaining > 0,
                     "pages_available": remaining,
                 })
+    # Pages sans texte : lues par le moteur, une à une, pendant le travail. Toutes
+    # restent visées et réservées ; la clôture rembourse celles qui ne se lisent
+    # pas. Seule une panne du service se refuse dès l'envoi.
     lisibles = pages_avec_texte(file_bytes, ext)
-    pages_ignorees = 0
-    ocr_prepared = None
-    ocr_pages = 0
+    scans: set[int] = set()
     if lisibles is not None:
-        visees_ocr = pages_set or set(range(1, nb_pages + 1))
-        hors_essai = set()
-        # L'OCR gratuit reste borné par la couverture disponible. Les pages
-        # non reconnues restent comptées pour proposer l'achat ou un partiel
-        # explicite, sans traiter un gros scan au-delà du budget.
-        if not beta_mode and current_user.plan == "free":
-            couverture = (await usage.free_pages_remaining(db, current_user)
-                          + max(0, current_user.page_credits))
-            bornees = set(sorted(visees_ocr)[:couverture])
-            hors_essai = visees_ocr - bornees
-            visees_ocr = bornees
-        scans = visees_ocr - lisibles
+        scans = (pages_set or set(range(1, nb_pages + 1))) - lisibles
         if scans:
-            try:
-                ocr_prepared, ocr_pages = await run_in_threadpool(prepare_scanned_pdf, file_bytes, scans)
-            except OCRError as exc:
-                return JSONResponse(status_code=exc.status_code, content={
-                    "detail": str(exc), "reason": "scanned_document" if exc.status_code == 422 else "ocr_unavailable",
+            manque = await run_in_threadpool(Tesseract().manquant)
+            if manque:
+                return JSONResponse(status_code=503, content={
+                    "detail": "La reconnaissance des scans est temporairement indisponible.",
+                    "reason": "ocr_unavailable",
                     "pages_scanned": len(scans),
                 })
-            if len(ocr_prepared) > MAX_FILE_SIZE:
-                raise HTTPException(status_code=413, detail="Le scan reconnu est trop volumineux. Selectionnez moins de pages.")
-            lisibles = pages_avec_texte(ocr_prepared, ext) or set()
             qsuffix += f"_{OCR_VERSION}"
-        # Non reconnues faute d'achat, pas illisibles : elles restent visées
-        # (et comptées), l'achat rejoue le document avec l'OCR complet.
-        lisibles |= hors_essai
-    if lisibles is not None:
-        visees = pages_set or set(range(1, nb_pages + 1))
-        traduisibles = visees & lisibles
-
-        if not traduisibles:
-            # Rien à lire dans tout ce qui était visé : on refuse, et on ne
-            # débite rien. `reason` distingue ce cas d'un refus de quota — le
-            # client ne doit surtout pas proposer d'acheter des pages pour un
-            # document qu'aucun achat ne rendra traduisible.
-            #
-            # `JSONResponse` et non `HTTPException(detail={...})` : FastAPI
-            # emboîterait alors l'objet sous `detail`, or le client lit
-            # `err.detail` comme un TEXTE à afficher. Il montrerait
-            # « [object Object] » à l'utilisateur, et `err.reason` — qu'il lit
-            # au premier niveau, comme pour `need_credits` — serait introuvable.
-            return JSONResponse(
-                status_code=422,
-                content={
-                    "detail": (
-                        "La reconnaissance du scan n'a trouvé aucun texte lisible. "
-                        "Aucune page n'a été décomptée. Réessayez avec un scan "
-                        "plus net, contenant du texte imprimé en français ou en anglais."
-                    ),
-                    "reason": "scanned_document",
-                    "pages_scanned": len(visees),
-                },
-            )
-
-        if traduisibles != visees:
-            # Document MIXTE. On ne touche à `pages_set` que dans ce cas : le
-            # laisser à None quand tout est traduisible préserve les clés de
-            # cache existantes (`pages_token`), qu'une sélection explicite
-            # ferait diverger sans raison.
-            pages_ignorees = len(visees) - len(traduisibles)
-            pages_set = traduisibles
-            logger.info(
-                "Document mixte : %d page(s) sans texte extractible écartée(s) "
-                "de la traduction et de la facturation.", pages_ignorees)
 
     # ── Images à texte (option `images=1`) ────────────────────────────────
-    # Hors bêta (v1 : images ignorées), hors mode structure, et hors scan
-    # préparé par l'OCR (ses références d'image ne sont plus celles de
-    # l'original). `n_images` : images proposées, base du contrôle de crédits.
+    # Hors bêta (v1 : images ignorées), hors mode structure, et hors scan (les
+    # images d'une page lue ne sont plus celles de l'original). `n_images` :
+    # images proposées, base du contrôle de crédits.
     n_images = 0
     if (images == "1" and ext in ("pdf", "docx", "pptx", "xlsx")
-            and not beta_mode and not debug_mode and ocr_prepared is None):
+            and not beta_mode and not debug_mode and not scans):
         n_images = len((await run_in_threadpool(analyser_images, file_bytes, ext)).a_texte)
     images_actives = n_images > 0
     if images_actives:
@@ -635,10 +584,20 @@ async def translate_endpoint(
                 }))
         if couvert is not None and needed > couvert:
             visees = sorted(pages_set) if pages_set else range(1, nb_pages + 1)
-            pages_set = set(list(visees)[:couvert])
+            if ext == "pdf" and scans and deja_payees == 0:
+                # Scan : la sélection reste entière et le job s'arrête quand
+                # `couvert` pages ont été traduites ; une page illisible ou
+                # blanche ne compte pas (étude §11). Le reste est rendu.
+                pages_set = set(visees)
+                budget = couvert
+            else:
+                pages_set = set(list(visees)[:couvert])
             needed = couvert
 
         pages_set = cap_pages_for_plan(pages_set, ext, page_limit)
+        if budget is not None and pages_set and len(pages_set) <= budget:
+            budget = None       # la limite du forfait a suffi à tout couvrir
+            needed = min(needed, len(pages_set))
         du_plan = needed if reste_plan is None else min(needed, reste_plan)
         achetees = needed - du_plan
         locked.page_credits -= achetees
@@ -654,7 +613,7 @@ async def translate_endpoint(
 
     # Ce qui sera RÉELLEMENT traduit — enregistré sur le Document, sinon le
     # quota du mois prochain n'aurait rien à compter (`page_count` restait NULL).
-    pages_facturees = len(pages_set) if pages_set else nb_pages
+    pages_facturees = budget or (len(pages_set) if pages_set else nb_pages)
 
     ptok = pages_token(pages_set)
     psuffix = f"_{ptok}" if ptok else ""
@@ -715,8 +674,8 @@ async def translate_endpoint(
         target = run_pdf_v2_job
         job_args = (job_id, file_bytes, original_path, output_path,
                     output_filename, partial_path, translation_path, target_lang,
-                    pages_set, debug_mode, ocr_prepared,
-                    images_actives, current_user.id)
+                    pages_set, debug_mode,
+                    images_actives, current_user.id, budget)
     elif ext == "pptx":
         # PPTX → moteur progressif slide par slide (comme le PDF v2).
         # Si compte admin : 5 slides traduites en parallèle.
@@ -758,20 +717,22 @@ async def translate_endpoint(
         # annulé avant de démarrer doit rester reprenable, donc avoir son
         # original sur disque (la reprise le relit).
         await run_in_threadpool(_sauver_original, original_path, file_bytes)
-        await _save_document_for_user(current_user, db, job_id, filename,
+        document_id = await _save_document_for_user(
+                                      current_user, db, job_id, filename,
                                       target_lang, original_path, len(file_bytes),
                                       paid=doc_is_paid, page_count=pages_facturees,
                                       usages=usages, beta_charge=beta_charge,
                                       reglages={
-                                          # Sélection EFFECTIVE (après pages
-                                          # scannées et pages couvertes) : celle
-                                          # qui nomme le cache de reprise.
+                                          # Sélection demandée (entière même en
+                                          # mode budget) : celle qui nomme le
+                                          # cache de reprise.
                                           "pages": ",".join(map(str, sorted(pages_set)))
                                                    if pages_set else "",
                                           "precise": quality == "precise",
                                           "qsuffix": qsuffix,
                                           "beta": bool(beta_charge),
-                                          "deja": deja_payees})
+                                          "deja": deja_payees,
+                                          **({"budget": budget} if budget else {})})
     except Exception:
         # Rien ne sera soumis : le job ouvert plus haut resterait « pending »
         # en mémoire, sans document ni worker, jusqu'au ménage.
@@ -787,21 +748,19 @@ async def translate_endpoint(
     # job selon le niveau du plan (admin > pro > starter > gratuit) et le fait
     # démarrer dès qu'un worker se libère. Soumis APRÈS l'insertion du Document,
     # pour la même raison que l'ancien `thread.start()` venait après.
-    scheduler.submit(job_id, get_plan_priority(current_user.plan), target, job_args)
+    # Pages de scan encore visées (la couverture a pu réduire la sélection) : file
+    # à part, leurs workers attendent surtout le guichet OCR.
+    if pages_set:
+        scans &= pages_set
+    file_travail = scheduler_scans if scans else scheduler
+    file_travail.submit(job_id, get_plan_priority(current_user.plan), target, job_args)
 
     logger.info(f"Job {job_id} queued for '{filename}' -> {target_lang} "
                 f"(priorité {get_plan_priority(current_user.plan)})")
-    # `pages_ignorees` : pages sans texte extractible, écartées de la traduction
-    # ET de la facturation. Renvoyé pour que l'interface puisse le DIRE — sans
-    # cela, l'utilisateur d'un document mixte verrait des pages revenir
-    # inchangées sans comprendre pourquoi, et croirait à une traduction ratée
-    # là où il s'agit d'un scan qu'on n'a pas facturé.
-    reponse = {"job_id": job_id, "can_download": doc_is_paid}
-    if ocr_pages:
-        reponse["ocr_pages"] = ocr_pages
+    reponse = {"job_id": job_id, "document_id": document_id, "can_download": doc_is_paid}
+    if scans:
+        reponse["ocr_pages"] = len(scans)
         reponse["ocr_review_required"] = True
-    if pages_ignorees:
-        reponse["pages_ignorees"] = pages_ignorees
     if images_actives:
         reponse["images"] = n_images
     return avec_cookie(JSONResponse(reponse))

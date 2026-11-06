@@ -17,6 +17,7 @@ traducteur et le débit, le module reste testable sans réseau.
 - Effacement : la boîte de chaque ligne est élargie, le lecteur la rend plus
   étroite que les glyphes japonais.
 """
+import contextlib
 import functools
 import io
 import os
@@ -430,12 +431,14 @@ def _ppocr():
     return _LECTEUR
 
 
-def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police=None):
+def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police=None,
+                   tour=None):
     """Image traduite (`ImageTraduite`) à partir des octets reçus.
 
     `traduire(textes)` renvoie une traduction par texte. `ImageRefusee` si
     l'image n'est pas acceptée, `LectureEchouee` si le lecteur manque ou
-    échoue.
+    échoue. `tour()`, s'il est donné, encadre la seule reconnaissance (le
+    guichet OCR n'est pas retenu pendant l'appel réseau de traduction).
     """
     fin = time.monotonic() + delai_s
     im = verifier(data)
@@ -455,7 +458,10 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
     bgr = cv2.cvtColor(np.asarray(rgb), cv2.COLOR_RGB2BGR)
     H, W = bgr.shape[:2]
 
-    lus = lignes(_lire(lecteur, bgr, max(fin - time.monotonic(), 1.0)))
+    with tour() if tour else contextlib.nullcontext():
+        # Le délai court à partir du tour obtenu, pas de l'attente au guichet.
+        fin = time.monotonic() + delai_s
+        lus = lignes(_lire(lecteur, bgr, max(fin - time.monotonic(), 1.0)))
     zones = {b: _elargie(b, bgr) for _, b in lus}
     m0 = masque_couleur(bgr, list(zones.values())) if lus else None
     tous = blocs(lus, [_couleur(bgr, m0, b) for _, b in lus])

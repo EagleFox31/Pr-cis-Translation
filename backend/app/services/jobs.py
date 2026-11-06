@@ -75,6 +75,61 @@ STATUTS_ARRET = ("paused", "cancelled")
 STATUTS_REPRENABLES = ("interrupted", *STATUTS_ARRET)
 
 
+
+def _copie_budget(doc, traitees: set[int], job_id: str) -> str:
+    """Traduction propre au document, réduite aux pages traitées.
+
+    La traduction partagée porte le nom de toute la sélection : d'autres
+    documents la réutiliseront, elle reste intacte. La copie ne garde que les
+    pages traitées (JSON et lectures `.ocr`, lues aussi par d'autres comptes)
+    et les déclare comme sélection ; « Traduire » (P3) ajoutera les autres.
+    Le filtre n'a lieu qu'une fois (marque posée en dernier) : une clôture
+    rejouée n'efface pas des pages ajoutées depuis. Le relevé de CE job est
+    gardé dans la copie : une clôture rejouée le relit là."""
+    import json
+    import re as _re
+    from app.services import render_cache
+    from app.services.documents import copie_du_document
+    from app.services.ocr_pages import dossier, ecrire_selection
+    copie = copie_du_document(doc)
+    if copie == doc.translated_path:
+        return copie
+    marque = os.path.join(dossier(copie), "budget_filtre")
+    if os.path.isfile(marque):
+        return copie
+    with open(copie, encoding="utf-8") as f:
+        donnees = json.load(f)
+    donnees["pages"] = [p for p in donnees.get("pages", [])
+                        if p.get("page_num") in traitees]
+    with open(copie + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(donnees, f, ensure_ascii=False)
+    os.replace(copie + ".tmp", copie)
+    d = dossier(copie)
+    os.makedirs(d, exist_ok=True)
+    for nom in os.listdir(d):
+        m = _re.fullmatch(r"p(\d{4})\.(json|pdf)", nom)
+        if (m and int(m.group(1)) not in traitees) or (nom.startswith("budget_") and nom != f"budget_{job_id}.json")                 or nom == "choix.json":
+            os.remove(os.path.join(d, nom))
+    ecrire_selection(copie, sorted(traitees))
+    render_cache.invalider(copie)
+    with open(marque, "w", encoding="utf-8"):
+        pass
+    return copie
+
+def _pages_traduites_de(translation_path: str) -> set[int]:
+    """Pages de la traduction qui portent au moins un paragraphe traduit."""
+    import json
+    from app.services.translation_runner import _page_traduite, mode_structure
+    try:
+        with open(translation_path, encoding="utf-8") as f:
+            pages = json.load(f).get("pages", [])
+    except (OSError, ValueError):
+        return set()
+    debug = mode_structure(translation_path)
+    return {p.get("page_num") for p in pages
+            if p.get("page_num") and _page_traduite(p, debug)}
+
+
 class ArretDemande(BaseException):
     """Levée à un point de contrôle quand le client a demandé pause ou annulation.
 
@@ -413,8 +468,51 @@ class JobManager:
             elif status == "done":
                 # Livré : si un redémarrage concurrent l'avait remboursé
                 # (`reconcilier_jobs_orphelins`), la consommation revient.
-                from app.services.usage import rebill_for_document
+                from app.services.usage import rebill_for_document, refund_unfinished
                 await rebill_for_document(db, doc_id)
+                # Pages de scan illisibles ou blanches : réservées au lancement,
+                # jamais dues. Après le rétablissement ci-dessus, car une clôture
+                # rejouée doit retomber sur le même total, sans rendre deux fois.
+                from app.services.documents import pages_selectionnees
+                from app.services.ocr_pages import lire_budget, pages_non_facturables
+                from app.services.translation_runner import pages_lues_sans_traduction
+                en_budget = bool(reglages_de(doc).get("budget"))
+                budget = (lire_budget(doc.translated_path, job_id)
+                          if en_budget and doc.translated_path else None)
+                if en_budget and budget is None:
+                    # Relevé du job perdu : impossible de savoir ce qui est dû
+                    # ni quelles pages livrer. On ne livre pas la traduction
+                    # partagée et on rend tout.
+                    from app.services.usage import refund_for_document
+                    logger.error("Relevé de budget absent (doc %s, job %s)", doc_id, job_id)
+                    doc.status, doc.translated_path = "error", None
+                    await refund_for_document(db, doc_id)
+                    return
+                if budget is not None:
+                    # Solde partiel : seules les pages lues et traduites dans la
+                    # limite du budget sont dues ; le reste est rendu. Lu depuis
+                    # le relevé du job, une clôture rejouée retombe au même total.
+                    traitees, consommees = budget
+                    doc.translated_path = await asyncio.to_thread(
+                        _copie_budget, doc, traitees, job_id)
+                    # Pages traduites après coup dans la copie (« traduire quand
+                    # même », P3) : débitées à part, elles restent dues quand la
+                    # clôture est rejouée (à la première, elles sont dans consommees).
+                    apres = await asyncio.to_thread(
+                        _pages_traduites_de, doc.translated_path)
+                    gardees = len((consommees | apres)
+                                  - pages_lues_sans_traduction(doc.translated_path))
+                    await refund_unfinished(db, doc_id, gardees)
+                    return
+                exclues = (pages_non_facturables(doc.translated_path)
+                           | pages_lues_sans_traduction(doc.translated_path)
+                           if doc.translated_path else set())
+                visees = pages_selectionnees(doc)
+                if visees:
+                    exclues &= visees
+                if exclues:
+                    await refund_unfinished(
+                        db, doc_id, max(0, (doc.page_count or 0) - len(exclues) - deja))
 
         try:
             _dans_une_boucle_jetable(_maj)

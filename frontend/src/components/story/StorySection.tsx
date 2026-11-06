@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { motion, useScroll, useTransform } from 'motion/react';
 import { useEffect, useRef } from 'react';
-import { Check } from 'lucide-react';
+import { Check, Minus, X } from 'lucide-react';
 import TranslationSection from '../upload/TranslationSection';
 import type { TranslateConfig } from '../upload/TranslationSection';
 import ViewerToolbar from '../preview/ViewerToolbar';
@@ -9,6 +9,7 @@ import DocumentPreview from '../preview/DocumentPreview';
 import type { PageStatus, StopMode } from '../../hooks/useStreamingTranslation';
 import { baseCode } from '../../lib/languages';
 import { goToSection } from '../../lib/sectionBus';
+import type { PagesIllisiblesVue } from '../../hooks/usePagesIllisibles';
 
 
 interface StorySectionProps {
@@ -75,6 +76,9 @@ interface StorySectionProps {
   onLibraryOpen?: () => void;
   /** Bandeau sous la barre d'aperçu (images traduites d'un document de la bibliothèque). */
   imagesPanel?: React.ReactNode;
+  /** Pages illisibles du scan et décisions du client (carte sur la page,
+   *  vignettes). */
+  scanPages?: PagesIllisiblesVue;
 }
 
 export default function StorySection({
@@ -118,6 +122,7 @@ export default function StorySection({
   onPagesLoaded,
   onLibraryOpen,
   imagesPanel,
+  scanPages,
 }: StorySectionProps) {
   // Nombre de pages déjà prêtes (traduites ou copiées) — barre de progression.
   const doneCount = Object.values(pageStatuses).filter(
@@ -396,18 +401,33 @@ export default function StorySection({
                     // langue source.
                     const isReady = isTranslating ? !!readyPages[pageNo]
                       : status === 'done' || status === 'copied' || !!readyPages[pageNo] || Object.keys(pageStatuses).length === 0;
-                    const inProgress = status === 'extracting' || status === 'translating' || status === 'rendering';
+                    const inProgress = status === 'ocr' || status === 'extracting' || status === 'translating' || status === 'rendering';
                     // État lisible d'un coup d'œil : bordure verte + coche = prête,
                     // spinner bleu = en cours, grisée = en attente. La page affichée
                     // porte un anneau bleu, qui se cumule avec la bordure verte.
                     const isCurrent = currentPage === pageNo;
+                    // Page du scan restée illisible : ambre, jamais la coche
+                    // verte — elle n'est pas traduite tant que le client n'a pas décidé.
+                    const illisible = scanPages?.pages.find(
+                      (p) => p.page === pageNo && p.motif !== 'hors_selection');
+                    // Hors sélection ou blanche : livrée dans sa langue d'origine,
+                    // donc grise et sans coche — « Page traduite » serait faux.
+                    const horsSel = scanPages?.pages.find(
+                      (p) => p.page === pageNo && p.motif === 'hors_selection');
+                    const blanche = !illisible && !horsSel && !!scanPages?.blanches.includes(pageNo);
+                    const neutre = !!horsSel || blanche;
                     return (
                       <div
                         key={i}
                         className="thumb"
                         onClick={() => onPageChange(pageNo)}
                         title={
-                          isReady ? t('story.page_ready', 'Page traduite')
+                          illisible ? t(`viewer.scan.thumb_${illisible.choix ?? 'pending'}`)
+                          : horsSel ? t(`viewer.scan.thumb_hs_${horsSel.choix ?? 'pending'}`)
+                          : blanche ? t('viewer.scan.thumb_blanche')
+                          : isReady ? t('story.page_ready', 'Page traduite')
+                          : status === 'ocr' ? t('story.page_ocr')
+                          : status === 'ocr_attente' ? t('story.page_ocr_waiting')
                           : inProgress ? t('story.page_progress', 'Traduction en cours…')
                           : t('story.page_waiting', 'En attente')
                         }
@@ -415,12 +435,17 @@ export default function StorySection({
                         <div
                           className="thumb-frame"
                           style={{
-                            borderColor: isReady ? '#16a34a'
-                              : isCurrent ? '#2563eb' : 'var(--color-border-primary)',
-                            borderWidth: isReady ? 2 : undefined,
-                            boxShadow: isCurrent ? '0 0 0 2px #2563eb' : 'none',
+                            // Page affichée : la bordure passe au bleu ; la
+                            // pastille garde l'état de la page.
+                            borderColor: isCurrent ? '#2563eb'
+                              : illisible ? '#d97706'
+                              : neutre ? '#94a3b8'
+                              : isReady ? '#16a34a' : 'var(--color-border-primary)',
+                            borderWidth: illisible || neutre || isReady || isCurrent ? 2 : undefined,
+                            borderStyle: neutre ? 'dashed' : undefined,
+                            boxShadow: 'none',
                             position: 'relative',
-                            opacity: isReady || isCurrent ? 1 : 0.55,
+                            opacity: illisible || neutre || isReady || isCurrent ? 1 : 0.55,
                           }}
                         >
                           <div className="tl" style={{ width: '55%', height: '3px' }} />
@@ -431,7 +456,38 @@ export default function StorySection({
                           <div className="tl muted" style={{ width: '80%' }} />
                           <div className="tl muted" style={{ width: '65%' }} />
                           <div className="tl accent" style={{ width: '100%', margin: '3px 0' }} />
-                          {isReady && (
+                          {illisible && (
+                            <span
+                              aria-hidden="true"
+                              style={{
+                                position: 'absolute', top: '3px', right: '3px',
+                                width: '16px', height: '16px', borderRadius: '50%',
+                                background: '#d97706', color: '#fff',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: '11px', fontWeight: 800, lineHeight: 1,
+                                boxShadow: '0 0 0 2px #fff',
+                              }}
+                            >
+                              !
+                            </span>
+                          )}
+                          {neutre && (
+                            <span
+                              aria-hidden="true"
+                              style={{
+                                position: 'absolute', top: '3px', right: '3px',
+                                width: '16px', height: '16px', borderRadius: '50%',
+                                background: '#94a3b8', color: '#fff',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                boxShadow: '0 0 0 2px #fff',
+                              }}
+                            >
+                              {horsSel?.choix === 'retirer'
+                                ? <X size={10} strokeWidth={3.2} />
+                                : <Minus size={10} strokeWidth={3.2} />}
+                            </span>
+                          )}
+                          {isReady && !illisible && !neutre && (
                             <span
                               aria-hidden="true"
                               style={{
@@ -554,6 +610,7 @@ export default function StorySection({
                       imagesNeeded={imagesNeeded}
                       onTranslateWithoutImages={onTranslateWithoutImages}
                       onUnlock={onUnlock}
+                      scanPages={scanPages}
                     />
                   </div>
                 </div>

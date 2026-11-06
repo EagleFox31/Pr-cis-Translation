@@ -3,6 +3,8 @@ import asyncio
 import io
 import json
 import uuid
+import os
+import tempfile
 from unittest.mock import patch
 
 import fitz
@@ -13,8 +15,8 @@ from sqlalchemy import select
 from app.api.translate import translate_endpoint
 from app import config
 from app.core.database import async_session, engine
-from app.models import User
-from app.services.ocr import OCRError
+from app.models import Document, User
+from app.services.jobs import jobs
 
 
 def scanned_pages(count):
@@ -28,66 +30,70 @@ def scanned_pages(count):
         return output.tobytes()
 
 
-async def recognized_pages(page_credits):
-    email = f"ocr-credits-{uuid.uuid4().hex}@example.com"
-    seen = {}
-
-    def fake_ocr(_data, scans):
-        seen["scans"] = set(scans)
-        raise OCRError("stop before translation")
-
-    try:
-        async with async_session() as db:
-            user = User(email=email, name="OCR credits", plan="free", email_verified=True,
-                        page_credits=page_credits, created_at=racine.compte_ancien())
-            db.add(user)
+async def _nettoyer(email):
+    async with async_session() as db:
+        user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+        if user:
+            for doc in (await db.execute(select(Document).where(Document.user_id == user.id))).scalars():
+                await db.delete(doc)
+            await db.delete(user)
             await db.commit()
-            with patch("app.api.translate.prepare_scanned_pdf", side_effect=fake_ocr):
-                response = await translate_endpoint(request=racine.requete_test(), response=Response(),
-                    file=UploadFile(filename="scan.pdf", file=io.BytesIO(scanned_pages(7))),
-                    target_lang="en", format_options="{}", quality="fast", precise="", pages="",
-                    debug="", covered_only="", x_api_key=config.FRONTEND_API_KEY,
-                    current_user=user, db=db)
-            body = json.loads(bytes(response.body))
-            assert response.status_code == 422 and body["reason"] == "scanned_document", body
-        return seen["scans"]
-    finally:
-        async with async_session() as db:
-            user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
-            if user:
-                await db.delete(user)
+
+
+async def _envoyer(user, db, dossier, covered_only):
+    def chemins(digest, langue):
+        return os.path.join(dossier, digest), os.path.join(dossier, digest, langue)
+
+    soumis = []
+    with patch("app.api.translate.Tesseract.manquant", return_value=None), \
+            patch("app.api.translate.build_job_paths", side_effect=chemins), \
+            patch("app.api.translate.scheduler_scans.submit",
+                  side_effect=lambda *args: soumis.append(args)):
+        response = await translate_endpoint(request=racine.requete_test(), response=Response(),
+            file=UploadFile(filename="scan.pdf", file=io.BytesIO(scanned_pages(7))),
+            target_lang="en", format_options="{}", quality="fast", precise="", pages="",
+            debug="", covered_only=covered_only, x_api_key=config.FRONTEND_API_KEY,
+            current_user=user, db=db)
+    return response, soumis
+
+
+async def recognized_pages(page_credits):
+    """Pages de scan visees par le travail lance (couvert seulement)."""
+    email = f"ocr-credits-{uuid.uuid4().hex}@example.com"
+    try:
+        with tempfile.TemporaryDirectory() as dossier:
+            async with async_session() as db:
+                user = User(email=email, name="OCR credits", plan="free", email_verified=True,
+                            page_credits=page_credits, created_at=racine.compte_ancien())
+                db.add(user)
                 await db.commit()
+                response, soumis = await _envoyer(user, db, dossier, "1")
+                body = json.loads(bytes(response.body))
+                assert response.status_code == 200 and len(soumis) == 1, body
+                job_id, _priorite, _cible, job_args = soumis[0]
+                jobs.forget(job_id)
+                visees = job_args[8] or set(range(1, 8))
+                assert body["ocr_pages"] == len(visees), body
+                return set(visees), job_args[12]
+    finally:
+        await _nettoyer(email)
 
 
 async def trial_offer_on_scan():
-    """Essai sur un scan de 3 pages : la page 1 reconnue, le 402 compte tout le document."""
+    """Essai sur un scan de 7 pages : le 402 compte tout le document, rien n'est lance."""
     email = f"ocr-trial-{uuid.uuid4().hex}@example.com"
-
-    def fake_ocr(data, scans):
-        with fitz.open(stream=data, filetype="pdf") as doc:
-            for number in scans:
-                doc[number - 1].insert_text((60, 120), "Recognized text", fontsize=12)
-            return doc.tobytes(), len(scans)
-
     try:
-        async with async_session() as db:
-            user = User(email=email, name="OCR trial", plan="free", email_verified=True, page_credits=0,
-                        created_at=racine.compte_ancien())
-            db.add(user)
-            await db.commit()
-            with patch("app.api.translate.prepare_scanned_pdf", side_effect=fake_ocr):
-                response = await translate_endpoint(request=racine.requete_test(), response=Response(),
-                    file=UploadFile(filename="scan.pdf", file=io.BytesIO(scanned_pages(7))),
-                    target_lang="en", format_options="{}", quality="fast", precise="", pages="",
-                    debug="", covered_only="", x_api_key=config.FRONTEND_API_KEY,
-                    current_user=user, db=db)
-            return response.status_code, json.loads(bytes(response.body))
-    finally:
-        async with async_session() as db:
-            user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
-            if user:
-                await db.delete(user)
+        with tempfile.TemporaryDirectory() as dossier:
+            async with async_session() as db:
+                user = User(email=email, name="OCR trial", plan="free", email_verified=True, page_credits=0,
+                            created_at=racine.compte_ancien())
+                db.add(user)
                 await db.commit()
+                response, soumis = await _envoyer(user, db, dossier, "")
+                assert soumis == []
+                return response.status_code, json.loads(bytes(response.body))
+    finally:
+        await _nettoyer(email)
 
 
 async def main():
@@ -95,9 +101,11 @@ async def main():
         status, body = await trial_offer_on_scan()
         assert status == 402 and body.get("reason") == "need_credits" and body.get("pages_needed") == 7, (status, body)
         print("PASS: trial on a scan still offers to buy the missing pages")
-        assert await recognized_pages(0) == {1, 2, 3, 4, 5}, "Free trial must only recognize its five pages"
-        print("PASS: free trial without purchased pages recognizes at most five pages")
-        assert await recognized_pages(5) == {1, 2, 3, 4, 5, 6, 7}, "Purchased pages must open the whole document"
+        # Solde partiel sur un scan : toutes les pages sont parcourues dans
+        # l'ordre, la traduction s'arrête après 5 pages lues (budget).
+        assert await recognized_pages(0) == ({1, 2, 3, 4, 5, 6, 7}, 5), "Free trial must stop after five read pages"
+        print("PASS: free trial without purchased pages translates at most five read pages")
+        assert await recognized_pages(5) == ({1, 2, 3, 4, 5, 6, 7}, None), "Purchased pages must open the whole document"
         print("PASS: purchased pages make OCR cover the whole document")
     finally:
         await engine.dispose()
