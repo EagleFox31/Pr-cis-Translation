@@ -1,4 +1,4 @@
-import { API_BASE } from "./config.ts";
+import { API_BASE, SITE, SITE_BIENVENUE } from "./config.ts";
 import { decouperEnLots } from "./lib/lots.ts";
 import { aEnvoyer, cleImage, empreinteCompte, Memoire } from "./lib/memoire.ts";
 import { MagasinIndexedDB } from "./lib/memoire-idb.ts";
@@ -294,4 +294,16 @@ function traiter(msg: VersBackground): Promise<ReponseDe<VersBackground>> {
 chrome.runtime.onMessage.addListener((msg: VersBackground, _expediteur, repondre) => {
   traiter(msg).then(repondre, () => repondre(undefined));
   return true;
+});
+
+// Première installation seulement : page d'accueil du site (épingler, se connecter, essayer).
+chrome.runtime.onInstalled.addListener(({ reason }) => {
+  if (reason === chrome.runtime.OnInstalledReason.INSTALL) void chrome.tabs.create({ url: SITE_BIENVENUE });
+});
+
+// Le site demande si l'extension est présente ; le manifest limite déjà l'origine, on la revérifie.
+chrome.runtime.onMessageExternal.addListener((msg: unknown, expediteur, repondre) => {
+  const type = (msg as { type?: unknown } | null)?.type;
+  if (expediteur.origin !== new URL(SITE).origin || type !== "precis-ping") return;
+  repondre({ installe: true, version: chrome.runtime.getManifest().version });
 });

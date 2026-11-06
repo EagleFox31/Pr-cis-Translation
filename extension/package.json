@@ -6,6 +6,7 @@
   "description": "Extension navigateur Précis (prototype MV3)",
   "scripts": {
     "build": "node build.mjs",
+    "package": "node package.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --no-warnings --test tests/*.test.ts"
   },

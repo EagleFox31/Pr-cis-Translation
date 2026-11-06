@@ -21,13 +21,19 @@ Puis `edge://extensions` ou `chrome://extensions` : activer le mode développeur
 
 ## Basculer entre local et production
 
-Dans `src/config.ts`, `API_BASE` (et l'adresse du site pour la page des tarifs) vaut `http://localhost:8000` par défaut. Pour la production, mettre `https://precis-translator.com`, puis relancer `npm run build` et recharger l'extension.
+`npm run build` vise le poste local (API `localhost:8000`, site `localhost:3000`). `npm run build -- --prod` injecte `https://precis-translator.com` et retire `localhost` du manifest ; rien à modifier à la main.
 
 ## Commandes
 
 - `npm run typecheck` : vérification des types.
 - `npm test` : tests de la logique pure (`src/lib`), Node 22.
-- `npm run build` : génère `dist/`.
+- `npm run build` : génère `dist/` (local).
+- `npm run package` : build de production + `precis-extension-<version>.zip`, l'archive à envoyer aux boutiques (voir `docs/fiches-boutiques-extension.md`). Monter `version` dans `manifest.json` avant chaque envoi.
+
+## Lien avec le site
+
+- À l'installation, l'extension ouvre `/extension?bienvenue=1` sur le site.
+- Le site demande si l'extension est présente (`externally_connectable`, message `precis-ping`) ; seule l'origine du site est admise.
 
 ## Couvert et limites
 
