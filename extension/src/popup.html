@@ -35,6 +35,11 @@
     button.secondaire:hover:not(:disabled) { background: var(--blue-light); box-shadow: none; }
     button:focus-visible, a:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: 2px; }
     button:disabled { opacity: .55; cursor: not-allowed; }
+    button.charge { display: inline-flex; align-items: center; justify-content: center; gap: 8px; opacity: .8; cursor: progress; }
+    button.charge::before { content: ""; width: 12px; height: 12px; border-radius: 50%;
+      border: 2px solid currentColor; border-right-color: transparent; animation: tourne .7s linear infinite; }
+    @keyframes tourne { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { button.charge::before { animation-duration: 2s; } }
     .marque .version { margin-left: auto; margin-right: 0; font-family: inherit; font-size: 12px; line-height: 1; color: var(--gray-500); }
     .compte { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 10px 12px;
       background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 10px; }

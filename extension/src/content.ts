@@ -1,6 +1,6 @@
 import { afficherErreur, obtenirBandeau, retirerBandeau } from "./contenu/bandeau.ts";
 import { ATTR_UI } from "./contenu/commun.ts";
-import { demarrerImages, restaurerImages, scannerImages } from "./contenu/images.ts";
+import { demarrerImages, imagesEnCours, restaurerImages, scannerImages } from "./contenu/images.ts";
 import { idPage } from "./lib/page.ts";
 import { appliquer, collecter, crochets, estNotreEcriture, restaurerTexte, voisins } from "./contenu/texte.ts";
 import { arreterVideos, demarrerVideos } from "./contenu/video.ts";
@@ -10,6 +10,8 @@ import type { MsgTraduire, ReponseSegments, VersContent } from "./types.ts";
 declare global {
   interface Window {
     __precisInjecte?: boolean;
+    /** Lu par le popup (scripting, tous les cadres) : traduction en cours dans ce cadre. */
+    __precisOccupe?: () => boolean;
   }
 }
 
@@ -128,6 +130,7 @@ function observer(): void {
 
 function arreter(): void {
   etat.session++;
+  lancement = false;
   clearTimeout(etat.minuteur);
   etat.minuteur = 0;
   etat.racines.clear();
@@ -149,6 +152,9 @@ function original(): void {
   retirerBandeau();
 }
 
+// Du clic à la fin de la première file d'images (texte puis images, sans trou entre les deux).
+let lancement = false;
+
 async function traduire(msg: MsgTraduire): Promise<void> {
   // Même langue, rien de bloqué : on garde le travail fait (et le budget de la page).
   if (etat.active && !etat.texteBloque && msg.langue === etat.langue) {
@@ -162,19 +168,25 @@ async function traduire(msg: MsgTraduire): Promise<void> {
 
   observer();
   etat.enCours = true;
+  lancement = true;
   try {
-    await passeTexte([document], true);
-  } finally {
-    if (session === etat.session) etat.enCours = false;
-  }
-  if (session !== etat.session || etat.compteBloque) return;
+    try {
+      await passeTexte([document], true);
+    } finally {
+      if (session === etat.session) etat.enCours = false;
+    }
+    if (session !== etat.session || etat.compteBloque) return;
 
-  demarrerVideos(msg.langue);
-  await demarrerImages(msg.langue);
+    demarrerVideos(msg.langue);
+    await demarrerImages(msg.langue);
+  } finally {
+    if (session === etat.session) lancement = false;
+  }
 }
 
 if (!window.__precisInjecte) {
   window.__precisInjecte = true;
+  window.__precisOccupe = () => lancement || etat.enCours || imagesEnCours();
   chrome.runtime.onMessage.addListener((msg: VersContent) => {
     if (msg.type === "traduire") void traduire(msg);
     else if (msg.type === "original") original();

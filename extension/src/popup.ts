@@ -89,6 +89,41 @@ selectLangue.addEventListener("change", () => {
   void chrome.storage.local.set({ langue: selectLangue.value });
 });
 
+// Bouton « Traduire » en chargement tant qu'un cadre de l'onglet traduit encore :
+// un second clic ne peut pas relancer, et l'état se retrouve à la réouverture du popup.
+function chargement(actif: boolean): void {
+  btnTraduire.disabled = actif;
+  btnTraduire.classList.toggle("charge", actif);
+  btnTraduire.setAttribute("aria-busy", String(actif));
+  btnTraduire.textContent = actif ? "Traduction…" : "Traduire";
+}
+
+async function occupe(tabId: number): Promise<boolean> {
+  try {
+    const res = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: () => window.__precisOccupe?.() ?? false,
+    });
+    return res.some((r) => r.result === true);
+  } catch {
+    return false;
+  }
+}
+
+let suivi = 0;
+async function suivreTraduction(tabId: number, fin: string): Promise<void> {
+  const tour = ++suivi;
+  chargement(true);
+  // Laisse au contenu le temps de démarrer avant la première lecture.
+  await new Promise((r) => setTimeout(r, 400));
+  while (tour === suivi && (await occupe(tabId))) {
+    await new Promise((r) => setTimeout(r, 700));
+  }
+  if (tour !== suivi) return;
+  chargement(false);
+  if (fin) afficher(fin);
+}
+
 async function envoyerAuxCadres(tabId: number, msg: VersContent): Promise<void> {
   await chrome.tabs.sendMessage(tabId, msg);
 }
@@ -101,7 +136,7 @@ btnTraduire.addEventListener("click", () => {
     return;
   }
   const langue = selectLangue.value;
-  btnTraduire.disabled = true;
+  chargement(true);
 
   chrome.permissions
     .request({ origins: [origine + "/*"] })
@@ -116,17 +151,18 @@ btnTraduire.addEventListener("click", () => {
       });
       await envoyerAuxCadres(tabId, { type: "traduire", langue });
       await ecrireSuivi(tabId, { langue, origine });
-      afficher("Traduction lancée sur la page.");
+      afficher("");
+      await suivreTraduction(tabId, "Traduction terminée.");
     })
     .catch(() => afficher("Impossible de traiter cette page.", true))
-    .finally(() => {
-      btnTraduire.disabled = false;
-    });
+    .finally(() => chargement(false));
 });
 
 $("btn-original").addEventListener("click", async () => {
   const tabId = onglet?.id;
   if (tabId === undefined) return;
+  suivi++;
+  chargement(false);
   await ecrireSuivi(tabId, null);
   try {
     await envoyerAuxCadres(tabId, { type: "original" });
@@ -157,4 +193,6 @@ void (async () => {
   void afficherMaj();
   [onglet] = await chrome.tabs.query({ active: true, currentWindow: true });
   await afficherVue();
+  // Popup rouvert pendant une traduction : le bouton reprend son chargement.
+  if (onglet?.id !== undefined && (await occupe(onglet.id))) void suivreTraduction(onglet.id, "Traduction terminée.");
 })();

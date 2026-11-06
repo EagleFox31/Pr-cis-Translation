@@ -340,6 +340,11 @@ function surChargement(e: Event): void {
   minuteurChargement = window.setTimeout(() => void scannerImages(), 300);
 }
 
+/** Vrai tant que la file d'images de ce cadre se traite (bouton du popup en chargement). */
+export function imagesEnCours(): boolean {
+  return etat.enCours;
+}
+
 export function demarrerImages(langue: string): Promise<void> {
   arreterImages();
   etat.langue = langue;
