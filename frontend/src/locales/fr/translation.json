@@ -176,9 +176,19 @@
       "more_one": "… et {{count}} autre",
       "more_other": "… et {{count}} autres",
       "raisons": {
-        "lie": "lié", "visio": "Visio", "pdf": "PDF", "equation": "équation",
-        "paquet": "paquet", "absent": "introuvable", "conversion": "conversion impossible",
-        "erreur": "erreur", "profondeur": "trop imbriqué", "illisible": "illisible", "reinjection": "remise en place impossible", "hors_diapo": "sur un masque, une disposition ou des notes", "autre": "non pris en charge"
+        "lie": "lié",
+        "visio": "Visio",
+        "pdf": "PDF",
+        "equation": "équation",
+        "paquet": "paquet",
+        "absent": "introuvable",
+        "conversion": "conversion impossible",
+        "erreur": "erreur",
+        "profondeur": "trop imbriqué",
+        "illisible": "illisible",
+        "reinjection": "remise en place impossible",
+        "hors_diapo": "sur un masque, une disposition ou des notes",
+        "autre": "non pris en charge"
       }
     }
   },
@@ -881,7 +891,9 @@
   "extension_page": {
     "doc_title": "Extension navigateur · Précis",
     "nav_label": "Extension",
-    "nav_aria": "Pages du site",
+    "nav_api": "API",
+    "nav_soon": "En cours",
+    "nav_aria": "Intégrations",
     "footer_link": "Extension navigateur",
     "back": "Retour",
     "title": "Extension navigateur",
@@ -1025,5 +1037,38 @@
       "link": "Découvrir l'extension",
       "close": "Fermer cette proposition"
     }
+  },
+  "api_page": {
+    "doc_title": "API — Précis",
+    "title": "API Précis",
+    "eyebrow": "Intégration",
+    "status_badge": "En cours",
+    "status_title": "En cours de développement : l'API n'est pas encore disponible",
+    "status_text": "Cette page présente ce que l'API contiendra. Les détails peuvent encore évoluer d'ici son ouverture.",
+    "lead": "Intégrez la traduction Précis dans vos propres outils : plateformes de formation, sites, applications métier.",
+    "panel_title": "Ce que contiendra l'API",
+    "panel_sub": "Prévu pour la première version.",
+    "fact_status": "Statut",
+    "fact_status_v": "En cours de développement",
+    "fact_access": "Accès",
+    "fact_access_v": "Clé d'API personnelle",
+    "fact_billing": "Facturation",
+    "fact_billing_v": "Crédits de votre compte Précis",
+    "fact_format": "Format",
+    "fact_format_v": "HTTPS, JSON",
+    "features_title": "Fonctions prévues",
+    "f_text": "Traduire du texte en conservant sa mise en forme.",
+    "f_docs": "Traduire des documents (PDF et autres formats).",
+    "f_images": "Traduire le texte présent dans les images.",
+    "f_status": "Suivre l'avancement d'une traduction longue.",
+    "security_title": "Accès et sécurité",
+    "s_keys": "Clés créées et révoquées depuis votre compte.",
+    "s_https": "Échanges chiffrés de bout en bout (HTTPS).",
+    "s_limits": "Limites d'usage par clé.",
+    "docs_title": "Documentation",
+    "d_ref": "Référence de chaque point d'accès.",
+    "d_examples": "Exemples de requêtes prêts à copier.",
+    "d_errors": "Liste des codes d'erreur et conduite à tenir.",
+    "notice": "Cette page sera mise à jour à l'ouverture de l'API."
   }
 }

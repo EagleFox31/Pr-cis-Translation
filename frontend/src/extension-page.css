@@ -140,3 +140,23 @@
 .ext-plans li > span { text-align: left; }
 .ext-plans li > .ext-plans__price { text-align: right; }
 .ext-panel .admin-panel__head-actions .ext-btn { white-space: nowrap; }
+
+/* Menu des intégrations : entrée annoncée, pas encore de page. */
+.ext-nav-lien { display: inline-flex; align-items: center; gap: 6px; }
+.ext-nav-badge { font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 999px; background: #fef3c7; color: #92400e; }
+
+/* Page API : chantier en cours, annoncé en tête et bien visible. */
+.api-chantier { display: flex; gap: 14px; align-items: flex-start; padding: 16px 18px; margin-bottom: 20px; border: 1px solid #f59e0b; border-left-width: 5px; border-radius: 12px; background: #fffbeb; color: #78350f; }
+.api-chantier svg { flex-shrink: 0; color: #d97706; margin-top: 2px; }
+.api-chantier strong { display: block; font-size: 16px; margin-bottom: 4px; color: #92400e; }
+.api-chantier p { margin: 0; font-size: 14px; line-height: 1.5; }
+.api-statut { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; background: #fef3c7; color: #92400e; vertical-align: middle; }
+.api-grille { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 18px 0; }
+.api-bloc { padding: 18px 20px; border: 1px solid var(--gray-200); border-radius: var(--radius); background: var(--white); }
+.api-bloc h3 { margin: 0 0 12px; font-size: 15px; font-weight: 600; color: var(--navy); }
+.api-bloc .ext-list { margin: 0; padding-left: 18px; }
+.api-bloc .ext-list li { font-size: 14.5px; line-height: 1.6; }
+.api-bloc .ext-list li:last-child { margin-bottom: 0; }
+.api-hero { text-align: center; }
+.api-hero .ext-hero__lead { margin-inline: auto; }
+.api-statut { font-family: var(--font-body, inherit); }

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Link, NavLink, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Check, CreditCard, Download, HelpCircle, Monitor, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { usePricing, formatMoney } from '../hooks/usePricing';
 import { goToSection } from '../lib/sectionBus';
 
-import MobileMenu from '../components/navbar/MobileMenu';
+import IntegrationsNav from '../components/IntegrationsNav';
 import { useExtensionInstalled } from '../hooks/useExtensionInstalled';
 import {
   detecterNavigateurPrecis, estMobile, EXTENSION_URL, EXTENSION_ZIP, versionPlusAncienne,
@@ -63,7 +63,6 @@ const rubriqueInitiale = (): Rubrique => {
 
 export default function ExtensionPage() {
   const { t, i18n } = useTranslation();
-  const fr = (i18n.language || 'fr').startsWith('fr');
   const navigate = useNavigate();
   const { pricing } = usePricing();
 
@@ -80,7 +79,6 @@ export default function ExtensionPage() {
   };
   const [params] = useSearchParams();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [copie, setCopie] = useState<Copie>('idle');
   const [copieAdresse, setCopieAdresse] = useState<Copie>('idle');
 
@@ -98,12 +96,6 @@ export default function ExtensionPage() {
   const urlBoutique = EXTENSION_URL[boutique];
   const miseAJour = !urlBoutique && installe && !!version && !!EXTENSION_ZIP.version
     && versionPlusAncienne(version, EXTENSION_ZIP.version);
-
-  const links = [
-    { id: '/home', href: '/home', label: t('nav.home') },
-    { id: '/extension', href: '/extension', label: t('extension_page.nav_label') },
-    { id: '/confidentialite', href: '/confidentialite', label: t('footer.privacy') },
-  ];
 
   useEffect(() => {
     document.title = t('extension_page.doc_title');
@@ -399,40 +391,7 @@ export default function ExtensionPage() {
 
   return (
     <div className="legal-page ext-page">
-      <nav className="navbar scrolled">
-        <div className="nav-inner">
-          <Link to="/" className="nav-logo" title={t('extension_page.back')}>
-            <img src="/Logo.png" alt="P" style={{ height: '46px', width: 'auto' }} />
-            <span className="animated-logo-text">
-              {'récis'.split('').map((c, i) => (
-                <span key={i} style={{ animationDelay: `${i / 10}s` }}>{c}</span>
-              ))}
-            </span>
-          </Link>
-
-          <ul className="nav-links" aria-label={t('extension_page.nav_aria')}>
-            {links.map((l) => (
-              <li key={l.id}><NavLink to={l.href}>{l.label}</NavLink></li>
-            ))}
-          </ul>
-
-          <div className="lang-toggle">
-            <button className={fr ? 'active' : ''} onClick={() => i18n.changeLanguage('fr')}>FR</button>
-            <button className={fr ? '' : 'active'} onClick={() => i18n.changeLanguage('en')}>EN</button>
-          </div>
-
-          <button className="hamburger" onClick={() => setMenuOpen((v) => !v)} aria-label="Toggle menu" aria-expanded={menuOpen}>
-            <span style={{ transform: menuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' }} />
-            <span style={{ opacity: menuOpen ? 0 : 1 }} />
-            <span style={{ transform: menuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none' }} />
-          </button>
-        </div>
-      </nav>
-
-      <MobileMenu
-        isOpen={menuOpen} links={links} activeSection="/extension"
-        onNavClick={(to) => { setMenuOpen(false); navigate(to); }} onClose={() => setMenuOpen(false)}
-      />
+      <IntegrationsNav />
 
       <main className="legal-main">
         <div className="legal-head">

@@ -176,9 +176,19 @@
       "more_one": "… and {{count}} more",
       "more_other": "… and {{count}} more",
       "raisons": {
-        "lie": "linked", "visio": "Visio", "pdf": "PDF", "equation": "equation",
-        "paquet": "package", "absent": "missing", "conversion": "conversion failed",
-        "erreur": "error", "profondeur": "nested too deeply", "illisible": "unreadable", "reinjection": "could not be put back", "hors_diapo": "on a master, layout or notes page", "autre": "not supported"
+        "lie": "linked",
+        "visio": "Visio",
+        "pdf": "PDF",
+        "equation": "equation",
+        "paquet": "package",
+        "absent": "missing",
+        "conversion": "conversion failed",
+        "erreur": "error",
+        "profondeur": "nested too deeply",
+        "illisible": "unreadable",
+        "reinjection": "could not be put back",
+        "hors_diapo": "on a master, layout or notes page",
+        "autre": "not supported"
       }
     }
   },
@@ -881,7 +891,9 @@
   "extension_page": {
     "doc_title": "Browser extension · Précis",
     "nav_label": "Extension",
-    "nav_aria": "Site pages",
+    "nav_api": "API",
+    "nav_soon": "In progress",
+    "nav_aria": "Integrations",
     "footer_link": "Browser extension",
     "back": "Back",
     "title": "Browser extension",
@@ -1025,5 +1037,38 @@
       "link": "Discover the extension",
       "close": "Dismiss this suggestion"
     }
+  },
+  "api_page": {
+    "doc_title": "API — Précis",
+    "title": "Précis API",
+    "eyebrow": "Integration",
+    "status_badge": "In progress",
+    "status_title": "In development: the API is not available yet",
+    "status_text": "This page describes what the API will include. Details may still change before it opens.",
+    "lead": "Bring Précis translation into your own tools: learning platforms, websites, business applications.",
+    "panel_title": "What the API will include",
+    "panel_sub": "Planned for the first version.",
+    "fact_status": "Status",
+    "fact_status_v": "In development",
+    "fact_access": "Access",
+    "fact_access_v": "Personal API key",
+    "fact_billing": "Billing",
+    "fact_billing_v": "Credits from your Précis account",
+    "fact_format": "Format",
+    "fact_format_v": "HTTPS, JSON",
+    "features_title": "Planned features",
+    "f_text": "Translate text while keeping its formatting.",
+    "f_docs": "Translate documents (PDF and other formats).",
+    "f_images": "Translate the text found in images.",
+    "f_status": "Track the progress of a long translation.",
+    "security_title": "Access and security",
+    "s_keys": "Keys created and revoked from your account.",
+    "s_https": "Encrypted exchanges end to end (HTTPS).",
+    "s_limits": "Usage limits per key.",
+    "docs_title": "Documentation",
+    "d_ref": "Reference for every endpoint.",
+    "d_examples": "Ready-to-copy request examples.",
+    "d_errors": "Error codes and what to do.",
+    "notice": "This page will be updated when the API opens."
   }
 }
