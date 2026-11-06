@@ -14,10 +14,11 @@ TEXTE_MAX = 50_000
 # Lots de texte : chacun renvoie le prompt et le contexte (défilement infini).
 LOTS_MAX = 100
 # Images traduites (texte trouvé et remplacé), le poste le plus coûteux.
-IMAGES_MAX = 10
+IMAGES_MAX = 30
 # Images analysées, avec ou sans texte : l'OCR seul, borné plus largement pour
 # qu'une page riche en illustrations ne bloque pas ses vraies images à texte.
-ANALYSES_MAX = 60
+# Une image à la fois par utilisateur (429 sinon) : la charge reste lissée.
+ANALYSES_MAX = 120
 # Images de vidéo, prises à la demande sur pause.
 CAPTURES_MAX = 20
 

@@ -85,9 +85,11 @@ function trouverCandidats(): Candidat[] {
     if (el.hasAttribute(ATTR_UI)) continue;
     if (el instanceof HTMLImageElement) {
       // Taille du fichier et taille affichée : une icône de 50 px n'a pas de texte lisible.
+      // Image cachée (diapo suivante, onglet) : prise d'avance, sur la taille du fichier seule.
       const r = el.getBoundingClientRect();
+      const cachee = r.width === 0 && r.height === 0;
       const ok = el.complete && el.naturalWidth >= TAILLE_MIN && el.naturalHeight >= TAILLE_MIN
-        && r.width >= TAILLE_MIN && r.height >= TAILLE_MIN;
+        && (cachee || (r.width >= TAILLE_MIN && r.height >= TAILLE_MIN));
       if (ok && !detecteur.estAnime(identifiant(el))) {
         ajouter(el, "img", el.currentSrc || el.src);
       }
