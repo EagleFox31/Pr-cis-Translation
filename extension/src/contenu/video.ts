@@ -1,13 +1,16 @@
 import { afficherErreur, obtenirBandeau } from "./bandeau.ts";
 import { poserCalque } from "./calques.ts";
 import { canvasVersCharge, envoyerImage } from "./commun.ts";
+import { THEME } from "./theme.ts";
 
 const TAILLE_MIN = 64;
 
-const STYLE = `
-  button { position: absolute; top: 8px; left: 8px; pointer-events: auto; padding: 5px 10px;
-    font: 12px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; color: #fff; background: rgba(31,41,55,.92);
-    border: 1px solid rgba(255,255,255,.6); border-radius: 6px; cursor: pointer; }
+const STYLE = `${THEME}
+  button { position: absolute; top: 8px; left: 8px; pointer-events: auto; padding: 6px 12px;
+    font-size: 12px; font-weight: 600; line-height: 1.3; color: var(--white); background: rgba(13,27,62,.92);
+    border: 1px solid rgba(255,255,255,.35); border-radius: 9px; cursor: pointer;
+    transition: background .15s ease; }
+  button:hover:not(:disabled) { background: var(--blue); }
   button:disabled { cursor: default; opacity: .85; }
 `;
 
