@@ -126,3 +126,15 @@
   .ext-panel .admin-panel__head-actions .ext-btn { width: 100%; }
   .ext-browsers__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+
+/* Tarif : forfaits en lignes, documents en liens. */
+.ext-plans { list-style: none; margin: 0; padding: 0; border: 1px solid var(--gray-200); border-radius: var(--radius); }
+.ext-plans li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto; gap: 12px; align-items: baseline; padding: 12px 16px; border-bottom: 1px solid var(--gray-100); font-size: 15px; color: var(--gray-700); }
+.ext-plans li:last-child { border-bottom: 0; }
+.ext-plans strong { color: var(--navy); }
+.ext-plans__price { font-weight: 600; color: var(--navy); white-space: nowrap; }
+.ext-docs { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px 24px; }
+@media (max-width: 600px) { .ext-plans li { grid-template-columns: minmax(0, 1fr) auto; } .ext-plans li > span:not(.ext-plans__price) { grid-column: 1 / -1; grid-row: 2; font-size: 14px; } }
+.ext-plans li > span { text-align: left; }
+.ext-plans li > .ext-plans__price { text-align: right; }
+.ext-panel .admin-panel__head-actions .ext-btn { white-space: nowrap; }

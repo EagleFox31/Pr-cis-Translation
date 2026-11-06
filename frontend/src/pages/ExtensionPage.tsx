@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, NavLink, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Check, CreditCard, Download, HelpCircle, Monitor, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { usePricing, formatMoney } from '../hooks/usePricing';
+import { goToSection } from '../lib/sectionBus';
 
 import MobileMenu from '../components/navbar/MobileMenu';
 import { useExtensionInstalled } from '../hooks/useExtensionInstalled';
@@ -35,6 +37,12 @@ const RUBRIQUES = [
   { id: 'perms', cle: 'extension_page.permissions.title', Icone: ShieldCheck },
   { id: 'faq', cle: 'extension_page.faq.title', Icone: HelpCircle },
 ] as const;
+const DOCUMENTS = [
+  ['/conditions', 'footer.terms'],
+  ['/confidentialite', 'footer.privacy'],
+  ['/mentions-legales', 'footer.legal'],
+  ['/cookies', 'footer.cookies'],
+] as const;
 const NOM_BOUTIQUE = { edge: 'Edge Add-ons', chrome: 'Chrome Web Store' } as const;
 type Rubrique = (typeof RUBRIQUES)[number]['id'];
 
@@ -47,6 +55,19 @@ export default function ExtensionPage() {
   const { t, i18n } = useTranslation();
   const fr = (i18n.language || 'fr').startsWith('fr');
   const navigate = useNavigate();
+  const { pricing } = usePricing();
+
+  // « Voir les tarifs » : l'accueil ne lit pas le #hash au chargement ; on y va,
+  // puis on attend que la section existe pour la faire défiler.
+  const voirTarifs = () => {
+    navigate('/home');
+    const debut = Date.now();
+    const viser = () => {
+      if (document.getElementById('pricing')) goToSection('pricing');
+      else if (Date.now() - debut < 8000) window.setTimeout(viser, 150);
+    };
+    window.setTimeout(viser, 150);
+  };
   const [params] = useSearchParams();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -216,11 +237,59 @@ export default function ExtensionPage() {
     switch (rubrique) {
       case 'price':
         return fiche(t('extension_page.price.title'), (
-          <section className="admin-panel__block ext-section">
-            <p>{t('extension_page.price.text')}</p>
-            <p><Link className="ext-link" to="/home#pricing">{t('extension_page.price.link')}</Link></p>
-          </section>
-        ));
+          <>
+            <dl className="admin-panel__facts">
+              {fait('price.fact_text', t('extension_page.price.fact_text_v'))}
+              {fait('price.fact_image', t('extension_page.price.fact_image_v'))}
+              {fait('price.fact_video', t('extension_page.price.fact_video_v'))}
+              {fait('price.fact_fail', t('extension_page.price.fact_fail_v'))}
+            </dl>
+            <section className="admin-panel__block ext-section">
+              <div className="admin-panel__block-head"><h3>{t('extension_page.price.plans_title')}</h3></div>
+              {pricing ? (
+                <ul className="ext-plans">
+                  {pricing.plans.map((p) => (
+                    <li key={p.key}>
+                      <strong>{p.label}</strong>
+                      <span>{p.monthly_pages === null
+                        ? t('extension_page.price.pages_unlimited')
+                        : t('extension_page.price.pages_month', { count: p.monthly_pages })}</span>
+                      <span className="ext-plans__price">{p.monthly === null
+                        ? t('extension_page.price.quote')
+                        : p.monthly === 0 ? t('extension_page.price.free')
+                        : `${formatMoney(p.monthly, pricing.currency, pricing.decimals, i18n.language)}${t('extension_page.price.per_month')}`}</span>
+                    </li>
+                  ))}
+                  <li>
+                    <strong>{t('extension_page.price.payg')}</strong>
+                    <span>{t('extension_page.price.payg_hint')}</span>
+                    <span className="ext-plans__price">{formatMoney(pricing.page_price, pricing.currency, pricing.decimals, i18n.language)}{t('extension_page.price.per_page')}</span>
+                  </li>
+                </ul>
+              ) : <p>{t('extension_page.price.text')}</p>}
+            </section>
+            <section className="admin-panel__block ext-section">
+              <div className="admin-panel__block-head"><h3>{t('extension_page.price.know_title')}</h3></div>
+              <ul className="ext-list">
+                {(['know_credits', 'know_order', 'know_carry', 'know_limits'] as const).map((k) => (
+                  <li key={k}>{t(`extension_page.price.${k}`)}</li>
+                ))}
+              </ul>
+            </section>
+            <section className="admin-panel__block ext-section">
+              <div className="admin-panel__block-head"><h3>{t('extension_page.price.docs_title')}</h3></div>
+              <ul className="ext-docs">
+                {DOCUMENTS.map(([to, cle]) => (
+                  <li key={to}><Link className="ext-link" to={to}>{t(cle)}</Link></li>
+                ))}
+              </ul>
+            </section>
+          </>
+        ), (
+          <button type="button" className="ext-btn ext-btn--primary" onClick={voirTarifs}>
+            {t('extension_page.price.link')}
+          </button>
+        ), t('extension_page.price.text'));
       case 'perms':
         return fiche(t('extension_page.permissions.title'), (
           <section className="admin-panel__block ext-section">
