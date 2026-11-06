@@ -19,6 +19,7 @@ from app.services import ocr_pages, render_cache, translation_runner
 from app.services.jobs import jobs
 from app.services.ocr import LecturePage
 from app.services.translation_runner import render_translation_bytes, run_pdf_v2_job
+from engines import translation_ai
 from engines.pdf.stream import mention_non_incluse, mention_non_traduite
 from test_ocr_moteur_pages import document, page_lue
 from test_ocr_pages import pdf_photo
@@ -27,7 +28,22 @@ from test_ocr_pages_choix import LIRE, Choix, api, lancer, session
 NON_INCLUSE = mention_non_incluse("en")
 
 
+def _traduction_factice(self, batch, *_a, **_k):
+    for item in batch:
+        item["translated_text"] = item["text"]
+
+
 class HorsSelection(Choix):
+    def setUp(self):
+        super().setUp()
+        # Aucun appel réseau : la CI n'a pas de clé fournisseur.
+        for nom, valeur in (("__init__", lambda _self: None),
+                            ("_translate_batch", _traduction_factice),
+                            ("fiche_document", lambda _self, *_a, **_k: "")):
+            fausse = patch.object(translation_ai.TranslatorAI, nom, valeur)
+            fausse.start()
+            self.addCleanup(fausse.stop)
+
     def partiel(self, *pages, lectures=None):
         """PDF traduit sur sa page 1 seulement ; les autres restent hors sélection."""
         dossier = os.path.join(self.dir, uuid.uuid4().hex[:8])
