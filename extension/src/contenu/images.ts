@@ -82,8 +82,11 @@ function trouverCandidats(): Candidat[] {
   for (const el of elementsProfonds(document)) {
     if (el.hasAttribute(ATTR_UI)) continue;
     if (el instanceof HTMLImageElement) {
-      const ok = el.complete && el.naturalWidth >= TAILLE_MIN && el.naturalHeight >= TAILLE_MIN;
-      if (ok && el.getClientRects().length > 0 && !detecteur.estAnime(identifiant(el))) {
+      // Taille du fichier et taille affichée : une icône de 50 px n'a pas de texte lisible.
+      const r = el.getBoundingClientRect();
+      const ok = el.complete && el.naturalWidth >= TAILLE_MIN && el.naturalHeight >= TAILLE_MIN
+        && r.width >= TAILLE_MIN && r.height >= TAILLE_MIN;
+      if (ok && !detecteur.estAnime(identifiant(el))) {
         ajouter(el, "img", el.currentSrc || el.src);
       }
     } else if (el instanceof HTMLCanvasElement) {

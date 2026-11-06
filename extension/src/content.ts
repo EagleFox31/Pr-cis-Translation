@@ -20,6 +20,8 @@ const etat = {
   session: 0,
   langue: "fr",
   texteBloque: false,
+  /** Compte inutilisable (crédits, connexion) : ni images ni vidéos ne partent. */
+  compteBloque: false,
   enCours: false,
   /** Page traduite (ou en cours) : un second clic ne relance rien. */
   active: false,
@@ -70,7 +72,7 @@ async function passeTardive(): Promise<void> {
   } finally {
     etat.enCours = false;
   }
-  if (images) void scannerImages();
+  if (images && !etat.compteBloque) void scannerImages();
 }
 
 async function passeTexte(racines: Iterable<Node>, premiere: boolean): Promise<void> {
@@ -103,6 +105,7 @@ async function passeTexte(racines: Iterable<Node>, premiere: boolean): Promise<v
   if (!rep?.ok) {
     const code = rep ? rep.erreur : "indisponible";
     if (code === "credits" || code === "deconnecte" || code === "limite") etat.texteBloque = true;
+    if (code === "credits" || code === "deconnecte") etat.compteBloque = true;
     afficherErreur(bandeau, code);
     return;
   }
@@ -131,6 +134,7 @@ function arreter(): void {
   etat.nouveauxElements = false;
   etat.enCours = false;
   etat.texteBloque = false;
+  etat.compteBloque = false;
   etat.active = false;
   observateur?.disconnect();
   observateur = null;
@@ -163,7 +167,7 @@ async function traduire(msg: MsgTraduire): Promise<void> {
   } finally {
     if (session === etat.session) etat.enCours = false;
   }
-  if (session !== etat.session) return;
+  if (session !== etat.session || etat.compteBloque) return;
 
   demarrerVideos(msg.langue);
   await demarrerImages(msg.langue);
