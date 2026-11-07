@@ -78,3 +78,13 @@ EN COURS : branche `feat/ocr-file-pages-illisibles`, mission 6.13.11 commitée e
 - **Verrou** : le commanditaire relit #57 avant toute fusion. Ne pas fusionner sans son accord explicite.
 - **Audit SEO/GEO du site en ligne** : bases correctes (title, description, canonical, OG, JSON-LD, robots, sitemap). Manques : sitemap d'une seule URL, toutes les routes servent le même `<head>` avec canonical `/home`, pas de hreflang ni d'URL anglaise, pas de `llms.txt`, pas de compression gzip/brotli, ~800 Ko de JS. Les nouvelles pages des PR (`/extension`, pages légales) ne sont pas dans `frontend/public/sitemap.xml`.
 - **Prochaine étape** : après accord, fusionner #57, fermer les 7 PR intégrées, fusionner la PR Release Please, déclencher le déploiement AWS manuel, puis traiter le SEO/GEO dans une PR séparée.
+
+## 2026-11-07 04:10 — Correctifs SEO / GEO (branche feat/seo-geo)
+
+- Branche `feat/seo-geo`, partie de `integration/pr-consolidation` (PR #57, toujours en attente de relecture : ne pas fusionner sans accord).
+- Source unique des pages publiques : `frontend/seo/site.json`. `frontend/scripts/prerender.mjs` (lancé par `npm run build`) écrit `dist/<route>.html`, `sitemap.xml` et `llms.txt` ; `frontend/public/sitemap.xml` supprimé.
+- `frontend/nginx.conf` : `gzip_proxied any` (Caddy ajoute `Via`), `try_files $uri $uri.html`, redirection `/index`.
+- `scripts/ci/verify_public_seo.py` étendu ; job CI `seo` lance le prérendu avant nginx.
+- Vérifié localement : build + lint OK, contrôle SEO PASS sur nginx 1.27 (sources et vrai `dist`), JS 802 Ko → 294 Ko en gzip.
+- Non traité : hreflang / URL anglaises (routage i18n à concevoir), FAQ structurée sur `/home` (aucune FAQ visible sur la page React).
+- `public-https-verification` échouera contre la production tant que cette branche n'est pas déployée.
