@@ -516,21 +516,34 @@ async function appliquer(msg: MsgAppliquer, tab: chrome.tabs.Tab | undefined): P
 
 // Une seule question par onglet : les cadres qui demandent en même temps partagent la réponse.
 const REPONSE_PARTAGEE_MS = 10_000;
-const accordsEnCours = new Map<number, Promise<ReponseDe<MsgAccordImages>>>();
+// Les cadres d'une même page finissent leur analyse à quelques instants d'écart : une seule question pour tous.
+const REGROUPEMENT_MS = 800;
+const accordsEnCours = new Map<number, { images: number; posee: boolean; reponse: Promise<ReponseDe<MsgAccordImages>> }>();
 
 function accordImages(tabId: number, images: number): Promise<ReponseDe<MsgAccordImages>> {
   const enCours = accordsEnCours.get(tabId);
-  if (enCours) return enCours;
-  const question = chrome.tabs
-    .sendMessage(tabId, { type: "demander_accord", images } satisfies VersContent, { frameId: 0 })
+  if (enCours) {
+    if (!enCours.posee) enCours.images += images;
+    return enCours.reponse;
+  }
+  const entree = { images, posee: false, reponse: null as unknown as Promise<ReponseDe<MsgAccordImages>> };
+  entree.reponse = new Promise<void>((ok) => setTimeout(ok, REGROUPEMENT_MS))
+    .then(() => {
+      entree.posee = true;
+      return chrome.tabs.sendMessage(
+        tabId,
+        { type: "demander_accord", images: entree.images } satisfies VersContent,
+        { frameId: 0 },
+      );
+    })
     .then((r: ReponseDe<MsgAccordImages> | undefined) => r ?? null, () => null)
     .then((r) => {
       // Les cadres qui finissent leur analyse juste après profitent de la même réponse.
-      setTimeout(() => accordsEnCours.get(tabId) === question && accordsEnCours.delete(tabId), r ? REPONSE_PARTAGEE_MS : 0);
+      setTimeout(() => accordsEnCours.get(tabId) === entree && accordsEnCours.delete(tabId), r ? REPONSE_PARTAGEE_MS : 0);
       return r;
     });
-  accordsEnCours.set(tabId, question);
-  return question;
+  accordsEnCours.set(tabId, entree);
+  return entree.reponse;
 }
 
 chrome.runtime.onMessage.addListener((msg: VersBackground, expediteur, repondre) => {
