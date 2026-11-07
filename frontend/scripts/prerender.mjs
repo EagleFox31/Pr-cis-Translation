@@ -150,7 +150,107 @@ function describe(route) {
         `<p>${esc(doc.intro)}</p>${sections}`,
     };
   }
+  if (route.source === 'content') return describeContent(route, contentBySlug.get(route.page));
   throw new Error(`Source inconnue pour ${route.path} : ${route.source}`);
+}
+
+// ── Pages éditoriales (`seo/pages/<page>.json`) ─────────────────────────────
+// Aucune route React ne leur correspond : elles sont servies en HTML statique,
+// sans le bundle de l'application, sinon React remplacerait leur contenu par
+// une page introuvable.
+const contentBySlug = new Map();
+for (const route of site.routes.filter((r) => r.source === 'content')) {
+  contentBySlug.set(route.page, JSON.parse(await readFile(join(ROOT, `seo/pages/${route.page}.json`), 'utf8')));
+}
+
+function money(minor, currency) {
+  const decimals = currency === 'XAF' ? 0 : 2;
+  const value = (minor / 10 ** decimals).toLocaleString('fr-FR', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).replace(/ | /g, ' ');
+  return `${value} ${{ XAF: 'FCFA', EUR: '€', USD: '$' }[currency]}`;
+}
+
+function pricingTable(pricing) {
+  const head = ['Zone', 'Gratuit', 'Starter', 'Pro', 'Page à l’unité'];
+  const rows = pricing.zones.map((z) => [
+    z.name,
+    `${pricing.monthly_pages.free} pages/mois`,
+    `${money(z.starter.monthly, z.currency)}/mois (${money(z.starter.annual, z.currency)} en annuel) · ${pricing.monthly_pages.starter} pages`,
+    `${money(z.pro.monthly, z.currency)}/mois (${money(z.pro.annual, z.currency)} en annuel) · ${pricing.monthly_pages.pro} pages`,
+    money(z.page, z.currency),
+  ]);
+  return { caption: pricing.caption, head, rows };
+}
+
+function renderSection(s) {
+  const tag = s.ordered ? 'ol' : 'ul';
+  return (
+    (s.heading ? `<h2>${esc(s.heading)}</h2>` : '') +
+    (s.paragraphs ?? []).map((p) => `<p>${esc(p)}</p>`).join('') +
+    (s.list ? `<${tag}>${s.list.map((li) => `<li>${esc(li)}</li>`).join('')}</${tag}>` : '') +
+    (s.links ? `<ul>${s.links.map((l) => `<li><a href="${esc(l.href)}">${esc(l.label)}</a></li>`).join('')}</ul>` : '')
+  );
+}
+
+function renderTable(t) {
+  return (
+    `<table><caption>${esc(t.caption)}</caption>` +
+    `<thead><tr>${t.head.map((h) => `<th scope="col">${esc(h)}</th>`).join('')}</tr></thead><tbody>` +
+    t.rows.map((r) => `<tr><th scope="row">${esc(r[0])}</th>${r.slice(1).map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('') +
+    '</tbody></table>'
+  );
+}
+
+function describeContent(route, c) {
+  if (!c) throw new Error(`seo/pages/${route.page}.json introuvable pour ${route.path}.`);
+  for (const key of ['label', 'title', 'description', 'h1', 'answer', 'verified']) {
+    if (!c[key]) throw new Error(`seo/pages/${route.page}.json : champ « ${key} » manquant.`);
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(c.verified)) throw new Error(`seo/pages/${route.page}.json : « verified » doit être AAAA-MM-JJ.`);
+  const sections = (c.sections ?? []).map((s) => {
+    if (typeof s === 'string') {
+      const block = site.blocks?.[s];
+      if (!block) throw new Error(`seo/pages/${route.page}.json : bloc partagé « ${s} » inconnu.`);
+      return block;
+    }
+    return s;
+  });
+  const tables = [...(c.table ? [c.table] : []), ...(c.pricing ? [pricingTable(c.pricing)] : [])];
+  const faq = c.faq ?? [];
+  const cta = `<p><a class="cta" href="${esc(site.cta.href)}">${esc(site.cta.label)}</a></p>`;
+  return {
+    label: c.label,
+    title: c.title,
+    description: c.description,
+    dateModified: c.verified,
+    standalone: true,
+    body:
+      `<h1>${esc(c.h1)}</h1><p class="answer">${esc(c.answer)}</p>${cta}` +
+      tables.map(renderTable).join('') +
+      sections.map(renderSection).join('') +
+      (faq.length ? `<h2>Questions fréquentes</h2>${faq.map(({ q, a }) => `<h3>${esc(q)}</h3><p>${esc(a)}</p>`).join('')}` : '') +
+      (c.sources?.length
+        ? `<h2>Sources</h2><ul>${c.sources.map((s) => `<li><a href="${esc(s.url)}" rel="nofollow noopener">${esc(s.label)}</a></li>`).join('')}</ul>`
+        : '') +
+      `<p><small>Informations vérifiées le ${esc(frenchDate(c.verified))}.</small></p>${cta}`,
+    extraNodes: faq.length
+      ? [
+          {
+            '@type': 'FAQPage',
+            '@id': url(route.path) + '#faq',
+            mainEntity: faq.map(({ q, a }) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })),
+          },
+        ]
+      : [],
+    faq,
+  };
+}
+
+function frenchDate(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return `${d} ${MONTHS[m - 1]} ${y}`;
 }
 
 const pages = site.routes.map((route) => ({ route, ...describe(route) }));
@@ -208,7 +308,28 @@ function render(page) {
     `<p><a href="${home.route.path}">${esc(site.name)}</a> · ${esc(site.publisher)}</p>` +
     `${page.body}</main>`;
   html = replaceOnce(html, /<main[\s\S]*?<\/main>/, main, '<main> statique');
-  return withNav(html);
+  return withNav(page.standalone ? standalone(html) : html);
+}
+
+// Page sans application : on retire le bundle, ses feuilles de style et le
+// script qui masque le contenu statique ; il reste le <head> SEO et le texte.
+const STANDALONE_STYLE =
+  '<style>body{margin:0;background:#fff}table{border-collapse:collapse;width:100%;margin:1.5rem 0;font-size:.95rem}' +
+  'caption{text-align:left;font-weight:600;margin-bottom:.5rem;position:sticky;left:0;max-width:calc(100vw - 2rem)}th,td{border:1px solid #d6dbe4;padding:.5rem;vertical-align:top;text-align:left}' +
+  'thead th{background:#f3f5f9}.answer{font-size:1.15rem}.cta{display:inline-block;background:#12213a;color:#fff;padding:.7rem 1.2rem;border-radius:6px;text-decoration:none}' +
+  'nav{margin-top:3rem;font-size:.9rem}@media (max-width:640px){main{margin:1rem auto!important;padding:1rem!important}table{display:block;overflow-x:auto}}</style>';
+
+function standalone(html) {
+  const stripped = html
+    .replace(/<script(?![^>]*application\/ld\+json)[^>]*>[\s\S]*?<\/script>\s*/g, '')
+    .replace(/<link rel="(?:stylesheet|preconnect|modulepreload)"[^>]*>\s*/g, '')
+    .replace(/<link href="[^"]*" rel="stylesheet"[^>]*>\s*/g, '')
+    .replace(/<link rel="stylesheet"[^>]*>\s*/g, '')
+    .replace(/<style>[\s\S]*?<\/style>\s*/g, '');
+  if (/<script(?![^>]*application\/ld\+json)/.test(stripped) || /rel="stylesheet"/.test(stripped)) {
+    throw new Error('Page statique : un script ou une feuille de style de l’application subsiste.');
+  }
+  return replaceOnce(stripped, /<\/head>/, `${STANDALONE_STYLE}</head>`, '</head>');
 }
 
 // ── Écriture ────────────────────────────────────────────────────────────────
@@ -244,7 +365,9 @@ const llms =
   `# ${site.name}\n\n> ${site.summary}\n\n` +
   site.facts.map((f) => `- ${f}`).join('\n') +
   '\n\n## Pages\n\n' +
-  pages.filter((p) => p.route.source !== 'legal').map(line).join('\n') +
+  pages.filter((p) => !['legal', 'content'].includes(p.route.source)).map(line).join('\n') +
+  '\n\n## Guides, tarifs et comparatif\n\n' +
+  pages.filter((p) => p.route.source === 'content').map(line).join('\n') +
   '\n\n## Questions fréquentes (extension navigateur)\n\n' +
   faqPairs.map(({ q, a }) => `- ${q} ${a}`).join('\n') +
   '\n\n## Informations légales\n\n' +
