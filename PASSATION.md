@@ -63,3 +63,11 @@ EN COURS : branche `feat/ocr-file-pages-illisibles`, mission 6.13.11 commitée e
 - Uvicorn local : son rechargement auto rate parfois routes et code OCR → TaskStop puis relancer `dev.py`. Vu 06/11 : un 2e uvicorn orphelin sur 8000 servait l'ancien code (lister `Win32_Process` python, tuer par PID).
 - Réessai d'images : vider `translations/<doc>/<langue>/*_img*` ET `.../images/`. Script d'essai bout en bout : étude images §9.3. Base de test 5433 venue d'une autre branche : `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` puis `alembic upgrade head`.
 - Front : `cd frontend && npx tsc --noEmit -p . ; npm run lint --silent ; npm run build --silent | tail -n 8`. Extension : `cd extension && npm run -s typecheck && npm test && npm run -s build`. · Remote `origin` = EagleFox31. Fichiers en CRLF (locales, ocr-production.md) : éditer avec Edit ou Python binaire, jamais `sed -i`. `verify_ocr_runtime` en Docker : lignes `^DEEPSEEK_` du `.env` dans un fichier temporaire du scratchpad + `--env-file`, supprimé après. `PYTHONUTF8=1` obligatoire pour les tests.
+
+## 2026-11-07 03:42 — Consolidation des 7 PR ouvertes
+
+- **Doublons** : PR empilées. #32 et #35 ⊂ #53 ⊂ #54 ⊂ #55 et #56. Seules #55 (extension), #56 (3 commits OCR) et #52 (inbox orchestrateur, indépendante) portent du travail propre.
+- **Branche** : `integration/pr-consolidation`, fusions dans l'ordre #55, #56, #52 ; PR #57 vers `main`.
+- **Corrigé** : migration de #52 renommée `0020_orchestrator_events` (down_revision `0019_extension_avance`) ; sinon deux têtes Alembic et `upgrade head` en échec au déploiement. Conflits d'import (`api/extension.py`) et de routeurs (`app/__init__.py`) résolus en gardant les deux côtés.
+- **Vérifié en local** : une seule tête Alembic, compilation Python, JSON valides, `npm run lint` et `npm run build` OK. Suites backend complètes : CI de la PR #57.
+- **Reste** : fusionner #57 une fois la CI verte, fermer #32/#35/#53/#54/#55/#56/#52 comme intégrées, fusionner la PR Release Please, puis lancer manuellement le workflow de déploiement AWS.
