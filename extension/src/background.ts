@@ -515,6 +515,7 @@ async function appliquer(msg: MsgAppliquer, tab: chrome.tabs.Tab | undefined): P
 }
 
 // Une seule question par onglet : les cadres qui demandent en même temps partagent la réponse.
+const REPONSE_PARTAGEE_MS = 10_000;
 const accordsEnCours = new Map<number, Promise<ReponseDe<MsgAccordImages>>>();
 
 function accordImages(tabId: number, images: number): Promise<ReponseDe<MsgAccordImages>> {
@@ -523,7 +524,11 @@ function accordImages(tabId: number, images: number): Promise<ReponseDe<MsgAccor
   const question = chrome.tabs
     .sendMessage(tabId, { type: "demander_accord", images } satisfies VersContent, { frameId: 0 })
     .then((r: ReponseDe<MsgAccordImages> | undefined) => r ?? null, () => null)
-    .finally(() => accordsEnCours.delete(tabId));
+    .then((r) => {
+      // Les cadres qui finissent leur analyse juste après profitent de la même réponse.
+      setTimeout(() => accordsEnCours.get(tabId) === question && accordsEnCours.delete(tabId), r ? REPONSE_PARTAGEE_MS : 0);
+      return r;
+    });
   accordsEnCours.set(tabId, question);
   return question;
 }
