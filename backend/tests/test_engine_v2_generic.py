@@ -1161,8 +1161,43 @@ def _p34_capitales_puis_casse_mixte(eng):
              and any("Peace" in t for t in textes), str(textes))]
 
 
+def _p35_pile_centree(eng):
+    """En-tête officiel : lignes SEULES centrées sur un même axe, séparées par
+    des blancs (filets « ------- »). Aucune n'est symétrique dans son cadre
+    (la colonne est polluée par l'en-tête voisin) : chacune passait ferrée à
+    gauche et la traduction, plus longue ou plus courte, perdait l'axe. C'est
+    la PILE qui parle, comme pour le fer à droite."""
+    gauche = ["STATE OF NORTHLAND", "Unity - Labour - Progress",
+              "OFFICE OF THE TREASURER", "GENERAL BUREAU OF PUBLIC REVENUE"]
+    droite = ["ETAT DU NORDLAND", "Unite - Travail - Progres",
+              "BUREAU DU TRESORIER", "DIRECTION GENERALE DES RECETTES"]
+    taille, ys = 8, (40, 51, 74, 98)
+    doc = fitz.open()
+    pg = doc.new_page(width=595, height=842)
+    for lignes, axe in ((gauche, 145), (droite, 443)):
+        for l, y in zip(lignes, ys):
+            pg.insert_text((axe - fitz.get_text_length(l, "helv", taille) / 2, y),
+                           l, fontname="helv", fontsize=taille)
+    pg.insert_text((52, 160), "Tax office: NORTH 4", fontname="helv", fontsize=9)
+    pg.insert_text((52, 300), "Body text of the page, unrelated to the header, "
+                   "long enough to span the column.", fontname="helv", fontsize=10)
+    pd = eng.extract_page_data(doc, 0, doc[0], embed_images=False)
+    paras = [el for el in pd["elements"] if el.get("type") == "paragraph"]
+    pile = [p for p in paras if any(k in (p.get("text") or "") for k in gauche)]
+    aligns = [p.get("align") for p in pile]
+    axes = [round((p["container_bbox"][0] + p["container_bbox"][2]) / 2, 1)
+            for p in pile if p.get("container_bbox")]
+    corps = next((p for p in paras if "Body text" in (p.get("text") or "")), {})
+    return [("P35  pile de lignes seules centrées : toutes centrées",
+             len(pile) == 4 and all(a == "center" for a in aligns), str(aligns)),
+            ("P35  conteneur de chaque ligne centré sur l'axe de la pile",
+             len(axes) == 4 and all(abs(a - 145) <= 3 for a in axes), str(axes)),
+            ("P35  un paragraphe seul ferré à gauche le reste",
+             corps.get("align") == "left", str(corps.get("align")))]
+
+
 def run():
-    scratch = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+    scratch =os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "_generic_tmp")
     os.makedirs(scratch, exist_ok=True)
     pdf = build(os.path.join(scratch, "synthetique.pdf"))
@@ -1749,7 +1784,8 @@ def run():
                              + _p31_gras_synthetique(eng)
                              + _p33_images_jumelles(eng)
                              + _p32_italique_synthetique(eng)
-                             + _p34_capitales_puis_casse_mixte(eng)):
+                             + _p34_capitales_puis_casse_mixte(eng)
+                             + _p35_pile_centree(eng)):
         ok(nom, bon, detail)
 
     # ── Rapport ─────────────────────────────────────────────────────────────

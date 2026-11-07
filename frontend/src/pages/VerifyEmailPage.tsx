@@ -15,12 +15,13 @@ import CodeStep from '../components/auth/CodeStep';
 import { authReturnTo } from '../lib/authReturn';
 
 export default function VerifyEmailPage() {
-  const { verifyCode, resendVerification } = useAuth();
+  const { user, verifyCode, resendVerification } = useAuth();
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [params] = useSearchParams();
 
-  const email = params.get('email') || '';
+  // Signed-in users are never sent here with their address in the URL.
+  const email = params.get('email') || user?.email || '';
   const token = params.get('token');
 
   const [code, setCode] = useState(['', '', '', '', '', '']);

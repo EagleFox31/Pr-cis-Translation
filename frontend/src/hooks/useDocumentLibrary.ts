@@ -1,6 +1,55 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api, { authFetch } from '../services/api';
+import type { PageStatus } from './useStreamingTranslation';
+
+/** Réponse de `/preview`. `pretes` / `etats` ne sont remplis que pour un
+ *  document EN COURS de traduction. */
+export interface PreviewResult {
+  blob: Blob | null;
+  full: boolean;
+  inProgress: boolean;
+  pretes: Record<number, true>;
+  etats: Record<number, PageStatus>;
+  /** 404 : la traduction n'existe plus sur le serveur. */
+  missing?: boolean;
+}
+
+/** Image traduite d'un document (`GET /api/documents/{id}/images`). */
+export interface DocImage {
+  cle: string;
+  /** Remise à l'original : le rendu montre l'image d'origine. */
+  originale: boolean;
+  pages: number[];
+  vignette_traduite: string | null;
+  vignette_originale: string | null;
+}
+
+/** Choix sur une page illisible (`vide`) ou hors sélection (`retirer`). */
+export type ChoixPage = 'original' | 'vide' | 'traduire' | 'retirer';
+
+/** Page de scan non lue (`GET /api/documents/{id}/pages-illisibles`). */
+export interface PageIllisible {
+  page: number;
+  /** `solde` si le solde manquait à la lecture, `hors_selection` pour une
+   *  page laissée hors de la sélection, sinon `null`. */
+  motif: string | null;
+  /** `null` : le client n'a pas encore décidé pour cette page. */
+  choix: Exclude<ChoixPage, 'traduire'> | null;
+}
+
+export interface PagesIllisibles {
+  pages: PageIllisible[];
+  /** Pages en cours de lecture forcée. */
+  en_cours: number[];
+  /** Traduction en cours : pages déjà lues, choix possible seulement à la fin. */
+  provisoire?: boolean;
+  /** Pages lues sans aucun texte : rien à traduire ni à décider. */
+  blanches?: number[];
+}
+
+/** Réponse d'un choix : l'état à jour, ou le message d'un refus. */
+export type ResultatChoix = { ok: true; etat: PagesIllisibles } | { ok: false; message: string | null };
 
 export interface DocMeta {
   id: string;
@@ -15,15 +64,32 @@ export interface DocMeta {
   paid: boolean;
   /** Nombre de pages — sert à calculer ce que coûtera son déblocage. */
   pageCount: number;
-  /** `translating` · `done` · `error`. C'est la SEULE source de vérité sur
+  /** `translating` · `done` · `error` · `interrupted` (serveur arrêté en
+   *  cours de route : à reprendre) · `paused` / `cancelled` (arrêt demandé
+   *  par le client : à reprendre aussi) · `resumed` (repris par une autre
+   *  traduction, qui porte la suite). C'est la SEULE source de vérité sur
    *  l'état d'une traduction : elle vit en base, donc elle survit à une
    *  déconnexion comme à un redémarrage du serveur. */
   status: string;
   /** Pages terminées, à comparer à `pageCount`. */
   pagesDone: number;
+  /** Job vivant d'un document `translating` : sert à Pause / Annuler. */
+  jobId?: string | null;
+  /** Scan terminé : pages illisibles sans choix du client. */
+  pagesADecider?: number;
+  /** Scan terminé : pages en relecture (« traduire quand même »). */
+  pagesRelues?: number;
+  /** Réglages d'origine : « Reprendre » relance avec eux, donc sur les pages
+   *  déjà traduites. Absents sur les documents d'avant leur enregistrement. */
+  reglages?: { pages: string; precise: boolean; beta: boolean; qsuffix?: string } | null;
   /** blob dispo uniquement pour les visiteurs (en mémoire) */
   _blob?: Blob;
 }
+
+/** Statuts d'un document arrêté avant la fin (miroir de
+ *  `jobs.STATUTS_REPRENABLES`) : ses pages faites sont gardées et livrées,
+ *  « Reprendre » ne débite que le reste. */
+export const STATUTS_REPRENABLES: readonly string[] = ['interrupted', 'paused', 'cancelled'];
 
 /** UNE traduction de la réponse serveur. Elle existait en double dans ce
  *  fichier : le jour où un champ s'ajoute, une des deux copies l'oublie —
@@ -41,6 +107,10 @@ function toMeta(d: any): DocMeta {
     pageCount: d.page_count ?? 1,
     status: d.status ?? 'done',
     pagesDone: d.pages_done ?? 0,
+    reglages: d.reglages ?? null,
+    jobId: d.job_id ?? null,
+    pagesADecider: d.pages_a_decider ?? 0,
+    pagesRelues: d.pages_relues ?? 0,
     _blob: undefined,
   };
 }
@@ -56,7 +126,7 @@ const LS_LEGACY = 'precis_doc_library';
  *   /api/documents/{id}/download. Pas de localStorage, pas d'IndexedDB.
  */
 export function useDocumentLibrary() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [documents, setDocuments] = useState<DocMeta[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -85,7 +155,16 @@ export function useDocumentLibrary() {
   }, [user, refresh]);
 
   /** Y a-t-il au moins une traduction en cours ? */
-  const enCours = documents.some(d => d.status === 'translating');
+  const enCours = documents.some(d => d.status === 'translating' || (d.pagesRelues ?? 0) > 0);
+
+  // Une relecture « traduire quand même » s'achève : la page a pu être
+  // débitée, le solde affiché doit suivre.
+  const relues = documents.reduce((n, d) => n + (d.pagesRelues ?? 0), 0);
+  const reluesAvant = useRef(relues);
+  useEffect(() => {
+    if (relues < reluesAvant.current) refreshUser();
+    reluesAvant.current = relues;
+  }, [relues, refreshUser]);
 
   // Tant qu'une traduction tourne, on relit la liste. C'est ce qui rend le
   // suivi INDÉPENDANT de la session qui a lancé le travail : l'avancement est
@@ -153,7 +232,7 @@ export function useDocumentLibrary() {
    *  qu'un compte gratuit récupérait sa traduction en clair. */
   const getPreviewBlob = useCallback(async (
     id: string, page?: number,
-  ): Promise<{ blob: Blob | null; full: boolean; inProgress: boolean } | undefined> => {
+  ): Promise<PreviewResult | undefined> => {
     if (user) {
       // `page` restreint le RENDU à la page regardée (280 s le document
       // entier contre ~10 s la page seule, mesuré sur 285 pages). Mais si le
@@ -166,17 +245,33 @@ export function useDocumentLibrary() {
       // l'autre ne se garde en cache : l'appelant redemande jusqu'au rendu final.
       const q = page && page > 0 ? `?page=${page}` : '';
       const res = await authFetch(`/api/documents/${id}/preview${q}`);
+      if (res.status === 404) {
+        return { blob: null, full: false, inProgress: false, pretes: {}, etats: {}, missing: true };
+      }
       if (!res.ok) return undefined;
       const render = res.headers.get('X-Render');
       const pending = render === 'pending';
+      // En cours : le serveur dit quelles pages le fichier montre VRAIMENT
+      // traduites, et l'étape de chacune — l'aperçu rouvert n'a pas le flux.
+      const pretes: Record<number, true> = {};
+      for (const p of (res.headers.get('X-Pages-Pretes') ?? '').split(',')) {
+        if (p) pretes[Number(p)] = true;
+      }
+      const etats: Record<number, PageStatus> = {};
+      for (const e of (res.headers.get('X-Pages-Etats') ?? '').split(',')) {
+        const [p, s] = e.split(':');
+        if (p && s) etats[Number(p)] = s as PageStatus;
+      }
       return {
         blob: pending ? null : await res.blob(),
         full: render === 'full',
         inProgress: pending || render === 'partial',
+        pretes,
+        etats,
       };
     }
     const blob = documents.find(d => d.id === id)?._blob;
-    return blob ? { blob, full: true, inProgress: false } : undefined;
+    return blob ? { blob, full: true, inProgress: false, pretes: {}, etats: {} } : undefined;
   }, [user, documents]);
 
   /** Le fichier SOURCE tel que déposé — panneau gauche de l'aperçu.
@@ -215,6 +310,50 @@ export function useDocumentLibrary() {
     setDocuments([]);
   }, [user, documents]);
 
+  /** Images traduites d'un document du compte ; `[]` si aucune ou hors ligne. */
+  const getDocumentImages = useCallback(async (id: string): Promise<DocImage[]> => {
+    if (!user) return [];
+    const res = await api.get(`/api/documents/${id}/images`);
+    return res.ok ? ((res.data as { images?: DocImage[] }).images ?? []) : [];
+  }, [user]);
+
+  /** Remet une image à l'original (`true`) ou rétablit sa traduction. */
+  const setImageOriginal = useCallback(async (
+    id: string, cle: string, originale: boolean,
+  ): Promise<boolean> => {
+    if (!user) return false;
+    return (await api.patch(`/api/documents/${id}/images`, { cle, originale })).ok;
+  }, [user]);
+
+  /** Pages de scan illisibles d'un document ; vide si aucune ou sans compte.
+   *  Lève une erreur si la lecture échoue (réseau, serveur). */
+  const getIllegiblePages = useCallback(async (id: string): Promise<PagesIllisibles> => {
+    const vide = { pages: [], en_cours: [] };
+    if (!user) return vide;
+    const res = await api.get(`/api/documents/${id}/pages-illisibles`);
+    if (res.status === 404) return vide;
+    if (!res.ok) throw new Error(`pages-illisibles ${res.status}`);
+    return { ...vide, ...(res.data as Partial<PagesIllisibles>) };
+  }, [user]);
+
+  /** Garde l'original, laisse vide ou relance la lecture des pages données. */
+  const setIllegiblePages = useCallback(async (
+    id: string, pages: number[], choix: ChoixPage,
+  ): Promise<ResultatChoix> => {
+    if (!user) return { ok: false, message: null };
+    const res = await api.patch(`/api/documents/${id}/pages-illisibles`, { pages, choix });
+    if (res.ok) {
+      // La carte de la bibliothèque suit le choix (à décider → relecture).
+      refresh();
+      return { ok: true, etat: res.data as PagesIllisibles };
+    }
+    const corps = (res.data ?? {}) as { message?: unknown; detail?: unknown };
+    const message = typeof corps.message === 'string' ? corps.message
+      : typeof corps.detail === 'string' ? corps.detail : null;
+    return { ok: false, message: res.status === 402 || res.status === 409 ? message : null };
+  }, [user, refresh]);
+
   return { documents, loading, refresh, saveDocument, getBlob, getPreviewBlob,
-           getOriginalBlob, deleteDocument, clearAll };
+           getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal,
+           getIllegiblePages, setIllegiblePages };
 }

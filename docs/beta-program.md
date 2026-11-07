@@ -46,6 +46,9 @@ Le testeur trouve son invitation et ses quotas dans Mon accès Bêta (/beta),
 également accessible depuis son compte. La case Utiliser mon quota Bêta
 choisit explicitement ce budget ; la décocher utilise le forfait et les pages
 achetées habituels. Un quota insuffisant ne prélève pas ces pages à sa place.
+Une requête qui ne précise pas `use_beta` (client d'API) utilise d'office le
+quota Bêta actif s'il couvre le format ; `use_beta=0` l'écarte, `use_beta=1`
+l'exige (402 `beta_inactive` sinon).
 PDF et PowerPoint peuvent être limités par une sélection explicite de pages.
 Word et Excel sont admis ou refusés comme documents entiers.
 
@@ -86,7 +89,10 @@ La migration n’ouvre pas le programme et ne crée aucun candidat réel.
 ## Prévention des accès multiples
 
 La clé de boîte Bêta rapproche les variantes des adresses personnelles Gmail :
-points, suffixes + et domaines gmail.com/googlemail.com. L'adresse du compte et
+points, suffixes + et domaines gmail.com/googlemail.com ; ainsi que les suffixes
++ d'Outlook/Hotmail/Live, iCloud, Proton et Fastmail et les suffixes - de Yahoo
+(clé recalculée sur les lignes existantes par la migration `0014_anti_abus`).
+Les adresses jetables sont refusées. L'adresse du compte et
 celle de l'invitation restent les identités de connexion et d'activation ; la
 clé ne fusionne jamais des comptes. Les domaines personnalisés conservent leurs
 points et suffixes. Les nouvelles candidatures et invitations d'une même boîte
@@ -94,16 +100,25 @@ sont refusées ; le verrou de campagne sérialise ces contrôles. Les anciennes
 lignes restent intactes, y compris si elles comportent des alias historiques ;
 une deuxième activation d'une même boîte est bloquée.
 
-Les candidatures et premières activations enregistrent des empreintes HMAC de
-l'IP résolue par le serveur et d'un identifiant de navigateur aléatoire. Les
-en-têtes réseau fournis par le client ne sont pas interprétés par ce service.
-Le cookie de sécurité est signé, HttpOnly, SameSite=Lax, limité à /api/beta et
-Secure en production ; il expire après 30 jours et ne sert pas au profilage.
-Aucun fingerprint matériel ni nouvelle clé d'environnement n'est nécessaire.
+Les candidatures et premières activations enregistrent l'empreinte HMAC de
+l'IP résolue par le serveur (préfixe /64 pour une IPv6) et la machine reconnue par l'anti-abus des pages
+offertes (cookie signé, copie locale, empreinte de navigateur :
+`docs/etude-anti-abus.md`). Les en-têtes réseau fournis par le client ne sont
+pas interprétés : nginx écrase X-Forwarded-For avec l'adresse vue (ou celle
+transmise par Caddy, seule source crue, à l'adresse fixe 172.30.250.10) et
+uvicorn ne croit cet en-tête que venant d'une adresse privée
+(`FORWARDED_ALLOW_IPS`).
+Le cookie `precis_device` est signé, HttpOnly, SameSite=Lax, limité à /api et
+Secure en production ; il expire après un an et ne sert pas au profilage.
+L'ancien cookie `precis_beta_device` n'est plus lu : les lignes bêta antérieures
+gardent leur ancienne empreinte d'appareil, sans correspondance pendant leur
+fenêtre de 30 jours (IP et boîte restent contrôlées).
 
 Les signaux réseau et navigateur sont utilisés pendant 30 jours, puis effacés
 par une purge quotidienne et au démarrage. Les candidatures, décisions,
-invitations et consommations sont conservées. L'administration affiche seulement
+invitations et consommations sont conservées. Après suppression du compte, la
+même purge remplace l'e-mail et la clé de boîte par une empreinte HMAC et efface
+la motivation : le même e-mail reste bloqué pour un second essai. L'administration affiche seulement
 des rapprochements et des adresses déjà accessibles aux admins : aucun hash,
 cookie ou IP n'est servi dans les réponses JSON Bêta. Une candidature suivie de son activation
 ne compte pas comme deux personnes.

@@ -11,7 +11,9 @@ import unittest
 from urllib.parse import urlsplit
 import uuid
 
+import racine  # noqa: F401
 import test_beta_program as fixtures
+from fastapi import Response
 from docx import Document as WordDocument
 from pptx import Presentation
 from sqlalchemy import delete, select
@@ -66,12 +68,11 @@ class FreeDocumentTests(unittest.IsolatedAsyncioTestCase):
 
     async def document(self, response):
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertTrue(response.json()["can_download"])
         identifier = jobs.get(response.json()["job_id"])["document_id"]
         async with self.fx.sessions() as db:
             return await db.get(Document, identifier)
 
-    async def test_all_five_formats_share_five_pages_and_export_native_files(self):
+    async def test_all_five_formats_share_five_pages_as_preview_only(self):
         initial = await self.summary()
         self.assertEqual(initial["monthly_pages"], 5)
         self.assertEqual(initial["pages_remaining"], 5)
@@ -79,15 +80,15 @@ class FreeDocumentTests(unittest.IsolatedAsyncioTestCase):
                 ("c.docx", docx(20)), ("d.xlsx", fixtures.xlsx(20)), ("e.txt", b"Bonjour le monde")]:
             response = await self.upload(data, filename)
             document = await self.document(response)
-            self.assertTrue(document.paid)
+            # Pages gratuites : aperçu seulement, pas de téléchargement.
+            self.assertFalse(response.json()["can_download"])
+            self.assertFalse(document.paid)
             self.assertEqual(document.page_count, 1)
             result = Path(self.fx.temp.name) / filename
             result.write_bytes(data)
             jobs.set(response.json()["job_id"], state="done", result_path=str(result), result_filename=filename)
             download = await self.client.get("/api/translate/result/" + response.json()["job_id"], headers=self.headers)
-            self.assertEqual(download.status_code, 200, download.text[:100] if filename.endswith("txt") else filename)
-            self.assertEqual(download.content, data)
-            self.assertIn(filename, download.headers["content-disposition"])
+            self.assertEqual(download.status_code, 402, filename)
         self.assertEqual((await self.summary())["pages_remaining"], 0)
         denied = await self.upload()
         self.assertEqual(denied.status_code, 402)
@@ -119,6 +120,9 @@ class FreeDocumentTests(unittest.IsolatedAsyncioTestCase):
             await db.commit()
         response = await self.upload(docx(2501), "large.docx")
         document = await self.document(response)
+        # Document mixte : des pages achetées le rendent téléchargeable.
+        self.assertTrue(response.json()["can_download"])
+        self.assertTrue(document.paid)
         summary = await self.summary()
         self.assertEqual((summary["pages_remaining"], summary["page_credits"]), (0, 1))
         async with self.fx.sessions() as db:
@@ -198,12 +202,15 @@ class FreeDocumentTests(unittest.IsolatedAsyncioTestCase):
                         headers={**self.headers, "CF-IPCountry": country},
                         json={"plan": plan["key"], "annual": annual})
                     self.assertEqual(quote.status_code, 200, quote.text)
-                    key = "annual_total" if annual else "monthly_total"
-                    self.assertEqual(plan[key], quote.json()["amount"])
+                    # Les cartes affichent le net : les frais n'apparaissent
+                    # que dans la fenêtre de paiement.
+                    net = plan["annual"] * 12 if annual else plan["monthly"]
+                    self.assertEqual(net, quote.json()["subtotal"])
+                    self.assertNotIn("monthly_total", plan)
             if country == "CM":
                 starter, pro = pricing["plans"][1:3]
-                self.assertEqual((starter["monthly_total"], pro["monthly_total"]), (1545, 4635))
-                self.assertEqual((starter["annual_total"], pro["annual_total"]), (14832, 43260))
+                self.assertEqual((starter["monthly"], pro["monthly"]), (1500, 4500))
+                self.assertEqual((starter["annual"], pro["annual"]), (1200, 3500))
 
 
 class PostgreSQLFreeQuotaRace(unittest.IsolatedAsyncioTestCase):
@@ -222,13 +229,14 @@ class PostgreSQLFreeQuotaRace(unittest.IsolatedAsyncioTestCase):
         await fx.asyncSetUp()
         fx.sessions = sessions
         async with sessions() as db:
-            user = User(email=f"free-race-{uuid.uuid4().hex}@example.com", email_verified=True, plan="free")
+            user = User(email=f"free-race-{uuid.uuid4().hex}@example.com", email_verified=True, plan="free",
+                        created_at=racine.compte_ancien())
             db.add(user)
             await db.commit()
         async def upload():
             async with sessions() as db:
                 account = await db.get(User, user.id)
-                return await translation.translate_endpoint(request=None,
+                return await translation.translate_endpoint(request=racine.requete_test(), response=Response(),
                     file=fixtures.translation.UploadFile(filename="race.pdf", file=io.BytesIO(fixtures.pdf(3))),
                     target_lang="en", format_options="{}", quality="fast", precise="", pages="",
                     debug="", covered_only="", use_beta="0", x_api_key=fixtures.config.FRONTEND_API_KEY,

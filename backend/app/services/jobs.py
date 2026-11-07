@@ -5,7 +5,8 @@ UN JOB, C'EST QUOI
 Une traduction lancée par une requête, exécutée dans un THREAD worker, et
 suivie par le client via SSE. Il porte :
   - une file thread-safe pour les messages de progression ;
-  - un état (pending / running / done / error) ;
+  - un état (pending / running / done / error, ou paused / cancelled quand
+    l'utilisateur l'arrête) ;
   - le chemin du rendu une fois terminé ;
   - le propriétaire, sans lequel un `job_id` deviné suffirait à récupérer le
     document d'autrui.
@@ -64,6 +65,81 @@ def _dans_une_boucle_jetable(faire: Callable[[Any], Any]) -> None:
             await eng.dispose()
 
     asyncio.run(_run())
+
+
+# Statuts d'un Document arrêté avant la fin dont le travail fait est GARDÉ :
+# pages traduites débitées, reste rendu, reprise possible sur le cache.
+# Statuts d'un arrêt DEMANDÉ par le client (pause / annulation) : états
+# finaux du job, comme `done` et `error`.
+STATUTS_ARRET = ("paused", "cancelled")
+STATUTS_REPRENABLES = ("interrupted", *STATUTS_ARRET)
+
+
+
+def _copie_budget(doc, traitees: set[int], job_id: str) -> str:
+    """Traduction propre au document, réduite aux pages traitées.
+
+    La traduction partagée porte le nom de toute la sélection : d'autres
+    documents la réutiliseront, elle reste intacte. La copie ne garde que les
+    pages traitées (JSON et lectures `.ocr`, lues aussi par d'autres comptes)
+    et les déclare comme sélection ; « Traduire » (P3) ajoutera les autres.
+    Le filtre n'a lieu qu'une fois (marque posée en dernier) : une clôture
+    rejouée n'efface pas des pages ajoutées depuis. Le relevé de CE job est
+    gardé dans la copie : une clôture rejouée le relit là."""
+    import json
+    import re as _re
+    from app.services import render_cache
+    from app.services.documents import copie_du_document
+    from app.services.ocr_pages import dossier, ecrire_selection
+    copie = copie_du_document(doc)
+    if copie == doc.translated_path:
+        return copie
+    marque = os.path.join(dossier(copie), "budget_filtre")
+    if os.path.isfile(marque):
+        return copie
+    with open(copie, encoding="utf-8") as f:
+        donnees = json.load(f)
+    donnees["pages"] = [p for p in donnees.get("pages", [])
+                        if p.get("page_num") in traitees]
+    with open(copie + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(donnees, f, ensure_ascii=False)
+    os.replace(copie + ".tmp", copie)
+    d = dossier(copie)
+    os.makedirs(d, exist_ok=True)
+    for nom in os.listdir(d):
+        m = _re.fullmatch(r"p(\d{4})\.(json|pdf)", nom)
+        if (m and int(m.group(1)) not in traitees) or (nom.startswith("budget_") and nom != f"budget_{job_id}.json")                 or nom == "choix.json":
+            os.remove(os.path.join(d, nom))
+    ecrire_selection(copie, sorted(traitees))
+    render_cache.invalider(copie)
+    with open(marque, "w", encoding="utf-8"):
+        pass
+    return copie
+
+def _pages_traduites_de(translation_path: str) -> set[int]:
+    """Pages de la traduction qui portent au moins un paragraphe traduit."""
+    import json
+    from app.services.translation_runner import _page_traduite, mode_structure
+    try:
+        with open(translation_path, encoding="utf-8") as f:
+            pages = json.load(f).get("pages", [])
+    except (OSError, ValueError):
+        return set()
+    debug = mode_structure(translation_path)
+    return {p.get("page_num") for p in pages
+            if p.get("page_num") and _page_traduite(p, debug)}
+
+
+class ArretDemande(BaseException):
+    """Levée à un point de contrôle quand le client a demandé pause ou annulation.
+
+    `BaseException` et non `Exception` : les jobs attrapent `Exception` pour
+    passer en ERREUR (remboursement complet) ; un arrêt demandé doit traverser
+    ces filets jusqu'à l'ordonnanceur, qui le consigne (`jobs.arreter`)."""
+
+    def __init__(self, mode: str):
+        super().__init__(mode)
+        self.mode = mode
 
 
 class JobManager:
@@ -137,6 +213,16 @@ class JobManager:
                     return job
         return None
 
+    def id_for_document(self, doc_id: str) -> str | None:
+        """L'identifiant du job vivant de ce Document : la bibliothèque s'en
+        sert pour mettre en pause ou annuler une traduction qu'elle n'a pas
+        lancée (autre onglet, après rechargement)."""
+        with self._lock:
+            for job_id, job in self._jobs.items():
+                if job.get("document_id") == doc_id:
+                    return job_id
+        return None
+
     def set(self, job_id: str, **champs) -> None:
         """Pose des champs sur un job existant. Écriture sous verrou."""
         with self._lock:
@@ -160,7 +246,28 @@ class JobManager:
         """Publie un événement vers le flux SSE du job."""
         job = self.get(job_id)
         if job:
+            if event_type == "page" and payload.get("page") and payload.get("status"):
+                # Dernier état de chaque page, GARDÉ : le flux SSE ne vit que
+                # pour l'onglet qui a lancé la traduction. Un aperçu rouvert
+                # depuis la bibliothèque le relit pour savoir où en est chaque page.
+                with self._lock:
+                    job.setdefault("page_states", {})[int(payload["page"])] = payload["status"]
             job["q"].put({"type": event_type, **payload})
+
+    def pages_etat(self, job: dict) -> tuple[list[int], dict[int, str]]:
+        """(pages réellement traduites dans le partiel, état de chaque page).
+
+        PPTX : la liste du greffage (`partial_pages`) fait foi, plus les
+        diapositives sans texte (`copied`), identiques à l'original. Ailleurs,
+        une page `done` est dans le partiel."""
+        with self._lock:
+            etats = dict(job.get("page_states") or {})
+            greffees = job.get("partial_pages")
+        if greffees is not None:
+            pretes = set(greffees) | {p for p, s in etats.items() if s == "copied"}
+        else:
+            pretes = {p for p, s in etats.items() if s in ("done", "copied")}
+        return sorted(pretes), etats
 
     def progress_callback(self, job_id: str, step: str,
                           total: int | None = None) -> Callable[[str], None]:
@@ -211,6 +318,58 @@ class JobManager:
             job["finished_at"] = time.time()
             job["q"].put({"type": "error", "message": message})
         self.sync_status(job_id, "error")
+
+    # ── Arrêt demandé (pause / annulation) ───────────────────────────────
+    def demander_arret(self, job_id: str, mode: str) -> str | None:
+        """Pose le drapeau d'arrêt (`paused` ou `cancelled`).
+
+        Renvoie `"en_cours"` si un worker traite déjà le job : il s'arrête au
+        prochain contrôle (PDF/PPTX : la page en vol est abandonnée, sans
+        attendre le modèle ; DOCX/XLSX : le lot en cours finit) ;
+        `"en_file"` s'il attend encore : l'appelant l'arrête tout de suite
+        (`arreter`), le worker ne le démarrera pas (`demarrer`). None si le
+        job est inconnu, déjà fini ou déjà arrêté. Les deux décisions se
+        prennent sous le même verrou : un job ne peut être à la fois démarré
+        et arrêté en file."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None or job.get("finished_at") or job.get("arret"):
+                return None
+            job["arret"] = mode
+            return "en_cours" if job.get("demarre") else "en_file"
+
+    def demarrer(self, job_id: str) -> bool:
+        """Le worker prend le job : True s'il doit le traiter, False si une
+        pause ou une annulation l'a devancé pendant qu'il attendait en file
+        (la route l'a déjà consigné)."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is not None and job.get("arret"):
+                return False
+            if job is not None:
+                job["demarre"] = True
+            return True
+
+    def arret_demande(self, job_id: str) -> str | None:
+        job = self.get(job_id)
+        return job.get("arret") if job else None
+
+    def verifier_arret(self, job_id: str) -> None:
+        """Point de contrôle : lève `ArretDemande` si un arrêt est demandé."""
+        mode = self.arret_demande(job_id)
+        if mode:
+            raise ArretDemande(mode)
+
+    def arreter(self, job_id: str, mode: str) -> None:
+        """Fin d'un job arrêté à la demande : pages faites débitées, reste rendu."""
+        # Base d'abord : sur « stopped », le client recharge sa bibliothèque
+        # et doit y lire le statut final, pas « translating ».
+        self.sync_status(job_id, mode)
+        job = self.get(job_id)
+        if job:
+            job["state"] = mode
+            job["finished_at"] = time.time()
+            job["q"].put({"type": "stopped", "mode": mode})
 
     # ── Report en base ───────────────────────────────────────────────────
     def _document_id(self, job_id: str) -> str | None:
@@ -274,11 +433,33 @@ class JobManager:
 
         async def _maj(db):
             from app.models import Document
-            doc = await db.get(Document, doc_id)
-            if doc is not None:
-                doc.status = status
-                if translated_path:
-                    doc.translated_path = translated_path
+            doc = await db.get(Document, doc_id, with_for_update=True)
+            # Disparu ou déjà REPRIS par un autre job (worker d'un processus
+            # précédent qui finit tard) : sa facturation appartient désormais
+            # à la reprise ; rembourser ou refacturer ici compterait deux fois.
+            if doc is None or doc.status == "resumed":
+                return
+            from app.services.documents import pages_faites_du_document, reglages_de
+            deja = int(reglages_de(doc).get("deja") or 0)
+            if status in STATUTS_ARRET or (status == "error" and deja > 0):
+                # Pause, annulation, ou échec d'une REPRISE (« Interrompue » et
+                # non « Échec », sinon les pages payées par le document repris
+                # seraient perdues — il est `resumed` — et repayées à la
+                # relance). Même règle qu'à l'arrêt du serveur : pages
+                # traduites débitées, le reste rendu.
+                from app.services.usage import refund_unfinished
+                doc.status = "interrupted" if status == "error" else status
+                # L'avancement n'est consigné que toutes les quelques secondes
+                # (`sync_progress`) : on le recale sur le disque, qui fait foi
+                # pour la facture, sinon la carte affiche une page de moins
+                # que ce qui a été débité.
+                faites = pages_faites_du_document(doc)
+                doc.pages_done = faites
+                await refund_unfinished(db, doc_id, max(0, faites - deja))
+                return
+            doc.status = status
+            if translated_path:
+                doc.translated_path = translated_path
             if status == "error":
                 # On ne facture pas ce qu'on n'a pas livré : l'offre du mois
                 # redevient libre, les pages achetées reviennent au solde.
@@ -287,8 +468,51 @@ class JobManager:
             elif status == "done":
                 # Livré : si un redémarrage concurrent l'avait remboursé
                 # (`reconcilier_jobs_orphelins`), la consommation revient.
-                from app.services.usage import rebill_for_document
+                from app.services.usage import rebill_for_document, refund_unfinished
                 await rebill_for_document(db, doc_id)
+                # Pages de scan illisibles ou blanches : réservées au lancement,
+                # jamais dues. Après le rétablissement ci-dessus, car une clôture
+                # rejouée doit retomber sur le même total, sans rendre deux fois.
+                from app.services.documents import pages_selectionnees
+                from app.services.ocr_pages import lire_budget, pages_non_facturables
+                from app.services.translation_runner import pages_lues_sans_traduction
+                en_budget = bool(reglages_de(doc).get("budget"))
+                budget = (lire_budget(doc.translated_path, job_id)
+                          if en_budget and doc.translated_path else None)
+                if en_budget and budget is None:
+                    # Relevé du job perdu : impossible de savoir ce qui est dû
+                    # ni quelles pages livrer. On ne livre pas la traduction
+                    # partagée et on rend tout.
+                    from app.services.usage import refund_for_document
+                    logger.error("Relevé de budget absent (doc %s, job %s)", doc_id, job_id)
+                    doc.status, doc.translated_path = "error", None
+                    await refund_for_document(db, doc_id)
+                    return
+                if budget is not None:
+                    # Solde partiel : seules les pages lues et traduites dans la
+                    # limite du budget sont dues ; le reste est rendu. Lu depuis
+                    # le relevé du job, une clôture rejouée retombe au même total.
+                    traitees, consommees = budget
+                    doc.translated_path = await asyncio.to_thread(
+                        _copie_budget, doc, traitees, job_id)
+                    # Pages traduites après coup dans la copie (« traduire quand
+                    # même », P3) : débitées à part, elles restent dues quand la
+                    # clôture est rejouée (à la première, elles sont dans consommees).
+                    apres = await asyncio.to_thread(
+                        _pages_traduites_de, doc.translated_path)
+                    gardees = len((consommees | apres)
+                                  - pages_lues_sans_traduction(doc.translated_path))
+                    await refund_unfinished(db, doc_id, gardees)
+                    return
+                exclues = (pages_non_facturables(doc.translated_path)
+                           | pages_lues_sans_traduction(doc.translated_path)
+                           if doc.translated_path else set())
+                visees = pages_selectionnees(doc)
+                if visees:
+                    exclues &= visees
+                if exclues:
+                    await refund_unfinished(
+                        db, doc_id, max(0, (doc.page_count or 0) - len(exclues) - deja))
 
         try:
             _dans_une_boucle_jetable(_maj)

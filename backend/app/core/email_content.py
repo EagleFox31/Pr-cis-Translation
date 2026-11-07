@@ -74,6 +74,67 @@ TEXTES: dict[str, dict[str, str]] = {
 }
 
 
+#: Invitation à découvrir Précis. Ton différent du code de connexion : ici on
+#: PRÉSENTE le produit à quelqu'un qui ne le connaît pas, au nom d'une personne
+#: qu'il connaît. Trois arguments, pas un de plus — ce sont ceux de l'accueil.
+TEXTES_INVITATION: dict[str, dict[str, str]] = {
+    "fr": {
+        "sujet": "{inviteur} vous invite à découvrir Précis",
+        "bandeau": "Invitation",
+        "titre": "{inviteur} vous invite sur Précis",
+        "sous_titre": "Traduisez vos documents sans perdre leur mise en page.",
+        "mot_de": "Un mot de {inviteur}",
+        "atout_1": "Polices, colonnes, tableaux, images — tout reste en place.",
+        "atout_2": "PDF, Word, PowerPoint, Excel et texte.",
+        "atout_3": "23 langues, 36 variantes.",
+        "bouton": "Découvrir Précis",
+        "lien": "Ou copiez ce lien : {url}",
+        "pourquoi": "Vous recevez cet e-mail parce que {inviteur} ({email}) "
+                    "a pensé que Précis pourrait vous être utile. "
+                    "Aucun compte n'a été créé à votre nom.",
+        "texte_brut": (
+            "{inviteur} vous invite à découvrir Précis.\n\n"
+            "Traduisez vos documents sans perdre leur mise en page :\n"
+            "- Polices, colonnes, tableaux, images — tout reste en place.\n"
+            "- PDF, Word, PowerPoint, Excel et texte.\n"
+            "- 23 langues, 36 variantes.\n"
+            "{message}\n"
+            "Découvrir Précis : {url}\n\n"
+            "Vous recevez cet e-mail parce que {inviteur} ({email}) a pensé "
+            "que Précis pourrait vous être utile. Aucun compte n'a été créé "
+            "à votre nom."
+        ),
+    },
+    "en": {
+        "sujet": "{inviteur} invited you to try Précis",
+        "bandeau": "Invitation",
+        "titre": "{inviteur} invited you to Précis",
+        "sous_titre": "Translate your documents without losing their layout.",
+        "mot_de": "A note from {inviteur}",
+        "atout_1": "Fonts, columns, tables, images — everything stays in place.",
+        "atout_2": "PDF, Word, PowerPoint, Excel and plain text.",
+        "atout_3": "23 languages, 36 variants.",
+        "bouton": "Discover Précis",
+        "lien": "Or copy this link: {url}",
+        "pourquoi": "You're receiving this email because {inviteur} ({email}) "
+                    "thought Précis might be useful to you. "
+                    "No account has been created in your name.",
+        "texte_brut": (
+            "{inviteur} invited you to try Précis.\n\n"
+            "Translate your documents without losing their layout:\n"
+            "- Fonts, columns, tables, images — everything stays in place.\n"
+            "- PDF, Word, PowerPoint, Excel and plain text.\n"
+            "- 23 languages, 36 variants.\n"
+            "{message}\n"
+            "Discover Précis: {url}\n\n"
+            "You're receiving this email because {inviteur} ({email}) thought "
+            "Précis might be useful to you. No account has been created in "
+            "your name."
+        ),
+    },
+}
+
+
 def normaliser_langue(accept_language: str | None) -> str:
     """Langue à employer, depuis un en-tête `Accept-Language`.
 
@@ -95,3 +156,8 @@ def normaliser_langue(accept_language: str | None) -> str:
 def textes(langue: str) -> dict[str, str]:
     """Les textes d'une langue, français par défaut."""
     return TEXTES.get(langue, TEXTES[LANGUE_DEFAUT])
+
+
+def textes_invitation(langue: str) -> dict[str, str]:
+    """Les textes de l'invitation dans une langue, français par défaut."""
+    return TEXTES_INVITATION.get(langue, TEXTES_INVITATION[LANGUE_DEFAUT])
