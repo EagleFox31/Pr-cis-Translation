@@ -318,6 +318,18 @@ async function image(msg: {
   }
 }
 
+/** Texte lu dans l'image déjà dans la langue cible : même détecteur que pour le texte des pages.
+ *  Détection incertaine (texte court) : l'image reste proposée. */
+async function dejaEnCible(texte: string | undefined, cible: string): Promise<boolean> {
+  if (!texte) return false;
+  try {
+    const d = await chrome.i18n.detectLanguage(texte);
+    return d.isReliable && d.languages[0]?.language.split("-")[0] === cible.split("-")[0];
+  } catch {
+    return false;
+  }
+}
+
 function aDuTexte(r: ReponseImage | null): boolean {
   return !!r && r.blocs.length > 0;
 }
@@ -352,7 +364,9 @@ async function analyseImage(msg: {
     if (await limitePage(rep)) return { ok: false, erreur: "limite" };
     if (rep.status === 413 || rep.status === 415) return { ok: false, erreur: "refusee" };
     if (!rep.ok) return { ok: false, erreur: "indisponible" };
-    return { ok: true, traduisible: ((await rep.json()) as { traduisible: boolean }).traduisible === true };
+    const verdict = (await rep.json()) as { traduisible: boolean; texte?: string };
+    if (verdict.traduisible !== true) return { ok: true, traduisible: false };
+    return { ok: true, traduisible: !(await dejaEnCible(verdict.texte, msg.langue)) };
   } catch {
     return { ok: false, erreur: "indisponible" };
   }
