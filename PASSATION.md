@@ -107,3 +107,8 @@ EN COURS : branche `feat/ocr-file-pages-illisibles`, mission 6.13.11 commitée e
 - PR ouvertes, rien fusionné : #57 (consolidation), #58 (feat/seo-geo), #59 (feat/seo-intent-pages, base #58).
 - Après accord : fusionner #57 → #58 → #59, fermer #32/#35/#52/#53/#54/#55/#56, fusionner la PR Release Please, déployer sur AWS, vérifier la production (`public-https-verification.yml`).
 - Toujours à décider : textes de la landing `comparison.row_data_precis` et `row_ocr_other`.
+
+## 2026-11-07 21:49 — Ré-épinglage appfactory v1.4.0 (PR #65)
+
+- PR #65 (`chore/repin-appfactory-v1.4.0`, base main) : `project-automation.yml` passe de `14d51168` à v1.4.0 `0523510` (concurrence par issue/PR, corrige la perte de syncs en rafale). Testée par `workflow_dispatch` depuis la branche sur #62 : succès, aucun doublon. Non fusionnée.
+- Côté appfactory : PR EagleFox31/appfactory-project-automation#148 (épinglage documenté, test anti-SHA défectueux, LESSON-2026-017), non fusionnée.
