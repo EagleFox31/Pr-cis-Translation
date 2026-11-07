@@ -51,6 +51,8 @@ export type MsgMaj = { type: "maj" };
 export type MsgSuivi = { type: "suivi" };
 /** content -> background : choix du bandeau de proposition, appliqué à l'onglet (et au site si « toujours »). */
 export type MsgAppliquer = { type: "appliquer"; mode: "traduire" | "original"; langue: string; toujours: boolean };
+/** content -> background : accord pour des images, posé une seule fois pour tous les cadres de l'onglet. */
+export type MsgAccordImages = { type: "accord_images"; images: number };
 
 export type VersBackground =
   | MsgConnexion
@@ -63,7 +65,8 @@ export type VersBackground =
   | MsgMemoireEffacer
   | MsgMaj
   | MsgSuivi
-  | MsgAppliquer;
+  | MsgAppliquer
+  | MsgAccordImages;
 
 export type ReponseConnexion = { ok: true; email: string } | { ok: false; erreur: ErreurConnexion };
 export type ReponseEtat = { connecte: boolean; email?: string; plan?: string };
@@ -90,6 +93,8 @@ export interface ReponsesBackground {
   maj: ReponseMaj;
   suivi: { langue: string } | { proposer: true; cible: string } | null;
   appliquer: { ok: boolean };
+  /** null : question impossible dans le cadre principal, à poser sur place. */
+  accord_images: { accepte: boolean; toujours: boolean } | null;
 }
 
 export type ReponseDe<M extends VersBackground> = ReponsesBackground[M["type"]];
@@ -98,4 +103,6 @@ export type ReponseDe<M extends VersBackground> = ReponsesBackground[M["type"]];
 /** silencieux : relance automatique après un changement de document, sans message « déjà traduite ». */
 export type MsgTraduire = { type: "traduire"; langue: string; silencieux?: boolean };
 export type MsgOriginal = { type: "original" };
-export type VersContent = MsgTraduire | MsgOriginal;
+/** background -> cadre principal : affiche la question d'accord pour les images. */
+export type MsgDemanderAccord = { type: "demander_accord"; images: number };
+export type VersContent = MsgTraduire | MsgOriginal | MsgDemanderAccord;

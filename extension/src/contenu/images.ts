@@ -1,7 +1,8 @@
 import { DetecteurAnimation } from "../lib/animation.ts";
 import { messageAccord, messageLimiteImages } from "../lib/cout.ts";
 import { enParallele } from "../lib/parallele.ts";
-import { afficherErreur, obtenirBandeau } from "./bandeau.ts";
+import { versBackground } from "../pont.ts";
+import { afficherErreur, obtenirBandeau, type Accord as Reponse } from "./bandeau.ts";
 import { poserCalque, retirerCalques } from "./calques.ts";
 import {
   analyserImage,
@@ -99,6 +100,7 @@ function trouverCandidats(): Candidat[] {
     trouves.push({ el, genre, cle, src });
   };
 
+  if (!cadreVisible()) return trouves;
   for (const el of elementsProfonds(document)) {
     if (el.hasAttribute(ATTR_UI)) continue;
     if (el instanceof HTMLImageElement) {
@@ -122,7 +124,39 @@ function trouverCandidats(): Candidat[] {
   return trouves;
 }
 
+/** Question posée dans le cadre principal (une seule pour tout l'onglet), sinon sur place. */
+async function demanderAccord(images: number): Promise<Reponse> {
+  const r = await versBackground({ type: "accord_images", images }).catch(() => null);
+  return r ?? obtenirBandeau().demanderAccord(messageAccord(images));
+}
+
+/** Cadre affiché dans la page : un cadre caché ou hors écran a pourtant sa propre fenêtre « visible ». */
+function cadreVisible(): boolean {
+  let w: Window = window;
+  try {
+    while (w !== w.top && w.frameElement) {
+      const cadre = w.frameElement;
+      const parent = w.parent;
+      const r = cadre.getBoundingClientRect();
+      const l = Math.min(r.right, parent.innerWidth) - Math.max(r.left, 0);
+      const h = Math.min(r.bottom, parent.innerHeight) - Math.max(r.top, 0);
+      if (l <= 0 || h <= 0 || !estAffiche(cadre)) return false;
+      w = parent;
+    }
+  } catch {
+    // Cadre d'une autre origine : impossible à vérifier, on le suppose affiché.
+  }
+  return true;
+}
+
+/** Ni caché ni transparent (diapo préchargée, calque masqué). */
+function estAffiche(el: Element): boolean {
+  if (typeof el.checkVisibility !== "function") return true;
+  return el.checkVisibility({ opacityProperty: true, visibilityProperty: true });
+}
+
 function aireVisible(el: Element): number {
+  if (!estAffiche(el)) return 0;
   const r = el.getBoundingClientRect();
   const l = Math.min(r.right, window.innerWidth) - Math.max(r.left, 0);
   const h = Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0);
@@ -421,7 +455,7 @@ export async function scannerImages(): Promise<void> {
     etat.accord = "oui";
     lot = [...proposees.values()];
   } else {
-    const reponse = await obtenirBandeau().demanderAccord(messageAccord(lot.length));
+    const reponse = await demanderAccord(lot.length);
     if (session !== etat.session) return;
     if (!reponse.accepte) {
       etat.accord = "non";

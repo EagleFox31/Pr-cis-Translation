@@ -29,6 +29,8 @@ import type {
   ReponseMemoire,
   ReponseSegments,
   VersBackground,
+  MsgAccordImages,
+  VersContent,
 } from "./types.ts";
 
 type Deconnecte = { erreur: "deconnecte" };
@@ -401,6 +403,8 @@ function traiter(msg: VersBackground): Promise<ReponseDe<VersBackground>> {
       return Promise.resolve(null);
     case "appliquer":
       return Promise.resolve({ ok: false });
+    case "accord_images":
+      return Promise.resolve(null);
     default:
       // Message d'une version précédente (script de contenu resté chargé) : ignoré.
       return Promise.resolve(undefined as never);
@@ -505,7 +509,27 @@ async function appliquer(msg: MsgAppliquer, tab: chrome.tabs.Tab | undefined): P
   return true;
 }
 
+// Une seule question par onglet : les cadres qui demandent en même temps partagent la réponse.
+const accordsEnCours = new Map<number, Promise<ReponseDe<MsgAccordImages>>>();
+
+function accordImages(tabId: number, images: number): Promise<ReponseDe<MsgAccordImages>> {
+  const enCours = accordsEnCours.get(tabId);
+  if (enCours) return enCours;
+  const question = chrome.tabs
+    .sendMessage(tabId, { type: "demander_accord", images } satisfies VersContent, { frameId: 0 })
+    .then((r: ReponseDe<MsgAccordImages> | undefined) => r ?? null, () => null)
+    .finally(() => accordsEnCours.delete(tabId));
+  accordsEnCours.set(tabId, question);
+  return question;
+}
+
 chrome.runtime.onMessage.addListener((msg: VersBackground, expediteur, repondre) => {
+  if (msg.type === "accord_images") {
+    const id = expediteur.tab?.id;
+    if (id === undefined) repondre(null);
+    else void accordImages(id, msg.images).then(repondre);
+    return true;
+  }
   if (msg.type === "suivi") {
     const tab = expediteur.tab;
     if (!tab) repondre(null);
