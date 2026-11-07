@@ -5,6 +5,8 @@ Mesuré à la route elle-même, moteur et OCR remplacés (aucun appel payant) :
   • segments : débit au volume (1 page par 1 500 caractères), forfait d'abord,
     puis pages achetées ; 402 `need_credits` sans traduire si rien ne couvre ;
   • image : 1 page si remplacée, 0 sinon (et l'image n'est pas renvoyée) ;
+  • analyse : traduisible ou non, sans débit ni contenu ; la traduction qui
+    suit reprend le rendu sans refaire l'OCR ;
     type et taille refusés avant toute lecture ;
   • `traduire_textes` : doublons et nombres ne partent pas au moteur ; blocs
     balisés `[[n]]` : balises perdues → bloc rendu tel quel ; titre et blocs
@@ -45,6 +47,7 @@ async_session = async_sessionmaker(_eng, class_=AsyncSession,
 
 segments = route.traduire_segments.__wrapped__
 image = route.traduire_une_image.__wrapped__
+analyse = route.analyser_une_image.__wrapped__
 
 
 class Moteur:
@@ -64,9 +67,9 @@ class Moteur:
         return self.ok
 
 
-def _png() -> bytes:
+def _png(couleur="white") -> bytes:
     data = io.BytesIO()
-    Image.new("RGB", (80, 40), "white").save(data, "PNG")
+    Image.new("RGB", (80, 40), couleur).save(data, "PNG")
     return data.getvalue()
 
 
@@ -252,6 +255,47 @@ async def run():
         route.traduire_image = fausse_image(True)
         r = await _appel(image, uid, file=_fichier(_png()), langue="fr")
         ok("image : rien ne couvre → 402 avant lecture", r["statut"] == 402, str(r))
+
+        # Analyse avant l'accord : rendu gardé, ni débit ni contenu renvoyé.
+        cache_actif, route.cache_images.ACTIF = route.cache_images.ACTIF, False
+        appels = []
+
+        def comptee(remplacee):
+            f = fausse_image(remplacee)
+
+            def g(data, traduire):
+                appels.append(1)
+                return f(data, traduire)
+            return g
+        try:
+            route._recents.clear()
+            uid = await compte("free", 2, quota_pris=10_000)
+            route.traduire_image = comptee(True)
+            r = await _appel(analyse, uid, file=_fichier(_png("red")), langue="fr")
+            ok("analyse : image à texte → traduisible, 0 débit, rien renvoyé",
+               r["statut"] == 200 and r["corps"] == {"traduisible": True} and r["solde"] == 2,
+               str(r)[:300])
+            r = await _appel(analyse, uid, file=_fichier(_png("red")), langue="fr")
+            ok("analyse : même image → réponse gardée, pas de nouvel OCR",
+               r["corps"] == {"traduisible": True} and len(appels) == 1, f"{r} {appels}")
+            r = await _appel(image, uid, file=_fichier(_png("red")), langue="fr")
+            ok("analyse puis traduction : 1 page débitée, image renvoyée, sans nouvel OCR",
+               r["statut"] == 200 and r["corps"]["remplacee"] and r["corps"]["image"]
+               and r["solde"] == 1 and len(appels) == 1, f"{str(r)[:300]} {appels}")
+            route.traduire_image = comptee(False)
+            r = await _appel(analyse, uid, file=_fichier(_png("blue")), langue="fr")
+            ok("analyse : image sans texte traduisible → non traduisible, 0 débit",
+               r["corps"] == {"traduisible": False} and r["solde"] == 1, str(r)[:300])
+            r = await _appel(analyse, uid, file=_fichier(b"%PDF-1.4"), langue="fr")
+            ok("analyse : faux type → 415", r["statut"] == 415, str(r["statut"]))
+            uid = await compte("free", 0, quota_pris=10_000)
+            n = len(appels)
+            r = await _appel(analyse, uid, file=_fichier(_png("green")), langue="fr")
+            ok("analyse : rien ne couvre → 402 sans lecture",
+               r["statut"] == 402 and len(appels) == n, str(r))
+        finally:
+            route.cache_images.ACTIF = cache_actif
+            route._recents.clear()
 
         # Débit lié à un document (images d'un document) : le registre porte
         # son identifiant, donc un échec du document peut le rembourser.

@@ -23,6 +23,7 @@ import type {
   ReponseDe,
   ReponseEtat,
   ReponseImage,
+  ReponseAnalyse,
   ReponseImageBg,
   ReponseMaj,
   ReponseMemoire,
@@ -314,6 +315,42 @@ async function image(msg: {
   }
 }
 
+async function analyseImage(msg: {
+  src?: string;
+  donnees?: string;
+  mime?: string;
+  langue: string;
+  page: string;
+}): Promise<ReponseAnalyse> {
+  const blob = await lireImage(msg);
+  if (!blob) return { ok: false, erreur: "illisible" };
+  // Déjà traduite pour ce compte : traduisible, la traduction sortira de la mémoire.
+  const compte = await compteActif();
+  const cle = compte ? await cleImage(compte, msg.langue, new Uint8Array(await blob.arrayBuffer())) : null;
+  if (cle && (await memoire.lireImage<ReponseImage>(cle))) return { ok: true, traduisible: true };
+
+  const formulaire = new FormData();
+  formulaire.append("file", blob, `image.${extensionDe(blob.type)}`);
+  formulaire.append("langue", msg.langue);
+  try {
+    const rep = await appelAvecReprises(
+      "/api/extension/image/analyse",
+      { method: "POST", body: formulaire, headers: { "X-Page": msg.page } },
+      [429, 503],
+      3,
+      1500,
+    );
+    if (!(rep instanceof Response)) return { ok: false, erreur: "deconnecte" };
+    if (rep.status === 402) return { ok: false, erreur: "credits" };
+    if (await limitePage(rep)) return { ok: false, erreur: "limite" };
+    if (rep.status === 413 || rep.status === 415) return { ok: false, erreur: "refusee" };
+    if (!rep.ok) return { ok: false, erreur: "indisponible" };
+    return { ok: true, traduisible: ((await rep.json()) as { traduisible: boolean }).traduisible === true };
+  } catch {
+    return { ok: false, erreur: "indisponible" };
+  }
+}
+
 // --- Messages
 
 // --- Mise à jour (installation par dossier : Chrome ne la fait pas seul ; les boutiques, si)
@@ -352,6 +389,8 @@ function traiter(msg: VersBackground): Promise<ReponseDe<VersBackground>> {
       return segments(msg.textes, msg.langue, msg.titre, msg.contexte, msg.page);
     case "image":
       return image(msg);
+    case "analyse_image":
+      return analyseImage(msg);
     case "memoire_etat":
       return memoireEtat();
     case "memoire_effacer":

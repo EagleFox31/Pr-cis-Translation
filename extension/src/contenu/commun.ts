@@ -1,6 +1,6 @@
 import { idPage } from "../lib/page.ts";
 import { versBackground } from "../pont.ts";
-import type { ReponseImageBg } from "../types.ts";
+import type { ReponseAnalyse, ReponseImageBg } from "../types.ts";
 
 // Marque les éléments injectés par l'extension : jamais traduits ni analysés.
 export const ATTR_UI = "data-precis-ui";
@@ -16,6 +16,15 @@ export const estHttp = (url: string): boolean => /^https?:/i.test(url);
 export async function envoyerImage(langue: string, charge: Charge, sansMemoire = false): Promise<ReponseImageBg> {
   try {
     const rep = await versBackground({ type: "image", langue, page: idPage(), sansMemoire, ...charge });
+    return rep ?? { ok: false, erreur: "indisponible" };
+  } catch {
+    return { ok: false, erreur: "indisponible" };
+  }
+}
+
+export async function analyserImage(langue: string, charge: Charge): Promise<ReponseAnalyse> {
+  try {
+    const rep = await versBackground({ type: "analyse_image", langue, page: idPage(), ...charge });
     return rep ?? { ok: false, erreur: "indisponible" };
   } catch {
     return { ok: false, erreur: "indisponible" };
