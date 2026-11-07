@@ -284,7 +284,7 @@ type Verdict = "traduisible" | "sans texte" | "arret";
 /** Analyse serveur (sans débit) : seules les images traduisibles entrent dans la file. */
 async function analyser(c: Candidat, session: number): Promise<Verdict> {
   if (c.genre === "img" && detecteur.estAnime(identifiant(c.el))) return "sans texte";
-  if (c.src && resultats.has(c.src)) return "traduisible";
+  if (c.src && resultats.has(c.src)) return resultats.get(c.src)!.blocs.length > 0 ? "traduisible" : "sans texte";
   const vol = c.src ? `${etat.langue} ${c.src}` : null;
   let promesse = vol ? analyses.get(vol) : undefined;
   if (!promesse) {

@@ -287,7 +287,7 @@ async function image(msg: {
   const cle = compte ? await cleImage(compte, msg.langue, new Uint8Array(await blob.arrayBuffer())) : null;
   if (cle) {
     const connue = await memoire.lireImage<ReponseImage>(cle);
-    if (connue) return { ok: true, reponse: { ...connue, pages: 0 } };
+    if (aDuTexte(connue)) return { ok: true, reponse: { ...connue!, pages: 0 } };
   }
 
   const formulaire = new FormData();
@@ -310,11 +310,16 @@ async function image(msg: {
     if (rep.status === 413 || rep.status === 415) return { ok: false, erreur: "refusee" };
     if (!rep.ok) return { ok: false, erreur: "indisponible" };
     const reponse = (await rep.json()) as ReponseImage;
-    if (cle && compte) await memoire.garderImage(cle, compte, reponse, JSON.stringify(reponse).length);
+    // Une image sans texte n'est pas gardée : elle passerait pour traduisible à la prochaine analyse.
+    if (cle && compte && aDuTexte(reponse)) await memoire.garderImage(cle, compte, reponse, JSON.stringify(reponse).length);
     return { ok: true, reponse };
   } catch {
     return { ok: false, erreur: "indisponible" };
   }
+}
+
+function aDuTexte(r: ReponseImage | null): boolean {
+  return !!r && r.blocs.length > 0;
 }
 
 async function analyseImage(msg: {
@@ -329,7 +334,7 @@ async function analyseImage(msg: {
   // Déjà traduite pour ce compte : traduisible, la traduction sortira de la mémoire.
   const compte = await compteActif();
   const cle = compte ? await cleImage(compte, msg.langue, new Uint8Array(await blob.arrayBuffer())) : null;
-  if (cle && (await memoire.lireImage<ReponseImage>(cle))) return { ok: true, traduisible: true };
+  if (cle && aDuTexte(await memoire.lireImage<ReponseImage>(cle))) return { ok: true, traduisible: true };
 
   const formulaire = new FormData();
   formulaire.append("file", blob, `image.${extensionDe(blob.type)}`);
