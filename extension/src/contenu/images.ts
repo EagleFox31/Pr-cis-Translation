@@ -28,6 +28,7 @@ interface Candidat {
   src?: string;
 }
 
+/** "oui" : toujours pour ce site ; "inconnu" : chaque nouveau lot est proposé ; "attente" : question ouverte. */
 type Accord = "inconnu" | "attente" | "oui" | "non";
 
 const etat = {
@@ -41,6 +42,8 @@ const bilan = { vues: 0, traduites: 0, limite: false };
 
 let traites = new WeakMap<Element, Set<string>>();
 let file = new Map<Element, Candidat>();
+/** Images traduisibles en attente de l'accord de l'utilisateur. */
+let proposees = new Map<Element, Candidat>();
 let restaurations: (() => void)[] = [];
 const resultats = new Map<string, ReponseImage>();
 /** Envois en cours par adresse : une même image affichée deux fois ne part qu'une fois. */
@@ -92,7 +95,7 @@ function trouverCandidats(): Candidat[] {
   const trouves: Candidat[] = [];
   const ajouter = (el: Element, genre: Genre, src?: string) => {
     const cle = cleDe(el, genre);
-    if (!cle || traites.get(el)?.has(cle) || file.has(el) || enAnalyse.has(el)) return;
+    if (!cle || traites.get(el)?.has(cle) || file.has(el) || proposees.has(el) || enAnalyse.has(el)) return;
     trouves.push({ el, genre, cle, src });
   };
 
@@ -361,11 +364,13 @@ async function analyserVisibles(session: number): Promise<boolean> {
       if (verdict === "arret") return (arret = true);
       if (verdict === "sans texte") marquer(c.el, c.cle);
       else {
-        file.set(c.el, c);
-        etat.total++;
         bilan.vues++;
-        // Accord déjà donné : traduite sans attendre la fin de l'analyse.
-        if (etat.accord === "oui") void boucle();
+        // Toujours pour ce site : traduite sans attendre la fin de l'analyse.
+        if (etat.accord === "oui") {
+          file.set(c.el, c);
+          etat.total++;
+          void boucle();
+        } else proposees.set(c.el, c);
       }
       return false;
     });
@@ -397,35 +402,49 @@ export async function scannerImages(): Promise<void> {
   if (session !== etat.session) return;
   if (arret) {
     file.clear();
+    proposees.clear();
     return;
   }
   if (etat.aRefaire) {
     etat.aRefaire = false;
     relancer();
   }
-  // Aucune image traduisible : rien à proposer.
-  if (file.size === 0) return;
+  // Rien de nouveau à proposer, ou une question déjà ouverte (le lot suivant attend sa réponse).
+  if (proposees.size === 0 || etat.accord !== "inconnu") return;
 
-  if (etat.accord === "inconnu") {
-    etat.accord = "attente";
-    const cle = `accord:${location.origin}`;
-    const stock = await chrome.storage.local.get(cle);
+  etat.accord = "attente";
+  const cle = `accord:${location.origin}`;
+  const stock = await chrome.storage.local.get(cle);
+  if (session !== etat.session) return;
+  let lot = [...proposees.values()];
+  if (stock[cle]) {
+    etat.accord = "oui";
+    lot = [...proposees.values()];
+  } else {
+    const reponse = await obtenirBandeau().demanderAccord(messageAccord(lot.length));
     if (session !== etat.session) return;
-    if (stock[cle]) {
+    if (!reponse.accepte) {
+      etat.accord = "non";
+      proposees.clear();
+      return;
+    }
+    if (reponse.toujours) {
+      await chrome.storage.local.set({ [cle]: true });
       etat.accord = "oui";
+      lot = [...proposees.values()];
     } else {
-      const reponse = await obtenirBandeau().demanderAccord(messageAccord(file.size));
-      if (session !== etat.session) return;
-      if (!reponse.accepte) {
-        etat.accord = "non";
-        file.clear();
-        return;
-      }
-      if (reponse.toujours) await chrome.storage.local.set({ [cle]: true });
-      etat.accord = "oui";
+      // Accord pour ce lot seulement : les images suivantes seront proposées à leur tour.
+      etat.accord = "inconnu";
     }
   }
-  if (etat.accord === "oui") void boucle();
+  for (const c of lot) {
+    proposees.delete(c.el);
+    file.set(c.el, c);
+    etat.total++;
+  }
+  void boucle();
+  // Images arrivées pendant la question : proposées à leur tour.
+  if (proposees.size > 0) relancer();
 }
 
 function relancer(): void {
@@ -477,6 +496,7 @@ function arreterImages(): void {
   etat.fait = 0;
   Object.assign(bilan, { vues: 0, traduites: 0, limite: false });
   file = new Map();
+  proposees = new Map();
   enAnalyse.clear();
   clearTimeout(minuteurChargement);
   observateurSrc?.disconnect();
