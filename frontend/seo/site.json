@@ -1,0 +1,34 @@
+{
+  "origin": "https://precis-translator.trigenys.com",
+  "name": "Précis Translator",
+  "publisher": "Trigenys Group",
+  "summary": "Précis Translator traduit des documents PDF, Word (DOCX), PowerPoint (PPTX), Excel (XLSX) et texte (TXT) en conservant leur mise en page : polices, colonnes, tableaux et images restent en place. Le service est édité par Trigenys Group.",
+  "facts": [
+    "Formats pris en charge : PDF, DOCX, PPTX, XLSX et TXT.",
+    "23 langues et 36 variantes régionales disponibles.",
+    "Aperçu de la traduction avant téléchargement.",
+    "Comptage : une page par page PDF ou par diapositive ; pour Word, Excel et texte, une page par tranche de mots entamée.",
+    "Une offre gratuite sans abonnement ni carte enregistrée, et des forfaits payants.",
+    "Extension navigateur pour Chrome et Edge : traduit le texte et les images d'une page web sur place."
+  ],
+  "routes": [
+    {
+      "path": "/home",
+      "source": "home",
+      "priority": "1.0",
+      "changefreq": "weekly"
+    },
+    {
+      "path": "/extension",
+      "source": "extension",
+      "title": "Extension navigateur Précis : traduire une page web sur Chrome et Edge",
+      "description": "Traduisez le texte et les images d'une page web en un clic, avec la mise en page conservée. Extension Précis pour Chrome et Edge.",
+      "priority": "0.8",
+      "changefreq": "monthly"
+    },
+    { "path": "/mentions-legales", "source": "legal", "slug": "mentions-legales", "priority": "0.3", "changefreq": "yearly" },
+    { "path": "/conditions", "source": "legal", "slug": "conditions", "priority": "0.3", "changefreq": "yearly" },
+    { "path": "/confidentialite", "source": "legal", "slug": "confidentialite", "priority": "0.3", "changefreq": "yearly" },
+    { "path": "/cookies", "source": "legal", "slug": "cookies", "priority": "0.3", "changefreq": "yearly" }
+  ]
+}
