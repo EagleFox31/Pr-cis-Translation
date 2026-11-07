@@ -458,8 +458,13 @@ export async function scannerImages(): Promise<void> {
     const reponse = await demanderAccord(lot.length);
     if (session !== etat.session) return;
     if (!reponse.accepte) {
-      etat.accord = "non";
-      proposees.clear();
+      // Refus pour ce lot seulement : ces images ne sont plus proposées, les suivantes le seront.
+      for (const c of lot) {
+        marquer(c.el, c.cle);
+        proposees.delete(c.el);
+      }
+      etat.accord = "inconnu";
+      if (proposees.size > 0) relancer();
       return;
     }
     if (reponse.toujours) {

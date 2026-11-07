@@ -530,6 +530,7 @@ async function appliquer(msg: MsgAppliquer, tab: chrome.tabs.Tab | undefined): P
 
 // Une seule question par onglet : les cadres qui demandent en même temps partagent la réponse.
 const REPONSE_PARTAGEE_MS = 10_000;
+const REFUS_PARTAGE_MS = 2_000;
 // Les cadres d'une même page finissent leur analyse à quelques instants d'écart : une seule question pour tous.
 const REGROUPEMENT_MS = 800;
 const accordsEnCours = new Map<number, { images: number; posee: boolean; reponse: Promise<ReponseDe<MsgAccordImages>> }>();
@@ -553,7 +554,9 @@ function accordImages(tabId: number, images: number): Promise<ReponseDe<MsgAccor
     .then((r: ReponseDe<MsgAccordImages> | undefined) => r ?? null, () => null)
     .then((r) => {
       // Les cadres qui finissent leur analyse juste après profitent de la même réponse.
-      setTimeout(() => accordsEnCours.get(tabId) === entree && accordsEnCours.delete(tabId), r ? REPONSE_PARTAGEE_MS : 0);
+      // Un refus est partagé moins longtemps : la diapositive suivante doit pouvoir reposer la question.
+      const duree = !r ? 0 : r.accepte ? REPONSE_PARTAGEE_MS : REFUS_PARTAGE_MS;
+      setTimeout(() => accordsEnCours.get(tabId) === entree && accordsEnCours.delete(tabId), duree);
       return r;
     });
   accordsEnCours.set(tabId, entree);
