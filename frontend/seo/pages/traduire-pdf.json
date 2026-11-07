@@ -1,0 +1,40 @@
+{
+  "label": "Traduire un PDF",
+  "title": "Traduire un PDF en gardant la mise en page · Précis Translator",
+  "description": "Traduisez un PDF dans 23 langues sans casser la mise en page : colonnes, tableaux et images restent en place. OCR des PDF scannés en français ou en anglais.",
+  "h1": "Traduire un PDF en gardant la mise en page",
+  "answer": "Pour traduire un PDF sans perdre sa mise en page, déposez-le dans Précis Translator, choisissez la langue cible et téléchargez un PDF traduit où les polices, les colonnes, les tableaux et les images restent à leur place. Un PDF scanné en français ou en anglais passe d'abord par l'OCR.",
+  "sections": [
+    "steps",
+    "demo",
+    {
+      "heading": "Ce qui est conservé",
+      "list": [
+        "La position des blocs de texte, les colonnes et les tableaux.",
+        "Les images et les éléments graphiques, qui ne sont pas retouchés.",
+        "Le découpage en pages : la traduction compte autant de pages que l'original."
+      ]
+    },
+    "limits",
+    "privacy"
+  ],
+  "faq": [
+    {
+      "q": "Peut-on traduire un PDF scanné ?",
+      "a": "Oui, si le document est imprimé en français ou en anglais : Précis applique un OCR automatique, jusqu'à 10 pages par envoi. Une page illisible est signalée et attend votre décision."
+    },
+    {
+      "q": "Quelle taille de PDF est acceptée ?",
+      "a": "Jusqu'à 100 Mo par fichier. Chaque page du PDF compte pour une page."
+    },
+    {
+      "q": "Le PDF traduit est-il modifiable ?",
+      "a": "Précis rend un PDF, comme l'original. Pour modifier le texte librement, traduisez plutôt la version Word (DOCX) du document si vous l'avez."
+    },
+    {
+      "q": "Peut-on voir le résultat avant de télécharger ?",
+      "a": "Oui. L'aperçu affiche la traduction page par page pendant qu'elle avance, avant tout téléchargement."
+    }
+  ],
+  "verified": "2026-11-07"
+}

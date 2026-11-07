@@ -18,3 +18,12 @@ Mémoire des incidents et quasi-incidents. Consulter avant de toucher une zone c
 - **Résolution** : `frontend/seo/site.json` est la source unique des pages publiques. `scripts/prerender.mjs` génère au build une page HTML par route, `sitemap.xml` et `llms.txt`. nginx sert `$uri.html`.
 - **Prévention vérifiable** : le contrôle SEO lit `site.json` et vérifie pour chaque page 200, canonical propre, un seul `h1`, JSON-LD `WebPage`, maillage interne, présence au sitemap et dans `llms.txt`.
 - **Leçon** : toute nouvelle page publique s'ajoute dans `site.json`, jamais directement dans nginx ou le sitemap.
+
+## 2026-11-07 — Affirmations publiques sans source vérifiée
+
+- **Contexte** : rédaction des pages `/tarifs`, `/comparatif` et `/confidentialite-documents`. Deux quasi-incidents : un premier jet annonçait le Mobile Money dans toutes les zones (il n'existe qu'en zone A), et le comparatif de la landing (`comparison.row_data_precis` : « Supprimées sous 24h ») contredit la politique de confidentialité (documents gardés jusqu'à suppression, fichiers temporaires 7 jours).
+- **Cause racine** : textes marketing écrits de mémoire, sans lien avec les constantes du backend ni avec la politique publiée.
+- **Classification** : contenu, divergence silencieuse entre promesse publique et comportement réel.
+- **Résolution** : prix, quotas, stockage, taille maximale, formats et mots par page des pages de contenu sont vérifiés contre `backend/app/core/pricing.py`, `models/plans.py`, `config.py` et `services/documents.py`. Le texte de la landing reste à corriger (décision produit/juridique).
+- **Prévention vérifiable** : `scripts/ci/verify_public_seo.py` échoue si `frontend/seo/pages/tarifs.json` ou une limite citée diverge du backend (test de mutation : une page à 0,18 € fait échouer le contrôle). Chaque page de contenu porte une date `verified`, et le comparatif cite ses sources.
+- **Leçon** : toute valeur chiffrée affichée publiquement doit avoir une source de vérité dans le code ou une source externe datée, et un contrôle qui casse quand elle change.

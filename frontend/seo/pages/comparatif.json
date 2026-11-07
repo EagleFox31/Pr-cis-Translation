@@ -1,0 +1,116 @@
+{
+  "label": "Comparatif",
+  "title": "Précis, DeepL, Google Traduction ou Word : quel outil pour traduire un document ?",
+  "description": "Comparatif sourcé de la traduction de documents : formats, offre gratuite, taille maximale et PDF scannés chez Précis, DeepL, Google Traduction et Word.",
+  "h1": "Précis, DeepL, Google Traduction ou Word : quel outil pour traduire un document ?",
+  "answer": "Pour un petit document gratuit, Google Traduction suffit (10 Mo, PDF de 300 pages au plus). DeepL accepte le plus de formats. Word traduit un document Word si vous avez Microsoft 365. Précis vise les fichiers lourds (100 Mo), les PDF scannés en français ou en anglais et le paiement en FCFA par Mobile Money.",
+  "table": {
+    "caption": "Traduction de documents sur le web, d'après les pages officielles de chaque éditeur",
+    "head": [
+      "Critère",
+      "Précis",
+      "DeepL",
+      "Google Traduction",
+      "Word (Microsoft 365)"
+    ],
+    "rows": [
+      [
+        "Formats de documents",
+        "PDF, DOCX, PPTX, XLSX, TXT",
+        "PDF, Word, PowerPoint, Excel, HTML, TXT et d'autres formats",
+        "DOCX, PDF, PPTX, XLSX",
+        "Documents Word"
+      ],
+      [
+        "Offre gratuite",
+        "5 pages équivalentes par mois",
+        "1 fichier Word, PowerPoint ou PDF par mois, jusqu'à 5 Mo",
+        "Oui",
+        "Non : abonnement Microsoft 365 ou Office 2021/2024"
+      ],
+      [
+        "Taille maximale",
+        "100 Mo par fichier",
+        "5 Mo en gratuit ; 30 Mo par fichier en Pro selon la spécification du service",
+        "10 Mo ; PDF de 300 pages au plus",
+        "Non précisé"
+      ],
+      [
+        "PDF scannés",
+        "OCR des PDF imprimés en français ou en anglais, 10 pages par envoi",
+        "Non précisé sur les pages consultées",
+        "Pages scannées affichées mais non traduites",
+        "Sans objet"
+      ],
+      [
+        "Résultat",
+        "Fichier traduit au même format, avec aperçu avant téléchargement",
+        "Fichier traduit, modifiable dans DeepL en Pro",
+        "Fichier traduit",
+        "Copie traduite ouverte dans une nouvelle fenêtre"
+      ],
+      [
+        "Paiement",
+        "FCFA, dollars ou euros selon la zone ; carte, ou Mobile Money en Afrique subsaharienne",
+        "Abonnement Pro",
+        "Gratuit (API payante pour de gros volumes)",
+        "Abonnement Microsoft 365"
+      ]
+    ]
+  },
+  "sections": [
+    {
+      "heading": "Quel outil choisir",
+      "list": [
+        "Google Traduction : un document léger, une traduction rapide et gratuite, sur ordinateur (la traduction de documents n'est pas proposée sur mobile).",
+        "DeepL : le plus large choix de formats et l'édition du résultat, avec un abonnement Pro dès que l'on dépasse un fichier par mois.",
+        "Word : vous travaillez déjà dans Word avec Microsoft 365 et ne traduisez que des documents Word.",
+        "Précis : un PDF ou une présentation dont la mise en page doit rester intacte, un fichier lourd, un PDF scanné en français ou en anglais, ou un paiement en FCFA par Mobile Money."
+      ]
+    },
+    {
+      "heading": "Ce que ce comparatif ne mesure pas",
+      "paragraphs": [
+        "La qualité de traduction dépend de la langue, du domaine et du document : ce tableau ne la note pas. Testez votre propre document avec l'offre gratuite de chaque outil.",
+        "Les offres des autres éditeurs évoluent : les chiffres ci-dessus sont ceux de leurs pages officielles à la date indiquée en bas de page."
+      ]
+    }
+  ],
+  "faq": [
+    {
+      "q": "Google Traduction traduit-il les PDF scannés ?",
+      "a": "Non : d'après l'aide Google, le texte des images et des pages scannées apparaît dans le résultat mais n'est pas traduit."
+    },
+    {
+      "q": "Combien de documents DeepL traduit-il gratuitement ?",
+      "a": "D'après DeepL, la version gratuite traduit un fichier Word, PowerPoint ou PDF par mois, jusqu'à 5 Mo."
+    },
+    {
+      "q": "Faut-il un abonnement pour traduire un document dans Word ?",
+      "a": "Oui : la traduction de document est réservée aux abonnés Microsoft 365 et aux versions Office 2021 et 2024, avec une connexion internet."
+    },
+    {
+      "q": "Quel outil accepte les plus gros fichiers ?",
+      "a": "Parmi les offres comparées, Précis accepte jusqu'à 100 Mo par fichier, DeepL Pro 30 Mo par fichier selon sa spécification et Google Traduction 10 Mo."
+    }
+  ],
+  "sources": [
+    {
+      "label": "DeepL : nouveautés de la traduction de documents (offre gratuite, formats)",
+      "url": "https://www.deepl.com/blog/new-document-translation-updates"
+    },
+    {
+      "label": "DeepL : spécification du service Pro (tailles de fichier)",
+      "url": "https://www.deepl.com/pro-service-specifications"
+    },
+    {
+      "label": "Aide Google Traduction : traduire des documents",
+      "url": "https://support.google.com/translate/answer/2534559?co=GENIE.Platform%3DDesktop"
+    },
+    {
+      "label": "Aide Microsoft : traduire du texte dans une autre langue",
+      "url": "https://support.microsoft.com/fr-fr/office/traduire-du-texte-dans-une-autre-langue-287380e4-a56c-48a1-9977-f2dca89ce93f"
+    }
+  ],
+  "verified": "2026-11-07"
+}
