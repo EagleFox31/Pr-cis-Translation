@@ -28,7 +28,7 @@ from app.rate_limit import rate_limit_decorator
 from app.services import extension as ext
 from app.services import cache_images, limites_page
 from app.services.ocr_v2.detect import LectureEchouee
-from app.services.ocr_v2.image import OCTETS_MAX, ImageRefusee, traduire_image, verifier
+from app.services.ocr_v2.image import OCTETS_MAX, ImageRefusee, lire_image, traduire_image, verifier
 
 router = APIRouter(prefix="/api/extension", tags=["Extension"])
 
@@ -97,19 +97,21 @@ async def traduire_segments(request: Request, corps: Segments,
     return {"traductions": traductions, "pages": debitees}
 
 
-# Rendus récents (analyse puis traduction) : l'image analysée se traduit
-# ensuite sans refaire l'OCR (étude analyse-images-extension). Un seul worker.
-# Propres à chaque compte : un rendu incomplet ne passe pas d'un compte à l'autre.
+# Lectures récentes (analyse puis traduction) : l'analyse ne fait que l'OCR et
+# garde les lignes lues ; la traduction et le rendu n'ont lieu que si
+# l'utilisateur accepte, sans refaire l'OCR. Un seul worker. Propres à chaque
+# compte : une lecture tronquée par le délai ne passe pas d'un compte à l'autre.
 RECENTS_MAX = 64
 RECENTS_S = 15 * 60
-_recents: OrderedDict[str, tuple[float, dict]] = OrderedDict()
+_recents: OrderedDict[str, tuple[float, list]] = OrderedDict()
 
 
-def _cle_recente(user: User, data: bytes, langue: str) -> str:
-    return f"{user.id}-{hashlib.sha256(data).hexdigest()}-{langue}"
+def _cle_recente(user: User, data: bytes) -> str:
+    # Sans la langue : la lecture ne dépend que de l'image.
+    return f"{user.id}-{hashlib.sha256(data).hexdigest()}"
 
 
-def _recent(cle: str) -> dict | None:
+def _recent(cle: str) -> list | None:
     entree = _recents.get(cle)
     if entree is None or time.monotonic() - entree[0] > RECENTS_S:
         _recents.pop(cle, None)
@@ -117,9 +119,9 @@ def _recent(cle: str) -> dict | None:
     return entree[1]
 
 
-def _garder(cle: str, rendu: dict) -> None:
+def _garder(cle: str, lus: list) -> None:
     maintenant = time.monotonic()
-    _recents[cle] = (maintenant, rendu)
+    _recents[cle] = (maintenant, lus)
     _recents.move_to_end(cle)
     # Les plus anciennes en tête : les expirées partent sans attendre d'être relues.
     while _recents and maintenant - next(iter(_recents.values()))[0] > RECENTS_S:
@@ -143,19 +145,25 @@ def _place_libre(user: User) -> None:
         raise HTTPException(status_code=429, detail="Deux images sont déjà en cours.")
 
 
-async def _produire(user: User, data: bytes, langue: str, cle: str | None) -> dict:
-    """OCR, traduction et rendu, deux à la fois par utilisateur ; sans débit."""
+async def _occupe(user: User, fn, *args, **kwargs):
+    """Travail d'image (OCR, rendu) : deux à la fois par utilisateur."""
     _place_libre(user)
     _en_cours[user.id] = _en_cours.get(user.id, 0) + 1
     try:
-        rendu = await run_in_threadpool(
-            traduire_image, data, lambda t: ext.traduire_textes(t, langue))
+        return await run_in_threadpool(fn, *args, **kwargs)
     except (LectureEchouee, ext.TraductionIndisponible) as e:
         logger.warning(f"Extension, image non traduite : {e}")
         raise HTTPException(status_code=503, detail="Image non traduite. Réessayez.")
     finally:
         if (n := _en_cours.pop(user.id, 1) - 1) > 0:
             _en_cours[user.id] = n
+
+
+async def _produire(user: User, data: bytes, langue: str, cle: str | None,
+                    lus: list | None = None) -> dict:
+    """Traduction et rendu (OCR aussi si `lus` manque) ; sans débit."""
+    rendu = await _occupe(user, traduire_image, data,
+                          lambda t: ext.traduire_textes(t, langue), lus=lus)
     logger.info("Extension, image : " + ", ".join(
         f"{k} {v:.1f} s" for k, v in rendu.durees.items()))
     blocs = [{"texte": b.texte, "traduction": b.traduction,
@@ -172,23 +180,24 @@ async def analyser_une_image(request: Request, file: UploadFile = File(...),
                              langue: str = Form("fr"),
                              current_user: User = Depends(require_auth),
                              db: AsyncSession = Depends(get_db)):
-    """Traduisible ou non, sans débit ni contenu renvoyé : l'accord n'annonce
-    que les images réellement traduisibles."""
+    """Texte présent ou non (OCR seul : ni traduction, ni rendu, ni débit).
+    L'accord n'annonce que les images à texte ; la lecture est gardée pour la
+    traduction, faite seulement si l'utilisateur accepte."""
     data = await _lire_image(file)
     if not ext.couvre(*(await ext.couverture(db, current_user))[:2], 1):
         return _manque(1)
-    recente = _cle_recente(current_user, data, langue)
-    if (connu := _recent(recente)) is not None:
-        return {"traduisible": connu["remplacee"]}
+    recente = _cle_recente(current_user, data)
+    if (lus := _recent(recente)) is not None:
+        return {"traduisible": bool(lus)}
     cle = cache_images.cle(data, langue) if cache_images.ACTIF else None
     if cle and await run_in_threadpool(cache_images.lire, cle):
         return {"traduisible": True}
     _place_libre(current_user)
     if refus := _limite(request, current_user, analyses=1, images=0):
         return refus
-    rendu = await _produire(current_user, data, langue, cle)
-    _garder(recente, rendu)
-    return {"traduisible": rendu["remplacee"]}
+    lus = await _occupe(current_user, lire_image, data)
+    _garder(recente, lus)
+    return {"traduisible": bool(lus)}
 
 
 @router.post("/image")
@@ -205,12 +214,12 @@ async def traduire_une_image(request: Request, file: UploadFile = File(...),
     # consomme le budget « analyses », plus large.
     quantites = {"captures": 1} if video is True else {"analyses": 1, "images": 0}
     cle = cache_images.cle(data, langue) if cache_images.ACTIF and video is not True else None
-    recente = _cle_recente(current_user, data, langue) if video is not True else None
-    if recente and (connu := _recent(recente)) is not None:
-        # Déjà analysée : l'OCR a été compté à l'analyse.
+    recente = _cle_recente(current_user, data) if video is not True else None
+    lus = _recent(recente) if recente else None
+    if lus is not None:
+        # Déjà lue à l'analyse (et comptée) : il reste la traduction et le rendu.
         quantites = {"images": 0}
-        rendu = connu
-    elif cle and (connue := await run_in_threadpool(cache_images.lire, cle)):
+    if cle and (connue := await run_in_threadpool(cache_images.lire, cle)):
         # Déjà traduite : même débit et même budget, sans OCR ni traduction.
         rendu = {"remplacee": True, "mime": connue["mime"], "image": connue["image"],
                  "blocs": connue["blocs"]}
@@ -220,7 +229,7 @@ async def traduire_une_image(request: Request, file: UploadFile = File(...),
         _place_libre(current_user)
         if refus := _limite(request, current_user, **quantites):
             return refus
-        rendu = await _produire(current_user, data, langue, cle)
+        rendu = await _produire(current_user, data, langue, cle, lus)
     elif refus := _limite(request, current_user, **quantites):
         return refus
     # Honnêteté : une image non remplacée n'est ni rendue modifiée ni débitée.

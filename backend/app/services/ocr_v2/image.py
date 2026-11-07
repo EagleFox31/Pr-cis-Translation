@@ -434,36 +434,49 @@ def _ppocr():
     return _LECTEUR
 
 
-def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police=None):
+def _preparer(data, lecteur):
+    im = verifier(data)
+    lecteur = lecteur or _ppocr()
+    if lecteur.manquant():
+        raise LectureEchouee("lecteur absent")
+    try:
+        rgba = ImageOps.exif_transpose(im).convert("RGBA")
+    except Exception:  # fichier tronqué ou corrompu
+        raise ImageRefusee("type")
+    rgb = rgba.convert("RGB")
+    return im, rgba, cv2.cvtColor(np.asarray(rgb), cv2.COLOR_RGB2BGR), lecteur
+
+
+def lire_image(data, lecteur=None, delai_s=DELAI_S):
+    """Lignes lues (OCR seul, sans traduction ni rendu) : vide si l'image n'a
+    pas de texte. `traduire_image(..., lus=...)` les reprend sans relire."""
+    _, _, bgr, lecteur = _preparer(data, lecteur)
+    return lignes(_lire(lecteur, bgr, delai_s))
+
+
+def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police=None, lus=None):
     """Image traduite (`ImageTraduite`) à partir des octets reçus.
 
-    `traduire(textes)` renvoie une traduction par texte. `ImageRefusee` si
+    `traduire(textes)` renvoie une traduction par texte. `lus` : lignes déjà
+    lues par `lire_image`, pour ne pas refaire l'OCR. `ImageRefusee` si
     l'image n'est pas acceptée, `LectureEchouee` si le lecteur manque ou
     échoue.
     """
     debut = time.monotonic()
     fin = debut + delai_s
     d = {}
-    im = verifier(data)
-    lecteur = lecteur or _ppocr()
-    if lecteur.manquant():
-        raise LectureEchouee("lecteur absent")
+    im, rgba, bgr, lecteur = _preparer(data, lecteur)
     fmt = im.format
-    try:
-        rgba = ImageOps.exif_transpose(im).convert("RGBA")
-    except Exception:  # fichier tronqué ou corrompu
-        raise ImageRefusee("type")
     a = np.asarray(rgba.getchannel("A"))
     a = None if a.min() == 255 else a
     # Profil couleur gardé, sauf CMJN (converti en RVB, le profil ne vaut plus).
     icc = im.info.get("icc_profile") if im.mode != "CMYK" else None
-    rgb = rgba.convert("RGB")
-    bgr = cv2.cvtColor(np.asarray(rgb), cv2.COLOR_RGB2BGR)
     H, W = bgr.shape[:2]
 
-    t = time.monotonic()
-    lus = lignes(_lire(lecteur, bgr, max(fin - t, 1.0)))
-    d["lecture"] = time.monotonic() - t
+    if lus is None:
+        t = time.monotonic()
+        lus = lignes(_lire(lecteur, bgr, max(fin - t, 1.0)))
+        d["lecture"] = time.monotonic() - t
     zones = {b: _elargie(b, bgr) for _, b in lus}
     m0 = masque_couleur(bgr, list(zones.values())) if lus else None
     tous = blocs(lus, [_couleur(bgr, m0, b) for _, b in lus])

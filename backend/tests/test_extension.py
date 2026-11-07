@@ -163,7 +163,7 @@ async def run():
        c["n_page"] > len(m.recu[0]) and c["page"].startswith("# Leçon G49001")
        and "Contrôler le couple." in c["page"], str(c))
 
-    vrai_textes, vrai_image = ext.traduire_textes, route.traduire_image
+    vrai_textes, vrai_image, vraie_lecture = ext.traduire_textes, route.traduire_image, route.lire_image
     envoyes, cadres = [], []
 
     def faux_textes(textes, langue, traducteur=None, titre="", contexte=()):
@@ -172,7 +172,7 @@ async def run():
         return [f"[{langue}] {t}" for t in textes]
 
     def fausse_image(remplacee):
-        def f(data, traduire):
+        def f(data, traduire, lus=None):
             traduire(["ポンプ"])
             return ImageTraduite(b"PNG-TRADUIT" if remplacee else data, "image/png",
                                  [Bloc("ポンプ", (1, 2, 3, 4), traduction="Pompe", remplace=remplacee)])
@@ -256,43 +256,51 @@ async def run():
         r = await _appel(image, uid, file=_fichier(_png()), langue="fr")
         ok("image : rien ne couvre → 402 avant lecture", r["statut"] == 402, str(r))
 
-        # Analyse avant l'accord : rendu gardé, ni débit ni contenu renvoyé.
+        # Analyse avant l'accord : OCR seul, lecture gardée ; traduction à la demande.
         cache_actif, route.cache_images.ACTIF = route.cache_images.ACTIF, False
-        appels = []
+        lectures, rendus = [], []
+        LIGNE = [("ポンプ", (1, 2, 3, 4))]
+
+        def lecture(texte):
+            def f(data):
+                lectures.append(1)
+                return LIGNE if texte else []
+            return f
 
         def comptee(remplacee):
             f = fausse_image(remplacee)
 
-            def g(data, traduire):
-                appels.append(1)
+            def g(data, traduire, lus=None):
+                rendus.append(lus)
                 return f(data, traduire)
             return g
         try:
             route._recents.clear()
             uid = await compte("free", 2, quota_pris=10_000)
-            route.traduire_image = comptee(True)
+            route.lire_image, route.traduire_image = lecture(True), comptee(True)
             r = await _appel(analyse, uid, file=_fichier(_png("red")), langue="fr")
-            ok("analyse : image à texte → traduisible, 0 débit, rien renvoyé",
-               r["statut"] == 200 and r["corps"] == {"traduisible": True} and r["solde"] == 2,
-               str(r)[:300])
-            r = await _appel(analyse, uid, file=_fichier(_png("red")), langue="fr")
-            ok("analyse : même image → réponse gardée, pas de nouvel OCR",
-               r["corps"] == {"traduisible": True} and len(appels) == 1, f"{r} {appels}")
+            ok("analyse : image à texte → traduisible, 0 débit, rien traduit ni renvoyé",
+               r["statut"] == 200 and r["corps"] == {"traduisible": True} and r["solde"] == 2
+               and len(lectures) == 1 and not rendus, f"{str(r)[:300]} {rendus}")
+            r = await _appel(analyse, uid, file=_fichier(_png("red")), langue="en")
+            ok("analyse : même image, autre langue → lecture gardée, pas de nouvel OCR",
+               r["corps"] == {"traduisible": True} and len(lectures) == 1, f"{r} {lectures}")
             r = await _appel(image, uid, file=_fichier(_png("red")), langue="fr")
-            ok("analyse puis traduction : 1 page débitée, image renvoyée, sans nouvel OCR",
+            ok("analyse puis traduction : 1 page débitée, rendu à partir de la lecture gardée",
                r["statut"] == 200 and r["corps"]["remplacee"] and r["corps"]["image"]
-               and r["solde"] == 1 and len(appels) == 1, f"{str(r)[:300]} {appels}")
-            route.traduire_image = comptee(False)
+               and r["solde"] == 1 and len(lectures) == 1 and rendus == [LIGNE],
+               f"{str(r)[:300]} {rendus}")
+            route.lire_image = lecture(False)
             r = await _appel(analyse, uid, file=_fichier(_png("blue")), langue="fr")
-            ok("analyse : image sans texte traduisible → non traduisible, 0 débit",
+            ok("analyse : image sans texte → non traduisible, 0 débit",
                r["corps"] == {"traduisible": False} and r["solde"] == 1, str(r)[:300])
             r = await _appel(analyse, uid, file=_fichier(b"%PDF-1.4"), langue="fr")
             ok("analyse : faux type → 415", r["statut"] == 415, str(r["statut"]))
             uid = await compte("free", 0, quota_pris=10_000)
-            n = len(appels)
+            n = len(lectures)
             r = await _appel(analyse, uid, file=_fichier(_png("green")), langue="fr")
             ok("analyse : rien ne couvre → 402 sans lecture",
-               r["statut"] == 402 and len(appels) == n, str(r))
+               r["statut"] == 402 and len(lectures) == n, str(r))
         finally:
             route.cache_images.ACTIF = cache_actif
             route._recents.clear()
@@ -334,7 +342,7 @@ async def run():
                     await db.delete(d)
                 await db.commit()
     finally:
-        ext.traduire_textes, route.traduire_image = vrai_textes, vrai_image
+        ext.traduire_textes, route.traduire_image, route.lire_image = vrai_textes, vrai_image, vraie_lecture
         for uid in comptes:
             await _supprimer(uid)
 

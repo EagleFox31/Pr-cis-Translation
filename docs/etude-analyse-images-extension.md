@@ -24,18 +24,20 @@ texte est déjà dans la langue voulue, n'est jamais comptée ni montrée.
 | B. Analyse = travail complet sans débit ni renvoi d'image ; le résultat est gardé | Compte exact (« remplacée » = traduisible). La traduction après accord est instantanée | Le moteur traduit quelques mots même si l'utilisateur refuse |
 | C. Analyse côté extension (OCR local) | Aucun appel serveur | Lourd, lent, et diverge du résultat du serveur |
 
-## Choix : B
-Seul B tient la promesse « il ne voit que ce qu'on peut traduire ». Une image
-d'illustration coûte une lecture OCR et rien d'autre. Une image à texte coûte en
-plus la traduction de quelques mots, ce qui est négligeable à côté de l'OCR.
+## Choix : A (révisé le 07/11/2026, d'abord B)
+B traduisait et dessinait l'image avant toute réponse de l'utilisateur, ce qui
+ralentissait l'analyse (≈ 4 s contre < 1 s) et faisait du travail inutile. On
+garde A : l'analyse ne fait que lire l'image ; rien n'est traduit tant que
+personne ne le demande.
 
-- `POST /api/extension/image/analyse` renvoie `{traduisible: bool}`. Il ne
-  débite rien et ne renvoie ni l'image ni le texte, pour qu'on ne puisse pas
-  s'en servir pour traduire gratuitement. Il demande que le compte couvre au
-  moins une page (402 sinon) et prend le budget `analyses`.
-- Le rendu est gardé 15 minutes en mémoire, par compte (64 entrées au plus), et dans le
-  cache de 30 jours s'il est complet. `/image` le reprend : même débit, sans
-  nouvel OCR et sans reprendre le budget `analyses`.
+- `POST /api/extension/image/analyse` renvoie `{traduisible: bool}` (texte
+  trouvé ou non). Il ne débite rien et ne renvoie ni l'image ni le texte, pour
+  qu'on ne puisse pas s'en servir pour traduire gratuitement. Il demande que le
+  compte couvre au moins une page (402 sinon) et prend le budget `analyses`.
+- Les lignes lues sont gardées 15 minutes en mémoire, par compte et par image,
+  sans la langue (64 entrées au plus). `/image` les reprend : traduction et
+  rendu seulement, même débit, sans nouvel OCR et sans reprendre le budget
+  `analyses`.
 - Côté extension : images visibles → analyse (deux à la fois) → seules les
   traduisibles entrent dans la file. L'accord annonce « N images à traduire — jusqu'à
   N crédits » (une image déjà traduite pour ce compte n'est pas redébitée). S'il n'y en a aucune, rien n'est demandé. Défilement, clic ou
@@ -43,15 +45,17 @@ plus la traduction de quelques mots, ce qui est négligeable à côté de l'OCR.
   Après l'accord, elles sont traduites sans nouvelle question.
 
 ## Impacts
-- Données : aucune migration. La mémoire du processus est bornée (64 rendus).
+- Données : aucune migration. La mémoire du processus est bornée (64 lectures).
 - Sécurité : l'analyse ne rend aucun contenu et reste bornée par page et par
   minute (60/min).
-- Coût : une traduction de quelques mots par image à texte refusée.
+- Coût : une lecture OCR par image visible ; aucune traduction avant l'accord.
+- Limite : une image dont le texte est déjà dans la langue voulue est annoncée
+  mais ni remplacée ni débitée.
 - Plusieurs workers : si l'analyse et la traduction tombent sur deux workers
   différents, la mémoire ne sert pas. Le cache disque prend le relais, sinon
   l'image est refaite. Le résultat reste juste, la traduction est seulement plus
   lente.
 
 ## Risques
-- Le rendu d'une analyse peut être incomplet (délai dépassé). Il est alors
-  gardé seulement en mémoire, comme aujourd'hui.
+- La lecture d'une analyse peut être incomplète (délai dépassé). Elle reste
+  propre au compte et expire au bout de 15 minutes.
