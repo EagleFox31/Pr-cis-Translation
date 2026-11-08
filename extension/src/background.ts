@@ -609,6 +609,8 @@ chrome.tabs.onRemoved.addListener((tabId) => void ecrireSuivi(tabId, null));
 chrome.runtime.onInstalled.addListener(({ reason }) => {
   if (reason === chrome.runtime.OnInstalledReason.INSTALL) void chrome.tabs.create({ url: SITE_BIENVENUE });
   planifierMaj();
+  // La proposition automatique a été retirée : l'ancien réglage ne doit plus rien déclencher.
+  void chrome.storage.local.remove("proposer");
   // Forme à rappel : sous Edge, removeAll() ne renvoie pas toujours de promesse.
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({ id: MENU_TRADUIRE, title: "Traduire cette page avec Précis", contexts: ["page"] });

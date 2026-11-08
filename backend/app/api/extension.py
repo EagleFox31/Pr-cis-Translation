@@ -9,6 +9,7 @@ CORS du site n'est pas en jeu.
 """
 from __future__ import annotations
 
+import re
 import base64
 import hashlib
 import time
@@ -174,6 +175,36 @@ async def _produire(user: User, data: bytes, langue: str, cle: str | None,
             "image": rendu.data if rendu.remplacee else None, "blocs": blocs}
 
 
+# Écritures asiatiques (kana, kanji, hangul) : un seul caractère porte déjà du sens.
+_ASIATIQUE = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
+
+
+
+def a_des_mots(lus) -> bool:
+    """Vrai si l'image porte au moins un mot à traduire. Les étiquettes et
+    références (« G1 », « 04DID001 », numéros) ne justifient pas une traduction,
+    pas plus qu'un mot latin isolé en capitales (marque, logo : « TOYOTA »)."""
+    mots = []
+    for texte, _ in lus:
+        if _ASIATIQUE.search(texte):
+            return True
+        # Un mot : au moins deux lettres et aucun chiffre, dans n'importe quel alphabet.
+        for jeton in texte.split():
+            if not any(c.isdigit() for c in jeton) and sum(c.isalpha() for c in jeton) >= 2:
+                mots.append(jeton)
+    if len(mots) == 1 and mots[0].isupper() and mots[0].isascii():
+        return False
+    return bool(mots)
+
+
+def _verdict(lus) -> dict:
+    """Le texte lu accompagne le verdict : l'extension en détecte la langue,
+    comme pour le texte des pages, et écarte ce qui est déjà dans la langue cible."""
+    if not a_des_mots(lus):
+        return {"traduisible": False}
+    return {"traduisible": True, "texte": " ".join(t for t, _ in lus)[:1000]}
+
+
 @router.post("/image/analyse")
 @rate_limit_decorator("60/minute")
 async def analyser_une_image(request: Request, file: UploadFile = File(...),
@@ -188,7 +219,7 @@ async def analyser_une_image(request: Request, file: UploadFile = File(...),
         return _manque(1)
     recente = _cle_recente(current_user, data)
     if (lus := _recent(recente)) is not None:
-        return {"traduisible": bool(lus)}
+        return _verdict(lus)
     cle = cache_images.cle(data, langue) if cache_images.ACTIF else None
     if cle and await run_in_threadpool(cache_images.lire, cle):
         return {"traduisible": True}
@@ -197,7 +228,7 @@ async def analyser_une_image(request: Request, file: UploadFile = File(...),
         return refus
     lus = await _occupe(current_user, lire_image, data)
     _garder(recente, lus)
-    return {"traduisible": bool(lus)}
+    return _verdict(lus)
 
 
 @router.post("/image")

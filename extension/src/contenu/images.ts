@@ -1,6 +1,7 @@
 import { DetecteurAnimation } from "../lib/animation.ts";
 import { messageAccord, messageLimiteImages } from "../lib/cout.ts";
 import { enParallele } from "../lib/parallele.ts";
+import { cleAccordImages } from "../lib/suivi.ts";
 import { versBackground } from "../pont.ts";
 import { afficherErreur, obtenirBandeau, type Accord as Reponse } from "./bandeau.ts";
 import { poserCalque, retirerCalques } from "./calques.ts";
@@ -38,6 +39,17 @@ const etat = {
   bloque: false,
   session: 0, langue: "fr", total: 0, fait: 0,
 };
+// Origine de l'onglet, même depuis un cadre : c'est celle que la fenêtre de l'extension connaît.
+const origines = location.ancestorOrigins;
+const cleAccord = cleAccordImages(origines?.length ? origines[origines.length - 1] : location.origin);
+
+// Accord retiré depuis la fenêtre de l'extension : les lots suivants sont de nouveau proposés.
+chrome.storage.onChanged.addListener((changements, zone) => {
+  if (zone === "local" && cleAccord in changements && !changements[cleAccord].newValue && etat.accord === "oui") {
+    etat.accord = "inconnu";
+  }
+});
+
 /** Bilan de la page : images traduisibles vues, images remplacées, budget du serveur épuisé. */
 const bilan = { vues: 0, traduites: 0, limite: false };
 
@@ -447,7 +459,7 @@ export async function scannerImages(): Promise<void> {
   if (proposees.size === 0 || etat.accord !== "inconnu") return;
 
   etat.accord = "attente";
-  const cle = `accord:${location.origin}`;
+  const cle = cleAccord;
   const stock = await chrome.storage.local.get(cle);
   if (session !== etat.session) return;
   let lot = [...proposees.values()];

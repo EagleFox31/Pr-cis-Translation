@@ -454,6 +454,12 @@ def lire_image(data, lecteur=None, delai_s=DELAI_S):
     return lignes(_lire(lecteur, bgr, delai_s))
 
 
+def _pareil(a: str, b: str) -> bool:
+    """Même texte à la casse, aux espaces et à la ponctuation finale près."""
+    n = lambda t: " ".join(t.split()).casefold().rstrip(".!?:;,。！？")
+    return n(a) == n(b)
+
+
 def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police=None, lus=None):
     """Image traduite (`ImageTraduite`) à partir des octets reçus.
 
@@ -489,7 +495,8 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
     places, poses = [], []
     for b in tous:
         x, y, w, h = b.boite
-        if not b.traduction or b.traduction == b.texte:
+        # Déjà dans la langue cible (le traducteur l'a rendu tel quel) : laissé intact.
+        if not b.traduction or _pareil(b.traduction, b.texte):
             continue
         # Lettres posées sur de la transparence : l'effacement ne les retirerait pas.
         if a is not None and a[y:y + h, x:x + w].min() < 255:

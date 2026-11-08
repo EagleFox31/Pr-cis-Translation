@@ -47,6 +47,9 @@ export function decision(
 
 export const cleSuivi = (tabId: number): string => `suivi:${tabId}`;
 
+/** Accord « toujours pour ce site » des images, rangé sous l'origine de l'onglet (cadres compris). */
+export const cleAccordImages = (origine: string): string => `accord:${origine}`;
+
 export function origineDe(url: string | undefined): string | null {
   if (!url) return null;
   try {
