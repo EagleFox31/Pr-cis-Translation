@@ -365,18 +365,32 @@ def cas_mots_entiers():
 
 
 def cas_symboles():
-    """Puce dessinée non lue à gauche d'une ligne : englobée, rendue par « • »."""
+    """Puce dessinée non lue à gauche d'une ligne : repérée, laissée en place,
+    la ligne ouvre un bloc et sa traduction part du texte d'origine."""
     im = Image.fromarray(fond())
     d = ImageDraw.Draw(im)
-    d.polygon([(40, 120), (60, 100), (80, 120), (60, 140)], fill=(20, 20, 20))  # ◆
+    for y in (120, 220):
+        d.polygon([(40, y), (60, y - 20), (80, y), (60, y + 20)], fill=(20, 20, 20))  # ◆
     d.text((100, 100), "Result", fill=(20, 20, 20), font=ImageFont.truetype(POLICE, 36))
     d.text((100, 200), "Brakes", fill=(20, 20, 20), font=ImageFont.truetype(POLICE, 36))
+    d.text((100, 300), "Tires", fill=(20, 20, 20), font=ImageFont.truetype(POLICE, 36))
     bgr = np.asarray(im.convert("RGB"))[:, :, ::-1]
-    lus = [("Result", (100, 100, 110, 40)), ("Brakes", (100, 200, 120, 40)),
-           ("・Tires", (100, 280, 120, 40))]
-    out = module._symboles(lus, bgr)
-    assert out[0][0] == "• Result" and out[0][1][0] <= 41 and out[0][1][0] + out[0][1][2] == 210, out[0]
-    assert out[1] == lus[1] and out[2] == lus[2], out  # sans symbole ; puce déjà lue
+    lus = [("Result", (100, 100, 110, 40)), ("Brakes", (100, 145, 120, 40)),
+           ("Tires", (100, 300, 120, 40)), ("・Oil", (100, 380, 120, 40))]
+    puces = module._symboles(lus, bgr)
+    assert set(puces) == {lus[0][1]} and 78 <= puces[lus[0][1]] <= 82, puces
+    # Deux lignes empilées : la puce dessinée sépare les blocs.
+    assert len(blocs(lus[:2], puces={lus[1][1]})) == 2
+    assert len(blocs(lus[:2])) == 1
+
+    # Bout en bout : le losange reste, la traduction ne déborde pas à gauche.
+    buf = io.BytesIO()
+    im.save(buf, "PNG")
+    lus2 = [("Result", (100, 100, 110, 40))]
+    r = module.traduire_image(buf.getvalue(), lambda ts: ["Résultat obtenu"] * len(ts), lus=lus2)
+    out = np.asarray(Image.open(io.BytesIO(r.data)).convert("RGB"))
+    assert (out[115:126, 55:66] < 80).all(), "losange effacé"
+    assert (out[100:140, 84:98] > 200).all(), "traduction posée sur la puce"
 
 
 def main():

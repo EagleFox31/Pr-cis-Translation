@@ -207,14 +207,15 @@ def lignes(mots):
     return out
 
 
-def blocs(lignes_lues, couleurs=None):
+def blocs(lignes_lues, couleurs=None, puces=()):
     """Regroupe les lignes voisines (même hauteur et couleur, empilées,
-    recouvrement) ; une ligne qui commence par une puce ouvre un bloc."""
+    recouvrement) ; une ligne qui commence par une puce, lue ou dessinée
+    (`puces` : boîtes de lignes), ouvre un bloc."""
     out, teintes = [], []
     for n, (texte, b) in enumerate(lignes_lues):
         x, y, w, h = b
         c = np.array(couleurs[n], float) if couleurs else None
-        for bl, tb in zip([] if _PUCE.match(texte) else out, teintes):
+        for bl, tb in zip([] if _PUCE.match(texte) or b in puces else out, teintes):
             px, py, pw, ph = bl.lignes[-1]
             # Fin de phrase reportée seule sous la ligne (« …がで » / « きる。 ») :
             # la boîte d'un texte court varie plus en hauteur, on tolère le double.
@@ -401,17 +402,17 @@ def _elargie(boite, bgr):
 
 
 def _symboles(lus, bgr):
-    """Puce dessinée (◆, ●, ■…) que l'OCR ne lit pas, collée à gauche d'une
-    ligne : la boîte de la ligne l'englobe et le texte commence par « • ». Sans
-    cela la traduction, plus longue, se pose par-dessus le symbole resté."""
+    """Puces dessinées (◆, ●, ■…) que l'OCR ne lit pas, collées à gauche d'une
+    ligne : `{boîte de la ligne: bord droit du symbole}`. Le symbole reste tel
+    quel dans l'image ; la ligne ouvre un bloc, son effacement s'arrête avant
+    lui et la traduction part du début du texte d'origine sans jamais le couvrir."""
     boites = [b for _, b in lus]
-    out = []
+    out = {}
     for t, b in lus:
         x, y, w, h = (int(round(v)) for v in b)
         x0 = max(x - 2 * h, 0)
         z = bgr[y:y + h, x0:x].astype(np.int16)
         if _PUCE.match(t) or z.size == 0:
-            out.append((t, b))
             continue
         m = (np.abs(z - np.median(z.reshape(-1, 3), axis=0)).max(axis=2) > SEUIL_ENCRE).astype(np.uint8)
         k, _, st, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
@@ -423,13 +424,11 @@ def _symboles(lus, bgr):
             if (2 <= ecart <= 0.6 * h and sx > 0 and 0.4 * h <= sh <= h
                     and 0.6 <= sw / sh <= 1.6 and a >= 0.45 * sw * sh
                     and abs(sy + sh / 2 - h / 2) <= 0.2 * h):
-                trouve = x0 + int(sx)
+                trouve = x0 + int(sx + sw)
         if trouve is not None and not any(
                 o is not b and o[0] < x and o[0] + o[2] > trouve
                 and o[1] < y + h and o[1] + o[3] > y for o in boites):
-            out.append(("• " + t, (trouve, b[1], b[0] + b[2] - trouve, b[3])))
-        else:
-            out.append((t, b))
+            out[b] = trouve
     return out
 
 
@@ -586,10 +585,14 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
         t = time.monotonic()
         lus = lignes(_lire(lecteur, bgr, max(fin - t, 1.0)))
         d["lecture"] = time.monotonic() - t
-    lus = _symboles(lus, bgr)
-    zones ={b: _elargie(b, bgr) for _, b in lus}
+    puces = _symboles(lus, bgr)
+    zones = {b: _elargie(b, bgr) for _, b in lus}
+    for b, bord in puces.items():  # le symbole dessiné n'est pas effacé
+        zx, zy, zw, zh = zones[b]
+        x1 = max(zx + zw, bord + 2)
+        zones[b] = (max(zx, bord + 1), zy, x1 - max(zx, bord + 1), zh)
     m0 = masque_couleur(bgr, list(zones.values())) if lus else None
-    tous = blocs(lus, [_couleur(bgr, m0, b) for _, b in lus])
+    tous = blocs(lus, [_couleur(bgr, m0, b) for _, b in lus], puces)
     if tous:
         t = time.monotonic()
         for b, tr in zip(tous, traduire([b.texte for b in tous])):
@@ -607,6 +610,8 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
         if a is not None and a[y:y + h, x:x + w].min() < 255:
             continue
         cb = cadre(bgr, b, tous)
+        if b.lignes[0] in puces:  # après la puce dessinée, aligné à gauche
+            cb = (x, max(cb[1], x + w), False)
         efface = _union([zones[l] for l in b.lignes])
         libre = _libre(bgr, b, [l for _, l in lus], cb[0], cb[1], efface, poses)
         z = [zones[l] for l in b.lignes]
