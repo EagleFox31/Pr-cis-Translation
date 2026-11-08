@@ -5,6 +5,8 @@ Mesuré à la route elle-même, moteur et OCR remplacés (aucun appel payant) :
   • segments : débit au volume (1 page par 1 500 caractères), forfait d'abord,
     puis pages achetées ; 402 `need_credits` sans traduire si rien ne couvre ;
   • image : 1 page si remplacée, 0 sinon (et l'image n'est pas renvoyée) ;
+  • analyse : traduisible ou non, sans débit ni contenu ; la traduction qui
+    suit reprend le rendu sans refaire l'OCR ;
     type et taille refusés avant toute lecture ;
   • `traduire_textes` : doublons et nombres ne partent pas au moteur ; blocs
     balisés `[[n]]` : balises perdues → bloc rendu tel quel ; titre et blocs
@@ -45,6 +47,7 @@ async_session = async_sessionmaker(_eng, class_=AsyncSession,
 
 segments = route.traduire_segments.__wrapped__
 image = route.traduire_une_image.__wrapped__
+analyse = route.analyser_une_image.__wrapped__
 
 
 class Moteur:
@@ -64,9 +67,9 @@ class Moteur:
         return self.ok
 
 
-def _png() -> bytes:
+def _png(couleur="white") -> bytes:
     data = io.BytesIO()
-    Image.new("RGB", (80, 40), "white").save(data, "PNG")
+    Image.new("RGB", (80, 40), couleur).save(data, "PNG")
     return data.getvalue()
 
 
@@ -160,7 +163,7 @@ async def run():
        c["n_page"] > len(m.recu[0]) and c["page"].startswith("# Leçon G49001")
        and "Contrôler le couple." in c["page"], str(c))
 
-    vrai_textes, vrai_image = ext.traduire_textes, route.traduire_image
+    vrai_textes, vrai_image, vraie_lecture = ext.traduire_textes, route.traduire_image, route.lire_image
     envoyes, cadres = [], []
 
     def faux_textes(textes, langue, traducteur=None, titre="", contexte=()):
@@ -169,7 +172,7 @@ async def run():
         return [f"[{langue}] {t}" for t in textes]
 
     def fausse_image(remplacee):
-        def f(data, traduire, tour=None):
+        def f(data, traduire, lus=None, tour=None):
             # La reconnaissance passe par le guichet OCR, la traduction en dehors.
             if tour is not None:
                 with tour():
@@ -257,6 +260,55 @@ async def run():
         r = await _appel(image, uid, file=_fichier(_png()), langue="fr")
         ok("image : rien ne couvre → 402 avant lecture", r["statut"] == 402, str(r))
 
+        # Analyse avant l'accord : OCR seul, lecture gardée ; traduction à la demande.
+        cache_actif, route.cache_images.ACTIF = route.cache_images.ACTIF, False
+        lectures, rendus = [], []
+        LIGNE = [("ポンプ", (1, 2, 3, 4))]
+
+        def lecture(texte):
+            def f(data, tour=None):
+                lectures.append(1)
+                return LIGNE if texte else []
+            return f
+
+        def comptee(remplacee):
+            f = fausse_image(remplacee)
+
+            def g(data, traduire, lus=None, tour=None):
+                rendus.append(lus)
+                return f(data, traduire)
+            return g
+        try:
+            route._recents.clear()
+            uid = await compte("free", 2, quota_pris=10_000)
+            route.lire_image, route.traduire_image = lecture(True), comptee(True)
+            r = await _appel(analyse, uid, file=_fichier(_png("red")), langue="fr")
+            ok("analyse : image à texte → traduisible, 0 débit, rien traduit ni renvoyé",
+               r["statut"] == 200 and r["corps"] == {"traduisible": True, "texte": "ポンプ"} and r["solde"] == 2
+               and len(lectures) == 1 and not rendus, f"{str(r)[:300]} {rendus}")
+            r = await _appel(analyse, uid, file=_fichier(_png("red")), langue="en")
+            ok("analyse : même image, autre langue → lecture gardée, pas de nouvel OCR",
+               r["corps"] == {"traduisible": True, "texte": "ポンプ"} and len(lectures) == 1, f"{r} {lectures}")
+            r = await _appel(image, uid, file=_fichier(_png("red")), langue="fr")
+            ok("analyse puis traduction : 1 page débitée, rendu à partir de la lecture gardée",
+               r["statut"] == 200 and r["corps"]["remplacee"] and r["corps"]["image"]
+               and r["solde"] == 1 and len(lectures) == 1 and rendus == [LIGNE],
+               f"{str(r)[:300]} {rendus}")
+            route.lire_image = lecture(False)
+            r = await _appel(analyse, uid, file=_fichier(_png("blue")), langue="fr")
+            ok("analyse : image sans texte → non traduisible, 0 débit",
+               r["corps"] == {"traduisible": False} and r["solde"] == 1, str(r)[:300])
+            r = await _appel(analyse, uid, file=_fichier(b"%PDF-1.4"), langue="fr")
+            ok("analyse : faux type → 415", r["statut"] == 415, str(r["statut"]))
+            uid = await compte("free", 0, quota_pris=10_000)
+            n = len(lectures)
+            r = await _appel(analyse, uid, file=_fichier(_png("green")), langue="fr")
+            ok("analyse : rien ne couvre → 402 sans lecture",
+               r["statut"] == 402 and len(lectures) == n, str(r))
+        finally:
+            route.cache_images.ACTIF = cache_actif
+            route._recents.clear()
+
         # Débit lié à un document (images d'un document) : le registre porte
         # son identifiant, donc un échec du document peut le rembourser.
         uid = await compte("starter", 3, quota_pris=99)
@@ -294,7 +346,7 @@ async def run():
                     await db.delete(d)
                 await db.commit()
     finally:
-        ext.traduire_textes, route.traduire_image = vrai_textes, vrai_image
+        ext.traduire_textes, route.traduire_image, route.lire_image = vrai_textes, vrai_image, vraie_lecture
         for uid in comptes:
             await _supprimer(uid)
 

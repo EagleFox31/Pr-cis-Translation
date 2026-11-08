@@ -23,11 +23,14 @@ import type {
   ReponseDe,
   ReponseEtat,
   ReponseImage,
+  ReponseAnalyse,
   ReponseImageBg,
   ReponseMaj,
   ReponseMemoire,
   ReponseSegments,
   VersBackground,
+  MsgAccordImages,
+  VersContent,
 } from "./types.ts";
 
 type Deconnecte = { erreur: "deconnecte" };
@@ -284,7 +287,7 @@ async function image(msg: {
   const cle = compte ? await cleImage(compte, msg.langue, new Uint8Array(await blob.arrayBuffer())) : null;
   if (cle) {
     const connue = await memoire.lireImage<ReponseImage>(cle);
-    if (connue) return { ok: true, reponse: { ...connue, pages: 0 } };
+    if (aDuTexte(connue)) return { ok: true, reponse: { ...connue!, pages: 0 } };
   }
 
   const formulaire = new FormData();
@@ -307,8 +310,63 @@ async function image(msg: {
     if (rep.status === 413 || rep.status === 415) return { ok: false, erreur: "refusee" };
     if (!rep.ok) return { ok: false, erreur: "indisponible" };
     const reponse = (await rep.json()) as ReponseImage;
-    if (cle && compte) await memoire.garderImage(cle, compte, reponse, JSON.stringify(reponse).length);
+    // Une image sans texte n'est pas gardée : elle passerait pour traduisible à la prochaine analyse.
+    if (cle && compte && aDuTexte(reponse)) await memoire.garderImage(cle, compte, reponse, JSON.stringify(reponse).length);
     return { ok: true, reponse };
+  } catch {
+    return { ok: false, erreur: "indisponible" };
+  }
+}
+
+/** Texte lu dans l'image déjà dans la langue cible : même détecteur que pour le texte des pages.
+ *  Détection incertaine (texte court) : l'image reste proposée. */
+async function dejaEnCible(texte: string | undefined, cible: string): Promise<boolean> {
+  if (!texte) return false;
+  try {
+    const d = await chrome.i18n.detectLanguage(texte);
+    return d.isReliable && d.languages[0]?.language.split("-")[0] === cible.split("-")[0];
+  } catch {
+    return false;
+  }
+}
+
+function aDuTexte(r: ReponseImage | null): boolean {
+  return !!r && r.blocs.length > 0;
+}
+
+async function analyseImage(msg: {
+  src?: string;
+  donnees?: string;
+  mime?: string;
+  langue: string;
+  page: string;
+}): Promise<ReponseAnalyse> {
+  const blob = await lireImage(msg);
+  if (!blob) return { ok: false, erreur: "illisible" };
+  // Déjà traduite pour ce compte : traduisible, la traduction sortira de la mémoire.
+  const compte = await compteActif();
+  const cle = compte ? await cleImage(compte, msg.langue, new Uint8Array(await blob.arrayBuffer())) : null;
+  if (cle && aDuTexte(await memoire.lireImage<ReponseImage>(cle))) return { ok: true, traduisible: true };
+
+  const formulaire = new FormData();
+  formulaire.append("file", blob, `image.${extensionDe(blob.type)}`);
+  formulaire.append("langue", msg.langue);
+  try {
+    const rep = await appelAvecReprises(
+      "/api/extension/image/analyse",
+      { method: "POST", body: formulaire, headers: { "X-Page": msg.page } },
+      [429, 503],
+      3,
+      1500,
+    );
+    if (!(rep instanceof Response)) return { ok: false, erreur: "deconnecte" };
+    if (rep.status === 402) return { ok: false, erreur: "credits" };
+    if (await limitePage(rep)) return { ok: false, erreur: "limite" };
+    if (rep.status === 413 || rep.status === 415) return { ok: false, erreur: "refusee" };
+    if (!rep.ok) return { ok: false, erreur: "indisponible" };
+    const verdict = (await rep.json()) as { traduisible: boolean; texte?: string };
+    if (verdict.traduisible !== true) return { ok: true, traduisible: false };
+    return { ok: true, traduisible: !(await dejaEnCible(verdict.texte, msg.langue)) };
   } catch {
     return { ok: false, erreur: "indisponible" };
   }
@@ -352,6 +410,8 @@ function traiter(msg: VersBackground): Promise<ReponseDe<VersBackground>> {
       return segments(msg.textes, msg.langue, msg.titre, msg.contexte, msg.page);
     case "image":
       return image(msg);
+    case "analyse_image":
+      return analyseImage(msg);
     case "memoire_etat":
       return memoireEtat();
     case "memoire_effacer":
@@ -362,6 +422,11 @@ function traiter(msg: VersBackground): Promise<ReponseDe<VersBackground>> {
       return Promise.resolve(null);
     case "appliquer":
       return Promise.resolve({ ok: false });
+    case "accord_images":
+      return Promise.resolve(null);
+    default:
+      // Message d'une version précédente (script de contenu resté chargé) : ignoré.
+      return Promise.resolve(undefined as never);
   }
 }
 
@@ -463,7 +528,48 @@ async function appliquer(msg: MsgAppliquer, tab: chrome.tabs.Tab | undefined): P
   return true;
 }
 
+// Une seule question par onglet : les cadres qui demandent en même temps partagent la réponse.
+const REPONSE_PARTAGEE_MS = 10_000;
+const REFUS_PARTAGE_MS = 2_000;
+// Les cadres d'une même page finissent leur analyse à quelques instants d'écart : une seule question pour tous.
+const REGROUPEMENT_MS = 800;
+const accordsEnCours = new Map<number, { images: number; posee: boolean; reponse: Promise<ReponseDe<MsgAccordImages>> }>();
+
+function accordImages(tabId: number, images: number): Promise<ReponseDe<MsgAccordImages>> {
+  const enCours = accordsEnCours.get(tabId);
+  if (enCours) {
+    if (!enCours.posee) enCours.images += images;
+    return enCours.reponse;
+  }
+  const entree = { images, posee: false, reponse: null as unknown as Promise<ReponseDe<MsgAccordImages>> };
+  entree.reponse = new Promise<void>((ok) => setTimeout(ok, REGROUPEMENT_MS))
+    .then(() => {
+      entree.posee = true;
+      return chrome.tabs.sendMessage(
+        tabId,
+        { type: "demander_accord", images: entree.images } satisfies VersContent,
+        { frameId: 0 },
+      );
+    })
+    .then((r: ReponseDe<MsgAccordImages> | undefined) => r ?? null, () => null)
+    .then((r) => {
+      // Les cadres qui finissent leur analyse juste après profitent de la même réponse.
+      // Un refus est partagé moins longtemps : la diapositive suivante doit pouvoir reposer la question.
+      const duree = !r ? 0 : r.accepte ? REPONSE_PARTAGEE_MS : REFUS_PARTAGE_MS;
+      setTimeout(() => accordsEnCours.get(tabId) === entree && accordsEnCours.delete(tabId), duree);
+      return r;
+    });
+  accordsEnCours.set(tabId, entree);
+  return entree.reponse;
+}
+
 chrome.runtime.onMessage.addListener((msg: VersBackground, expediteur, repondre) => {
+  if (msg.type === "accord_images") {
+    const id = expediteur.tab?.id;
+    if (id === undefined) repondre(null);
+    else void accordImages(id, msg.images).then(repondre);
+    return true;
+  }
   if (msg.type === "suivi") {
     const tab = expediteur.tab;
     if (!tab) repondre(null);
@@ -503,7 +609,10 @@ chrome.tabs.onRemoved.addListener((tabId) => void ecrireSuivi(tabId, null));
 chrome.runtime.onInstalled.addListener(({ reason }) => {
   if (reason === chrome.runtime.OnInstalledReason.INSTALL) void chrome.tabs.create({ url: SITE_BIENVENUE });
   planifierMaj();
-  void chrome.contextMenus.removeAll().then(() => {
+  // La proposition automatique a été retirée : l'ancien réglage ne doit plus rien déclencher.
+  void chrome.storage.local.remove("proposer");
+  // Forme à rappel : sous Edge, removeAll() ne renvoie pas toujours de promesse.
+  chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({ id: MENU_TRADUIRE, title: "Traduire cette page avec Précis", contexts: ["page"] });
     chrome.contextMenus.create({ id: MENU_ORIGINAL, title: "Afficher l'original (Précis)", contexts: ["page"] });
   });

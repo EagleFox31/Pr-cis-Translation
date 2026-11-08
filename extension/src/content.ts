@@ -5,6 +5,7 @@ import { langueAProposer, nomLangue } from "./lib/langue.ts";
 import { idPage } from "./lib/page.ts";
 import { appliquer, collecter, crochets, estNotreEcriture, restaurerTexte, voisins } from "./contenu/texte.ts";
 import { arreterVideos, demarrerVideos } from "./contenu/video.ts";
+import { messageAccord } from "./lib/cout.ts";
 import { versBackground } from "./pont.ts";
 import type { MsgTraduire, ReponseSegments, VersContent } from "./types.ts";
 
@@ -198,9 +199,13 @@ async function proposer(cible: string): Promise<void> {
 if (!window.__precisInjecte) {
   window.__precisInjecte = true;
   window.__precisOccupe = () => lancement || etat.enCours || imagesEnCours();
-  chrome.runtime.onMessage.addListener((msg: VersContent) => {
+  chrome.runtime.onMessage.addListener((msg: VersContent, _expediteur, repondre) => {
     if (msg.type === "traduire") void traduire(msg);
     else if (msg.type === "original") original();
+    else if (msg.type === "demander_accord" && window === window.top) {
+      void obtenirBandeau().demanderAccord(messageAccord(msg.images)).then(repondre);
+      return true;
+    }
     return false;
   });
   // Nouveau document d'un onglet déjà traduit (chapitre, cadre) : on reprend la langue d'office.

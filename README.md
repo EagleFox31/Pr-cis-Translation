@@ -118,6 +118,7 @@ aperçus non-PDF.
 | [`docs/etude-interface-extension.md`](docs/etude-interface-extension.md) | Étude : habiller l'interface de l'extension aux couleurs du site (jetons, polices, logo) |
 | [`docs/etude-distribution-extension.md`](docs/etude-distribution-extension.md) | Étude : présenter l'extension et la faire installer sans effort |
 | [`docs/etude-limites-page-extension.md`](docs/etude-limites-page-extension.md) | Étude : bornes par page de l'extension (texte, lots, images) contre les abus |
+| [`docs/etude-analyse-images-extension.md`](docs/etude-analyse-images-extension.md) | Étude : analyse des images visibles avant l'accord, seules les traduisibles sont annoncées |
 | [`docs/etude-vitesse-images-extension.md`](docs/etude-vitesse-images-extension.md) | Étude : vitesse des images de l'extension (effacement allégé, 2 images à la fois, cache 30 jours) |
 | [`docs/etude-traduction-auto-extension.md`](docs/etude-traduction-auto-extension.md) | Étude : traduction automatique de l'extension (fenêtre popup, « toujours » par site, raccourci, proposition par détection de langue) |
 | [`docs/fiches-boutiques-extension.md`](docs/fiches-boutiques-extension.md) | Textes à recopier pour les fiches Chrome Web Store et Edge Add-ons (permissions, données, visuels) |

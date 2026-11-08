@@ -1,9 +1,8 @@
 export function messageAccord(nbImages: number): string {
   const pluriel = nbImages > 1;
-  return (
-    `${nbImages} image${pluriel ? "s" : ""} avec du texte possible — ` +
-    `jusqu'à ${nbImages} crédit${pluriel ? "s" : ""} (débit seulement si l'image est traduite)`
-  );
+  // Seules les images analysées comme traduisibles sont comptées ; celles déjà
+  // traduites pour ce compte ne sont pas redébitées, d'où « jusqu'à ».
+  return `${nbImages} image${pluriel ? "s" : ""} à traduire — jusqu'à ${nbImages} crédit${pluriel ? "s" : ""}`;
 }
 
 /** Budget d'images de la page épuisé : seules les images à texte traduites l'ont consommé. */

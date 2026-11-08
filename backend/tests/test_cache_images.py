@@ -90,7 +90,7 @@ async def test_route(dossier):
     porte = threading.Event()
     remplacee = {"v": True, "complet": True}
 
-    def fausse(data, traduire, tour=None):
+    def fausse(data, traduire, lus=None, tour=None):
         appels.append(data)
         porte.wait(5)
         r = remplacee["v"]

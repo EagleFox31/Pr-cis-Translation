@@ -54,11 +54,11 @@
     button.icone svg { width: 16px; height: 16px; }
     .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
     .duo button { margin: 0; }
-    .pied { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-top: 14px; padding-top: 12px;
+    .pied { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; padding-top: 12px;
       border-top: 1px solid var(--gray-200); font-size: 12px; color: var(--gray-500); }
     .case { display: flex; align-items: center; gap: 6px; margin: 10px 0 0; font-size: 12px; font-weight: 400; color: var(--gray-700); cursor: pointer; }
     .case input { margin: 0; accent-color: var(--blue); }
-    .pied .case { flex-basis: 100%; margin-top: 0; color: var(--gray-500); }
+    .pied .taille { margin-left: auto; }
     .pied a { color: var(--blue); }
     .pied a:hover { color: var(--navy); }
     .message { margin: 12px 0 0; font-size: 13px; color: var(--gray-700); }
@@ -116,15 +116,16 @@
       <option value="pt">Português</option>
       <option value="ar">العربية</option>
     </select>
+    <label class="case"><input type="checkbox" id="toujours"> Toujours appliquer pour ce site</label>
+    <label class="case"><input type="checkbox" id="images-toujours"> Traduire les images de ce site sans demander</label>
     <div class="duo">
       <button id="btn-traduire" type="button">Traduire</button>
       <button id="btn-original" type="button" class="secondaire">Original</button>
     </div>
-    <label class="case"><input type="checkbox" id="toujours"> Toujours appliquer pour ce site</label>
     <p class="pied">
       <span id="memoire"></span>
       <a id="btn-memoire" href="#" hidden>Effacer</a>
-      <label class="case"><input type="checkbox" id="proposer"> Proposer la traduction automatiquement</label>
+      <span id="taille" class="taille"></span>
     </p>
   </div>
 

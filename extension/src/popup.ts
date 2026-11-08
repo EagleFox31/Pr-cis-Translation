@@ -1,6 +1,6 @@
-import { libelleMemoire } from "./lib/memoire.ts";
+import { libelleMemoire, libelleTaille } from "./lib/memoire.ts";
 import { originalOnglet, traduireOnglet } from "./lib/onglet.ts";
-import { ecrireRegle, LANGUES, langueParDefaut, lireRegle, origineDe } from "./lib/suivi.ts";
+import { cleAccordImages, ecrireRegle, LANGUES, langueParDefaut, lireRegle, origineDe } from "./lib/suivi.ts";
 import { SITE } from "./config.ts";
 import { versBackground } from "./pont.ts";
 import type { ErreurConnexion } from "./types.ts";
@@ -13,7 +13,7 @@ const message = $<HTMLParagraphElement>("message");
 const selectLangue = $<HTMLSelectElement>("langue");
 const btnTraduire = $<HTMLButtonElement>("btn-traduire");
 const caseToujours = $<HTMLInputElement>("toujours");
-const caseProposer = $<HTMLInputElement>("proposer");
+const caseImages = $<HTMLInputElement>("images-toujours");
 
 const MESSAGES_CONNEXION: Record<ErreurConnexion, string> = {
   identifiants: "Adresse e-mail ou mot de passe incorrect.",
@@ -46,7 +46,8 @@ async function afficherVue(): Promise<void> {
     const origine = origineDe(onglet?.url);
     caseToujours.disabled = !origine;
     caseToujours.checked = origine ? (await lireRegle(origine)) !== null : false;
-    caseProposer.checked = ((await chrome.storage.local.get("proposer")).proposer as boolean | undefined) === true;
+    caseImages.disabled = !origine;
+    caseImages.checked = origine ? Boolean((await chrome.storage.local.get(cleAccordImages(origine)))[cleAccordImages(origine)]) : false;
     afficherMemoire((await versBackground({ type: "memoire_etat" })).traductions);
   }
 }
@@ -54,13 +55,22 @@ async function afficherVue(): Promise<void> {
 function afficherMemoire(traductions: number): void {
   $("memoire").textContent = libelleMemoire(traductions);
   $("btn-memoire").hidden = traductions === 0;
+  // Place occupée par l'extension (mémoire locale surtout) ; vide = 0, même avant que le navigateur ne compacte.
+  const taille = $("taille");
+  taille.textContent = libelleTaille(0);
+  if (traductions > 0) {
+    void navigator.storage
+      .estimate()
+      .then(({ usage }) => (taille.textContent = libelleTaille(usage ?? 0)))
+      .catch(() => (taille.textContent = ""));
+  }
 }
 
 $("btn-memoire").addEventListener("click", async (e) => {
   e.preventDefault();
   try {
     afficherMemoire((await versBackground({ type: "memoire_effacer" })).traductions);
-    afficher("Mémoire effacée : ces pages seront de nouveau comptées.");
+    afficher("");
   } catch {
     afficher("La mémoire n'a pas pu être effacée.", true);
   }
@@ -100,34 +110,21 @@ selectLangue.addEventListener("change", async () => {
   if ((await lireRegle(origine))?.mode === "traduire") await ecrireRegle(origine, { mode: "traduire", langue: selectLangue.value });
 });
 
-// Décocher retire la règle ; cocher prend effet au clic sur Traduire ou Original.
+// Cocher enregistre tout de suite « traduire dans la langue choisie » ; Original la change ensuite ; décocher la retire.
 caseToujours.addEventListener("change", () => {
   const origine = origineDe(onglet?.url);
-  if (origine && !caseToujours.checked) void ecrireRegle(origine, null);
+  if (!origine) return;
+  void ecrireRegle(origine, caseToujours.checked ? { mode: "traduire", langue: selectLangue.value } : null);
 });
 
-// La demande de permission part directement du geste de l'utilisateur.
-caseProposer.addEventListener("change", () => {
-  if (!caseProposer.checked) {
-    void chrome.storage.local.set({ proposer: false });
-    return;
-  }
-  chrome.permissions
-    .request({ origins: ["<all_urls>"] })
-    .then(async (accorde) => {
-      if (!accorde) {
-        caseProposer.checked = false;
-        afficher("Accès aux sites refusé : la proposition automatique reste désactivée.", true);
-        return;
-      }
-      await chrome.storage.local.set({ proposer: true });
-      afficher("");
-    })
-    .catch(() => {
-      caseProposer.checked = false;
-      afficher("Impossible d'activer la proposition automatique.", true);
-    });
+// Images : cocher accepte d'avance pour le site, décocher fait de nouveau demander.
+caseImages.addEventListener("change", () => {
+  const origine = origineDe(onglet?.url);
+  if (!origine) return;
+  const cle = cleAccordImages(origine);
+  void (caseImages.checked ? chrome.storage.local.set({ [cle]: true }) : chrome.storage.local.remove(cle));
 });
+
 
 // Bouton « Traduire » en chargement tant qu'un cadre de l'onglet traduit encore :
 // un second clic ne peut pas relancer, et l'état se retrouve à la réouverture du popup.

@@ -435,11 +435,39 @@ def _ppocr():
     return _LECTEUR
 
 
-def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police=None,
+def _preparer(data, lecteur):
+    im = verifier(data)
+    lecteur = lecteur or _ppocr()
+    if lecteur.manquant():
+        raise LectureEchouee("lecteur absent")
+    try:
+        rgba = ImageOps.exif_transpose(im).convert("RGBA")
+    except Exception:  # fichier tronqué ou corrompu
+        raise ImageRefusee("type")
+    rgb = rgba.convert("RGB")
+    return im, rgba, cv2.cvtColor(np.asarray(rgb), cv2.COLOR_RGB2BGR), lecteur
+
+
+def lire_image(data, lecteur=None, delai_s=DELAI_S, tour=None):
+    """Lignes lues (OCR seul, sans traduction ni rendu) : vide si l'image n'a
+    pas de texte. `traduire_image(..., lus=...)` les reprend sans relire."""
+    _, _, bgr, lecteur = _preparer(data, lecteur)
+    with tour() if tour else contextlib.nullcontext():
+        return lignes(_lire(lecteur, bgr, delai_s))
+
+
+def _pareil(a: str, b: str) -> bool:
+    """Même texte à la casse, aux espaces et à la ponctuation finale près."""
+    n = lambda t: " ".join(t.split()).casefold().rstrip(".!?:;,。！？")
+    return n(a) == n(b)
+
+
+def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police=None, lus=None,
                    tour=None):
     """Image traduite (`ImageTraduite`) à partir des octets reçus.
 
-    `traduire(textes)` renvoie une traduction par texte. `ImageRefusee` si
+    `traduire(textes)` renvoie une traduction par texte. `lus` : lignes déjà
+    lues par `lire_image`, pour ne pas refaire l'OCR. `ImageRefusee` si
     l'image n'est pas acceptée, `LectureEchouee` si le lecteur manque ou
     échoue. `tour()`, s'il est donné, encadre la seule reconnaissance (le
     guichet OCR n'est pas retenu pendant l'appel réseau de traduction).
@@ -447,29 +475,21 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
     debut = time.monotonic()
     fin = debut + delai_s
     d = {}
-    im = verifier(data)
-    lecteur = lecteur or _ppocr()
-    if lecteur.manquant():
-        raise LectureEchouee("lecteur absent")
+    im, rgba, bgr, lecteur = _preparer(data, lecteur)
     fmt = im.format
-    try:
-        rgba = ImageOps.exif_transpose(im).convert("RGBA")
-    except Exception:  # fichier tronqué ou corrompu
-        raise ImageRefusee("type")
     a = np.asarray(rgba.getchannel("A"))
     a = None if a.min() == 255 else a
     # Profil couleur gardé, sauf CMJN (converti en RVB, le profil ne vaut plus).
     icc = im.info.get("icc_profile") if im.mode != "CMYK" else None
-    rgb = rgba.convert("RGB")
-    bgr = cv2.cvtColor(np.asarray(rgb), cv2.COLOR_RGB2BGR)
     H, W = bgr.shape[:2]
 
-    with tour() if tour else contextlib.nullcontext():
-        # Le délai court à partir du tour obtenu, pas de l'attente au guichet.
-        fin = time.monotonic() + delai_s
-        t = time.monotonic()
-        lus = lignes(_lire(lecteur, bgr, max(fin - t, 1.0)))
-        d["lecture"] = time.monotonic() - t
+    if lus is None:
+        with tour() if tour else contextlib.nullcontext():
+            # Le délai court à partir du tour obtenu, pas de l'attente au guichet.
+            fin = time.monotonic() + delai_s
+            t = time.monotonic()
+            lus = lignes(_lire(lecteur, bgr, max(fin - t, 1.0)))
+            d["lecture"] = time.monotonic() - t
     zones = {b: _elargie(b, bgr) for _, b in lus}
     m0 = masque_couleur(bgr, list(zones.values())) if lus else None
     tous = blocs(lus, [_couleur(bgr, m0, b) for _, b in lus])
@@ -482,7 +502,8 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
     places, poses = [], []
     for b in tous:
         x, y, w, h = b.boite
-        if not b.traduction or b.traduction == b.texte:
+        # Déjà dans la langue cible (le traducteur l'a rendu tel quel) : laissé intact.
+        if not b.traduction or _pareil(b.traduction, b.texte):
             continue
         # Lettres posées sur de la transparence : l'effacement ne les retirerait pas.
         if a is not None and a[y:y + h, x:x + w].min() < 255:

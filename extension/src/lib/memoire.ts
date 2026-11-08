@@ -98,6 +98,18 @@ export function libelleMemoire(n: number): string {
   return `Mémoire : ${n.toLocaleString("fr-FR")} traduction${n > 1 ? "s" : ""}`;
 }
 
+/** Taille lisible : « 0 o », « 840 Ko », « 2,4 Mo ». */
+export function libelleTaille(octets: number): string {
+  const unites = ["o", "Ko", "Mo", "Go"];
+  let v = octets;
+  let i = 0;
+  while (v >= 1024 && i < unites.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toLocaleString("fr-FR", { maximumFractionDigits: v < 10 && i > 0 ? 1 : 0 })} ${unites[i]}`;
+}
+
 /** Une panne de la mémoire ne doit jamais empêcher une traduction : tout échec vaut « rien de connu ». */
 export class Memoire {
   private magasin: Magasin;
