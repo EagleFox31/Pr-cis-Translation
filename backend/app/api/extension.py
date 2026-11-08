@@ -2,8 +2,10 @@
 
 Le texte des pages n'est pas conservé. Les images traduites (hors vidéo)
 entrent 30 jours dans un cache partagé, retrouvable seulement en renvoyant
-la même image (services/cache_images.py, étude vitesse-images-extension) ;
-le débit entre au registre de consommation (nombre de pages, sans contenu).
+la même image (services/cache_images.py, étude vitesse-images-extension).
+Aucun crédit n'est débité : l'extension est limitée par page selon le forfait
+(services/limites_page.py, étude extension-gratuite-forfaits) ; seuls des
+compteurs par page sont gardés en base, sans contenu.
 L'extension appelle depuis son service de fond (permissions d'hôte) : le
 CORS du site n'est pas en jeu.
 """
@@ -21,7 +23,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import OCR_DELAI_EXTENSION_S, logger
+from app.config import EXTENSION_OFFRE, OCR_DELAI_EXTENSION_S, logger
 from app.core.database import get_db
 from app.core.security import require_auth
 from app.models import User, get_plan_priority
@@ -52,22 +54,30 @@ def _page(request: Request) -> str:
     return limites_page.cle_page(request and request.headers.get("x-page"))
 
 
-def _limite(request: Request, user: User, **quantites):
-    """413 si la page a épuisé son budget (étude limites-page-extension)."""
-    nom = limites_page.prendre(user.id, _page(request), **quantites)
-    if nom is None:
-        return None
+# Limites qu'un forfait supérieur lève (les bornes techniques valent pour tous).
+_PAR_FORFAIT = ("texte", "images", "texte_image", "pages_jour")
+
+
+def _offre(plan, nom: str | None) -> bool:
+    """Proposer Starter ou Pro ? Seulement hors bêta, pour une limite que le
+    forfait relève, et à qui n'a pas déjà le plus large."""
+    return bool(EXTENSION_OFFRE and nom in _PAR_FORFAIT
+                and limites_page.bornes(plan) != limites_page.FORFAITS["pro"])
+
+
+def _refus(nom: str, plan):
+    """413 : la limite `nom` est atteinte (étude extension-gratuite-forfaits)."""
     return JSONResponse(status_code=413, content={
-        "reason": "page_limit", "limite": nom,
-        "detail": "Limite atteinte pour cette page.",
+        "reason": "page_limit", "limite": nom, "offre": _offre(plan, nom),
+        "detail": ("Limite de pages par jour atteinte." if nom == "pages_jour"
+                   else "Limite atteinte pour cette page."),
     })
 
 
-def _manque(pages):
-    return JSONResponse(status_code=402, content={
-        "reason": "need_credits", "pages_needed": pages,
-        "detail": "Crédits insuffisants pour cette traduction.",
-    })
+def _limite(request: Request, user: User, **quantites):
+    """413 si la page a épuisé une borne technique (lots, analyses, captures)."""
+    nom = limites_page.prendre(user.id, _page(request), **quantites)
+    return None if nom is None else _refus(nom, user.plan)
 
 
 @router.post("/segments")
@@ -81,21 +91,39 @@ async def traduire_segments(request: Request, corps: Segments,
     if (len(textes) > ext.SEGMENTS_MAX or sum(map(len, textes)) > ext.CARACTERES_MAX
             or len(corps.titre) + sum(map(len, corps.contexte)) > ext.CONTEXTE_MAX):
         raise HTTPException(status_code=413, detail="Trop de texte pour un seul appel.")
-    pages = ext.pages_pour_segments(textes, current_user.extension_avance)
-    if pages and not ext.couvre(*(await ext.couverture(db, current_user))[:2], pages):
-        return _manque(pages)
-    if refus := _limite(request, current_user, texte=sum(map(len, textes)), lots=1):
+    if refus := _limite(request, current_user, lots=1):
         return refus
+    uid, plan, page = current_user.id, current_user.plan, _page(request)
+    # Volume de chaque texte nu (sans balises) : la limite du forfait coupe le
+    # lot après les premiers blocs qu'elle couvre, le reste reste en original.
+    volumes = [ext.caracteres([t]) for t in textes]
+    total = sum(volumes)
+    accorde, _, limite = await limites_page.reserver(db, current_user, page, texte=total)
+    if limite == "pages_jour" or (total > 0 and accorde == 0):
+        return _refus(limite, plan)
+    n, somme = 0, 0
+    for v in volumes:
+        if somme + v > accorde:
+            break
+        somme += v
+        n += 1
     try:
-        traductions = await run_in_threadpool(
-            ext.traduire_textes, textes, corps.langue, None, corps.titre, corps.contexte)
+        traduits = await run_in_threadpool(
+            ext.traduire_textes, textes[:n], corps.langue, None, corps.titre,
+            corps.contexte) if n else []
     except ext.TraductionIndisponible as e:
         logger.warning(f"Extension, segments non traduits : {e}")
+        await limites_page.rendre(db, uid, page, texte=accorde)
         raise HTTPException(status_code=503, detail="Traduction indisponible. Réessayez.")
-    debitees = await ext.debiter_texte(db, current_user.id, ext.caracteres(textes))
-    if debitees is None:
-        return _manque(pages)
-    return {"traductions": traductions, "pages": debitees}
+    except Exception:
+        await limites_page.rendre(db, uid, page, texte=accorde)
+        raise
+    if accorde > somme:
+        # Réservé et pas utilisé (bloc trop gros pour le reste de la limite).
+        await limites_page.rendre(db, uid, page, texte=accorde - somme)
+    limite = limite if n < len(textes) else None
+    return {"traductions": traduits + textes[n:], "traduits": n, "limite": limite,
+            "offre": _offre(plan, limite), "pages": 0}
 
 
 # Lectures récentes (analyse puis traduction) : l'analyse ne fait que l'OCR et
@@ -205,11 +233,20 @@ def a_des_mots(lus) -> bool:
     return bool(mots)
 
 
-def _verdict(lus) -> dict:
+def _trop_de_texte(lus, plan) -> bool:
+    """Le texte lu dans l'image dépasse le plafond du forfait."""
+    plafond = limites_page.bornes(plan)["texte_image"]
+    return plafond is not None and sum(len(t) for t, _ in lus) > plafond
+
+
+def _verdict(lus, plan) -> dict:
     """Le texte lu accompagne le verdict : l'extension en détecte la langue,
-    comme pour le texte des pages, et écarte ce qui est déjà dans la langue cible."""
+    comme pour le texte des pages, et écarte ce qui est déjà dans la langue cible.
+    Au-delà du plafond de texte par image du forfait : non traduisible."""
     if not a_des_mots(lus):
         return {"traduisible": False}
+    if _trop_de_texte(lus, plan):
+        return {"traduisible": False, "limite": "texte_image"}
     return {"traduisible": True, "texte": " ".join(t for t, _ in lus)[:1000]}
 
 
@@ -219,24 +256,25 @@ async def analyser_une_image(request: Request, file: UploadFile = File(...),
                              langue: str = Form("fr"),
                              current_user: User = Depends(require_auth),
                              db: AsyncSession = Depends(get_db)):
-    """Texte présent ou non (OCR seul : ni traduction, ni rendu, ni débit).
+    """Texte présent ou non (OCR seul : ni traduction, ni rendu, rien de compté).
     L'accord n'annonce que les images à texte ; la lecture est gardée pour la
     traduction, faite seulement si l'utilisateur accepte."""
     data = await _lire_image(file)
-    if not ext.couvre(*(await ext.couverture(db, current_user))[:2], 1):
-        return _manque(1)
+    plan = current_user.plan
     recente = _cle_recente(current_user, data)
     if (lus := _recent(recente)) is not None:
-        return _verdict(lus)
+        return _verdict(lus, plan)
     cle = cache_images.cle(data, langue) if cache_images.ACTIF else None
     if cle and await run_in_threadpool(cache_images.lire, cle):
         return {"traduisible": True}
     _place_libre(current_user)
-    if refus := _limite(request, current_user, analyses=1, images=0):
+    if refus := _limite(request, current_user, analyses=1):
         return refus
+    if nom := await limites_page.verifier(db, current_user, _page(request), images=True):
+        return _refus(nom, plan)
     lus = await _occupe(current_user, lire_image, data, tour=_tour(current_user))
     _garder(recente, lus)
-    return _verdict(lus)
+    return _verdict(lus, plan)
 
 
 @router.post("/image")
@@ -247,41 +285,62 @@ async def traduire_une_image(request: Request, file: UploadFile = File(...),
                              current_user: User = Depends(require_auth),
                              db: AsyncSession = Depends(get_db)):
     data = await _lire_image(file)
-    if not ext.couvre(*(await ext.couverture(db, current_user))[:2], 1):
-        return _manque(1)
-    # Seules les images traduites usent le budget « images » ; chaque analyse
-    # consomme le budget « analyses », plus large.
-    quantites = {"captures": 1} if video is True else {"analyses": 1, "images": 0}
+    uid, plan, page = current_user.id, current_user.plan, _page(request)
     cle = cache_images.cle(data, langue) if cache_images.ACTIF and video is not True else None
     recente = _cle_recente(current_user, data) if video is not True else None
     lus = _recent(recente) if recente else None
-    if lus is not None:
-        # Déjà lue à l'analyse (et comptée) : il reste la traduction et le rendu.
-        quantites = {"images": 0}
-    if cle and (connue := await run_in_threadpool(cache_images.lire, cle)):
-        # Déjà traduite : même débit et même budget, sans OCR ni traduction.
-        rendu = {"remplacee": True, "mime": connue["mime"], "image": connue["image"],
-                 "blocs": connue["blocs"]}
-    else:
-        rendu = None
-    if rendu is None:
+    connue = (await run_in_threadpool(cache_images.lire, cle)) if cle else None
+    if video is True:
+        # Vidéo : seule la borne technique des captures, rien en base.
         _place_libre(current_user)
-        if refus := _limite(request, current_user, **quantites):
+        if refus := _limite(request, current_user, captures=1):
             return refus
-        rendu = await _produire(current_user, data, langue, cle, lus)
-    elif refus := _limite(request, current_user, **quantites):
+        rendu = await _produire(current_user, data, langue, None)
+        return _reponse(rendu)
+    if connue is None:
+        _place_libre(current_user)
+    # Une lecture récente est déjà comptée comme analyse ; sinon l'analyse
+    # consomme la borne « analyses », plus large que celle des images.
+    if lus is None and (refus := _limite(request, current_user, analyses=1)):
         return refus
-    # Honnêteté : une image non remplacée n'est ni rendue modifiée ni débitée.
-    if rendu["remplacee"]:
-        if video is not True:
-            # Compté avant le débit : deux envois simultanés ne dépassent pas le budget.
-            limites_page.ajouter(current_user.id, _page(request), images=1)
-        if not await ext.debiter(db, current_user.id, 1):
-            return _manque(1)
-    return {
+    # Réservé avant tout rendu (image en cache comprise) : deux envois
+    # simultanés ne dépassent pas la limite de la page. Rendu si l'image n'est
+    # finalement pas remplacée ou si le travail échoue.
+    _, images, limite = await limites_page.reserver(db, current_user, page, images=1)
+    if not images:
+        return _refus(limite, plan)
+    try:
+        if connue is not None:
+            # Déjà traduite : sans OCR ni traduction.
+            rendu = {"remplacee": True, "mime": connue["mime"], "image": connue["image"],
+                     "blocs": connue["blocs"]}
+        else:
+            if lus is None:
+                # OCR d'abord, pour appliquer le plafond de texte avant de traduire.
+                lus = await _occupe(current_user, lire_image, data, tour=_tour(current_user))
+                _garder(recente, lus)
+            if _trop_de_texte(lus, plan):
+                await limites_page.rendre(db, uid, page, images=1)
+                return _reponse({"remplacee": False, "mime": None, "image": None,
+                                 "blocs": []}, limite="texte_image")
+            rendu = await _produire(current_user, data, langue, cle, lus)
+    except Exception:
+        await limites_page.rendre(db, uid, page, images=1)
+        raise
+    # Honnêteté : une image non remplacée n'est pas comptée.
+    if not rendu["remplacee"]:
+        await limites_page.rendre(db, uid, page, images=1)
+    return _reponse(rendu)
+
+
+def _reponse(rendu: dict, limite: str | None = None) -> dict:
+    corps = {
         "remplacee": rendu["remplacee"],
-        "pages": 1 if rendu["remplacee"] else 0,
+        "pages": 0,
         "mime": rendu["mime"],
         "image": base64.b64encode(rendu["image"]).decode() if rendu["remplacee"] else None,
         "blocs": rendu["blocs"],
     }
+    if limite:
+        corps["limite"] = limite
+    return corps

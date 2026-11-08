@@ -1,8 +1,9 @@
 // Protocole de messages entre popup, content script et background.
 
 export type ErreurConnexion = "identifiants" | "non_verifie" | "indisponible";
-export type ErreurSegments = "credits" | "deconnecte" | "indisponible" | "trop" | "limite";
-export type ErreurImage = "credits" | "refusee" | "illisible" | "indisponible" | "deconnecte" | "limite";
+// « limite » : limite de la page atteinte ; « limite_jour » : pages traduites du jour épuisées.
+export type ErreurSegments = "credits" | "deconnecte" | "indisponible" | "trop" | "limite" | "limite_jour";
+export type ErreurImage = "credits" | "refusee" | "illisible" | "indisponible" | "deconnecte" | "limite" | "limite_jour";
 
 export interface BlocImage {
   texte: string;
@@ -71,12 +72,21 @@ export type VersBackground =
 export type ReponseConnexion = { ok: true; email: string } | { ok: false; erreur: ErreurConnexion };
 export type ReponseEtat = { connecte: boolean; email?: string; plan?: string };
 export type ReponseSegments =
-  | { ok: true; traductions: string[]; /** Budget de page épuisé en cours de route : le reste est en original. */ limite?: boolean }
-  | { ok: false; erreur: ErreurSegments };
+  | {
+      ok: true;
+      traductions: string[];
+      /** Limite de la page épuisée en cours de route : le reste est en original. */
+      limite?: boolean;
+      /** La limite atteinte est celle des pages du jour (et non celle de la page). */
+      jour?: boolean;
+      /** Proposer Starter ou Pro dans le message de limite. */
+      offre?: boolean;
+    }
+  | { ok: false; erreur: ErreurSegments; offre?: boolean };
 export type ReponseImageBg =
   | { ok: true; reponse: ReponseImage }
-  | { ok: false; erreur: ErreurImage };
-export type ReponseAnalyse = { ok: true; traduisible: boolean } | { ok: false; erreur: ErreurImage };
+  | { ok: false; erreur: ErreurImage; offre?: boolean };
+export type ReponseAnalyse = { ok: true; traduisible: boolean } | { ok: false; erreur: ErreurImage; offre?: boolean };
 export type ReponseMemoire = { traductions: number };
 /** Version plus récente publiée sur le site (installation par dossier seulement), sinon null. */
 export type ReponseMaj = { version: string | null };

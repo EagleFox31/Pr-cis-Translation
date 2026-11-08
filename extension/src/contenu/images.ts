@@ -1,3 +1,4 @@
+import { SITE_TARIFS } from "../config.ts";
 import { DetecteurAnimation } from "../lib/animation.ts";
 import { messageAccord, messageLimiteImages } from "../lib/cout.ts";
 import { enParallele } from "../lib/parallele.ts";
@@ -264,7 +265,7 @@ async function preparer(c: Candidat): Promise<Charge | null> {
   return null;
 }
 
-type Envoi = { ok: true } | { ok: false; erreur: ErreurImage };
+type Envoi = { ok: true } | { ok: false; erreur: ErreurImage; offre?: boolean };
 
 /** Le background n'a pas toujours accès à l'hôte de l'image : seconde chance depuis la page. */
 async function avecSecondeChance<R extends Envoi>(charge: Charge, envoyer: (ch: Charge) => Promise<R>): Promise<R> {
@@ -275,7 +276,7 @@ async function avecSecondeChance<R extends Envoi>(charge: Charge, envoyer: (ch: 
 }
 
 /** Erreur du serveur : vrai s'il faut tout arrêter (crédits, session, panne, budget de page). */
-function echec(c: Candidat, erreur: ErreurImage): boolean {
+function echec(c: Candidat, erreur: ErreurImage, offre = false): boolean {
   if (erreur === "refusee" || erreur === "illisible") {
     marquer(c.el, c.cle);
     return false;
@@ -283,9 +284,13 @@ function echec(c: Candidat, erreur: ErreurImage): boolean {
   if (erreur === "limite") {
     // Seules les images à texte remplacées ont usé le budget : on le dit en chiffres.
     bilan.limite = true;
-    obtenirBandeau().message(messageLimiteImages(bilan.traduites, bilan.vues));
+    obtenirBandeau().message(
+      messageLimiteImages(bilan.traduites, bilan.vues),
+      offre ? { libelle: "Starter ou Pro pour continuer", href: SITE_TARIFS } : undefined,
+    );
   } else {
-    afficherErreur(obtenirBandeau(), erreur);
+    if (erreur === "limite_jour") bilan.limite = true;
+    afficherErreur(obtenirBandeau(), erreur, offre);
   }
   etat.bloque = true;
   return true;
@@ -311,7 +316,7 @@ async function analyser(c: Candidat, session: number): Promise<Verdict> {
   }
   const rep = await promesse;
   if (session !== etat.session) return "arret";
-  if (!rep.ok) return echec(c, rep.erreur) ? "arret" : "sans texte";
+  if (!rep.ok) return echec(c, rep.erreur, rep.offre) ? "arret" : "sans texte";
   return rep.traduisible ? "traduisible" : "sans texte";
 }
 
@@ -346,7 +351,7 @@ async function traiter(c: Candidat, session: number): Promise<boolean> {
     }
     const rep = await promesse;
     if (session !== etat.session) return true;
-    if (!rep.ok) return echec(c, rep.erreur);
+    if (!rep.ok) return echec(c, rep.erreur, rep.offre);
     reponse = rep.reponse;
     if (c.src) resultats.set(c.src, reponse);
   }

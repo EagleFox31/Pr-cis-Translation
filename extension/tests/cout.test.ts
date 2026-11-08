@@ -5,14 +5,14 @@ import { messageAccord, messageLimiteImages } from "../src/lib/cout.ts";
 test("pluriel", () => {
   assert.equal(
     messageAccord(3),
-    "3 images à traduire — jusqu'à 3 crédits",
+    "3 images à traduire",
   );
 });
 
 test("singulier", () => {
   assert.equal(
     messageAccord(1),
-    "1 image à traduire — jusqu'à 1 crédit",
+    "1 image à traduire",
   );
 });
 

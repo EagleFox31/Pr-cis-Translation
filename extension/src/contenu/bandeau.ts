@@ -152,7 +152,10 @@ export function retirerBandeau(): void {
   courant = null;
 }
 
-export function afficherErreur(bandeau: Bandeau, erreur: string): void {
+/** Lien vers les forfaits, proposé avec un message de limite hors bêta (`offre`). */
+const LIEN_OFFRE = { libelle: "Starter ou Pro pour continuer", href: SITE_TARIFS };
+
+export function afficherErreur(bandeau: Bandeau, erreur: string, offre = false): void {
   switch (erreur) {
     case "credits":
       bandeau.message("Crédits épuisés.", { libelle: "Voir les offres", href: SITE_TARIFS });
@@ -161,7 +164,10 @@ export function afficherErreur(bandeau: Bandeau, erreur: string): void {
       bandeau.message("Reconnectez-vous dans l'extension.");
       break;
     case "limite":
-      bandeau.message("Limite atteinte pour cette page : la suite reste en version originale.");
+      bandeau.message("Limite atteinte pour cette page : la suite reste en version originale.", offre ? LIEN_OFFRE : undefined);
+      break;
+    case "limite_jour":
+      bandeau.message("Limite de pages traduites aujourd'hui atteinte : réessayez demain.", offre ? LIEN_OFFRE : undefined);
       break;
     case "trop":
       bandeau.message("Trop de demandes : réessayez dans un instant.");

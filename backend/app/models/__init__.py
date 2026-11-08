@@ -35,6 +35,7 @@ from .document import Document
 from .payment import Payment
 from .usage import (UsageRecord, KIND_CREDITS, KIND_FREE_OFFER, KIND_LEGACY,
                     KIND_PLAN)
+from .extension_usage import ExtensionUsage
 from .auth_tokens import RefreshToken, VerificationCode
 from .error_log import (ErrorLog, LEVELS, SOURCES, STATUS_HANDLED, STATUS_NEW)
 from .support_ticket import (SupportTicket, CATEGORIES,
@@ -47,6 +48,7 @@ from .plan_event import (PlanEvent, EVENT_ADMIN, EVENT_EXPIRY, EVENT_RENEWAL,
 __all__ = [
     "Base", "new_uuid", "utcnow",
     "User", "Document", "Payment", "UsageRecord", "BetaApplication", "BetaCampaign", "BetaEnrollment", "BetaUsage",
+    "ExtensionUsage",
     "KIND_CREDITS", "KIND_FREE_OFFER", "KIND_LEGACY", "KIND_PLAN", "RefreshToken", "VerificationCode",
     "ErrorLog", "LEVELS", "SOURCES", "STATUS_HANDLED", "STATUS_NEW",
     "SupportTicket", "CATEGORIES", "STATUS_OPEN", "TICKET_HANDLED",

@@ -185,13 +185,15 @@ async function memoireEffacer(): Promise<ReponseMemoire> {
 
 // --- Texte
 
-// 413 « page_limit » : la page a épuisé son budget côté serveur ; autre 413 : demande trop grosse.
-async function limitePage(rep: Response): Promise<boolean> {
-  if (rep.status !== 413) return false;
+// 413 « page_limit » : limite de la page (ou des pages du jour) atteinte côté serveur ; autre 413 : demande trop grosse.
+// Renvoie la limite et l'éventuelle offre Starter/Pro, ou null si ce n'est pas une limite de page.
+async function limitePage(rep: Response): Promise<{ limite: string; offre: boolean } | null> {
+  if (rep.status !== 413) return null;
   try {
-    return ((await rep.clone().json()) as { reason?: string }).reason === "page_limit";
+    const corps = (await rep.clone().json()) as { reason?: string; limite?: string; offre?: boolean };
+    return corps.reason === "page_limit" ? { limite: corps.limite ?? "", offre: corps.offre === true } : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -205,6 +207,8 @@ async function segments(
   const compte = await compteActif();
   const connus = compte ? await memoire.lireTextes(compte, langue, textes) : new Map<string, string>();
   let limite = false;
+  let jour = false;
+  let offre = false;
   try {
     for (const lot of decouperEnLots(aEnvoyer(textes, connus))) {
       const rep = await appelAvecReprises(
@@ -220,23 +224,34 @@ async function segments(
       );
       if (!(rep instanceof Response)) return { ok: false, erreur: "deconnecte" };
       if (rep.status === 402) return { ok: false, erreur: "credits" };
-      if (await limitePage(rep)) {
-        // Les lots déjà traduits (et payés) s'affichent ; le reste reste en original.
+      const refus = await limitePage(rep);
+      if (refus) {
+        // Les lots déjà traduits s'affichent ; le reste reste en original.
         limite = true;
+        jour = refus.limite === "pages_jour";
+        offre = refus.offre;
         break;
       }
       if (rep.status === 413 || rep.status === 429) return { ok: false, erreur: "trop" };
       if (!rep.ok) return { ok: false, erreur: "indisponible" };
-      const corps = (await rep.json()) as { traductions: string[] };
+      const corps = (await rep.json()) as { traductions: string[]; traduits?: number; limite?: string | null; offre?: boolean };
       if (corps.traductions.length !== lot.length) return { ok: false, erreur: "indisponible" };
-      lot.forEach((texte, i) => connus.set(texte, corps.traductions[i]));
-      // Gardé lot par lot : ce lot est payé même si le suivant échoue.
-      if (compte) await memoire.garderTextes(compte, langue, lot, corps.traductions);
+      // Lot coupé par la limite : seuls les premiers blocs sont traduits, le reste est resté en original.
+      const n = Math.min(corps.traduits ?? lot.length, lot.length);
+      lot.slice(0, n).forEach((texte, i) => connus.set(texte, corps.traductions[i]));
+      // Gardé lot par lot : ce lot est traduit même si le suivant échoue.
+      if (compte) await memoire.garderTextes(compte, langue, lot.slice(0, n), corps.traductions.slice(0, n));
+      if (corps.limite) {
+        limite = true;
+        jour = corps.limite === "pages_jour";
+        offre = corps.offre === true;
+        break;
+      }
     }
   } catch {
     return { ok: false, erreur: "indisponible" };
   }
-  return { ok: true, traductions: textes.map((t) => connus.get(t) ?? t), limite };
+  return { ok: true, traductions: textes.map((t) => connus.get(t) ?? t), limite, jour, offre };
 }
 
 // --- Images
@@ -306,7 +321,8 @@ async function image(msg: {
     );
     if (!(rep instanceof Response)) return { ok: false, erreur: "deconnecte" };
     if (rep.status === 402) return { ok: false, erreur: "credits" };
-    if (await limitePage(rep)) return { ok: false, erreur: "limite" };
+    const refus = await limitePage(rep);
+    if (refus) return { ok: false, erreur: refus.limite === "pages_jour" ? "limite_jour" : "limite", offre: refus.offre };
     if (rep.status === 413 || rep.status === 415) return { ok: false, erreur: "refusee" };
     if (!rep.ok) return { ok: false, erreur: "indisponible" };
     const reponse = (await rep.json()) as ReponseImage;
@@ -361,7 +377,8 @@ async function analyseImage(msg: {
     );
     if (!(rep instanceof Response)) return { ok: false, erreur: "deconnecte" };
     if (rep.status === 402) return { ok: false, erreur: "credits" };
-    if (await limitePage(rep)) return { ok: false, erreur: "limite" };
+    const refus = await limitePage(rep);
+    if (refus) return { ok: false, erreur: refus.limite === "pages_jour" ? "limite_jour" : "limite", offre: refus.offre };
     if (rep.status === 413 || rep.status === 415) return { ok: false, erreur: "refusee" };
     if (!rep.ok) return { ok: false, erreur: "indisponible" };
     const verdict = (await rep.json()) as { traduisible: boolean; texte?: string };

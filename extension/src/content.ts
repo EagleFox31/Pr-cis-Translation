@@ -108,9 +108,9 @@ async function passeTexte(racines: Iterable<Node>, premiere: boolean): Promise<v
   if (session !== etat.session) return;
   if (!rep?.ok) {
     const code = rep ? rep.erreur : "indisponible";
-    if (code === "credits" || code === "deconnecte" || code === "limite") etat.texteBloque = true;
+    if (code === "credits" || code === "deconnecte" || code === "limite" || code === "limite_jour") etat.texteBloque = true;
     if (code === "credits" || code === "deconnecte") etat.compteBloque = true;
-    afficherErreur(bandeau, code);
+    afficherErreur(bandeau, code, rep ? rep.offre : false);
     return;
   }
 
@@ -120,7 +120,7 @@ async function passeTexte(racines: Iterable<Node>, premiere: boolean): Promise<v
   observateur?.takeRecords();
   if (rep.limite) {
     etat.texteBloque = true;
-    afficherErreur(bandeau, "limite");
+    afficherErreur(bandeau, rep.jour ? "limite_jour" : "limite", rep.offre);
   }
 }
 

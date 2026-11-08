@@ -3,12 +3,12 @@
   • la clé dépend des octets et de la langue ; absente → None ;
   • une entrée écrite se relit telle quelle, puis expire après 30 jours ;
   • la purge efface les entrées de plus de 30 jours, garde les récentes ;
-  • route : une image déjà traduite revient sans OCR, toujours débitée et comptée ;
+  • route : une image déjà traduite revient sans OCR, toujours comptée sur la page ;
   • route : deux images à la fois par utilisateur, la troisième reçoit 429 ;
   • route : une image non remplacée, ou rendue à la hâte, n'entre pas au cache.
 
 Exécution :  backend/venv/Scripts/python.exe backend/tests/test_cache_images.py
-Sans base de données (couverture et débit simulés).
+Sans base de données (compteurs de page simulés).
 """
 from __future__ import annotations
 import asyncio
@@ -26,7 +26,6 @@ from fastapi import HTTPException, UploadFile            # noqa: E402
 
 from app.api import extension as route                   # noqa: E402
 from app.services import cache_images as ci              # noqa: E402
-from app.services import extension as ext                # noqa: E402
 from app.services import limites_page as lp              # noqa: E402
 from app.services.ocr_v2.image import Bloc, ImageTraduite  # noqa: E402
 
@@ -86,7 +85,7 @@ def _png(couleur) -> bytes:
 
 async def test_route(dossier):
     ci.DOSSIER, ci.ACTIF = dossier, True
-    debits, appels = [], []
+    reserves, rendus, appels = [], [], []
     porte = threading.Event()
     remplacee = {"v": True, "complet": True}
 
@@ -98,16 +97,19 @@ async def test_route(dossier):
                              [Bloc("ポンプ", (1, 2, 3, 4), traduction="Pompe", remplace=r)],
                              durees={"total": 0.0}, complet=remplacee["complet"])
 
-    async def couverture(db, user):
-        return 1, 1, 1
+    def lecture(data, tour=None):
+        return [("ポンプ", (1, 2, 3, 4))]
 
-    async def debiter(db, uid, n, **k):
-        debits.append(n)
-        return True
+    async def reserver(db, user, page, texte=0, images=0):
+        reserves.append(images)
+        return 0, images, None
 
-    vrais = route.traduire_image, ext.couverture, ext.couvre, ext.debiter
-    route.traduire_image, ext.couverture, ext.debiter = fausse, couverture, debiter
-    ext.couvre = lambda *a: True
+    async def rendre(db, uid, page, texte=0, images=0):
+        rendus.append(images)
+
+    vrais = route.traduire_image, route.lire_image, lp.reserver, lp.rendre
+    route.traduire_image, route.lire_image = fausse, lecture
+    lp.reserver, lp.rendre = reserver, rendre
     lp.reinitialiser()
     try:
         porte.set()
@@ -115,8 +117,8 @@ async def test_route(dossier):
         assert statut == 200 and r["remplacee"] and len(appels) == 1, (statut, r)
         statut, r = await _appel(_png("white"))
         assert statut == 200 and r["image"] == "VFJBRFVJVEU=" and len(appels) == 1, r
-        assert r["blocs"][0]["traduction"] == "Pompe" and debits == [1, 1], (r, debits)
-        assert lp._compteurs[(_User.id, route._page(_requete()))]["images"] == 2
+        assert r["blocs"][0]["traduction"] == "Pompe" and reserves == [1, 1], (r, reserves)
+        assert lp._compteurs[(_User.id, route._page(_requete()))]["analyses"] == 1
         # Autre langue : nouvelle traduction.
         await _appel(_png("white"), langue="en")
         assert len(appels) == 2
@@ -136,21 +138,22 @@ async def test_route(dossier):
         assert [s for s, _ in await asyncio.gather(t1, t2)] == [200, 200]
         assert _User.id not in route._en_cours, route._en_cours
 
-        # Non remplacée : ni débit ni cache.
+        # Non remplacée : réservation rendue, pas de cache.
         remplacee["v"] = False
-        n = len(debits)
+        n = len(rendus)
         await _appel(_png("black"))
         await _appel(_png("black"))
-        assert len(debits) == n and len(appels) == 6, (debits, len(appels))
+        assert rendus[n:] == [1, 1] and len(appels) == 6, (rendus, len(appels))
 
-        # Rendu hâtif (délai dépassé) : débité, mais pas gardé.
+        # Rendu hâtif (délai dépassé) : compté, mais pas gardé.
         remplacee.update(v=True, complet=False)
+        n = len(rendus)
         await _appel(_png("gray"))
         await _appel(_png("gray"))
-        assert len(appels) == 8, len(appels)
+        assert len(appels) == 8 and len(rendus) == n, len(appels)
     finally:
         porte.set()
-        route.traduire_image, ext.couverture, ext.couvre, ext.debiter = vrais
+        route.traduire_image, route.lire_image, lp.reserver, lp.rendre = vrais
         ci.ACTIF = False
 
 
