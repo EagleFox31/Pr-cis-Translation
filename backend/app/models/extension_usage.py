@@ -27,3 +27,16 @@ class ExtensionUsage(Base):
     jour:       Mapped[date] = mapped_column(Date, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow,
                                                  onupdate=utcnow)
+
+
+class ExtensionTexteVu(Base):
+    """Empreinte d'un texte déjà compté pour ce compte (SHA-256 du compte, de la
+    langue et du texte) : ni le texte ni sa traduction ne sont gardés. Revu par
+    le même compte, le texte n'est plus compté. Effacée après 30 jours."""
+    __tablename__ = "extension_textes_vus"
+    __table_args__ = (Index("ix_extension_textes_vus_jour", "jour"),)
+
+    user_id:   Mapped[str] = mapped_column(
+        String(32), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    empreinte: Mapped[str] = mapped_column(String(64), primary_key=True)
+    jour:      Mapped[date] = mapped_column(Date, nullable=False)

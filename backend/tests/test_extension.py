@@ -244,8 +244,8 @@ async def run():
            and r["ligne"] == (2000, 0), str(r)[:300])
 
         uid = await compte("free")
-        for _ in range(3):
-            r = await _appel(segments, uid, "s2", corps=seg("a" * 10_000))
+        for i in range(3):  # textes distincts : un texte déjà vu ne compte pas
+            r = await _appel(segments, uid, "s2", corps=seg(str(i) + "a" * 9_999))
         ok("segments : le texte s'accumule sur la page (3 × 10 000 = limite du Gratuit)",
            r["statut"] == 200 and r["ligne"] == (30_000, 0) and not r["registre"], str(r)[:300])
         envoyes.clear()
@@ -281,8 +281,8 @@ async def run():
            and r["ligne"] == (30_000, 0), str(r)[:300])
 
         uid = await compte("starter")
-        for _ in range(5):
-            r = await _appel(segments, uid, "st", corps=seg("a" * 20_000))
+        for i in range(5):
+            r = await _appel(segments, uid, "st", corps=seg(str(i) + "a" * 19_999))
         ok("Starter : 100 000 caractères sur la page", r["statut"] == 200
            and r["ligne"] == (100_000, 0), str(r)[:300])
         r = await _appel(segments, uid, "st", corps=seg("a"))
@@ -290,8 +290,8 @@ async def run():
            and r["corps"]["limite"] == "texte", str(r)[:300])
 
         uid = await compte("pro")
-        for _ in range(7):
-            r = await _appel(segments, uid, "pr", corps=seg("a" * 20_000))
+        for i in range(7):
+            r = await _appel(segments, uid, "pr", corps=seg(str(i) + "a" * 19_999))
         ok("Pro : texte illimité sur la page (140 000 caractères)", r["statut"] == 200
            and r["corps"]["limite"] is None and r["ligne"] == (140_000, 0), str(r)[:300])
 
@@ -323,11 +323,11 @@ async def run():
         # ── Pages par jour ───────────────────────────────────────────────────
         uid = await compte("free", 4)
         for i in range(30):
-            r = await _appel(segments, uid, f"j{i}", corps=seg("Bonjour"))
+            r = await _appel(segments, uid, f"j{i}", corps=seg(f"Bonjour {i}"))
         ok("pages du jour : 30 pages différentes acceptées (Gratuit)",
            r["statut"] == 200 and r["pages"] == 30, str(r)[:300])
         envoyes.clear()
-        r = await _appel(segments, uid, "j30", corps=seg("Bonjour"))
+        r = await _appel(segments, uid, "j30", corps=seg("Bonjour 30"))
         ok("pages du jour : la 31e page → 413 « pages_jour », rien traduit ni compté",
            r["statut"] == 413 and r["corps"]["limite"] == "pages_jour"
            and r["corps"]["reason"] == "page_limit" and not envoyes
@@ -335,7 +335,15 @@ async def run():
            str(r)[:300])
         r = await _appel(segments, uid, "j0", corps=seg("Encore"))
         ok("pages du jour : une page déjà commencée reste acceptée",
-           r["statut"] == 200 and r["ligne"] == (13, 0), str(r)[:300])
+           r["statut"] == 200 and r["ligne"] == (15, 0), str(r)[:300])
+        r = await _appel(segments, uid, "j0", corps=seg("Encore"))
+        ok("revisite : texte déjà traduit → traduit sans rien compter",
+           r["statut"] == 200 and r["corps"]["traduits"] == 1
+           and r["ligne"] == (15, 0), str(r)[:300])
+        r = await _appel(segments, uid, "j31", corps=seg("Bonjour 5"))
+        ok("revisite : textes déjà vus, même au-delà des pages du jour → accepté, aucune page ouverte",
+           r["statut"] == 200 and r["corps"]["traduits"] == 1
+           and r["ligne"] is None and r["pages"] == 30, str(r)[:300])
         route.traduire_image = fausse_image(True)
         n = len(rendus)
         r = await _appel(image, uid, "j30", file=_fichier(_png()), langue="fr")
@@ -345,7 +353,7 @@ async def run():
 
         # Offre Starter/Pro : seulement hors bêta, jamais pour Pro ni pour les bornes techniques.
         route.EXTENSION_OFFRE = True
-        r = await _appel(segments, uid, "j30", corps=seg("Bonjour"))
+        r = await _appel(segments, uid, "j30", corps=seg("Bonjour 31"))
         ok("offre : 413 de pages du jour avec l'offre Starter/Pro hors bêta",
            r["statut"] == 413 and r["corps"]["offre"] is True, str(r)[:300])
         ok("offre : jamais pour Pro ni pour une borne technique",

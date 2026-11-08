@@ -117,7 +117,7 @@ async def test_route(dossier):
         assert statut == 200 and r["remplacee"] and len(appels) == 1, (statut, r)
         statut, r = await _appel(_png("white"))
         assert statut == 200 and r["image"] == "VFJBRFVJVEU=" and len(appels) == 1, r
-        assert r["blocs"][0]["traduction"] == "Pompe" and reserves == [1, 1], (r, reserves)
+        assert r["blocs"][0]["traduction"] == "Pompe" and reserves == [1], (r, reserves)  # déjà en cache : rien de compté
         assert lp._compteurs[(_User.id, route._page(_requete()))]["analyses"] == 1
         # Autre langue : nouvelle traduction.
         await _appel(_png("white"), langue="en")

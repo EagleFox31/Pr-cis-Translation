@@ -13,12 +13,15 @@ Deux niveaux :
 """
 from __future__ import annotations
 
+import hashlib
 import time
+from datetime import timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import ExtensionUsage, User, utcnow
+from app.models import ExtensionTexteVu, ExtensionUsage, User, utcnow
 
 # Lots de texte : chacun renvoie le prompt et le contexte (défilement infini).
 LOTS_MAX = 100
@@ -180,3 +183,40 @@ async def verifier(db: AsyncSession, user: User, page: str,
     if images and borne is not None and ligne is not None and ligne.images >= borne:
         return "images"
     return None
+
+
+# ── Textes déjà comptés (empreintes, sans le texte) ──────────────────────────
+VUS_JOURS = 30
+
+
+def empreinte(user_id: str, langue: str, texte: str) -> str:
+    return hashlib.sha256(f"{user_id}\0{langue}\0{texte}".encode("utf-8")).hexdigest()
+
+
+async def deja_vus(db: AsyncSession, user_id: str, langue: str, textes) -> set[str]:
+    """Textes que ce compte a déjà fait traduire vers `langue` (30 derniers jours) :
+    ils ne sont plus comptés."""
+    par_empreinte = {empreinte(user_id, langue, t): t for t in textes}
+    if not par_empreinte:
+        return set()
+    lignes = (await db.execute(select(ExtensionTexteVu.empreinte).where(
+        ExtensionTexteVu.user_id == user_id,
+        ExtensionTexteVu.empreinte.in_(list(par_empreinte)),
+        ExtensionTexteVu.jour >= utcnow().date() - timedelta(days=VUS_JOURS)))).scalars()
+    return {par_empreinte[e] for e in lignes}
+
+
+async def marquer_vus(db: AsyncSession, user_id: str, langue: str, textes) -> None:
+    """Garde l'empreinte des textes traduits (jour remis à aujourd'hui) et
+    efface celles de plus de 30 jours."""
+    aujourdhui = utcnow().date()
+    valeurs = [{"user_id": user_id, "empreinte": e, "jour": aujourdhui}
+               for e in {empreinte(user_id, langue, t) for t in textes}]
+    if valeurs:
+        requete = insert(ExtensionTexteVu).values(valeurs)
+        await db.execute(requete.on_conflict_do_update(
+            index_elements=["user_id", "empreinte"], set_={"jour": aujourdhui}))
+    await db.execute(delete(ExtensionTexteVu).where(
+        ExtensionTexteVu.user_id == user_id,
+        ExtensionTexteVu.jour < aujourdhui - timedelta(days=VUS_JOURS)))
+    await db.commit()

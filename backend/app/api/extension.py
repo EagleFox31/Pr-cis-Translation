@@ -96,17 +96,21 @@ async def traduire_segments(request: Request, corps: Segments,
     uid, plan, page = current_user.id, current_user.plan, _page(request)
     # Volume de chaque texte nu (sans balises) : la limite du forfait coupe le
     # lot après les premiers blocs qu'elle couvre, le reste reste en original.
-    volumes = [ext.caracteres([t]) for t in textes]
+    # Un texte que ce compte a déjà fait traduire (page revisitée) ne compte plus.
+    vus = await limites_page.deja_vus(db, uid, corps.langue, textes)
+    volumes = [0 if t in vus else ext.caracteres([t]) for t in textes]
     total = sum(volumes)
-    accorde, _, limite = await limites_page.reserver(db, current_user, page, texte=total)
-    if limite == "pages_jour" or (total > 0 and accorde == 0):
-        return _refus(limite, plan)
+    accorde, limite = 0, None
+    if total:
+        accorde, _, limite = await limites_page.reserver(db, current_user, page, texte=total)
     n, somme = 0, 0
     for v in volumes:
         if somme + v > accorde:
             break
         somme += v
         n += 1
+    if n == 0 and (limite == "pages_jour" or not accorde):
+        return _refus(limite, plan)
     try:
         traduits = await run_in_threadpool(
             ext.traduire_textes, textes[:n], corps.langue, None, corps.titre,
@@ -121,6 +125,7 @@ async def traduire_segments(request: Request, corps: Segments,
     if accorde > somme:
         # Réservé et pas utilisé (bloc trop gros pour le reste de la limite).
         await limites_page.rendre(db, uid, page, texte=accorde - somme)
+    await limites_page.marquer_vus(db, uid, corps.langue, textes[:n])
     limite = limite if n < len(textes) else None
     return {"traductions": traduits + textes[n:], "traduits": n, "limite": limite,
             "offre": _offre(plan, limite), "pages": 0}
@@ -297,33 +302,31 @@ async def traduire_une_image(request: Request, file: UploadFile = File(...),
             return refus
         rendu = await _produire(current_user, data, langue, None)
         return _reponse(rendu)
-    if connue is None:
-        _place_libre(current_user)
+    if connue is not None:
+        # Déjà traduite (page revisitée) : ni OCR, ni traduction, rien de compté.
+        return _reponse({"remplacee": True, "mime": connue["mime"], "image": connue["image"],
+                         "blocs": connue["blocs"]})
+    _place_libre(current_user)
     # Une lecture récente est déjà comptée comme analyse ; sinon l'analyse
     # consomme la borne « analyses », plus large que celle des images.
     if lus is None and (refus := _limite(request, current_user, analyses=1)):
         return refus
-    # Réservé avant tout rendu (image en cache comprise) : deux envois
-    # simultanés ne dépassent pas la limite de la page. Rendu si l'image n'est
-    # finalement pas remplacée ou si le travail échoue.
+    # Réservé avant tout rendu : deux envois simultanés ne dépassent pas la
+    # limite de la page. Rendu si l'image n'est finalement pas remplacée ou si
+    # le travail échoue.
     _, images, limite = await limites_page.reserver(db, current_user, page, images=1)
     if not images:
         return _refus(limite, plan)
     try:
-        if connue is not None:
-            # Déjà traduite : sans OCR ni traduction.
-            rendu = {"remplacee": True, "mime": connue["mime"], "image": connue["image"],
-                     "blocs": connue["blocs"]}
-        else:
-            if lus is None:
-                # OCR d'abord, pour appliquer le plafond de texte avant de traduire.
-                lus = await _occupe(current_user, lire_image, data, tour=_tour(current_user))
-                _garder(recente, lus)
-            if _trop_de_texte(lus, plan):
-                await limites_page.rendre(db, uid, page, images=1)
-                return _reponse({"remplacee": False, "mime": None, "image": None,
-                                 "blocs": []}, limite="texte_image")
-            rendu = await _produire(current_user, data, langue, cle, lus)
+        if lus is None:
+            # OCR d'abord, pour appliquer le plafond de texte avant de traduire.
+            lus = await _occupe(current_user, lire_image, data, tour=_tour(current_user))
+            _garder(recente, lus)
+        if _trop_de_texte(lus, plan):
+            await limites_page.rendre(db, uid, page, images=1)
+            return _reponse({"remplacee": False, "mime": None, "image": None,
+                             "blocs": []}, limite="texte_image")
+        rendu = await _produire(current_user, data, langue, cle, lus)
     except Exception:
         await limites_page.rendre(db, uid, page, images=1)
         raise
