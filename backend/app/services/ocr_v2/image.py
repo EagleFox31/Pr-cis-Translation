@@ -433,22 +433,34 @@ def _libre(bgr, bloc, autres, x0, x1, efface, poses=()):
 
 
 def _freres(places, W, teintes):
-    """Une liste (même hauteur, police, couleur et bord gauche) prend une
-    seule taille, celle de son membre le plus contraint ; `(bloc, placement)`."""
+    """Des frères (même hauteur, police et couleur, alignés en colonne ou en
+    rangée : liste, cases d'un tableau, boutons côte à côte) prennent une seule
+    taille, celle du plus contraint ; `(bloc, placement)`."""
     famille = list(range(len(places)))
+
+    def racine(i):
+        while famille[i] != i:
+            famille[i] = i = famille[famille[i]]
+        return i
+
+    def alignes(a, b, tol):
+        (xa, ya, wa, ha), (xb, yb, wb, hb) = a, b
+        colonne = min(abs(xa - xb), abs(xa + wa / 2 - xb - wb / 2), abs(xa + wa - xb - wb))
+        rangee = min(abs(ya - yb), abs(ya + ha / 2 - yb - hb / 2))
+        return colonne <= tol or rangee <= tol
+
     for i, (bi, pi, *_) in enumerate(places):
         for j in range(i):
             bj, pj = places[j][0], places[j][1]
             hi, hj = bi.boite[3], bj.boite[3]
             if (abs(hi - hj) <= MEME_HAUTEUR * max(hi, hj)
-                    and abs(bi.boite[0] - bj.boite[0]) <= MEME_BORD * hi
+                    and alignes(bi.boite, bj.boite, MEME_BORD * min(hi, hj))
                     and pi["fichier"] == pj["fichier"]
                     and np.linalg.norm(np.subtract(teintes[i], teintes[j], dtype=float)) <= MEME_COULEUR):
-                famille[i] = famille[j]
-                break
+                famille[racine(i)] = racine(j)
     out = []
     for i, (b, p, cb, libre) in enumerate(places):
-        t = min(q[1]["taille"] for j, q in enumerate(places) if famille[j] == famille[i])
+        t = min(q[1]["taille"] for j, q in enumerate(places) if racine(j) == racine(i))
         if t < p["taille"]:  # plus petit : tient dans la même place
             p = placer(b, W, p["fichier"], libre, cb, taille_max=t) or p
         out.append((b, p))
