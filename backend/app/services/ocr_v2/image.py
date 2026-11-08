@@ -208,10 +208,26 @@ def lignes(mots):
     return out
 
 
-def blocs(lignes_lues, couleurs=None, puces=()):
+def _trait(bgr, haut, bas):
+    """Vrai si un trait horizontal (bord de case d'un tableau) sépare deux
+    lignes empilées : une rangée de pixels, entre elles, presque toute à l'encre
+    sur la largeur qu'elles partagent."""
+    (px, py, pw, ph), (x, y, w, h) = haut, bas
+    x0, x1 = max(x, px), min(x + w, px + pw)
+    y0, y1 = max(min(py + ph, y) - 2, 0), max(py + ph, y) + 3
+    bande = bgr[y0:y1, x0:x1].astype(np.int16)
+    if bande.size == 0 or x1 - x0 < 8:
+        return False
+    fond = np.median(bgr[py:y + h, x0:x1].reshape(-1, 3), axis=0)
+    encre = np.abs(bande - fond).max(axis=2) > SEUIL_ENCRE
+    return bool((encre.mean(axis=1) > 0.8).any())
+
+
+def blocs(lignes_lues, couleurs=None, puces=(), bgr=None):
     """Regroupe les lignes voisines (même hauteur et couleur, empilées,
     recouvrement) ; une ligne qui commence par une puce, lue ou dessinée
-    (`puces` : boîtes de lignes), ouvre un bloc."""
+    (`puces` : boîtes de lignes), ouvre un bloc. Un trait dessiné entre deux
+    lignes (`bgr` fourni) les sépare : titre d'un tableau et case en dessous."""
     out, teintes = [], []
     for n, (texte, b) in enumerate(lignes_lues):
         x, y, w, h = b
@@ -232,7 +248,8 @@ def blocs(lignes_lues, couleurs=None, puces=()):
             # Écart négatif toléré : les boîtes PP-OCR débordent sur la ligne voisine.
             if (abs(h - ph) <= tol * max(h, ph) and -0.3 * ph < y - (py + ph) < 0.8 * ph
                     and min(x + w, px + pw) > max(x, px)
-                    and (c is None or np.linalg.norm(c - tb) <= MEME_COULEUR)):
+                    and (c is None or np.linalg.norm(c - tb) <= MEME_COULEUR)
+                    and (bgr is None or not _trait(bgr, bl.lignes[-1], b))):
                 bl.lignes.append(b)
                 bl.texte = _joindre([bl.texte, texte])
                 bl.boite = _union(bl.lignes)
@@ -608,7 +625,7 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
         x1 = max(zx + zw, bord + 2)
         zones[b] = (max(zx, bord + 1), zy, x1 - max(zx, bord + 1), zh)
     m0 = masque_couleur(bgr, list(zones.values())) if lus else None
-    tous = blocs(lus, [_couleur(bgr, m0, b) for _, b in lus], puces)
+    tous = blocs(lus, [_couleur(bgr, m0, b) for _, b in lus], puces, bgr)
     if tous:
         t = time.monotonic()
         for b, tr in zip(tous, traduire([b.texte for b in tous])):
