@@ -24,7 +24,7 @@ ACTIF = os.getenv("PRECIS_CACHE_IMAGES", "1") != "0"
 CONSERVATION_S = 30 * 86400
 PURGE_TOUS_S = 6 * 3600
 # À changer quand le rendu du moteur change : les anciennes entrées ne sont plus lues.
-VERSION = "1"
+VERSION = "2"
 _LANGUE = re.compile(r"^[A-Za-z0-9_-]{1,16}$")
 _derniere_purge = 0.0
 

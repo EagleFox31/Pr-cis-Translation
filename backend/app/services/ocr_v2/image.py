@@ -144,6 +144,45 @@ def _union(boites):
     return (x0, y0, x1 - x0, y1 - y0)
 
 
+# Ponctuation CJK gardée par le traducteur : sans glyphe dans les polices de
+# pose latines (carré vide). Remplacée quand la traduction n'a plus de CJK.
+_PONCT_CJK = str.maketrans({
+    "・": " • ", "、": ", ", "。": ". ", "，": ", ", "．": ". ", "：": ": ", "；": "; ",
+    "！": "! ", "？": "? ", "「": " “", "」": "” ", "『": " “", "』": "” ", "【": " [",
+    "】": "] ", "〔": " (", "〕": ") ", "（": " (", "）": ") ", "《": " “", "》": "” ",
+    "〈": " ‹", "〉": "› ", "～": "~", "〜": "~", "　": " ", "－": "-", "ー": "-"})
+
+
+def _ponctuation_latine(t):
+    """`traduction` sans ponctuation CJK ni formes pleine chasse, si elle ne
+    contient plus d'écriture CJK (langue cible latine)."""
+    latine = t.translate(_PONCT_CJK)
+    if _CJK.search(latine):
+        return t
+    t = latine
+    t = "".join(chr(ord(c) - 0xFEE0) if "！" <= c <= "～" else c for c in t)
+    t = re.sub(r"\s+([,.;:!?)\]”›])", r"\1", " ".join(t.split()))
+    return re.sub(r"([(\[“‹])\s+", r"\1", t).strip()
+
+
+def _couvre(fichier, texte):
+    """La police a un glyphe pour chaque caractère visible du texte."""
+    from .render import _ttf
+    cmap = _ttf(fichier)[1]
+    return all(ord(c) in cmap for c in texte if not c.isspace())
+
+
+def _police_couvrante(fichier, texte, gras):
+    """`fichier`, ou une police de secours qui a tous les glyphes du texte."""
+    for f in (fichier, _fichier_police(gras), _ROBOTO[gras]):
+        try:
+            if _couvre(f, texte):
+                return f
+        except Exception:  # police illisible par fontTools : on garde la demandée
+            return fichier
+    return fichier
+
+
 def _joindre(morceaux):
     """Mots d'une ligne : sans espace entre deux caractères CJK."""
     out = ""
@@ -489,7 +528,8 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
     if tous:
         t = time.monotonic()
         for b, tr in zip(tous, traduire([b.texte for b in tous])):
-            b.traduction = _joindre((tr or "").split())  # retours à la ligne du traducteur
+            # Retours à la ligne du traducteur retirés, ponctuation CJK rendue latine.
+            b.traduction = _ponctuation_latine(_joindre((tr or "").split()))
         d["traduction"] = time.monotonic() - t
 
     places, poses = [], []
@@ -505,8 +545,8 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
         efface = _union([zones[l] for l in b.lignes])
         libre = _libre(bgr, b, [l for _, l in lus], cb[0], cb[1], efface, poses)
         z = [zones[l] for l in b.lignes]
-        fichier = fichier_police or _fichier_police(
-            _gras(masque_couleur(bgr, z, dilatation=0), z, bool(_CJK.search(b.texte))))
+        gras = _gras(masque_couleur(bgr, z, dilatation=0), z, bool(_CJK.search(b.texte)))
+        fichier = fichier_police or _police_couvrante(_fichier_police(gras), b.traduction, gras)
         p = placer(b, W, fichier, libre, cb)
         if p is not None:
             places.append((b, p, cb, libre))

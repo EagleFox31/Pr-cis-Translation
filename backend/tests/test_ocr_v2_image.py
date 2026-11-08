@@ -336,8 +336,18 @@ def _png(data):
     return chemin
 
 
+def cas_ponctuation():
+    p = module._ponctuation_latine
+    assert p("Freins・Pneus") == "Freins • Pneus", p("Freins・Pneus")
+    assert p("Contrôle、puis essai。") == "Contrôle, puis essai.", p("Contrôle、puis essai。")
+    assert p("「Résultat」（étape１）") == "“Résultat” (étape1)", p("「Résultat」（étape１）")
+    assert p("冷却水・ポンプ") == "冷却水・ポンプ"  # cible CJK : intacte
+    assert module._couvre(module._ROBOTO[False], p("A・B"))
+
+
 def main():
     debut = time.monotonic()
+    cas_ponctuation()
     cas_controles()
     cas_blocs()
     cas_placer()
