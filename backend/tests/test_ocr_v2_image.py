@@ -364,8 +364,24 @@ def cas_mots_entiers():
     assert p is None or p["lignes"] == ["Fondamentaux"] or p["taille"] <= module.PLANCHER_PX + 1, p
 
 
+def cas_symboles():
+    """Puce dessinée non lue à gauche d'une ligne : englobée, rendue par « • »."""
+    im = Image.fromarray(fond())
+    d = ImageDraw.Draw(im)
+    d.polygon([(40, 120), (60, 100), (80, 120), (60, 140)], fill=(20, 20, 20))  # ◆
+    d.text((100, 100), "Result", fill=(20, 20, 20), font=ImageFont.truetype(POLICE, 36))
+    d.text((100, 200), "Brakes", fill=(20, 20, 20), font=ImageFont.truetype(POLICE, 36))
+    bgr = np.asarray(im.convert("RGB"))[:, :, ::-1]
+    lus = [("Result", (100, 100, 110, 40)), ("Brakes", (100, 200, 120, 40)),
+           ("・Tires", (100, 280, 120, 40))]
+    out = module._symboles(lus, bgr)
+    assert out[0][0] == "• Result" and out[0][1][0] <= 41 and out[0][1][0] + out[0][1][2] == 210, out[0]
+    assert out[1] == lus[1] and out[2] == lus[2], out  # sans symbole ; puce déjà lue
+
+
 def main():
     debut = time.monotonic()
+    cas_symboles()
     cas_ponctuation()
     cas_mots_entiers()
     cas_controles()

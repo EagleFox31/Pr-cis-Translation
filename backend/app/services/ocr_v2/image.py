@@ -400,6 +400,39 @@ def _elargie(boite, bgr):
     return (x0, y0, x1 - x0, y1 - y0)
 
 
+def _symboles(lus, bgr):
+    """Puce dessinée (◆, ●, ■…) que l'OCR ne lit pas, collée à gauche d'une
+    ligne : la boîte de la ligne l'englobe et le texte commence par « • ». Sans
+    cela la traduction, plus longue, se pose par-dessus le symbole resté."""
+    boites = [b for _, b in lus]
+    out = []
+    for t, b in lus:
+        x, y, w, h = (int(round(v)) for v in b)
+        x0 = max(x - 2 * h, 0)
+        z = bgr[y:y + h, x0:x].astype(np.int16)
+        if _PUCE.match(t) or z.size == 0:
+            out.append((t, b))
+            continue
+        m = (np.abs(z - np.median(z.reshape(-1, 3), axis=0)).max(axis=2) > SEUIL_ENCRE).astype(np.uint8)
+        k, _, st, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
+        trouve = None
+        for sx, sy, sw, sh, a in st[1:k]:
+            ecart = (x - x0) - (sx + sw)
+            # Forme pleine, à peu près carrée, centrée sur la ligne, détachée
+            # du premier glyphe (écart 0 = glyphe rogné par la boîte lue).
+            if (2 <= ecart <= 0.6 * h and sx > 0 and 0.4 * h <= sh <= h
+                    and 0.6 <= sw / sh <= 1.6 and a >= 0.45 * sw * sh
+                    and abs(sy + sh / 2 - h / 2) <= 0.2 * h):
+                trouve = x0 + int(sx)
+        if trouve is not None and not any(
+                o is not b and o[0] < x and o[0] + o[2] > trouve
+                and o[1] < y + h and o[1] + o[3] > y for o in boites):
+            out.append(("• " + t, (trouve, b[1], b[0] + b[2] - trouve, b[3])))
+        else:
+            out.append((t, b))
+    return out
+
+
 def _libre(bgr, bloc, autres, x0, x1, efface, poses=()):
     """Rangées `(haut, bas)` vides autour du bloc entre les colonnes x0..x1 :
     jusqu'à une demi-ligne d'une autre ligne lue (au moins mi-chemin), d'une
@@ -553,7 +586,8 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
         t = time.monotonic()
         lus = lignes(_lire(lecteur, bgr, max(fin - t, 1.0)))
         d["lecture"] = time.monotonic() - t
-    zones = {b: _elargie(b, bgr) for _, b in lus}
+    lus = _symboles(lus, bgr)
+    zones ={b: _elargie(b, bgr) for _, b in lus}
     m0 = masque_couleur(bgr, list(zones.values())) if lus else None
     tous = blocs(lus, [_couleur(bgr, m0, b) for _, b in lus])
     if tous:
