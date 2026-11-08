@@ -130,6 +130,14 @@ def cas_blocs():
     deux = [("a b", (10, 10, 90, 24)), ("c d", (10, 38, 80, 24))]
     assert len(blocs(deux, [ROUGE, (20, 20, 20)])) == 2
     assert len(blocs(deux, [(20, 20, 20), (30, 25, 25)])) == 1
+    # Fin de phrase reportée seule, boîte plus haute (cas réel) : rattachée,
+    # même avec une ligne d'une autre colonne lue entre les deux.
+    suite = [("イントをおさえた正しい点検がで", (1118, 823, 687, 48)),
+             ("的を絞った点検をする。", (363, 849, 485, 52)), ("きる。", (1116, 874, 105, 59))]
+    assert [b.texte for b in blocs(suite)][0].endswith("できる。"), [b.texte for b in blocs(suite)]
+    # Après une ponctuation finale, la même ligne courte reste un bloc à part.
+    fini = [("点検をする。", (1118, 823, 687, 48)), ("注意", (1116, 874, 105, 59))]
+    assert len(blocs(fini)) == 2
     print("  blocs : lignes empilées réunies, confiance < 70 ignorée, japonais sans espace, "
           "hauteur, puce et couleur séparent")
 
@@ -336,8 +344,60 @@ def _png(data):
     return chemin
 
 
+def cas_ponctuation():
+    p = module._ponctuation_latine
+    assert p("Freins・Pneus") == "Freins • Pneus", p("Freins・Pneus")
+    assert p("Contrôle、puis essai。") == "Contrôle, puis essai.", p("Contrôle、puis essai。")
+    assert p("「Résultat」（étape１）") == "“Résultat” (étape1)", p("「Résultat」（étape１）")
+    assert p("冷却水・ポンプ") == "冷却水・ポンプ"  # cible CJK : intacte
+    assert module._couvre(module._ROBOTO[False], p("A・B"))
+
+
+def cas_mots_entiers():
+    police = ImageFont.truetype(POLICE, 40)
+    assert module._couper("Débutant", police, 60) == ["Débutant"]  # jamais « Déb/utant »
+    assert len(module._couper("Débutant", police, 60, casser=True)) > 1
+    assert len(module._couper("冷却水ポンプ", police, 60)) > 1
+    b = blocs([("Base", (10, 10, 40, 20))])[0]
+    b.traduction = "Fondamentaux"
+    p = placer(b, 400, POLICE, cadre=(10, 60, False))
+    assert p is None or p["lignes"] == ["Fondamentaux"] or p["taille"] <= module.PLANCHER_PX + 1, p
+
+
+def cas_symboles():
+    """Puce dessinée non lue à gauche d'une ligne : repérée, laissée en place,
+    la ligne ouvre un bloc et sa traduction part du texte d'origine."""
+    im = Image.fromarray(fond())
+    d = ImageDraw.Draw(im)
+    for y in (120, 220):
+        d.polygon([(40, y), (60, y - 20), (80, y), (60, y + 20)], fill=(20, 20, 20))  # ◆
+    d.text((100, 100), "Result", fill=(20, 20, 20), font=ImageFont.truetype(POLICE, 36))
+    d.text((100, 200), "Brakes", fill=(20, 20, 20), font=ImageFont.truetype(POLICE, 36))
+    d.text((100, 300), "Tires", fill=(20, 20, 20), font=ImageFont.truetype(POLICE, 36))
+    bgr = np.asarray(im.convert("RGB"))[:, :, ::-1]
+    lus = [("Result", (100, 100, 110, 40)), ("Brakes", (100, 145, 120, 40)),
+           ("Tires", (100, 300, 120, 40)), ("・Oil", (100, 380, 120, 40))]
+    puces = module._symboles(lus, bgr)
+    assert set(puces) == {lus[0][1]} and 78 <= puces[lus[0][1]] <= 82, puces
+    # Deux lignes empilées : la puce dessinée sépare les blocs.
+    assert len(blocs(lus[:2], puces={lus[1][1]})) == 2
+    assert len(blocs(lus[:2])) == 1
+
+    # Bout en bout : le losange reste, la traduction ne déborde pas à gauche.
+    buf = io.BytesIO()
+    im.save(buf, "PNG")
+    lus2 = [("Result", (100, 100, 110, 40))]
+    r = module.traduire_image(buf.getvalue(), lambda ts: ["Résultat obtenu"] * len(ts), lus=lus2)
+    out = np.asarray(Image.open(io.BytesIO(r.data)).convert("RGB"))
+    assert (out[115:126, 55:66] < 80).all(), "losange effacé"
+    assert (out[100:140, 84:98] > 200).all(), "traduction posée sur la puce"
+
+
 def main():
     debut = time.monotonic()
+    cas_symboles()
+    cas_ponctuation()
+    cas_mots_entiers()
     cas_controles()
     cas_blocs()
     cas_placer()

@@ -58,6 +58,7 @@ MEME_BORD = 0.5          # × hauteur de ligne : deux blocs alignés à gauche
 MARGE_EFFACE = 0.2       # × hauteur de ligne, de chaque côté
 SEUIL_ENCRE = 40         # écart au fond qui arrête l'agrandissement
 _PUCE = re.compile(r"^\s*([0-9０-９]+[.)．）、]|[・•\-–*]|[①-⑳])")
+_FIN_PHRASE = re.compile(r"[。．.!?！？:：」』）)]\s*$")
 DELAI_S = 30.0
 _CJK = re.compile(r"[぀-ヿ㐀-鿿豈-﫿가-힯]")
 _ROBOTO = {False: os.path.join(polices.FONTS_DIR, "roboto-Regular.ttf"),
@@ -145,6 +146,45 @@ def _union(boites):
     return (x0, y0, x1 - x0, y1 - y0)
 
 
+# Ponctuation CJK gardée par le traducteur : sans glyphe dans les polices de
+# pose latines (carré vide). Remplacée quand la traduction n'a plus de CJK.
+_PONCT_CJK = str.maketrans({
+    "・": " • ", "、": ", ", "。": ". ", "，": ", ", "．": ". ", "：": ": ", "；": "; ",
+    "！": "! ", "？": "? ", "「": " “", "」": "” ", "『": " “", "』": "” ", "【": " [",
+    "】": "] ", "〔": " (", "〕": ") ", "（": " (", "）": ") ", "《": " “", "》": "” ",
+    "〈": " ‹", "〉": "› ", "～": "~", "〜": "~", "　": " ", "－": "-", "ー": "-"})
+
+
+def _ponctuation_latine(t):
+    """`traduction` sans ponctuation CJK ni formes pleine chasse, si elle ne
+    contient plus d'écriture CJK (langue cible latine)."""
+    latine = t.translate(_PONCT_CJK)
+    if _CJK.search(latine):
+        return t
+    t = latine
+    t = "".join(chr(ord(c) - 0xFEE0) if "！" <= c <= "～" else c for c in t)
+    t = re.sub(r"\s+([,.;:!?)\]”›])", r"\1", " ".join(t.split()))
+    return re.sub(r"([(\[“‹])\s+", r"\1", t).strip()
+
+
+def _couvre(fichier, texte):
+    """La police a un glyphe pour chaque caractère visible du texte."""
+    from .render import _ttf
+    cmap = _ttf(fichier)[1]
+    return all(ord(c) in cmap for c in texte if not c.isspace())
+
+
+def _police_couvrante(fichier, texte, gras):
+    """`fichier`, ou une police de secours qui a tous les glyphes du texte."""
+    for f in (fichier, _fichier_police(gras), _ROBOTO[gras]):
+        try:
+            if _couvre(f, texte):
+                return f
+        except Exception:  # police illisible par fontTools : on garde la demandée
+            return fichier
+    return fichier
+
+
 def _joindre(morceaux):
     """Mots d'une ligne : sans espace entre deux caractères CJK."""
     out = ""
@@ -168,17 +208,23 @@ def lignes(mots):
     return out
 
 
-def blocs(lignes_lues, couleurs=None):
+def blocs(lignes_lues, couleurs=None, puces=()):
     """Regroupe les lignes voisines (même hauteur et couleur, empilées,
-    recouvrement) ; une ligne qui commence par une puce ouvre un bloc."""
+    recouvrement) ; une ligne qui commence par une puce, lue ou dessinée
+    (`puces` : boîtes de lignes), ouvre un bloc."""
     out, teintes = [], []
     for n, (texte, b) in enumerate(lignes_lues):
         x, y, w, h = b
         c = np.array(couleurs[n], float) if couleurs else None
-        for bl, tb in zip([] if _PUCE.match(texte) else out, teintes):
+        for bl, tb in zip([] if _PUCE.match(texte) or b in puces else out, teintes):
             px, py, pw, ph = bl.lignes[-1]
+            # Fin de phrase reportée seule sous la ligne (« …がで » / « きる。 ») :
+            # la boîte d'un texte court varie plus en hauteur, on tolère le double.
+            suite = (w < 0.5 * pw and abs(x - px) <= MEME_BORD * ph
+                     and not _FIN_PHRASE.search(bl.texte))
+            tol = (2 if suite else 1) * MEME_HAUTEUR
             # Écart négatif toléré : les boîtes PP-OCR débordent sur la ligne voisine.
-            if (abs(h - ph) <= MEME_HAUTEUR * max(h, ph) and -0.3 * ph < y - (py + ph) < 0.8 * ph
+            if (abs(h - ph) <= tol * max(h, ph) and -0.3 * ph < y - (py + ph) < 0.8 * ph
                     and min(x + w, px + pw) > max(x, px)
                     and (c is None or np.linalg.norm(c - tb) <= MEME_COULEUR)):
                 bl.lignes.append(b)
@@ -191,10 +237,17 @@ def blocs(lignes_lues, couleurs=None):
     return out
 
 
-def _couper(texte, police, largeur):
-    """Retour à la ligne glouton (par mots, ou par caractères sans espace)."""
-    unites = texte.split() if " " in texte.strip() else list(texte.strip())
-    sep = " " if " " in texte.strip() else ""
+def _couper(texte, police, largeur, casser=False):
+    """Retour à la ligne glouton, par mots. Un texte sans espace se coupe par
+    caractères s'il est CJK ; un mot latin reste entier (le corps baisse à la
+    place), sauf `casser` : dernier recours quand même le plancher ne suffit pas."""
+    t = texte.strip()
+    if " " in t:
+        unites, sep = t.split(), " "
+    elif _CJK.search(t) or casser:
+        unites, sep = list(t), ""
+    else:
+        unites, sep = [t], ""
     out, cur = [], ""
     for u in unites:
         essai = cur + sep + u if cur else u
@@ -273,11 +326,17 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
     # Second passage : une étiquette serrée en largeur peut n'entrer sur deux
     # lignes qu'en dessous du seuil de croissance ; mieux vaut alors grandir
     # plus petit, d'une ligne au plus, que laisser l'original.
-    for seuil, nmax in ((GRANDIR * s0, None), (plancher, n0 + 1)) if libre else ((s0, None),):
+    # Dernier passage : un mot latin trop long même au plancher est coupé
+    # plutôt que de laisser l'original.
+    passes = [(GRANDIR * s0, None), (plancher, n0 + 1)] if libre else [(s0, None)]
+    passes = [(*p, False) for p in passes]
+    if not _CJK.search(bloc.traduction):
+        passes.append((*passes[-1][:2], True))
+    for seuil, nmax, casser in passes:
         s = min(s0, taille_max or s0)
         while s >= plancher:
             police = _police(fichier, s)
-            texte_l = _couper(bloc.traduction, police, lmax)
+            texte_l = _couper(bloc.traduction, police, lmax, casser)
             pas = max(pas0, hl * 1.15) * s / s0
             haut = (len(texte_l) - 1) * pas + k * s
             larg = max(police.getlength(t) for t in texte_l)
@@ -343,6 +402,37 @@ def _elargie(boite, bgr):
     return (x0, y0, x1 - x0, y1 - y0)
 
 
+def _symboles(lus, bgr):
+    """Puces dessinées (◆, ●, ■…) que l'OCR ne lit pas, collées à gauche d'une
+    ligne : `{boîte de la ligne: bord droit du symbole}`. Le symbole reste tel
+    quel dans l'image ; la ligne ouvre un bloc, son effacement s'arrête avant
+    lui et la traduction part du début du texte d'origine sans jamais le couvrir."""
+    boites = [b for _, b in lus]
+    out = {}
+    for t, b in lus:
+        x, y, w, h = (int(round(v)) for v in b)
+        x0 = max(x - 2 * h, 0)
+        z = bgr[y:y + h, x0:x].astype(np.int16)
+        if _PUCE.match(t) or z.size == 0:
+            continue
+        m = (np.abs(z - np.median(z.reshape(-1, 3), axis=0)).max(axis=2) > SEUIL_ENCRE).astype(np.uint8)
+        k, _, st, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
+        trouve = None
+        for sx, sy, sw, sh, a in st[1:k]:
+            ecart = (x - x0) - (sx + sw)
+            # Forme pleine, à peu près carrée, centrée sur la ligne, détachée
+            # du premier glyphe (écart 0 = glyphe rogné par la boîte lue).
+            if (2 <= ecart <= 0.6 * h and sx > 0 and 0.4 * h <= sh <= h
+                    and 0.6 <= sw / sh <= 1.6 and a >= 0.45 * sw * sh
+                    and abs(sy + sh / 2 - h / 2) <= 0.2 * h):
+                trouve = x0 + int(sx + sw)
+        if trouve is not None and not any(
+                o is not b and o[0] < x and o[0] + o[2] > trouve
+                and o[1] < y + h and o[1] + o[3] > y for o in boites):
+            out[b] = trouve
+    return out
+
+
 def _libre(bgr, bloc, autres, x0, x1, efface, poses=()):
     """Rangées `(haut, bas)` vides autour du bloc entre les colonnes x0..x1 :
     jusqu'à une demi-ligne d'une autre ligne lue (au moins mi-chemin), d'une
@@ -382,22 +472,34 @@ def _libre(bgr, bloc, autres, x0, x1, efface, poses=()):
 
 
 def _freres(places, W, teintes):
-    """Une liste (même hauteur, police, couleur et bord gauche) prend une
-    seule taille, celle de son membre le plus contraint ; `(bloc, placement)`."""
+    """Des frères (même hauteur, police et couleur, alignés en colonne ou en
+    rangée : liste, cases d'un tableau, boutons côte à côte) prennent une seule
+    taille, celle du plus contraint ; `(bloc, placement)`."""
     famille = list(range(len(places)))
+
+    def racine(i):
+        while famille[i] != i:
+            famille[i] = i = famille[famille[i]]
+        return i
+
+    def alignes(a, b, tol):
+        (xa, ya, wa, ha), (xb, yb, wb, hb) = a, b
+        colonne = min(abs(xa - xb), abs(xa + wa / 2 - xb - wb / 2), abs(xa + wa - xb - wb))
+        rangee = min(abs(ya - yb), abs(ya + ha / 2 - yb - hb / 2))
+        return colonne <= tol or rangee <= tol
+
     for i, (bi, pi, *_) in enumerate(places):
         for j in range(i):
             bj, pj = places[j][0], places[j][1]
             hi, hj = bi.boite[3], bj.boite[3]
             if (abs(hi - hj) <= MEME_HAUTEUR * max(hi, hj)
-                    and abs(bi.boite[0] - bj.boite[0]) <= MEME_BORD * hi
+                    and alignes(bi.boite, bj.boite, MEME_BORD * min(hi, hj))
                     and pi["fichier"] == pj["fichier"]
                     and np.linalg.norm(np.subtract(teintes[i], teintes[j], dtype=float)) <= MEME_COULEUR):
-                famille[i] = famille[j]
-                break
+                famille[racine(i)] = racine(j)
     out = []
     for i, (b, p, cb, libre) in enumerate(places):
-        t = min(q[1]["taille"] for j, q in enumerate(places) if famille[j] == famille[i])
+        t = min(q[1]["taille"] for j, q in enumerate(places) if racine(j) == racine(i))
         if t < p["taille"]:  # plus petit : tient dans la même place
             p = placer(b, W, p["fichier"], libre, cb, taille_max=t) or p
         out.append((b, p))
@@ -490,13 +592,19 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
             t = time.monotonic()
             lus = lignes(_lire(lecteur, bgr, max(fin - t, 1.0)))
             d["lecture"] = time.monotonic() - t
+    puces = _symboles(lus, bgr)
     zones = {b: _elargie(b, bgr) for _, b in lus}
+    for b, bord in puces.items():  # le symbole dessiné n'est pas effacé
+        zx, zy, zw, zh = zones[b]
+        x1 = max(zx + zw, bord + 2)
+        zones[b] = (max(zx, bord + 1), zy, x1 - max(zx, bord + 1), zh)
     m0 = masque_couleur(bgr, list(zones.values())) if lus else None
-    tous = blocs(lus, [_couleur(bgr, m0, b) for _, b in lus])
+    tous = blocs(lus, [_couleur(bgr, m0, b) for _, b in lus], puces)
     if tous:
         t = time.monotonic()
         for b, tr in zip(tous, traduire([b.texte for b in tous])):
-            b.traduction = _joindre((tr or "").split())  # retours à la ligne du traducteur
+            # Retours à la ligne du traducteur retirés, ponctuation CJK rendue latine.
+            b.traduction = _ponctuation_latine(_joindre((tr or "").split()))
         d["traduction"] = time.monotonic() - t
 
     places, poses = [], []
@@ -509,11 +617,13 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
         if a is not None and a[y:y + h, x:x + w].min() < 255:
             continue
         cb = cadre(bgr, b, tous)
+        if b.lignes[0] in puces:  # après la puce dessinée, aligné à gauche
+            cb = (x, max(cb[1], x + w), False)
         efface = _union([zones[l] for l in b.lignes])
         libre = _libre(bgr, b, [l for _, l in lus], cb[0], cb[1], efface, poses)
         z = [zones[l] for l in b.lignes]
-        fichier = fichier_police or _fichier_police(
-            _gras(masque_couleur(bgr, z, dilatation=0), z, bool(_CJK.search(b.texte))))
+        gras = _gras(masque_couleur(bgr, z, dilatation=0), z, bool(_CJK.search(b.texte)))
+        fichier = fichier_police or _police_couvrante(_fichier_police(gras), b.traduction, gras)
         p = placer(b, W, fichier, libre, cb)
         if p is not None:
             places.append((b, p, cb, libre))
