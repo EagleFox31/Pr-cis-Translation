@@ -229,10 +229,17 @@ def blocs(lignes_lues, couleurs=None):
     return out
 
 
-def _couper(texte, police, largeur):
-    """Retour à la ligne glouton (par mots, ou par caractères sans espace)."""
-    unites = texte.split() if " " in texte.strip() else list(texte.strip())
-    sep = " " if " " in texte.strip() else ""
+def _couper(texte, police, largeur, casser=False):
+    """Retour à la ligne glouton, par mots. Un texte sans espace se coupe par
+    caractères s'il est CJK ; un mot latin reste entier (le corps baisse à la
+    place), sauf `casser` : dernier recours quand même le plancher ne suffit pas."""
+    t = texte.strip()
+    if " " in t:
+        unites, sep = t.split(), " "
+    elif _CJK.search(t) or casser:
+        unites, sep = list(t), ""
+    else:
+        unites, sep = [t], ""
     out, cur = [], ""
     for u in unites:
         essai = cur + sep + u if cur else u
@@ -311,11 +318,17 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
     # Second passage : une étiquette serrée en largeur peut n'entrer sur deux
     # lignes qu'en dessous du seuil de croissance ; mieux vaut alors grandir
     # plus petit, d'une ligne au plus, que laisser l'original.
-    for seuil, nmax in ((GRANDIR * s0, None), (plancher, n0 + 1)) if libre else ((s0, None),):
+    # Dernier passage : un mot latin trop long même au plancher est coupé
+    # plutôt que de laisser l'original.
+    passes = [(GRANDIR * s0, None), (plancher, n0 + 1)] if libre else [(s0, None)]
+    passes = [(*p, False) for p in passes]
+    if not _CJK.search(bloc.traduction):
+        passes.append((*passes[-1][:2], True))
+    for seuil, nmax, casser in passes:
         s = min(s0, taille_max or s0)
         while s >= plancher:
             police = _police(fichier, s)
-            texte_l = _couper(bloc.traduction, police, lmax)
+            texte_l = _couper(bloc.traduction, police, lmax, casser)
             pas = max(pas0, hl * 1.15) * s / s0
             haut = (len(texte_l) - 1) * pas + k * s
             larg = max(police.getlength(t) for t in texte_l)

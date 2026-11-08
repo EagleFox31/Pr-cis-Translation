@@ -345,9 +345,21 @@ def cas_ponctuation():
     assert module._couvre(module._ROBOTO[False], p("A・B"))
 
 
+def cas_mots_entiers():
+    police = ImageFont.truetype(POLICE, 40)
+    assert module._couper("Débutant", police, 60) == ["Débutant"]  # jamais « Déb/utant »
+    assert len(module._couper("Débutant", police, 60, casser=True)) > 1
+    assert len(module._couper("冷却水ポンプ", police, 60)) > 1
+    b = blocs([("Base", (10, 10, 40, 20))])[0]
+    b.traduction = "Fondamentaux"
+    p = placer(b, 400, POLICE, cadre=(10, 60, False))
+    assert p is None or p["lignes"] == ["Fondamentaux"] or p["taille"] <= module.PLANCHER_PX + 1, p
+
+
 def main():
     debut = time.monotonic()
     cas_ponctuation()
+    cas_mots_entiers()
     cas_controles()
     cas_blocs()
     cas_placer()
