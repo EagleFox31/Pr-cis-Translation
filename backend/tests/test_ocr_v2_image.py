@@ -130,6 +130,14 @@ def cas_blocs():
     deux = [("a b", (10, 10, 90, 24)), ("c d", (10, 38, 80, 24))]
     assert len(blocs(deux, [ROUGE, (20, 20, 20)])) == 2
     assert len(blocs(deux, [(20, 20, 20), (30, 25, 25)])) == 1
+    # Fin de phrase reportée seule, boîte plus haute (cas réel) : rattachée,
+    # même avec une ligne d'une autre colonne lue entre les deux.
+    suite = [("イントをおさえた正しい点検がで", (1118, 823, 687, 48)),
+             ("的を絞った点検をする。", (363, 849, 485, 52)), ("きる。", (1116, 874, 105, 59))]
+    assert [b.texte for b in blocs(suite)][0].endswith("できる。"), [b.texte for b in blocs(suite)]
+    # Après une ponctuation finale, la même ligne courte reste un bloc à part.
+    fini = [("点検をする。", (1118, 823, 687, 48)), ("注意", (1116, 874, 105, 59))]
+    assert len(blocs(fini)) == 2
     print("  blocs : lignes empilées réunies, confiance < 70 ignorée, japonais sans espace, "
           "hauteur, puce et couleur séparent")
 

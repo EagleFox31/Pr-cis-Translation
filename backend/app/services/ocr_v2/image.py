@@ -57,6 +57,7 @@ MEME_BORD = 0.5          # × hauteur de ligne : deux blocs alignés à gauche
 MARGE_EFFACE = 0.2       # × hauteur de ligne, de chaque côté
 SEUIL_ENCRE = 40         # écart au fond qui arrête l'agrandissement
 _PUCE = re.compile(r"^\s*([0-9０-９]+[.)．）、]|[・•\-–*]|[①-⑳])")
+_FIN_PHRASE = re.compile(r"[。．.!?！？:：」』）)]\s*$")
 DELAI_S = 30.0
 _CJK = re.compile(r"[぀-ヿ㐀-鿿豈-﫿가-힯]")
 _ROBOTO = {False: os.path.join(polices.FONTS_DIR, "roboto-Regular.ttf"),
@@ -215,8 +216,13 @@ def blocs(lignes_lues, couleurs=None):
         c = np.array(couleurs[n], float) if couleurs else None
         for bl, tb in zip([] if _PUCE.match(texte) else out, teintes):
             px, py, pw, ph = bl.lignes[-1]
+            # Fin de phrase reportée seule sous la ligne (« …がで » / « きる。 ») :
+            # la boîte d'un texte court varie plus en hauteur, on tolère le double.
+            suite = (w < 0.5 * pw and abs(x - px) <= MEME_BORD * ph
+                     and not _FIN_PHRASE.search(bl.texte))
+            tol = (2 if suite else 1) * MEME_HAUTEUR
             # Écart négatif toléré : les boîtes PP-OCR débordent sur la ligne voisine.
-            if (abs(h - ph) <= MEME_HAUTEUR * max(h, ph) and -0.3 * ph < y - (py + ph) < 0.8 * ph
+            if (abs(h - ph) <= tol * max(h, ph) and -0.3 * ph < y - (py + ph) < 0.8 * ph
                     and min(x + w, px + pw) > max(x, px)
                     and (c is None or np.linalg.norm(c - tb) <= MEME_COULEUR)):
                 bl.lignes.append(b)
