@@ -222,6 +222,12 @@ def blocs(lignes_lues, couleurs=None, puces=()):
             # la boîte d'un texte court varie plus en hauteur, on tolère le double.
             suite = (w < 0.5 * pw and abs(x - px) <= MEME_BORD * ph
                      and not _FIN_PHRASE.search(bl.texte))
+            # Titre court derrière une puce dessinée (« ◆結果 ») et paragraphe
+            # repris sous la puce : deux blocs, le titre ne se fond pas dans le texte.
+            titre = (len(bl.lignes) == 1 and bl.lignes[0] in puces and w > 2 * pw
+                     and x < px - MEME_BORD * ph)
+            if titre:
+                continue
             tol = (2 if suite else 1) * MEME_HAUTEUR
             # Écart négatif toléré : les boîtes PP-OCR débordent sur la ligne voisine.
             if (abs(h - ph) <= tol * max(h, ph) and -0.3 * ph < y - (py + ph) < 0.8 * ph
@@ -491,7 +497,10 @@ def _freres(places, W, teintes):
     for i, (bi, pi, *_) in enumerate(places):
         for j in range(i):
             bj, pj = places[j][0], places[j][1]
-            hi, hj = bi.boite[3], bj.boite[3]
+            # Hauteur de ligne, pas de bloc : deux paragraphes d'une case n'ont
+            # pas le même nombre de lignes mais le même corps.
+            hi = float(np.median([l[3] for l in bi.lignes]))
+            hj = float(np.median([l[3] for l in bj.lignes]))
             if (abs(hi - hj) <= MEME_HAUTEUR * max(hi, hj)
                     and alignes(bi.boite, bj.boite, MEME_BORD * min(hi, hj))
                     and pi["fichier"] == pj["fichier"]
@@ -617,8 +626,9 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
         if a is not None and a[y:y + h, x:x + w].min() < 255:
             continue
         cb = cadre(bgr, b, tous)
-        if b.lignes[0] in puces:  # après la puce dessinée, aligné à gauche
-            cb = (x, max(cb[1], x + w), False)
+        if b.lignes[0] in puces:  # après la puce dessinée, aligné à gauche, sans la couvrir
+            x0 = max(x, b.lignes[0][0])
+            cb = (x0, max(cb[1], x0 + w), False)
         efface = _union([zones[l] for l in b.lignes])
         libre = _libre(bgr, b, [l for _, l in lus], cb[0], cb[1], efface, poses)
         z = [zones[l] for l in b.lignes]
