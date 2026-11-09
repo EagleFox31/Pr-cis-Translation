@@ -5,6 +5,7 @@ import HeroSection from '../components/hero/HeroSection';
 import LanguageMarquee from '../components/hero/LanguageMarquee';
 import FeaturesGrid from '../components/features/FeaturesGrid';
 import StorySection from '../components/story/StorySection';
+import type { Ajustement } from '../components/preview/ViewerToolbar';
 import PricingSection from '../components/pricing/PricingSection';
 import AboutSection from '../components/about/AboutSection';
 import { showToast } from '../components/ui/Toast';
@@ -33,6 +34,15 @@ export default function Home() {
   const [currentPage, setCurrentPage] = useState(1);
   const [numPages, setNumPages] = useState(1);
   const [zoom, setZoom] = useState(1.0);
+  // Ajustement du zoom à l'écran (« pleine page » par défaut à l'ouverture ;
+  // `null` = zoom manuel) et rideau de comparaison original / traduction.
+  const [ajustement, setAjustement] = useState<Ajustement>('page');
+  const [rideau, setRideau] = useState(false);
+  // Un zoom choisi à la main quitte l'ajustement automatique.
+  const changerZoom = useCallback((z: number) => {
+    setAjustement(null);
+    setZoom(z);
+  }, []);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   // Le fichier SOURCE affiché est-il déjà un PDF ? Vrai pour un aperçu ouvert
   // depuis la bibliothèque (le serveur le convertit). Faux pour une traduction
@@ -222,6 +232,8 @@ export default function Home() {
       setTranslatedBlob(null);
       setTranslatedFilename('');
       setCurrentPage(1);
+      setAjustement('page');
+      setRideau(false);
       setShowPreview(true);
 
       stream
@@ -284,6 +296,8 @@ export default function Home() {
       // En cours : rien n'est tenu pour traduit avant la réponse du serveur.
       setSuiviBiblio(req.enCours ? { pretes: {}, etats: {} } : null);
       setCurrentPage(1);
+      setAjustement('page');
+      setRideau(false);
       setPreviewLoading(true);
       setShowLibrary(false);
       setShowPreview(true);   // ← l'aperçu est visible AVANT le premier octet
@@ -588,9 +602,9 @@ export default function Home() {
         case 'ArrowRight': setCurrentPage((p) => Math.min(effectiveNumPages, p + 1)); break;
         case 'Home':       setCurrentPage(1); break;
         case 'End':        setCurrentPage(effectiveNumPages); break;
-        case '+': case '=': setZoom((z) => Math.min(3, +(z + 0.25).toFixed(2))); break;
-        case '-':          setZoom((z) => Math.max(0.5, +(z - 0.25).toFixed(2))); break;
-        case '0':          setZoom(1); break;
+        case '+': case '=': setAjustement(null); setZoom((z) => Math.min(3, +(z + 0.25).toFixed(2))); break;
+        case '-':          setAjustement(null); setZoom((z) => Math.max(0.5, +(z - 0.25).toFixed(2))); break;
+        case '0':          setAjustement('page'); break;
         case 'f': case 'F': setPreviewFocus((v) => !v); break;
         case 'Escape':
           if (previewFocus) setPreviewFocus(false);
@@ -627,6 +641,7 @@ export default function Home() {
         return;
       }
       e.preventDefault();
+      setAjustement(null);
       setZoom((z) => Math.min(3, Math.max(0.5,
         +(z + (e.deltaY < 0 ? 0.15 : -0.15)).toFixed(2))));
     };
@@ -725,7 +740,12 @@ export default function Home() {
           onUnlock={handleUnlock}
           onToggleFocus={toggleFocus}
           onStop={stream.isTranslating || (suiviBiblio && libraryJobId) ? handleStop : undefined}
-          onZoomChange={setZoom}
+          onZoomChange={changerZoom}
+          ajustement={ajustement}
+          onAjustementChange={setAjustement}
+          onZoomAjuste={setZoom}
+          rideau={rideau}
+          onRideauChange={setRideau}
           onPageChange={setCurrentPage}
           onDownload={handleDownload}
           onDownloadOriginal={selectedFile ? handleDownloadOriginal : undefined}

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
-import { Loader2, Hourglass, Lock, FileX } from 'lucide-react';
+import { Loader2, Hourglass, Lock, FileX, ChevronsLeftRight } from 'lucide-react';
 import type { PagesIllisiblesVue } from '../../hooks/usePagesIllisibles';
 import ScanPageOverlay from './ScanPageOverlay';
+import type { Ajustement } from './ViewerToolbar';
 
 // Largeur du cadre d'aperçu (#scroll) sous laquelle deux volets côte à côte
 // tombent sous ~300 px chacun : texte illisible. C'est le CADRE qui compte, pas
@@ -73,6 +74,12 @@ interface PdfViewerProps {
   demoTarget?: string;
   currentPage: number;
   zoom: number;
+  /** Ajustement actif : la visionneuse calcule alors le zoom et le renvoie par
+   *  `onZoomAjuste`. `null` = zoom manuel. */
+  ajustement?: Ajustement;
+  onZoomAjuste?: (zoom: number) => void;
+  /** Rideau de comparaison : UN panneau, la traduction par-dessus l'original. */
+  rideau?: boolean;
   isTrialMode: boolean;
   onPagesLoaded?: (numPages: number) => void;
   className?: string;
@@ -120,6 +127,9 @@ export default function PdfViewer({
   demoTarget = '/demo_journal_apres.pdf',
   currentPage,
   zoom,
+  ajustement = null,
+  onZoomAjuste,
+  rideau = false,
   isTrialMode,
   onPagesLoaded,
   className,
@@ -180,7 +190,19 @@ export default function PdfViewer({
   const containerRef = useRef<HTMLDivElement>(null);
   const basculeRef = useRef<HTMLDivElement>(null);
   // Sans original, il n'y a rien à basculer : le volet traduit seul.
-  const voletVu = !compact ? null : sourceFile ? volet : 'target';
+  // Rideau : un seul panneau, les deux pages s'y superposent — pas de volet à choisir.
+  const voletVu = !compact || rideau ? null : sourceFile ? volet : 'target';
+  // Position du rideau (% de la largeur, bord gauche de la traduction), départ à 50 %.
+  const [rideauX, setRideauX] = useState(50);
+  const sceneRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (rideau) setRideauX(50); }, [rideau]);
+  const deplacerRideau = (clientX: number) => {
+    const r = sceneRef.current?.getBoundingClientRect();
+    if (!r || r.width <= 0) return;
+    setRideauX(Math.round(Math.min(100, Math.max(0, ((clientX - r.left) / r.width) * 100)) * 10) / 10);
+  };
+  const zoomCourant = useRef(zoom);
+  zoomCourant.current = zoom;
   const libelleSource = sourceLabel ?? t('preview.source_label');
   const libelleCible = targetLabel ?? t('preview.target_label');
   // Écran sans survol (tactile) : l'invite d'essai dit « touchez », pas « survolez ».
@@ -242,6 +264,77 @@ export default function PdfViewer({
   }, [sourceFile]);
   const attendOrig = !!sourceFile && !delaiOrig && (!docOrig || origPeint !== docOrig);
 
+  // Échelle de base d'un panneau pour une page de `pageW` × `pageH` : celle où
+  // elle tient dans le cadre. `zoom` s'y applique ensuite comme multiplicateur.
+  const echelleBase = (landscape: boolean, pageW: number, pageH: number, canvas?: HTMLCanvasElement) => {
+    let containerWidth = 600;
+    let containerHeight = 700;
+    const scrollEl = document.getElementById('scroll');
+    if (scrollEl) {
+      // Écran étroit : le cadre n'a plus de marge (index.css), le volet
+      // prend toute la largeur utile — on la lit, on ne la suppose pas.
+      const cs = getComputedStyle(scrollEl);
+      const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+      // Rideau : UN seul panneau, toute la largeur utile (la bascule a disparu).
+      containerWidth = compact || rideau
+        ? scrollEl.clientWidth - padX - (rideau ? 2 : 0)
+        : landscape
+          ? scrollEl.clientWidth - 24
+          : (scrollEl.clientWidth - 70) / 2;
+      // Hauteur disponible : le conteneur moins son padding (24px × 2) et
+      // la hauteur du badge de langue au-dessus de chaque panneau (~34px).
+      // Paysage : deux panneaux EMPILÉS → chacun a la MOITIÉ de la hauteur.
+      // Écran étroit : un seul volet visible, sous la bascule (sa hauteur
+      // mesurée + l'écart de 12px qui la sépare du volet).
+      const hDispo = scrollEl.clientHeight - 48 - 34;
+      const hBascule = basculeRef.current ? basculeRef.current.offsetHeight + 12 : 0;
+      containerHeight = rideau
+        ? scrollEl.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 2
+        : compact
+          ? hDispo - hBascule
+          : landscape ? (hDispo - 24) / 2 : hDispo;
+    } else {
+      containerWidth = canvas?.parentElement?.clientWidth || 600;
+    }
+    // Caler sur la dimension la PLUS CONTRAIGNANTE : la page tient alors
+    // ENTIÈREMENT dans le cadre (largeur ET hauteur). `zoom` agrandit ensuite.
+    // Écran étroit : calé sur la LARGEUR, comme une visionneuse — une page
+    // entière en hauteur y serait illisible ; on défile verticalement.
+    return Math.max(0.05, compact
+      ? containerWidth / pageW
+      : Math.min(containerWidth / pageW, containerHeight / pageH));
+  };
+
+  // Zoom (multiplicateur de `echelleBase`) qui réalise l'ajustement demandé :
+  // « page » = les pages visibles tiennent ENTIÈRES dans #scroll (largeur ET
+  // hauteur, padding et écarts compris) ; « largeur » = elles en remplissent
+  // la largeur. Les cotes sont celles du DOM réel, avec 2 px de marge pour
+  // les bordures, de sorte qu'aucune barre de défilement n'apparaisse en « page ».
+  const zoomAjuste = (mode: 'page' | 'largeur', pageW: number, pageH: number) => {
+    const el = document.getElementById('scroll');
+    if (!el) return null;
+    const landscape = pageW > pageH;
+    const cs = getComputedStyle(el);
+    const larg = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const haut = el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    let pw: number;
+    let ph: number;
+    if (rideau) {                 // une seule page
+      pw = larg - 2; ph = haut - 2;
+    } else if (compact) {         // un volet sous la bascule
+      pw = larg - 2;
+      ph = haut - 2 - (basculeRef.current ? basculeRef.current.offsetHeight + 12 : 0);
+    } else if (landscape) {       // deux pages empilées : 2 écarts de 24 + filet de 1
+      pw = larg - 2; ph = (haut - 49 - 4) / 2;
+    } else {                      // deux pages côte à côte : 2 écarts de 20 + filet de 1
+      pw = (larg - 41 - 4) / 2; ph = haut - 2;
+    }
+    const cible = mode === 'largeur' ? pw / pageW : Math.min(pw / pageW, ph / pageH);
+    const z = cible / echelleBase(landscape, pageW, pageH);
+    // Arrondi par défaut : l'arrondi au plus près ferait déborder de quelques pixels.
+    return Math.min(4, Math.max(0.25, Math.floor(z * 100) / 100));
+  };
+
   // Mesure la page `pageNum` de `pdf` pour le cadre courant.
   const mesurer = async (pdf: any, pageNum: number, canvas: HTMLCanvasElement) => {
     // Borne la page demandée : un document mono-page recevait encore le
@@ -253,42 +346,7 @@ export default function PdfViewer({
     // La valeur est LOCALE, jamais l'état : un `setIsLandscape` ne prend effet
     // qu'au rendu suivant, et cadrait mal la première frame.
     const landscape = unscaledViewport.width > unscaledViewport.height;
-    let containerWidth = 600;
-    let containerHeight = 700;
-    const scrollEl = document.getElementById('scroll');
-    if (scrollEl) {
-      // Écran étroit : le cadre n'a plus de marge (index.css), le volet
-      // prend toute la largeur utile — on la lit, on ne la suppose pas.
-      const cs = getComputedStyle(scrollEl);
-      const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
-      containerWidth = compact
-        ? scrollEl.clientWidth - padX
-        : landscape
-          ? scrollEl.clientWidth - 24
-          : (scrollEl.clientWidth - 70) / 2;
-      // Hauteur disponible : le conteneur moins son padding (24px × 2) et
-      // la hauteur du badge de langue au-dessus de chaque panneau (~34px).
-      // Paysage : deux panneaux EMPILÉS → chacun a la MOITIÉ de la hauteur.
-      // Écran étroit : un seul volet visible, sous la bascule (sa hauteur
-      // mesurée + l'écart de 12px qui la sépare du volet).
-      const hDispo = scrollEl.clientHeight - 48 - 34;
-      const hBascule = basculeRef.current ? basculeRef.current.offsetHeight + 12 : 0;
-      containerHeight = compact
-        ? hDispo - hBascule
-        : landscape ? (hDispo - 24) / 2 : hDispo;
-    } else {
-      containerWidth = canvas.parentElement?.clientWidth || 600;
-    }
-    // Caler sur la dimension la PLUS CONTRAIGNANTE : la page tient alors
-    // ENTIÈREMENT dans le cadre (largeur ET hauteur). `zoom` agrandit ensuite.
-    // Écran étroit : calé sur la LARGEUR, comme une visionneuse — une page
-    // entière en hauteur y serait illisible ; on défile verticalement.
-    const baseScale = Math.max(0.05, compact
-      ? containerWidth / unscaledViewport.width
-      : Math.min(
-        containerWidth / unscaledViewport.width,
-        containerHeight / unscaledViewport.height,
-      ));
+    const baseScale = echelleBase(landscape, unscaledViewport.width, unscaledViewport.height, canvas);
     const viewport = page.getViewport({ scale: baseScale * zoom });
     // Rendu à la densité de l'écran (×2, ×3 sur téléphone), affiché à la
     // taille CSS du viewport : sans cela le texte est flou.
@@ -385,7 +443,7 @@ export default function PdfViewer({
       active = false;
       taches.forEach((t) => { try { t.cancel(); } catch { /* déjà fini */ } });
     };
-  }, [docOrig, currentPage, zoom, compact, gabaritVide, tailleCadre]);
+  }, [docOrig, currentPage, zoom, compact, rideau, gabaritVide, tailleCadre]);
 
   // Panneau TRADUIT : la page n'y est dessinée que si le serveur l'a déclarée
   // traduite ET qu'elle existe dans le document. Sinon : un fond neutre à la
@@ -417,8 +475,27 @@ export default function PdfViewer({
       active = false;
       taches.forEach((t) => { try { t.cancel(); } catch { /* déjà fini */ } });
     };
-  }, [docTrad, docOrig, currentPage, zoom, compact, translatedPageReady, attendOrig, gabaritVide,
+  }, [docTrad, docOrig, currentPage, zoom, compact, rideau, translatedPageReady, attendOrig, gabaritVide,
     tailleCadre]);
+
+  // Ajustement actif : le zoom suit la page, le mode de disposition et la
+  // taille du cadre. Un écart sous 1 % est ignoré (une barre de défilement qui
+  // apparaît change le cadre de quelques pixels : sans seuil, la valeur
+  // oscillerait).
+  useEffect(() => {
+    if (!ajustement || !onZoomAjuste) return;
+    let active = true;
+    const pdf = docOrig ?? docTrad ?? gabaritVide;
+    pdf.getPage(Math.min(Math.max(1, currentPage), pdf.numPages))
+      .then((p: any) => {
+        if (!active) return;
+        const v = p.getViewport({ scale: 1.0 });
+        const z = zoomAjuste(ajustement, v.width, v.height);
+        if (z !== null && Math.abs(z - zoomCourant.current) >= 0.01) onZoomAjuste(z);
+      })
+      .catch((e: unknown) => signaler(active)(e));
+    return () => { active = false; };
+  }, [ajustement, rideau, compact, tailleCadre, currentPage, docOrig, docTrad, gabaritVide, onZoomAjuste]);
 
   const [isHovering, setIsHovering] = useState(false);
 
@@ -439,7 +516,7 @@ export default function PdfViewer({
         flexShrink: 0,
       }}
     >
-      {compact && sourceFile && (
+      {compact && sourceFile && !rideau && (
         <div ref={basculeRef} className="cv-bascule" role="group" aria-label={t('preview.toggle_label')}>
           {(['source', 'target'] as const).map((v) => (
             <button
@@ -454,12 +531,15 @@ export default function PdfViewer({
         </div>
       )}
 
+      {/* Scène : transparente pour la disposition habituelle (`contents`) ; en
+          rideau, c'est la page unique sur laquelle la traduction se superpose. */}
+      <div ref={sceneRef} style={rideau ? { position: 'relative', flexShrink: 0 } : { display: 'contents' }}>
       {/* Original Panel */}
       <div
         className="cv-wrap"
         style={{ flexShrink: 0, display: voletVu && voletVu !== 'source' ? 'none' : undefined }}
       >
-        <span className="cv-lang-badge fr">{libelleSource}</span>
+        {!rideau && <span className="cv-lang-badge fr">{libelleSource}</span>}
         <div className="cv" id="cv-fr">
           <canvas
             id="pdf-canvas-original"
@@ -472,7 +552,7 @@ export default function PdfViewer({
           vertical quand ils sont côte à côte (portrait) */}
       <div
         style={{
-          display: compact ? 'none' : undefined,
+          display: compact || rideau ? 'none' : undefined,
           width: isLandscape ? '100%' : '1px',
           height: isLandscape ? '1px' : undefined,
           alignSelf: 'stretch',
@@ -484,14 +564,22 @@ export default function PdfViewer({
       {/* Translation Panel */}
       <div
         className="cv-wrap"
-        style={{ flexShrink: 0, display: voletVu && voletVu !== 'target' ? 'none' : undefined }}
+        style={{
+          flexShrink: 0,
+          display: voletVu && voletVu !== 'target' ? 'none' : undefined,
+          // Rideau : calée sur l'original, et découpée depuis la gauche — la
+          // traduction n'apparaît qu'à droite de la poignée.
+          ...(rideau ? { position: 'absolute', inset: 0, clipPath: `inset(0 0 0 ${rideauX}%)` } : null),
+        }}
       >
-        <span
-          className="cv-lang-badge en"
-          style={{ background: '#f0fdf4', color: '#15803d' }}
-        >
-          {libelleCible}
-        </span>
+        {!rideau && (
+          <span
+            className="cv-lang-badge en"
+            style={{ background: '#f0fdf4', color: '#15803d' }}
+          >
+            {libelleCible}
+          </span>
+        )}
         <div
           className="cv trial-viewer"
           id="cv-en"
@@ -737,6 +825,54 @@ export default function PdfViewer({
             </motion.div>
           )}
         </div>
+      </div>
+
+      {rideau && (
+        <>
+          <span className="cv-lang-badge fr cv-rideau-etiq">
+            {t('viewer.curtain_original', 'Original')}
+          </span>
+          <span
+            className="cv-lang-badge en cv-rideau-etiq droite"
+            style={{ background: '#f0fdf4', color: '#15803d' }}
+          >
+            {t('viewer.curtain_translation', 'Traduction')}
+          </span>
+          {/* Poignée : souris et tactile (pointer events), flèches du clavier ±5 %.
+              Les flèches ne doivent pas changer de page (raccourcis globaux). */}
+          <div
+            role="slider"
+            tabIndex={0}
+            className="cv-rideau-poignee"
+            style={{ left: `${rideauX}%` }}
+            aria-label={t('viewer.curtain_handle', 'Position du rideau de comparaison')}
+            aria-orientation="horizontal"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(rideauX)}
+            aria-valuetext={`${Math.round(rideauX)} %`}
+            onPointerDown={(e) => {
+              e.currentTarget.setPointerCapture(e.pointerId);
+              deplacerRideau(e.clientX);
+            }}
+            onPointerMove={(e) => {
+              if (e.currentTarget.hasPointerCapture(e.pointerId)) deplacerRideau(e.clientX);
+            }}
+            onPointerUp={(e) => {
+              if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+            }}
+            onKeyDown={(e) => {
+              const pas = e.key === 'ArrowLeft' ? -5 : e.key === 'ArrowRight' ? 5 : 0;
+              if (pas === 0) return;
+              e.preventDefault();
+              e.stopPropagation();
+              setRideauX((x) => Math.min(100, Math.max(0, x + pas)));
+            }}
+          >
+            <span aria-hidden><ChevronsLeftRight size={14} strokeWidth={2.4} /></span>
+          </div>
+        </>
+      )}
       </div>
     </div>
   );
