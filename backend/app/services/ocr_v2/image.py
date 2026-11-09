@@ -405,21 +405,22 @@ def conteneur(bgr, efface, lignes_bloc, autres=()):
         encre = (int(u[0]), int(u[1]), int(u[0] + u[2]), int(u[1] + u[3]))
     lx0, ly0, lx1, ly1 = encre
     ouvert = max(lx1 - lx0, OUVERT * hl)
-    bx0, bx1 = lx0 - ouvert, lx1 + ouvert
+    ax0, ax1 = 0, W  # côtés : bord de l'image ou mi-distance d'un voisin de rangée
     by0, by1 = ly0 - GRANDIR_LIGNES * hl, ly1 + GRANDIR_LIGNES * hl
     for ax, ay, aw, ah in autres:
         if min(ay + ah, ly1) > max(ay, ly0):  # même rangée
             if ax >= lx1:
-                bx1 = min(bx1, (lx1 + ax) / 2)
+                ax1 = min(ax1, (lx1 + ax) / 2)
             elif ax + aw <= lx0:
-                bx0 = max(bx0, (ax + aw + lx0) / 2)
+                ax0 = max(ax0, (ax + aw + lx0) / 2)
         elif min(ax + aw, lx1) > max(ax, lx0):  # même colonne
             if ay >= ly1:
                 by1 = min(by1, (ly1 + ay) / 2)
             elif ay + ah <= ly0:
                 by0 = max(by0, (ay + ah + ly0) / 2)
-    bx0, by0 = max(min(int(np.ceil(bx0)), lx0), 0), max(min(int(np.ceil(by0)), ly0), 0)
-    bx1, by1 = min(max(int(bx1), lx1), W), min(max(int(by1), ly1), H)
+    ax0, ax1 = max(min(int(np.ceil(ax0)), lx0), 0), min(max(int(ax1), lx1), W)
+    bx0, bx1 = max(ax0, int(np.ceil(lx0 - ouvert))), min(ax1, int(lx1 + ouvert))
+    by0, by1 = max(min(int(np.ceil(by0)), ly0), 0), min(max(int(by1), ly1), H)
     x0, x1 = lx0, lx1
     y0 = int(lignes_bloc[0][1] + lignes_bloc[0][3] / 2)
     y1 = int(lignes_bloc[-1][1] + lignes_bloc[-1][3] / 2) + 1
@@ -434,7 +435,18 @@ def conteneur(bgr, efface, lignes_bloc, autres=()):
             y0, bouge = y0 - 1, True
         if y1 < by1 and ok[y1, x0:x1].mean() >= CASE_PART:
             y1, bouge = y1 + 1, True
-    return (x0, y0, x1, y1), float(ok[y0:y1, x0:x1].mean()), encre, part
+    # Murs en haut et en bas (case, bande, rangée de tableau) : la limite
+    # `OUVERT` ne vaut que dans le vide ; la case suit la bande tant que ses
+    # deux murs continuent, jusqu'à son mur de côté ou à un voisin.
+    ferme = by0 < y0 and y1 < by1
+    if ferme:
+        def suit(c):
+            return ok[y0:y1, c].mean() >= CASE_PART and not ok[y0 - 1, c] and not ok[y1, c]
+        while x1 < ax1 and suit(x1):
+            x1 += 1
+        while x0 > ax0 and suit(x0 - 1):
+            x0 -= 1
+    return (x0, y0, x1, y1), float(ok[y0:y1, x0:x1].mean()), encre, part, ferme
 
 
 def _case(bgr, bloc, efface, autres=()):
@@ -445,7 +457,7 @@ def _case(bgr, bloc, efface, autres=()):
     Alignement : bords des lignes s'ils varient assez ; sinon marges dans la
     case. Une étiquette posée dans le vide (marges de plus de `FLOTTANT`
     lignes des deux côtés) garde son centre."""
-    c, uni, encre, part = conteneur(bgr, efface, bloc.lignes, autres)
+    c, uni, encre, part, ferme = conteneur(bgr, efface, bloc.lignes, autres)
     if part < FOND_MIN:
         return None
     ix0, iy0, ix1, iy1 = encre
@@ -480,7 +492,8 @@ def _case(bgr, bloc, efface, autres=()):
         x1 = ix1
     py =max(1, min(iy0 - c[1], c[3] - iy1, 0.3 * hl))
     sens = {"centre": True, "gauche": False}.get(sens, sens)
-    return (x0, x1, sens), (c[1] + py, c[3] - py), uni
+    # Case fermée en haut et en bas : son milieu sert au centrage vertical.
+    return (x0, x1, sens), (c[1] + py, c[3] - py), uni, (c[1] + c[3]) / 2 if ferme else None
 
 
 def colonnes(bloc, largeur_image):
@@ -525,18 +538,24 @@ def cadre(bgr, bloc, tous):
     return max(cx - demi, 0), min(cx + demi, W), True
 
 
-def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max=None, n_min=1):
+def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max=None, n_min=1,
+           milieu=None):
     """Taille, lignes et cadre `(x, y, w)` de la traduction, ou `None` si
     elle ne tient pas au-dessus du plancher. `libre` : rangées `(haut, bas)`
     vides autour du bloc, où il peut grandir vers le bas ; `cadre` :
     `(x0, x1, centre)` donné par `cadre()` ; `taille_max` : taille commune
-    d'une liste ; `n_min` : lignes gardées quand le corps baisse."""
+    d'une liste ; `n_min` : lignes gardées quand le corps baisse ; `milieu` :
+    milieu vertical d'une case fermée, où un texte centré pose le milieu de
+    ses capitales (du haut des capitales à la ligne de base), comme en PAO :
+    sans jambage, il ne remonte pas."""
     fichier = fichier or _fichier_police()
     x, y, w, h = bloc.boite
     hl = float(np.median([b[3] for b in bloc.lignes]))
     # Taille dont les glyphes « Hg » ont la hauteur des lignes lues.
     g100 = _police(fichier, 100).getbbox("Hg")
     k = (g100[3] - g100[1]) / 100
+    c100 = _police(fichier, 100).getbbox("H")
+    kc = (c100[3] - g100[1]) / 100  # haut des capitales → ligne de base
     s0 = s_h = max(int(hl / k), 1)
     n0 = len(bloc.lignes)
     # Jamais plus grand que l'original : pour une source latine, la largeur
@@ -577,12 +596,19 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
             ok_n = nmax is None or len(texte_l) <= nmax
             tient = ok_n and larg <= lmax and haut <= h + 0.1 * hl
             # Étiquette centrée dans sa boîte ; sinon la première ligne reste à sa place.
+            optique = (len(texte_l) - 1) * pas + kc * s
             y1 = y + (h - haut) / 2 if centre and tient else y + (bloc.lignes[0][3] - k * s) / 2
+            if centre and tient and milieu is not None:
+                y1 = milieu - optique / 2
             if tient and libre and libre[1] - libre[0] >= haut:
                 y1 = min(max(y1, libre[0]), libre[1] - haut)
             if (not tient and libre and ok_n and larg <= lmax
                     and haut <= min(libre[1] - libre[0], h + GRANDIR_LIGNES * hl)):
-                y1 = (libre[0] + libre[1] - haut) / 2 if centre else min(max(y1, libre[0]), libre[1] - haut)
+                if centre:
+                    m = milieu if milieu is not None else (libre[0] + libre[1]) / 2
+                    y1 = min(max(m - optique / 2, libre[0]), libre[1] - haut)
+                else:
+                    y1 = min(max(y1, libre[0]), libre[1] - haut)
                 tient = True
             if tient:
                 xt = (x0 + x1) / 2 - larg / 2 if centre else x1 - larg if droite else x
@@ -591,7 +617,8 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
                 xs = [xt + (larg - police.getlength(t)) * (0.5 if centre else 1 if droite else 0)
                       for t in texte_l]
                 return {"taille": s, "lignes": texte_l, "pas": pas, "x": xt, "xs": xs, "y": y1,
-                        "haut_glyphe": k * s, "larg": larg, "haut": haut, "fichier": fichier}
+                        "haut_glyphe": k * s, "larg": larg, "haut": haut, "fichier": fichier,
+                        "milieu": milieu}
             s = int(s * 0.94) if s > 20 else s - 1
     return None
 
@@ -744,7 +771,8 @@ def _freres(places, W, teintes):
     for i, (b, p, cb, libre) in enumerate(places):
         t = min(q[1]["taille"] for j, q in enumerate(places) if racine(j) == racine(i))
         if t < p["taille"]:  # plus petit : tient dans la même place, sur autant de lignes
-            p = placer(b, W, p["fichier"], libre, cb, taille_max=t, n_min=len(p["lignes"])) or p
+            p = placer(b, W, p["fichier"], libre, cb, taille_max=t, n_min=len(p["lignes"]),
+                       milieu=p.get("milieu")) or p
         out.append((b, p))
     return out
 
@@ -877,7 +905,7 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
         z = [zones[l] for l in b.lignes]
         gras = _gras(masque_couleur(bgr, z, dilatation=0), z, bool(_CJK.search(b.texte)))
         fichier = fichier_police or _police_couvrante(_fichier_police(gras), b.traduction, gras)
-        p = placer(b, W, fichier, libre, cb)
+        p = placer(b, W, fichier, libre, cb, milieu=case[3] if case else None)
         if p is not None:
             places.append((b, p, cb, libre))
             poses.append((p["x"], p["y"], p["x"] + p["larg"], p["y"] + p["haut"]))

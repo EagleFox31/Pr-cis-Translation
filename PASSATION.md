@@ -1,21 +1,17 @@
 # PASSATION — 09/11/2026
 ## 1. Objectif en cours
-(00) Traduire les images comme un studio de PAO (4S_EN.pdf + organigrammes du banc). Étude : `docs/etude-traduction-images-pro.md` (§5 bis = règles de l'utilisateur et derniers résultats). Option 1 retenue et mise en place (§8 de l'étude). **ATTENTE : l'utilisateur retraduit 4S_EN.pdf et donne son avis.**
-- Règles de l'utilisateur (09/11) : taille traduite ≤ originale ; ordre = même nombre de lignes sur toute la largeur de la case → +1 ligne → seulement ensuite réduction.
-- Prototype hors dépôt (scratchpad `C:\Users\IBRAH\AppData\Local\Temp\claude\6d6c80c79a7942fb\42c03571-7b91-4a3a-9fd2-6b8799712cd9\scratchpad`) : `proto.py` (conteneur/alignement), `placer3.py` (placer revu : s0 = min(hauteur, largeur lue) en latin, interligne rapporté à s_h, calage vertical dans `libre`), `proto3.py` (banc A/B, sorties `C/`), `dbg4.py <cas> <texte>` (trace placer pour un cas). Lancer depuis `backend/` avec `RATIO=40` et le dossier scratchpad en argument.
-- Dernier banc : B = 0 débordement / 117 (A : 3) ; 0 coupe ; écarts entre frères 9 (A : 2) ; organigrammes sur 1 ligne (une carte sur 2 lignes car trop longue).
-- Défauts restants à corriger dans l'implémentation : (a) chaque ligne doit être centrée une à une (`image.py:676`, toutes les lignes partent de `p["x"]`) ; (b) équilibrer 2 lignes (éviter « … de la / cause ») ; (c) frères : harmoniser sur la plus petite ; « Pièces commandées » petit (mot plus large que la colonne, conforme à la règle).
-- Étapes .1–.4 [x] (banc 138 posés / 0 coupe / 2 écarts, ocr_v2_image vert) ; .5 [~] cache vidé, retraduction par l'utilisateur. Rappel : .1 `conteneur()` + garde-fous (bord, RATIO 40) dans image.py ; .2 branchement cadre/_libre/_contour + placer revu ; .3 centrage par ligne + équilibrage + frères ; .4 banc (0 coupe, 0 débordement) + ocr_v2_image vert ; .5 vider le cache images, l'utilisateur retraduit 4S_EN.pdf.
-- Restes antérieurs : image 31 « 3-days »/« Before » séparés ; même titre traduit différemment d'une image à l'autre (glossaire) ; « Parts Orderd » (faute source).
-- (a) 6.17 FAIT (16d4840, 985238d, 10d1839, 499873b sur `feat/extension-gratuite-forfaits`, non poussés) : essai local par l'utilisateur, puis PR #56 (brouillon). App lancée via `scripts/dev.py` avec `EXTENSION_OFFRE=1`.
+(00) Traduire les images comme un studio de PAO (4S_EN.pdf + organigrammes). Étude : `docs/etude-traduction-images-pro.md` (§9–§11). Branche `feat/traduction-images-pao`, commits non poussés : 9b1ef5d, b7288f8, ef414bf, **a886a73**.
+- Règles utilisateur : taille traduite ≤ originale ; même nb de lignes → +1 ligne → seulement ensuite réduction. **Règles générales, jamais cas par cas.** Précision « chirurgicale » exigée.
+- Étapes : .1–.8 [x] ; .9b [x] a886a73 : traits de tableau 2 px anticrénelés gardés (`mask.py` `_pixels_du_trait` : pixel = mélange fond→cœur du trait, plus la médiane). Banc 141/0/1/restes 3820 ; tests image + effacement verts ; cbc0dcf3fa vérifié net.
+- .10 [x] centrage vertical optique : dans une case fermée haut/bas, `placer(milieu=)` pose le milieu « haut des capitales → ligne de base » au milieu de la case (banc 312d4ab391).
+- .11 [x] case fermée haut/bas : `conteneur()` suit la bande au-delà de `OUVERT` tant que ses deux murs continuent (banc 1256de4600 : point 1 sur 1 ligne ; point 4 sur 2 lignes, conforme : trop long pour la bande à taille d'origine). Banc inchangé 141/0/1/3820, tests verts.
+- .12 [ ] essai 4S par l'utilisateur, puis push/PR seulement avec son accord.
+- Limites connues : frères d'une colonne d'organigramme à la plus petite taille (424e, 97a) ; texte coloré sur dégradé ; couleur `_couleur()` (« Non reproduit ») à contrôler ; marge intérieure des cases (6 %) à trancher ; glossaire inter-images ; « Parts Orderd » (faute source).
+- (a) 6.17 FAIT (`feat/extension-gratuite-forfaits`, non poussé) : essai local utilisateur puis PR #56 (brouillon).
 
 ## 2. Fait
-- 6.15.1 (07–08/11) : 2 lots du worktree `Precis-Translator-extension` fusionnés ici. Lot 1 : `feat/extension-distribution`, 24 commits, 8e38a2f. Lot 2 : `feat/extension-analyse-images`, 13 commits, e967d3c ; l'analyse d'image est séparée de la traduction.
-  - `backend/app/api/extension.py` : cache partagé `cache_images`, limites par page, 2 images par utilisateur, guichet OCR via `_tour()` ; `_occupe` attrape aussi `ocr_file.OCROccupe` et renvoie 503.
-  - `backend/app/services/ocr_v2/image.py` : `lire_image(..., tour=)` et `traduire_image(..., lus=, tour=)` ; le délai court à partir du tour obtenu.
-  - Vérifs : test_extension 30/30, cache_images, limites_page, ocr_file (10), ocr_v2_image ; extension 53/53 + build (dist 1.0.0) ; front tsc/lint/build OK. Suite backend complète relancée le 08/11 : 98/98 vertes, après correction de `test_invitations` (798e2cd, le test était périmé depuis 6.16). `test_ocr` exige Tesseract dans le PATH et `TESSDATA_PREFIX`.
-  - ⚠ `backend/tests/test_extension.py:287,291` corrigés ici (la réponse d'analyse contient `texte`) ; ils restent faux sur la branche du worktree. À reporter ou à signaler à l'utilisateur.
-- 6.16 e-mails Spacemail : commits 6a0504a + 7e16ee4, non poussés. `_expediteur()` et carte 540 px `_carte` dans `backend/app/core/email.py` ; alias `precis@` (expéditeur), `support.precis@`, `alertes.precis@`. Aucun client ne doit voir le nom ni l'adresse d'Ibrahim.
+- 6.15.1 : 2 lots du worktree extension fusionnés (8e38a2f, e967d3c) ; suite backend 98/98 le 08/11. ⚠ `backend/tests/test_extension.py:287,291` restent faux sur la branche du worktree.
+- 6.16 e-mails Spacemail : 6a0504a + 7e16ee4 non poussés (`backend/app/core/email.py`). Aucun client ne voit le nom/l'adresse d'Ibrahim.
 
 ## 3. Décisions
 - Scan : seule la détection diffère du PDF natif. Qualité avant vitesse ; délai OCR de 90 s.
@@ -58,5 +54,5 @@
 - Tests backend : unittest sur Postgres 5433, jamais sur la base dev 5432. Conteneur `precis-test-pg` (postgres:16-alpine), puis `alembic upgrade head`.
 - Front : `cd frontend && npx tsc --noEmit -p . ; npm run lint --silent ; npm run build --silent`.
 - Extension : `cd extension && npm run -s typecheck && npm test && npm run -s build`. Faire `npm ci` si une dépendance manque.
-- Tests backend = scripts (`python tests/test_x.py`), pas `unittest` / `discover`.
+- Tests backend = scripts (`python tests/test_x.py`). Images : `tests/banc_images.py`, `tests/test_ocr_v2_image.py`, `tests/test_ocr_v2_effacement.py` (venv + `PYTHONUTF8=1 NO_PROXY=*`).
 - Fichiers en CRLF : les éditer avec Edit, jamais avec `sed -i`. Remote `origin` = EagleFox31.
