@@ -49,7 +49,11 @@ PLANCHER_PX = 9
 LISIBLE_PX = 24          # un grand titre peut descendre jusque-là : réduit, il reste lisible
 MEME_HAUTEUR = 0.15
 MEME_COULEUR = 80        # distance RVB entre deux lignes d'un même bloc
-GRANDIR = 0.8            # en dessous, plus de retour à la ligne vers le bas : la réduction suffit
+GRANDIR = 0.8            # au-delà d'une ligne de plus, pas de corps plus petit
+CASE_PART = 0.97        # part de fond qu'une rangée doit garder pour agrandir la case
+CASE_RATIO = 40          # case plus grande que 40 × la zone du texte : pas une case
+CASE_UNIE = 0.9          # case unie à 90 % : pas de contour autour de la traduction
+CASE_MARGE = 0.06        # marge intérieure au plus 6 % de la largeur de la case
 GRANDIR_LIGNES = 4       # hauteur gagnée au plus, en lignes lues
 GRAS = {True: 0.095, False: 0.142}  # épaisseur du trait / hauteur d'encre, japonais ou non
 # (Yu Gothic : 0,07 normal, 0,12 gras ; latin : 0,14 au plus normal, 0,15 au moins gras)
@@ -284,6 +288,98 @@ def _couper(texte, police, largeur, casser=False):
     return out
 
 
+def _equilibrer(texte, police, largeur, casser=False):
+    """Même coupure que `_couper`, au même nombre de lignes, mais à la largeur
+    la plus étroite qui le permet : lignes de longueur voisine, jamais un mot
+    seul sur la dernière (« … de la / cause »)."""
+    out = _couper(texte, police, largeur, casser)
+    if len(out) < 2:
+        return out
+    bas, haut = 1.0, float(largeur)
+    while haut - bas > 1:
+        m = (bas + haut) / 2
+        if len(_couper(texte, police, m, casser)) == len(out):
+            haut = m
+        else:
+            bas = m
+    essai = _couper(texte, police, haut, casser)
+    return essai if len(essai) == len(out) else out
+
+
+def conteneur(bgr, efface, lignes_bloc):
+    """Case autour du texte `(x0, y0, x1, y1)` et part de fond uni : on part
+    du cœur des lignes et on agrandit le rectangle de chaque côté tant que la
+    nouvelle rangée garde au moins `CASE_PART` de la couleur de fond (la plus
+    fréquente derrière les lettres) ; on s'arrête sur un trait ou un changement
+    de fond. Les lettres elles-mêmes ne comptent pas comme encre."""
+    H, W = bgr.shape[:2]
+    ex, ey, ew, eh = efface
+    px = np.concatenate([bgr[int(ly):int(ly + lh), int(lx):int(lx + lw)].reshape(-1, 3)
+                         for lx, ly, lw, lh in lignes_bloc]).astype(np.int16)
+    q = px // 16
+    cle = q[:, 0] * 256 + q[:, 1] * 16 + q[:, 2]
+    fond = np.median(px[cle == np.bincount(cle).argmax()], axis=0)
+    ok = np.abs(bgr.astype(np.int16) - fond).max(axis=2) <= SEUIL_ENCRE
+    z = ok[ey:ey + eh, ex:ex + ew]
+    # Dans la zone du texte, seule une rangée (colonne) d'encre d'un bord à
+    # l'autre est un trait ; le reste est du texte, compté comme fond.
+    f = np.ones_like(z)
+    tr, tc = z.mean(axis=1) < 0.15, z.mean(axis=0) < 0.15
+    f[tr, :], f[:, tc] = z[tr, :], z[:, tc]
+    ok[ey:ey + eh, ex:ex + ew] = f
+    x0 = int(min(l[0] for l in lignes_bloc))
+    x1 = int(max(l[0] + l[2] for l in lignes_bloc))
+    y0 = int(lignes_bloc[0][1] + lignes_bloc[0][3] / 2)
+    y1 = int(lignes_bloc[-1][1] + lignes_bloc[-1][3] / 2) + 1
+    bouge = True
+    while bouge:
+        bouge = False
+        if x0 > 0 and ok[y0:y1, x0 - 1].mean() >= CASE_PART:
+            x0, bouge = x0 - 1, True
+        if x1 < W and ok[y0:y1, x1].mean() >= CASE_PART:
+            x1, bouge = x1 + 1, True
+        if y0 > 0 and ok[y0 - 1, x0:x1].mean() >= CASE_PART:
+            y0, bouge = y0 - 1, True
+        if y1 < H and ok[y1, x0:x1].mean() >= CASE_PART:
+            y1, bouge = y1 + 1, True
+    return (x0, y0, x1, y1), float(ok[y0:y1, x0:x1].mean())
+
+
+def _case(bgr, bloc, efface):
+    """Place offerte par la case du bloc : `(cadre, libre, uni)` à passer à
+    `placer()`, ou `None` si la case n'est pas fiable (elle touche le bord de
+    l'image ou dépasse `CASE_RATIO` fois la zone du texte : case pâle sur fond
+    blanc, dégradé, photo) ou si le texte est aligné à droite."""
+    H, W = bgr.shape[:2]
+    c, uni = conteneur(bgr, efface, bloc.lignes)
+    if c[0] == 0 or c[1] == 0 or c[2] == W or c[3] == H:
+        return None
+    if (c[2] - c[0]) * (c[3] - c[1]) > CASE_RATIO * max(efface[2] * efface[3], 1):
+        return None
+    ls = bloc.lignes
+    x, y, w, h = bloc.boite
+    if c[0] > x or c[1] > y or c[2] < x + w or c[3] < y + h:
+        return None  # la case n'a pas pu s'étendre autour du texte
+    hl = float(np.median([l[3] for l in ls]))
+    # Alignement : bords des lignes s'ils varient assez ; sinon marges dans la case.
+    if len(ls) > 1 and np.ptp([l[2] for l in ls]) >= 0.5 * hl:
+        ecarts = [np.ptp([l[0] for l in ls]), np.ptp([l[0] + l[2] / 2 for l in ls]),
+                  np.ptp([l[0] + l[2] for l in ls])]
+        sens = ("gauche", "centre", "droite")[int(np.argmin(ecarts))]
+    else:
+        mg, md = x - c[0], c[2] - (x + w)
+        sens = ("centre" if abs(mg - md) <= max(0.5 * hl, 0.15 * (c[2] - c[0]))
+                else "gauche" if mg < md else "droite")
+        # Paragraphe qui remplit sa case : marges égales mais sans portée.
+        if len(ls) > 1 and sens == "centre" and mg + md < 0.2 * (c[2] - c[0]):
+            sens = "gauche"
+    if sens == "droite":
+        return None
+    px = max(1, min(x - c[0], c[2] - x - w, 0.5 * hl, CASE_MARGE * (c[2] - c[0])))
+    py = max(1, min(y - c[1], c[3] - y - h, 0.3 * hl))
+    return (c[0] + px, c[2] - px, sens == "centre"), (c[1] + py, c[3] - py), uni
+
+
 def colonnes(bloc, largeur_image):
     """Colonnes `(x0, x1)` que la traduction peut occuper au plus large."""
     x, y, w, h = bloc.boite
@@ -338,42 +434,58 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
     # Taille dont les glyphes « Hg » ont la hauteur des lignes lues.
     g100 = _police(fichier, 100).getbbox("Hg")
     k = (g100[3] - g100[1]) / 100
-    s0 = max(int(hl / k), 1)
+    s0 = s_h = max(int(hl / k), 1)
     n0 = len(bloc.lignes)
+    # Jamais plus grand que l'original : pour une source latine, la largeur
+    # lue mesure le corps mieux que la hauteur de boîte (gonflée de ~30 %).
+    if not _CJK.search(bloc.texte):
+        p100 = _police(fichier, 100)
+        lu = p100.getlength(bloc.texte) - (n0 - 1) * p100.getlength(" ")
+        if lu > 0:
+            s0 = max(min(s0, int(100 * sum(l[2] for l in bloc.lignes) / lu)), 1)
     pas0 = (bloc.lignes[-1][1] - bloc.lignes[0][1]) / (n0 - 1) if n0 > 1 else hl * 1.2
     if cadre is None:
         cadre = (*colonnes(bloc, largeur_image), n0 == 1)
     x0, x1, centre = cadre
     lmax = x1 - x0
     plancher = max(min(PLANCHER * s0, LISIBLE_PX), PLANCHER_PX)
-    # Second passage : une étiquette serrée en largeur peut n'entrer sur deux
-    # lignes qu'en dessous du seuil de croissance ; mieux vaut alors grandir
-    # plus petit, d'une ligne au plus, que laisser l'original.
-    # Dernier passage : un mot latin trop long même au plancher est coupé
-    # plutôt que de laisser l'original.
-    passes = [(GRANDIR * s0, None), (plancher, n0 + 1)] if libre else [(s0, None)]
-    passes = [(*p, False) for p in passes]
+    # Ordre : le nombre de lignes d'origine sur toute la largeur, puis une
+    # ligne de plus, puis seulement une réduction de corps. Dernier passage :
+    # un mot latin trop long même au plancher est coupé plutôt que de laisser
+    # l'original. Au-delà d'une ligne de plus, le texte ne descend pas sous
+    # `GRANDIR` × le corps : une traduction bien plus longue reste en original
+    # plutôt que tassée en petit sur de nombreuses lignes.
+    passes = ([(n0 + 1, plancher, False), (None, GRANDIR * s0, False)] if libre
+              else [(None, plancher, False)])
     if not _CJK.search(bloc.traduction):
-        passes.append((*passes[-1][:2], True))
-    for seuil, nmax, casser in passes:
+        passes.append((n0 + 1 if libre else None, plancher, True))
+    for nmax, seuil, casser in passes:
         s = min(s0, taille_max or s0)
-        while s >= plancher:
+        if casser:  # couper un mot : seulement au plancher
+            s = min(s, int(np.ceil(plancher)))
+        while s >= max(plancher, seuil):
             police = _police(fichier, s)
-            texte_l = _couper(bloc.traduction, police, lmax, casser)
-            pas = max(pas0, hl * 1.15) * s / s0
+            texte_l = _equilibrer(bloc.traduction, police, lmax, casser)
+            # Interligne rapporté au corps lu, sinon la 2ᵉ ligne descend trop bas.
+            pas = max(pas0, hl * 1.15) * s / s_h
             haut = (len(texte_l) - 1) * pas + k * s
             larg = max(police.getlength(t) for t in texte_l)
-            tient = larg <= lmax and haut <= h + 0.1 * hl
+            ok_n = nmax is None or len(texte_l) <= nmax
+            tient = ok_n and larg <= lmax and haut <= h + 0.1 * hl
             # Étiquette centrée dans sa boîte ; sinon la première ligne reste à sa place.
             y1 = y + (h - haut) / 2 if centre and tient else y + (bloc.lignes[0][3] - k * s) / 2
-            if (not tient and libre and larg <= lmax and s >= seuil
-                    and (nmax is None or len(texte_l) <= nmax)
+            if tient and libre and libre[1] - libre[0] >= haut:
+                y1 = min(max(y1, libre[0]), libre[1] - haut)
+            if (not tient and libre and ok_n and larg <= lmax
                     and haut <= min(libre[1] - libre[0], h + GRANDIR_LIGNES * hl)):
-                y1, tient = min(max(y1, libre[0]), libre[1] - haut), True
+                y1 = (libre[0] + libre[1] - haut) / 2 if centre else min(max(y1, libre[0]), libre[1] - haut)
+                tient = True
             if tient:
-                xt = x + w / 2 - larg / 2 if centre else x
+                xt = (x0 + x1) / 2 - larg / 2 if centre else x
                 xt = min(max(xt, x0), x1 - larg)
-                return {"taille": s, "lignes": texte_l, "pas": pas, "x": xt, "y": y1,
+                # Chaque ligne centrée pour elle-même, ou calée à gauche.
+                xs = [xt + (larg - police.getlength(t)) / 2 if centre else xt for t in texte_l]
+                return {"taille": s, "lignes": texte_l, "pas": pas, "x": xt, "xs": xs, "y": y1,
                         "haut_glyphe": k * s, "larg": larg, "haut": haut, "fichier": fichier}
             s = int(s * 0.94) if s > 20 else s - 1
     return None
@@ -633,7 +745,7 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
             b.traduction = _ponctuation_latine(_joindre((tr or "").split()))
         d["traduction"] = time.monotonic() - t
 
-    places, poses = [], []
+    places, poses, unies = [], [], set()
     for b in tous:
         x, y, w, h = b.boite
         # Déjà dans la langue cible (le traducteur l'a rendu tel quel) : laissé intact.
@@ -642,12 +754,20 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
         # Lettres posées sur de la transparence : l'effacement ne les retirerait pas.
         if a is not None and a[y:y + h, x:x + w].min() < 255:
             continue
-        cb = cadre(bgr, b, tous)
+        efface = _union([zones[l] for l in b.lignes])
+        # Case dessinée autour du texte : sa place et son alignement ; sinon
+        # l'encre voisine et le vide autour du bloc.
+        case = _case(bgr, b, efface)
+        cb = case[0] if case else cadre(bgr, b, tous)
         if b.lignes[0] in puces:  # après la puce dessinée, aligné à gauche, sans la couvrir
             x0 = max(x, b.lignes[0][0])
             cb = (x0, max(cb[1], x0 + w), False)
-        efface = _union([zones[l] for l in b.lignes])
-        libre = _libre(bgr, b, [l for _, l in lus], cb[0], cb[1], efface, poses)
+        if case:
+            libre = case[1]
+            if case[2] >= CASE_UNIE:
+                unies.add(b.boite)
+        else:
+            libre = _libre(bgr, b, [l for _, l in lus], cb[0], cb[1], efface, poses)
         z = [zones[l] for l in b.lignes]
         gras = _gras(masque_couleur(bgr, z, dilatation=0), z, bool(_CJK.search(b.texte)))
         fichier = fichier_police or _police_couvrante(_fichier_police(gras), b.traduction, gras)
@@ -660,7 +780,9 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
     if places:
         boites = [zones[l] for b, _ in places for l in b.lignes]
         mask = masque_couleur(bgr, boites)
-        styles = [(_couleur(bgr, mask, b.boite), _contour(bgr, mask, b.boite)) for b, _ in places]
+        # Case unie : la traduction s'y lit sans contour.
+        styles = [(_couleur(bgr, mask, b.boite),
+                   b.boite not in unies and _contour(bgr, mask, b.boite)) for b, _ in places]
         t = time.monotonic()
         reste = max(fin - t, 1.0)
         efface, choix = effacer(bgr, boites, budget_s=reste, mask=mask, limite_s=reste)
@@ -673,7 +795,7 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
             haut = police.getbbox("Hg")[1]
             opposee = (255, 255, 255) if sum(couleur) < 384 else (0, 0, 0)
             for i, t in enumerate(p["lignes"]):
-                crayon.text((p["x"], p["y"] + i * p["pas"] - haut), t, font=police, fill=couleur,
+                crayon.text((p["xs"][i], p["y"] + i * p["pas"] - haut), t, font=police, fill=couleur,
                             stroke_width=max(1, round(p["taille"] / 14)) if contour else 0,
                             stroke_fill=opposee)
             b.remplace = True
