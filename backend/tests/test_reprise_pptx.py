@@ -58,6 +58,7 @@ class Traducteur:
 
     def __init__(self):
         self.appels: list[str] = []
+        self.ids: list[str] = []
         self.echoue_sur: str | None = None
 
     def fiche_document(self, *_a, **_k):
@@ -68,6 +69,7 @@ class Traducteur:
             data = json.load(f)
         sources = [_nu(el["text"]) for sd in data["slides"] for el in tr._elements_de(sd)]
         self.appels.extend(sources)
+        self.ids.extend(el.get("id") for sd in data["slides"] for el in tr._elements_de(sd))
         if self.echoue_sur and any(self.echoue_sur in s for s in sources):
             return False, "fournisseur coupé"
         for sd in data["slides"]:
@@ -127,7 +129,7 @@ def main() -> int:
            str(sorted(gardees)))
 
         # ── 2. Relance : seule la diapo manquante part au modèle ─────────
-        trad.echoue_sur, trad.appels = None, []
+        trad.echoue_sur, trad.appels, trad.ids = None, [], []
         evenements: list[tuple[int, str]] = []
         emit = jobs.emit
 
@@ -148,11 +150,12 @@ def main() -> int:
         ok("2. relance : diapos reprises affichées traduites d'emblée",
            directes and (3, "extracting") in evenements, str(evenements))
         # Rien de ce qui était déjà traduit ne repart au modèle, et la diapo
-        # en échec, elle, y part bien.
+        # en échec, elle, y part bien. Unicité par élément (id) et non par texte :
+        # layout et master portent des textes identiques (« Click to edit… »).
         ok("2. relance : seuls les fragments manquants retraduits",
            "Troisieme texte" in trad.appels
            and not {"Premier texte", "Deuxieme texte"} & set(trad.appels)
-           and len(trad.appels) == len(set(trad.appels)), str(trad.appels))
+           and len(trad.ids) == len(set(trad.ids)), str(trad.appels))
         # Le gabarit (texte « Click to edit… ») est pris par une diapo ou une
         # autre selon la course : il doit être repris quel que soit son porteur.
         ok("2. relance : traduction finale écrite", os.path.isfile(traduction))
