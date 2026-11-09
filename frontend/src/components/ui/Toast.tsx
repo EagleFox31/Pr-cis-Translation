@@ -148,6 +148,8 @@ export default function ToastContainer() {
 
   return (
     <div
+      role="status"
+      aria-live="polite"
       style={{
         position: 'fixed',
         top: '84px',

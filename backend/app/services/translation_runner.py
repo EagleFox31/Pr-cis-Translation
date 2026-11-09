@@ -29,13 +29,16 @@ import shutil
 import tempfile
 import threading
 
+import fitz
+
 
 import engines
 from app.config import logger, note
-from app.services import render_cache
+from app.services import extension as ext_service
+from app.services import images_document, ocr, ocr_file, ocr_pages, render_cache
 from engines import runtags
-from app.services.jobs import jobs
-from app.services.office import SOFFICE_PATH, convert_to_pdf_bytes
+from app.services.jobs import ArretDemande, _dans_une_boucle_jetable, jobs
+from app.services.office import convert_to_pdf_bytes
 from app.services.progressive_preview import (ProgressivePreview,
                                               ecrire_atomiquement)
 from engines.translation_ai import TranslatorAI
@@ -59,6 +62,93 @@ for _fmt, _raison in engines.INDISPONIBLES.items():
     note(logging.WARNING, f"{_fmt.upper()} indisponible : {_raison}")
 
 
+def _preparer_images(job_id: str, user_id: str | None, file_bytes: bytes, ext: str,
+                     langue: str, translation_path: str) -> dict[str, bytes]:
+    """Traduit les images à texte du document lancé avec `images=1` et renvoie
+    la table `{clé d'image: octets traduits}` à poser dans le rendu.
+
+    Le budget est lu AVANT de traduire (couverture restante du compte) ; le
+    débit est unique, après coup, lié au document : un échec du travail rend
+    donc aussi les images. Si le solde a été consommé entre-temps, rien n'est
+    posé. Une image qui échoue reste en original : jamais d'échec du document.
+    """
+    if not user_id:
+        return {}
+    try:
+        lu: list = []
+
+        async def _couverture(db):
+            from app.models import User
+            user = await db.get(User, user_id)
+            reste_plan, solde, _ = await ext_service.couverture(db, user)
+            lu.append(None if reste_plan is None else reste_plan + solde)
+
+        _dans_une_boucle_jetable(_couverture)
+        table, rapport = images_document.traduire_images(
+            file_bytes, ext, lambda t: ext_service.traduire_textes(t, langue),
+            os.path.join(os.path.dirname(translation_path), "images"), lu[0],
+            arret=lambda: jobs.verifier_arret(job_id))
+
+        k = rapport["traduites"]
+        if k:
+            debite: list = []
+            document_id = (jobs.get(job_id) or {}).get("document_id")
+
+            async def _debit(db):
+                debite.append(await ext_service.debiter(db, user_id, k, document_id=document_id))
+
+            try:
+                _dans_une_boucle_jetable(_debit)
+            except Exception as e:
+                logger.warning("Job %s : débit des images échoué : %s", job_id, e)
+            if not (debite and debite[0]):
+                table, rapport["traduites"] = {}, 0
+                rapport["sans_credit"] += k
+        images_document.ecrire_table(translation_path, table, rapport)
+        jobs.set(job_id, images=rapport)
+        jobs.emit(job_id, "images", rapport)
+        return table
+    except Exception as e:
+        logger.warning("Job %s : images non traduites : %s", job_id, e)
+        return {}
+
+
+def _signaler_objets(job_id: str, non_traites: list[dict] | None = None,
+                     extraction_path: str | None = None) -> None:
+    """Compte rendu client (D6) : objets incorporés laissés en langue
+    d'origine (liés, Visio, échecs…) ou dont l'image n'a pu être refaite. Lus
+    sur l'extraction quand la liste n'est pas fournie. Au mieux : un rapport
+    illisible ne signale rien ; un flux coupé perd l'événement (limite
+    acceptée, option A de l'étude)."""
+    if non_traites is None and extraction_path:
+        try:
+            with open(extraction_path, encoding="utf-8") as f:
+                non_traites = (json.load(f).get("objets_rapport") or {}).get("non_traites")
+        except (OSError, ValueError, AttributeError):
+            non_traites = None
+    if not isinstance(non_traites, list):
+        return
+    liste = [{"cible": o.get("cible"), "raison": o.get("raison")}
+             for o in non_traites if isinstance(o, dict)]
+    if liste:
+        jobs.emit(job_id, "objets", {"non_traites": liste})
+
+
+def _poser_images_fichier(chemin: str, table: dict[str, bytes]) -> None:
+    """Remplace dans le fichier Office `chemin` les parties de `table`.
+    Best-effort : en cas d'échec, le fichier garde ses images d'origine."""
+    if not table:
+        return
+    try:
+        with open(chemin, "rb") as f:
+            brut = f.read()
+        pose = images_document.poser_office(brut, table)
+        if pose is not brut:
+            ecrire_atomiquement(chemin, pose)
+    except Exception as e:
+        logger.warning("Images non posées dans %s : %s", os.path.basename(chemin), e)
+
+
 def run_translation_job(
     job_id: str, file_bytes: bytes, filename: str, ext: str,
     target_lang: str, format_opts: dict,
@@ -66,6 +156,7 @@ def run_translation_job(
     extraction_path: str, translated_path: str,
     output_path: str, output_filename: str,
     model: str, max_tokens: int, pages_set=None, debug: bool = False,
+    images: bool = False, user_id: str | None = None,
 ):
     """Exécute toute la pipeline dans un thread de fond et émet des events SSE.
 
@@ -80,6 +171,12 @@ def run_translation_job(
 
         # 2. Sauvegarde de l'original
         _sauver_original(original_path, file_bytes)
+
+        # Images à texte (option `images=1`) : traduites avant le texte, posées
+        # dans le fichier final.
+        table_images = (_preparer_images(job_id, user_id, file_bytes, ext, target_lang,
+                                         translated_path)
+                        if images and ext == "docx" else {})
 
         # 3. Extraction
         if not os.path.exists(extraction_path):
@@ -113,6 +210,8 @@ def run_translation_job(
                 raise ValueError("Échec de l'extraction du texte.")
         else:
             jobs.emit(job_id, "progress", {"step": "extract", "message": "Extraction : cache utilisé.", "page": 0, "total": None})
+        if ext != "pdf":
+            _signaler_objets(job_id, extraction_path=extraction_path)
 
         # 4. Traduction IA — ou IDENTITÉ en mode structure/debug
         if debug:
@@ -134,8 +233,12 @@ def run_translation_job(
                 raise ValueError("Le traducteur IA n'est pas disponible.")
             cb_translate = jobs.progress_callback(job_id, "translate")
             jobs.emit(job_id, "progress", {"step": "translate", "message": "Traduction IA en cours...", "page": 0, "total": None})
-            success, result = ai_translator.translate_json(extraction_path, target_lang=target_lang, progress_callback=cb_translate, model=model, max_tokens=max_tokens)
+            success, result = ai_translator.translate_json(extraction_path, target_lang=target_lang, progress_callback=cb_translate, model=model, max_tokens=max_tokens,
+                                                           should_stop=lambda: bool(jobs.arret_demande(job_id)))
             if not success:
+                # Échec par arrêt demandé : pause/annulation, pas une erreur. Un
+                # travail ARRIVÉ au bout est gardé même si l'arrêt est tombé après.
+                jobs.verifier_arret(job_id)
                 raise ValueError(f"Traduction échouée : {result}")
             if os.path.exists(result) and os.path.abspath(result) != os.path.abspath(translated_path):
                 shutil.move(result, translated_path)
@@ -145,8 +248,10 @@ def run_translation_job(
         # 5. Injection / génération (DOCX/PPTX — le PDF passe par le moteur v2).
         jobs.emit(job_id, "progress", {"step": "inject", "message": "Génération du document traduit...", "page": 0, "total": None})
         if ext == "docx":
-            inj_ok, inj_msg = engines.new_engine("docx").inject_translation(original_path, translated_path, output_path, format_options=format_opts)
+            moteur_injection = engines.new_engine("docx")
+            inj_ok, inj_msg = moteur_injection.inject_translation(original_path, translated_path, output_path, format_options=format_opts)
         elif ext == "pptx" and pptx_eng:
+            moteur_injection = pptx_eng
             inj_ok, inj_msg = pptx_eng.inject_translation(original_path, translated_path, output_path, format_options=format_opts)
             if inj_ok:
                 pptm_auto_path = output_path[:-5] + "_autorefresh.pptm" if output_path.endswith(".pptx") else output_path + "_autorefresh.pptm"
@@ -157,7 +262,8 @@ def run_translation_job(
             # partagent écrivent dans les mêmes fichiers (cf. engines/CONTEXTE).
             # Ce n'est PAS le moteur qui a servi à l'extraction : celui-là a
             # déjà nettoyé son dossier.
-            inj_ok, inj_msg = engines.new_engine("xlsx").inject_translation(
+            moteur_injection = engines.new_engine("xlsx")
+            inj_ok, inj_msg = moteur_injection.inject_translation(
                 original_path, translated_path, output_path,
                 format_options=format_opts)
         else:
@@ -167,10 +273,12 @@ def run_translation_job(
             if os.path.exists(output_path):
                 os.remove(output_path)
             raise ValueError(f"Injection échouée : {inj_msg}")
+        _signaler_objets(job_id, moteur_injection.objets_restes)
 
         if not os.path.exists(output_path):
             raise ValueError("Le fichier traduit est introuvable après génération.")
 
+        _poser_images_fichier(output_path, table_images)
         jobs.done(job_id, output_path, output_filename,
                   translation_path=translated_path)
 
@@ -184,6 +292,7 @@ def run_xlsx_progressive_job(
     output_path: str, output_filename: str, partial_path: str,
     translation_path: str, target_lang: str,
     model: str = None, max_tokens: int = None, debug: bool = False,
+    images: bool = False, user_id: str | None = None,
 ):
     """Pipeline XLSX PROGRESSIF : l'aperçu se remplit FEUILLE PAR FEUILLE.
 
@@ -220,6 +329,16 @@ def run_xlsx_progressive_job(
                                        "message": "Démarrage du job...",
                                        "page": 0, "total": None})
 
+        # Images à texte (option `images=1`) : posées dans chaque aperçu de
+        # feuille comme dans le classeur final. Le socle reste l'original.
+        table_images = (_preparer_images(job_id, user_id, file_bytes, "xlsx",
+                                         target_lang, translation_path)
+                        if images else {})
+
+        def _extraire_feuilles(chemin, pages):
+            eng.build_partial_xlsx(chemin, only_sheets={n - 1 for n in pages})
+            _poser_images_fichier(chemin, table_images)
+
         # ── Le SOCLE, tout de suite ───────────────────────────────────────
         # Mis en cache par CONTENU : retraduire le même classeur dans une autre
         # langue ne le reconvertit pas.
@@ -229,8 +348,7 @@ def run_xlsx_progressive_job(
         # INDEX 0-basés (c'est ce que voit le format). La conversion se fait à
         # cet unique endroit — la frontière entre les deux mondes.
         apercu = ProgressivePreview(
-            extraire=lambda chemin, pages: eng.build_partial_xlsx(
-                chemin, only_sheets={n - 1 for n in pages}),
+            extraire=_extraire_feuilles,
             convertir=lambda octets: convert_to_pdf_bytes(octets, "xlsx",
                                                           use_cache=False),
             extension="xlsx",
@@ -259,6 +377,7 @@ def run_xlsx_progressive_job(
             eng.extract_text(original_path, extraction_path,
                              progress_callback=jobs.progress_callback(
                                  job_id, "extract"))
+        _signaler_objets(job_id, extraction_path=extraction_path)
 
         # La carte feuille -> chaînes, et l'ordre d'affichage des onglets. Les
         # deux se lisent sur le dossier de travail ouvert par l'extraction.
@@ -276,6 +395,8 @@ def run_xlsx_progressive_job(
                 donnees = json.load(f)
             for el in donnees.get("workbook", {}).get("elements", []):
                 el["translated_text"] = el.get("text", "")
+            for el in donnees.get("objets", []):
+                el["translated_text"] = el.get("text", "")
             with open(translation_path, "w", encoding="utf-8") as f:
                 json.dump(donnees, f, ensure_ascii=False)
         elif not os.path.exists(translation_path):
@@ -287,8 +408,12 @@ def run_xlsx_progressive_job(
             ok, res = ai_translator.translate_json(
                 extraction_path, target_lang=target_lang,
                 progress_callback=jobs.progress_callback(job_id, "translate"),
-                model=model, max_tokens=max_tokens)
+                model=model, max_tokens=max_tokens,
+                should_stop=lambda: bool(jobs.arret_demande(job_id)))
             if not ok:
+                # Échec par arrêt demandé : pause/annulation, pas une erreur. Un
+                # travail ARRIVÉ au bout est gardé même si l'arrêt est tombé après.
+                jobs.verifier_arret(job_id)
                 raise ValueError(f"Traduction échouée : {res}")
             if os.path.exists(res) and os.path.abspath(res) != os.path.abspath(
                     translation_path):
@@ -300,7 +425,13 @@ def run_xlsx_progressive_job(
             el["id"]: (el.get("translated_text") or el.get("text", ""))
             for el in traduit.get("workbook", {}).get("elements", [])
         }
-        if not traductions:
+        # Objets incorporés (Excel, Word, PowerPoint) : traduits à part, une fois
+        # le classeur final écrit. `traductions` reste celle du classeur seul.
+        traductions_objets = {
+            el["id"]: (el.get("translated_text") or el.get("text", ""))
+            for el in traduit.get("objets", [])
+        }
+        if not traductions and not traductions_objets:
             raise ValueError("Aucun texte traduit à réinjecter.")
 
         # ── Réinjection, puis GREFFE feuille par feuille ──────────────────
@@ -345,7 +476,10 @@ def run_xlsx_progressive_job(
         eng.build_partial_xlsx(output_path, only_sheets=None)
         if not os.path.exists(output_path):
             raise ValueError("Le fichier traduit est introuvable après génération.")
+        eng.injecter_objets(output_path, traductions_objets)
+        _signaler_objets(job_id, eng.objets_restes)
 
+        _poser_images_fichier(output_path, table_images)
         jobs.done(job_id, output_path, output_filename,
                   translation_path=translation_path)
 
@@ -365,7 +499,8 @@ def _elements_de(slide_data: dict):
     famille oubliée quelque part passait inaperçue.
     """
     yield from slide_data.get("text_elements", [])
-    for groupe in ("diagram_elements", "chart_elements", "layout_elements"):
+    for groupe in ("diagram_elements", "chart_elements", "layout_elements",
+                   "master_elements"):
         for bloc in slide_data.get(groupe, []):
             yield from bloc.get("text_elements", [])
     yield from slide_data.get("excel_elements", [])
@@ -518,7 +653,8 @@ def _reprendre_slide(slide_data: dict, connus: dict[str, dict],
     copie = copy.deepcopy(slide_data)
     for cle in ("text_elements", "excel_elements"):
         copie[cle] = [el for el in copie.get(cle, []) if el.get("id") in reste]
-    for groupe in ("diagram_elements", "chart_elements", "layout_elements"):
+    for groupe in ("diagram_elements", "chart_elements", "layout_elements",
+                   "master_elements"):
         blocs = []
         for bloc in copie.get(groupe, []):
             bloc["text_elements"] = [el for el in bloc.get("text_elements", [])
@@ -604,11 +740,17 @@ def _coherence_document(slides_traduites: dict, pptx_eng, target_lang: str,
     return len(a_reprendre)
 
 
+class DeckSansTexte(ValueError):
+    """Présentation dont aucune diapositive n'a livré de texte : échec affiché
+    tel quel à l'utilisateur (il n'a rien à réessayer)."""
+
+
 def run_pptx_progressive_job(
     job_id: str, file_bytes: bytes, original_path: str,
     output_path: str, output_filename: str, partial_path: str,
     translation_path: str, target_lang: str,
     pages_set=None, debug: bool = False, is_admin: bool = False,
+    images: bool = False, user_id: str | None = None,
 ):
     """Pipeline PPTX PROGRESSIF : extraction, traduction et réinjection SLIDE
     PAR SLIDE. Le PPTX partiel est construit puis converti en PDF pour être
@@ -626,6 +768,16 @@ def run_pptx_progressive_job(
 
         # ── Sauvegarde de l'original ──────────────────────────────────────
         _sauver_original(original_path, file_bytes)
+
+        # Images à texte (option `images=1`) : posées dans chaque aperçu
+        # partiel comme dans le PPTX final. Le socle reste l'original.
+        table_images = (_preparer_images(job_id, user_id, file_bytes, "pptx",
+                                         target_lang, translation_path)
+                        if images else {})
+
+        def _extraire_diapos(chemin, pages):
+            pptx_eng.build_partial_pptx(chemin, max(pages), only_slides=pages)
+            _poser_images_fichier(chemin, table_images)
 
         # ── Décompression ─────────────────────────────────────────────────
         jobs.emit(job_id, "progress", {"step": "extract", "message": "Décompression du PPTX...", "page": 0, "total": None})
@@ -729,13 +881,9 @@ def run_pptx_progressive_job(
         # temporaire est muté par plusieurs slides à la fois et un partiel lu au
         # vol serait incohérent. L'admin échange l'aperçu progressif contre la
         # vitesse (il verra le partiel final, comme avant).
-        # Diapositives dont l'aperçu Excel incorporé a été refait EN LIGNE : la
-        # passe finale n'y reviendra pas.
-        _ole_faits: set[int] = set()
 
         _apercu = ProgressivePreview(
-            extraire=lambda chemin, pages: pptx_eng.build_partial_pptx(
-                chemin, max(pages), only_slides=pages),
+            extraire=_extraire_diapos,
             convertir=lambda octets: convert_to_pdf_bytes(octets, "pptx",
                                                           use_cache=False),
             extension="pptx",
@@ -752,9 +900,13 @@ def run_pptx_progressive_job(
                 brut = f.read()
             pdf = convert_to_pdf_bytes(brut, "pptx", use_cache=True)
             ecrire_atomiquement(partial_path, _apercu.poser_socle(pdf))
+            jobs.set(job_id, partial_pages=_apercu.liste_pages)
 
         def _afficher_slide(slide_num: int):
-            """Convertit CETTE diapositive et l'affiche — EN LIGNE, tout de suite.
+            return _afficher_slides([slide_num])
+
+        def _afficher_slides(nums: list[int]):
+            """Convertit CES diapositives et les affiche — EN LIGNE, tout de suite.
 
             C'est le cœur du page-par-page : la conversion se fait DANS la boucle
             de traitement, pas dans un thread séparé. L'aperçu suit donc
@@ -773,33 +925,34 @@ def run_pptx_progressive_job(
                 if not _apercu.pret:
                     _preparer_socle()
 
-                # PIÈCE JOINTE EXCEL D'ABORD. Un objet Excel incorporé s'affiche
-                # via une IMAGE de remplacement figée à la création : sans cette
-                # passe, la diapositive « terminée » montrerait son tableau en
-                # langue SOURCE. Best-effort et silencieux si rien à faire (la
-                # plupart des diapositives n'ont aucun objet OLE).
-                try:
-                    pptx_eng.regenerate_ole_previews(
-                        soffice_path=SOFFICE_PATH, only_slides={slide_num})
-                    _ole_faits.add(slide_num)
-                except Exception as e:
-                    logger.warning("Aperçu Excel diapo %s : %s", slide_num, e)
-
-                ecrire_atomiquement(partial_path, _apercu.greffer([slide_num]))
+                ecrire_atomiquement(partial_path, _apercu.greffer(nums))
+                # APRÈS l'écriture : lue avant le fichier par /partial, la
+                # liste peut retarder sur lui, jamais l'annoncer en avance.
+                jobs.set(job_id, partial_pages=_apercu.liste_pages)
                 jobs.emit(job_id, "partial",
                           {"ready": True, "pages": _apercu.pages_traduites})
                 return True
             except Exception as e:
                 logger.warning("Aperçu progressif diapo %s ignoré : %s",
-                               slide_num, e)
+                               nums, e)
                 return False
+
+        # Extraites par la passe de reprise sans y être entièrement reprises :
+        # une seconde extraction perdrait le gabarit que la première a pris.
+        pre_extraites: dict[int, dict | None] = {}
 
         def _process_one_slide(slide_num: int):
             nonlocal done
+            # Point de contrôle : pause/annulation. Celles en attente
+            # s'arrêtent ici ; celles en vol sont abandonnées (`abandon`).
+            jobs.verifier_arret(job_id)
             jobs.emit(job_id, "page", {"page": slide_num, "status": "extracting",
                          "done": done, "total": total})
             jobs.sync_progress(job_id, done, total)
-            slide_data, info = pptx_eng.extract_slide(slide_num, filters)
+            if slide_num in pre_extraites:
+                slide_data = pre_extraites.pop(slide_num)
+            else:
+                slide_data, _info = pptx_eng.extract_slide(slide_num, filters)
             if not slide_data:
                 with done_lock:
                     done += 1
@@ -829,9 +982,10 @@ def run_pptx_progressive_job(
                 for chart in slide_data.get("chart_elements", []):
                     for el in chart.get("text_elements", []):
                         el["translated_text"] = el["text"]
-                for layout in slide_data.get("layout_elements", []):
-                    for el in layout.get("text_elements", []):
-                        el["translated_text"] = el["text"]
+                for groupe in ("layout_elements", "master_elements"):
+                    for layout in slide_data.get(groupe, []):
+                        for el in layout.get("text_elements", []):
+                            el["translated_text"] = el["text"]
                 for el in slide_data.get("excel_elements", []):
                     el["translated_text"] = el["text"]
             else:
@@ -845,8 +999,10 @@ def run_pptx_progressive_job(
                 success, result = ai_translator.translate_json(
                     mini_json, target_lang=target_lang,
                     progress_callback=jobs.progress_callback(job_id, "translate"),
-                    fiche=fiche_doc,
+                    fiche=fiche_doc, should_stop=abandon.is_set,
                 )
+                if abandon.is_set():
+                    return
                 if not success:
                     raise ValueError(f"Traduction slide {slide_num} échouée : {result}")
 
@@ -890,11 +1046,15 @@ def run_pptx_progressive_job(
             # La traduction (au-dessus) reste parallèle ; SEULE cette zone est
             # exclusive. Chaque thread la traverse à son tour pour SA page.
             with _display_lock:
+                # Arrêt prononcé pendant la traduction : la diapositive n'est
+                # ni gardée, ni mise en reprise, ni comptée (décision du 30/10).
+                if abandon.is_set():
+                    return
                 slides_traduites[slide_num] = slide_data
                 if not debug:
                     _ecrire_reprise(reprise_path, slides_traduites)
                 pptx_eng.inject_slide(slide_num, tmap)
-                apercu_ok = _afficher_slide(slide_num)   # OLE + greffe + emit
+                apercu_ok = _afficher_slide(slide_num)   # greffe + emit
 
             with done_lock:
                 done += 1
@@ -918,7 +1078,9 @@ def run_pptx_progressive_job(
         # prendre la suivante. Les traductions se recouvrent ; les affichages
         # sont sérialisés par `_display_lock` (cf. `_process_one_slide`). Le
         # socle est déjà prêt, donc chaque greffe a sa base.
-        from concurrent.futures import ThreadPoolExecutor
+        from concurrent.futures import (FIRST_COMPLETED, ThreadPoolExecutor,
+                                        wait)
+        abandon = threading.Event()
         # FICHE DE DOCUMENT avant la première diapositive : traduites une à
         # une, elles ne verraient sinon jamais le fichier entier.
         # Gardée avec la reprise : une relance ne la paie pas deux fois et
@@ -938,13 +1100,68 @@ def run_pptx_progressive_job(
                             f.write(fiche_doc)
                     except OSError:
                         pass
-        with ThreadPoolExecutor(max_workers=_WORKERS) as executor:
-            futures = [executor.submit(_process_one_slide, sn)
-                       for sn in slides_to_process]
-            # `.result()` propage la première exception rencontrée (le job passe
-            # alors en erreur, comportement inchangé).
-            for f in futures:
-                f.result()
+        # REPRISE VISIBLE : les diapositives entièrement reprises passent
+        # directement « traduites », greffées en UNE conversion, au lieu de
+        # rejouer extraction → traduction → rendu une par une.
+        a_traiter = list(slides_to_process)
+        if deja_traduites:
+            reprises: list[int] = []
+            for sn in slides_to_process:
+                if sn not in deja_traduites:
+                    continue
+                slide_data, _info = pptx_eng.extract_slide(sn, filters)
+                if (not slide_data or _reprendre_slide(
+                        slide_data, fragments_repris, deja_vus) is not None):
+                    pre_extraites[sn] = slide_data
+                    continue
+                _memoriser(deja_vus, slide_data)
+                slides_traduites[sn] = slide_data
+                pptx_eng.inject_slide(sn, {
+                    el["id"]: (el.get("translated_text") or el["text"])
+                    for el in _elements_de(slide_data)})
+                reprises.append(sn)
+            if reprises:
+                apercu_ok = _afficher_slides(reprises)
+                for sn in reprises:
+                    done += 1
+                    jobs.emit(job_id, "page", {"page": sn, "status": "done",
+                                 "done": done, "total": total,
+                                 "apercu": apercu_ok})
+                jobs.sync_progress(job_id, done, total)
+                a_traiter = [sn for sn in a_traiter if sn not in reprises]
+        # Arrêt immédiat : la boucle surveille le drapeau pendant l'attente ;
+        # à l'arrêt, les diapositives en vol sont abandonnées (`abandon`) et
+        # le pool est quitté sans attendre leur retour du modèle.
+        executor = ThreadPoolExecutor(max_workers=_WORKERS)
+        futures = [executor.submit(_process_one_slide, sn) for sn in a_traiter]
+        try:
+            restants = set(futures)
+            while restants:
+                finis, restants = wait(restants, timeout=0.3,
+                                       return_when=FIRST_COMPLETED)
+                # `.result()` propage l'exception : le job passe en erreur, ou
+                # en pause / annulé pour un `ArretDemande`.
+                for f in finis:
+                    f.result()
+                if restants:
+                    jobs.verifier_arret(job_id)
+        except ArretDemande:
+            # Sous le verrou d'affichage : une diapositive en train d'être
+            # gardée finit de l'être, aucune autre ne l'est ensuite.
+            with _display_lock:
+                abandon.set()
+            raise
+        finally:
+            executor.shutdown(wait=not abandon.is_set(),
+                              cancel_futures=abandon.is_set())
+
+        # Un deck à diapositives dont AUCUNE n'a livré de texte n'est pas
+        # « traduit » : c'est ainsi qu'un deck illisible (fichiers nommés
+        # slide1000.xml…) passait en succès 38/38 sans un mot traduit. L'échec
+        # du job rembourse le décompte.
+        if slides_to_process and not slides_traduites:
+            raise DeckSansTexte(
+                "Aucun texte à traduire n'a été trouvé dans cette présentation.")
 
         # ── Cohérence terminologique, une fois TOUT le document connu ──────
         # Elle ne peut pas se faire plus tôt : la preuve qu'un terme est
@@ -963,28 +1180,13 @@ def run_pptx_progressive_job(
             except Exception as e:
                 logger.warning(f"Job {job_id}: contrôle de cohérence ignoré : {e}")
 
-        # ── Aperçus OLE Excel : régénérés depuis les classeurs traduits ────
-        # Pour que le fichier téléchargé (et l'aperçu final) montre les
-        # tableaux/graphiques Excel EN LANGUE CIBLE sans devoir activer l'objet
-        # dans PowerPoint. Best-effort : un échec n'interrompt pas la traduction.
-        try:
-            jobs.emit(job_id, "progress", {"step": "ole", "message": "Régénération des aperçus Excel...", "page": 0, "total": None})
-            # Ce qui RESTE : les diapositives que le convertisseur progressif
-            # n'a pas traitées — mode parallèle (admin), lot en échec, ou aperçu
-            # désactivé. `None` = tout le document, le comportement d'origine.
-            reste = ({n for n in slides_to_process if n not in _ole_faits}
-                     if _ole_faits else None)
-            n_ole = (0 if reste == set() else
-                     pptx_eng.regenerate_ole_previews(
-                         soffice_path=SOFFICE_PATH, only_slides=reste))
-            if n_ole:
-                logger.info(f"Job {job_id}: {n_ole} aperçu(s) OLE Excel régénéré(s)")
-        except Exception as e:
-            logger.warning(f"Job {job_id}: régénération OLE ignorée : {e}")
-
         # ── PPTX final ────────────────────────────────────────────────────
         jobs.emit(job_id, "progress", {"step": "inject", "message": "Génération du PPTX final...", "page": 0, "total": None})
         pptx_eng.build_partial_pptx(output_path, max(slides_to_process))
+        _poser_images_fichier(output_path, table_images)
+        # Après la cohérence, qui réinjecte aussi.
+        _signaler_objets(job_id, pptx_eng.objets_non_traites + pptx_eng.objets_restes
+                         + pptx_eng.objets_hors_diapositives())
 
         # ── Sauvegarde de la traduction (JSON complet pour reprise) ───────
         # Assemblée depuis ce qu'on a retenu AVANT injection : `text` y est la
@@ -1005,6 +1207,13 @@ def run_pptx_progressive_job(
         jobs.done(job_id, output_path, output_filename,
                   translation_path=translation_path)
 
+    except ArretDemande:
+        # Arrêt demandé : l'ordonnanceur le consigne ; ici, seulement ranger.
+        try:
+            pptx_eng._cleanup_temp()
+        except Exception:
+            pass
+        raise
     except Exception as e:
         logger.error(f"Job PPTX {job_id} failed: {e}")
         # Plus de thread convertisseur à arrêter (traitement séquentiel).
@@ -1012,14 +1221,147 @@ def run_pptx_progressive_job(
             pptx_eng._cleanup_temp()
         except Exception:
             pass
-        jobs.error(job_id, "La traduction a rencontré une erreur. Réessayez ou contactez le support.")
+        jobs.error(job_id, str(e) if isinstance(e, DeckSansTexte) else
+                   "La traduction a rencontré une erreur. Réessayez ou contactez le support.")
+
+
+def _version_ocr(translation_path: str) -> str | None:
+    """Version de l'OCR portée par le nom de la traduction (`ocrv3`...), ou None."""
+    parties = os.path.basename(translation_path).split(".")[0].split("_")
+    return next((p for p in parties if p.startswith("ocrv")), None)
+
+
+def _lecture_par_page(translation_path: str) -> bool:
+    return _version_ocr(translation_path) == ocr.OCR_VERSION
+
+
+def _page_memorisee(translation_path: str, page: int) -> ocr.LecturePage | None:
+    """La lecture gardée pour cette page, ou None s'il faut la lire."""
+    info = ocr_pages.lire(translation_path, page)
+    if not info:
+        return None
+    if info["statut"] != "ok":
+        return ocr.LecturePage(info["statut"], info["motif"])
+    pdf = ocr_pages.pdf_de(translation_path, page)
+    return ocr.LecturePage("ok", None, pdf) if pdf else None
+
+
+def _lecteur_ocr(translation_path: str, arret, on_event):
+    """Lecteur du moteur pour un job : relit la mémoire `.ocr/`, sinon lit la
+    page au guichet (une lecture à la fois) et garde le résultat. Aucun débit."""
+    def lire(page: int, src, index: int):
+        lecture = _page_memorisee(translation_path, page)
+        if lecture is not None:
+            return lecture
+        if src[index].get_text().strip():
+            return None     # même test que `pages_avec_texte` : page à texte
+        arret()
+
+        def annoncer(statut: str) -> None:
+            on_event({"type": "page", "page": page, "status": statut,
+                      "done": page - 1, "total": src.page_count})
+
+        annoncer("ocr_attente")
+        with ocr_file.tour(arret=arret):
+            # Un autre job sur le même fichier a pu la lire pendant l'attente.
+            # La relire changerait les numéros d'images que sa traduction désigne.
+            lecture = _page_memorisee(translation_path, page)
+            if lecture is not None:
+                return lecture
+            annoncer("ocr")
+            lecture = ocr.lire_page(src, page)
+            ocr_pages.ecrire(translation_path, page, lecture.statut,
+                             lecture.motif, lecture.pdf)
+        return lecture
+    return lire
+
+
+def _avec_budget(lire, budget: int, traitees: list, consommees: list):
+    """Arrête la traduction d'un scan après `budget` pages traduites. Une page
+    à texte (`None`) ou lue (`ok`) prend une place ; une page illisible ou
+    blanche, aucune. Au-delà, la page n'est même pas lue (`hors_budget`)."""
+    def lire_borne(page: int, src, index: int):
+        if len(consommees) >= budget:
+            return ocr.LecturePage("hors_budget")
+        lecture = lire(page, src, index) if lire else None
+        traitees.append(page)
+        if lecture is None or lecture.statut == "ok":
+            consommees.append(page)
+        return lecture
+    return lire_borne
+
+
+def _lecteur_memoire(translation_path: str, etats: dict | None = None):
+    """Lecteur d'une réouverture : jamais d'OCR, seulement ce qui est déjà lu.
+    Une page traduite dont le PDF lu a disparu est une erreur : rendre le scan
+    d'origine livrerait en silence un document non traduit.
+
+    `etats` : états de lecture relevés avec l'instantané du rendu. Une page
+    passée `ok` depuis (« traduire quand même ») n'a pas sa traduction dans
+    l'instantané : la lire `ok` ferait traduire le moteur (appel payant).
+    Elle garde donc son état de l'instantané."""
+    def lire(page: int, src, index: int):
+        info = etats.get(page) if etats is not None else ocr_pages.lire(translation_path, page)
+        if not info:
+            return None
+        if info["statut"] != "ok":
+            return ocr.LecturePage(info["statut"], info.get("motif"))
+        pdf = ocr_pages.pdf_de(translation_path, page)
+        if not pdf:
+            raise FileNotFoundError("Copie OCR manquante pour reconstruire la traduction.")
+        return ocr.LecturePage("ok", None, pdf)
+    return lire
+
+
+def _reprendre_retouches(translation_path: str, brut: bytes, instantane: str) -> None:
+    """Reporte dans la traduction ce que le rendu a retouché dans l'instantané
+    (page ré-extraite, `amelioration`, images allégées, fiches), sous le
+    verrou d'écriture, quelques millisecondes. Une page modifiée entre-temps
+    par un autre (« traduire quand même », job) garde sa version."""
+    try:
+        with open(instantane, "rb") as f:
+            apres = f.read()
+    except OSError:
+        return
+    if apres == brut:
+        return
+    try:
+        avant, retouche = json.loads(brut), json.loads(apres)
+    except ValueError:
+        return
+    pages_avant = {p.get("page_num"): p for p in avant.get("pages", [])}
+    with render_cache.verrou_traduction(translation_path).ecrire():
+        try:
+            with open(translation_path, encoding="utf-8") as f:
+                actuel = json.load(f)
+        except (OSError, ValueError):
+            return
+        pages = {p.get("page_num"): p for p in actuel.get("pages", [])}
+        change = False
+        for page in retouche.get("pages", []):
+            n = page.get("page_num")
+            if page != pages_avant.get(n) and pages.get(n) == pages_avant.get(n):
+                pages[n] = page
+                change = True
+        fiches = retouche.get("fiches") or {}
+        if fiches != (avant.get("fiches") or {}) and \
+                (actuel.get("fiches") or {}) == (avant.get("fiches") or {}):
+            actuel["fiches"] = fiches
+            change = True
+        if not change:
+            return
+        actuel["pages"] = [pages[k] for k in sorted(pages, key=lambda k: k or 0)]
+        tmp = translation_path + ".retouches.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(actuel, f, ensure_ascii=False)
+        os.replace(tmp, translation_path)
 
 
 def run_pdf_v2_job(
     job_id: str, file_bytes: bytes, original_path: str,
     output_path: str, output_filename: str, partial_path: str,
     translation_path: str, target_lang: str, pages_set=None, debug: bool = False,
-    ocr_prepared: bytes | None = None,
+    images: bool = False, user_id: str | None = None, budget: int | None = None,
 ):
     """Pipeline PDF v2 PROGRESSIF : chaque page est extraite, traduite et rendue
     avant la suivante. Le PDF partiel grandit page après page — le client
@@ -1034,12 +1376,14 @@ def run_pdf_v2_job(
 
         _sauver_original(original_path, file_bytes)
 
-        source_path = original_path
-        if ocr_prepared is not None:
-            source_path = translation_path + ".source.pdf"
-            _sauver_original(source_path, ocr_prepared)
-
         jobs.set(job_id, partial_path=partial_path)
+
+        # Images à texte (option `images=1`) : traduites avant les pages, puis
+        # posées à la place des originales (par xref). L'envoi ne l'active pas
+        # sur un scan : les images d'une page lue ne sont plus celles de l'original.
+        table_images = (_preparer_images(job_id, user_id, file_bytes, "pdf",
+                                         target_lang, translation_path)
+                        if images else {})
 
         def on_event(ev: dict):
             et = ev.get("type")
@@ -1067,11 +1411,33 @@ def run_pdf_v2_job(
                 })
 
         marque = render_cache.marque_polices()
+        arret = lambda: jobs.verifier_arret(job_id)
+        non_incluses = None
+        if pages_set:
+            # Gardée à côté de la traduction : le nom du fichier ne permet pas
+            # de la relire (sélection non contiguë hachée).
+            ocr_pages.ecrire_selection(translation_path, pages_set)
+            with fitz.open(original_path) as d:
+                non_incluses = set(range(1, d.page_count + 1)) - set(pages_set)
+        lecteur = (_lecteur_ocr(translation_path, arret, on_event)
+                   if _lecture_par_page(translation_path) else None)
+        traitees: list[int] = []
+        consommees: list[int] = []
+        if budget:
+            lecteur = _avec_budget(lecteur, budget, traitees, consommees)
         pdf_v2_stream.translate_pdf_progressive(
-            source_path, output_path, target_lang=target_lang,
+            original_path, output_path, target_lang=target_lang,
             pages=pages_set, partial_path=partial_path, on_event=on_event,
             debug=debug, cache_path=translation_path,
+            arret=arret,
+            images=table_images or None,
+            lecteur_ocr=lecteur,
+            pages_originales=ocr_pages.pages_originales(translation_path),
+            signaler_illisibles=True,
+            pages_non_incluses=non_incluses,
         )
+        if budget:
+            ocr_pages.ecrire_budget(translation_path, job_id, traitees, consommees)
 
         if not os.path.exists(output_path):
             raise ValueError("Le fichier traduit est introuvable après génération.")
@@ -1088,11 +1454,15 @@ def run_pdf_v2_job(
         # clé est `translation_path`, qui porte déjà la qualité, la plage et
         # `_debug` ; et ce moteur ne reçoit pas les options de mise en forme,
         # donc son rendu est exactement celui que recalculerait l'aperçu.
-        try:
-            with open(output_path, "rb") as f:
-                render_cache.store_render(f.read(), translation_path, marque)
-        except OSError as e:
-            logger.warning("Rendu du job non conservé : %s", e)
+        # Job à budget : son rendu porte des mentions « non incluse » propres à
+        # ce document, qui recevra sa copie à la clôture ; la traduction
+        # partagée ne doit pas servir ce rendu à un autre.
+        if not budget:
+            try:
+                with open(output_path, "rb") as f:
+                    render_cache.store_render(f.read(), translation_path, marque)
+            except OSError as e:
+                logger.warning("Rendu du job non conservé : %s", e)
 
         jobs.done(job_id, output_path, output_filename,
                   translation_path=translation_path)
@@ -1104,7 +1474,8 @@ def run_pdf_v2_job(
 
 def render_translation_bytes(original_path: str, translation_path: str,
                              ext: str, target_lang: str,
-                             only_pages: set[int] | None = None) -> bytes:
+                             only_pages: set[int] | None = None,
+                             selection: set[int] | None = None) -> bytes:
     """Recalcule le document traduit à partir de l'original + la traduction
     stockée, SANS jamais rappeler DeepSeek. C'est le pilier du nouveau modèle :
     on ne conserve plus le rendu, on le reconstruit à la demande.
@@ -1114,6 +1485,10 @@ def render_translation_bytes(original_path: str, translation_path: str,
     qui le pousserait à traduire les pages manquantes (donc à payer l'API). Une
     page absente du JSON est simplement recopiée de l'original.
     DOCX/PPTX : ré-injection locale de `translated.json` dans l'original.
+    PPTX : `only_pages` ne garde que ces diapositives traduites (traduction
+    partielle livrée, voir `traduction_partielle_du_document`) ; `selection`
+    numérote alors les diapositives d'une traduction finale, rangées dans
+    l'ordre de la sélection du job (toutes si None).
     """
     if not os.path.isfile(original_path) or not os.path.isfile(translation_path):
         raise FileNotFoundError("Original ou traduction manquant pour le rendu.")
@@ -1122,55 +1497,390 @@ def render_translation_bytes(original_path: str, translation_path: str,
     # rendu. Rendu ici sans `debug`, il redevenait l'original : rouvert depuis
     # la bibliothèque, l'aperçu montrait original/original. Le suffixe de cache
     # (`_debug`, posé par /translate) est la seule trace du mode qui survive.
-    debug = os.path.basename(translation_path).split(".")[0].split("_")[1:2] == ["debug"]
+    debug = mode_structure(translation_path)
 
     with tempfile.TemporaryDirectory() as tmp:
         out = os.path.join(tmp, f"render.{ext}")
         if ext == "pdf":
             source_path = original_path
-            if "ocrv1" in os.path.basename(translation_path).split(".")[0].split("_"):
+            par_page = _lecture_par_page(translation_path)
+            if _version_ocr(translation_path) and not par_page:
+                # Ancienne traduction : scan entier préparé à l'envoi.
                 source_path = translation_path + ".source.pdf"
                 if not os.path.isfile(source_path):
                     raise FileNotFoundError("Copie OCR manquante pour reconstruire la traduction.")
-            with open(translation_path, encoding="utf-8") as f:
-                prev = json.load(f)
-            # Une page en mode structure n'a aucun paragraphe traduit
-            # (`tr_tagged`) : c'est son EXTRACTION qui compte, pas sa traduction.
-            pages_traduites = {
-                pg.get("page_num") for pg in prev.get("pages", [])
-                if any((debug or e.get("tr_tagged"))
-                       for e in pg.get("elements", [])
-                       if e.get("type") == "paragraph")
-            }
-            pages_traduites.discard(None)
-            # `only_pages` restreint ce qu'on RECONSTRUIT, pas ce qu'on livre :
-            # les pages écartées sont recopiées de l'original, donc la
-            # pagination reste identique et le lecteur n'a rien à recalculer.
-            #
-            # Mesuré sur un document de 285 pages : 280 s pour tout rendre,
-            # ~1 s par page. L'aperçu n'affiche QU'UNE page à la fois — en
-            # reconstruire 285 pour en montrer une était le blocage.
-            if only_pages is not None:
-                pages_traduites &= set(only_pages)
+            # Le verrou n'est tenu que le temps de prendre un INSTANTANÉ (JSON et
+            # états de lecture) : le moteur (≈ 280 s sur 285 pages) travaille
+            # ensuite sur la copie, sans retenir « traduire quand même » ni,
+            # derrière lui, les autres aperçus du document.
+            instantane = os.path.join(tmp, "pages.json")
+            with render_cache.verrou_traduction(translation_path).lire():
+                with open(translation_path, "rb") as f:
+                    brut = f.read()
+                prev = json.loads(brut)
+                etats = ocr_pages.lister(translation_path) if par_page else {}
+                # Une page en mode structure n'a aucun paragraphe traduit
+                # (`tr_tagged`) : c'est son EXTRACTION qui compte, pas sa traduction.
+                pages_traduites = {
+                    pg.get("page_num") for pg in prev.get("pages", [])
+                    if any((debug or e.get("tr_tagged"))
+                           for e in pg.get("elements", [])
+                           if e.get("type") == "paragraph")
+                }
+                pages_traduites.discard(None)
+                with fitz.open(source_path) as d:
+                    total = d.page_count
+                if par_page:
+                    # Une page lue sans succès passe par le lecteur (qui pose
+                    # la mention « non traduite ») : hors de `pages`, elle
+                    # serait recopiée sans mention.
+                    pages_traduites |= {n for n, e in etats.items()
+                                        if e.get("statut") != "ok"}
+                non_incluses = (ocr_pages.pages_hors_selection(
+                    translation_path, total, pages_traduites)
+                    - ocr_pages.pages_retirees(translation_path))
+                # `only_pages` restreint ce qu'on RECONSTRUIT, pas ce qu'on livre :
+                # les pages écartées sont recopiées de l'original, donc la
+                # pagination reste identique et le lecteur n'a rien à recalculer.
+                #
+                # Mesuré sur un document de 285 pages : 280 s pour tout rendre,
+                # ~1 s par page. L'aperçu n'affiche QU'UNE page à la fois — en
+                # reconstruire 285 pour en montrer une était le blocage.
+                if only_pages is not None:
+                    pages_traduites &= set(only_pages)
+                images = (images_document.charger_table(translation_path)
+                          if source_path == original_path else None) or None
+                vides = ocr_pages.pages_vides(translation_path) or None
+                originales = ocr_pages.pages_originales(translation_path)
+            with open(instantane, "wb") as f:
+                f.write(brut)
             pdf_v2_stream.translate_pdf_progressive(
                 source_path, out, target_lang=target_lang,
                 pages=pages_traduites, partial_path=None, on_event=None,
-                debug=debug, cache_path=translation_path,
+                debug=debug, cache_path=instantane,
+                images=images,
+                lecteur_ocr=_lecteur_memoire(translation_path, etats) if par_page else None,
+                pages_vides=vides,
+                pages_originales=originales,
+                signaler_illisibles=par_page,
+                pages_non_incluses=non_incluses or None,
             )
+            _reprendre_retouches(translation_path, brut, instantane)
         elif ext == "docx":
             ok, msg = engines.new_engine("docx").inject_translation(original_path,
                                                      translation_path, out)
             if not ok:
                 raise ValueError(f"Ré-injection DOCX échouée : {msg}")
         elif ext == "pptx" and pptx_available:
+            # Fichier de REPRISE d'un document arrêté (diapositives par numéro) :
+            # remis au format de la traduction finale, les diapositives absentes
+            # restent celles de l'original.
+            source = translation_path
+            faites = None
+            if os.path.basename(translation_path).startswith("reprise_"):
+                faites = _lire_reprise(translation_path)
+            elif only_pages is not None:
+                with open(translation_path, encoding="utf-8") as f:
+                    liste = json.load(f)["slides"]
+                numeros = sorted(selection) if selection else range(1, len(liste) + 1)
+                faites = dict(zip(numeros, liste))
+            if faites is not None:
+                if only_pages is not None:
+                    faites = {n: v for n, v in faites.items() if n in only_pages}
+                source = os.path.join(tmp, "partielle.json")
+                with open(source, "w", encoding="utf-8") as f:
+                    json.dump({"slides": [faites[n] for n in sorted(faites)]},
+                              f, ensure_ascii=False)
             # Moteur NEUF à chaque rendu. Un moteur partagé faisait se recouvrir
             # deux rendus simultanés dans le même dossier temporaire : l'aperçu
             # d'une langue ressortait dans celui d'une autre.
             ok, msg = engines.new_engine("pptx").inject_translation(original_path,
-                                                          translation_path, out)
+                                                          source, out)
             if not ok:
                 raise ValueError(f"Ré-injection PPTX échouée : {msg}")
         else:
             raise ValueError(f"Rendu à la demande non supporté pour .{ext}")
+        if ext in ("docx", "pptx"):
+            # Images traduites du document (option `images=1`), gardées à côté
+            # de la traduction ; sans table, le rendu reste inchangé.
+            _poser_images_fichier(out, images_document.charger_table(translation_path))
         with open(out, "rb") as f:
             return f.read()
+
+
+# ── « Traduire quand même » une page illisible (étude ocr-file §6) ───────────
+#
+# Après la fin du travail, le client peut demander une seconde lecture,
+# plus permissive, d'une page restée illisible. La page n'est débitée que si
+# elle sort traduite. Le travail écrit dans une copie de la traduction, puis
+# reporte la seule page traduite dans la traduction, sous le verrou des rendus.
+
+_pages_en_cours: dict[str, set[int]] = {}
+_pages_en_cours_garde = threading.Lock()
+
+
+def pages_en_cours(translation_path: str) -> set[int]:
+    with _pages_en_cours_garde:
+        return set(_pages_en_cours.get(os.path.abspath(translation_path), ()))
+
+
+def reserver_pages(translation_path: str, pages) -> set[int]:
+    """Marque les pages en cours ; rend celles qui ne l'étaient pas déjà."""
+    with _pages_en_cours_garde:
+        en_cours = _pages_en_cours.setdefault(os.path.abspath(translation_path), set())
+        nouvelles = set(pages) - en_cours
+        en_cours |= nouvelles
+        return nouvelles
+
+
+def liberer_pages(translation_path: str, pages) -> None:
+    cle = os.path.abspath(translation_path)
+    with _pages_en_cours_garde:
+        en_cours = _pages_en_cours.get(cle, set())
+        en_cours -= set(pages)
+        if not en_cours:
+            _pages_en_cours.pop(cle, None)
+
+
+def _debiter_une_page(doc_id: str, user_id: str, beta: bool) -> bool:
+    """Débite une page au document, sous verrou ; Faux si rien ne la couvre."""
+    resultat: list[bool] = []
+
+    async def faire(db):
+        if not beta:
+            resultat.append(await ext_service.debiter(db, user_id, 1, doc_id))
+            return
+        from fastapi import HTTPException
+        from sqlalchemy import select
+        from app.models import User
+        from app.models.beta import BetaUsage
+        from app.services import beta as beta_service
+        from app.services.beta_meter import BetaCost
+        inscription = await beta_service.active_enrollment(
+            db, await db.get(User, user_id), lock=True)
+        if inscription is None:
+            resultat.append(False)
+            return
+        try:
+            await beta_service.check_cost(db, inscription, BetaCost("pdf", 1))
+        except HTTPException:
+            resultat.append(False)
+            return
+        ligne = (await db.execute(select(BetaUsage).where(
+            BetaUsage.document_key == doc_id))).scalar_one_or_none()
+        if ligne is None:
+            beta_service.record(db, inscription.id, doc_id, BetaCost("pdf", 1))
+        else:
+            ligne.units = (0 if ligne.refunded else ligne.units) + 1
+            ligne.refunded = False
+        resultat.append(True)
+
+    _dans_une_boucle_jetable(faire)
+    return bool(resultat and resultat[0])
+
+
+def mode_structure(translation_path: str) -> bool:
+    """Vrai pour une traduction faite en mode structure (`debug`).
+
+    Le suffixe `_debug`, posé par `translation_path_for` juste après le premier
+    segment du nom, est la seule trace du mode qui survive ; on le lit à cet endroit précis
+    (les suffixes suivants, `_img`, `_d<id>`, ne comptent pas)."""
+    segments = os.path.basename(translation_path).split(".")[0].split("_")
+    return len(segments) > 1 and segments[1] == "debug"
+
+
+def pages_lues_sans_traduction(translation_path: str) -> set[int]:
+    """Pages de scan lues (`ok`) dont aucun paragraphe n'est sorti traduit.
+
+    Même critère que la pause (`pages_faites`) et que « traduire quand même » :
+    une page rendue telle quelle n'est pas due."""
+    lues = {n for n, i in ocr_pages.lister(translation_path).items() if i["statut"] == "ok"}
+    if not lues:
+        return set()
+    try:
+        with open(translation_path, encoding="utf-8") as f:
+            pages = {p.get("page_num"): p for p in json.load(f).get("pages", [])}
+    except (OSError, ValueError):
+        return set()
+    debug = mode_structure(translation_path)
+    return {n for n in lues if not _page_traduite(pages.get(n), debug)}
+
+
+def _page_traduite(page: dict | None, debug: bool) -> bool:
+    return bool(page) and any((debug or e.get("tr_tagged"))
+                              for e in page.get("elements", [])
+                              if e.get("type") == "paragraph")
+
+
+def _reporter_page(translation_path: str, page: int, nouvelle: dict, pdf: bytes | None,
+                   debiter) -> bool:
+    """Pose la page traduite puis la débite, sous le verrou d'écriture.
+
+    Ordre voulu : rien n'est débité tant que la page et son statut `ok` ne
+    sont pas enregistrés (un débit réussi a donc toujours sa page livrée).
+    Débit refusé ou en erreur : la traduction et le statut précédents sont
+    remis en place. Rend Faux si le débit est refusé (la page reste
+    illisible). Une page déjà livrée entre-temps (autre demande du même
+    processus) n'est ni reposée ni débitée une seconde fois.
+
+    `pdf` None : page à texte (hors sélection incluse après coup), aucun
+    état de lecture n'est écrit ; « déjà livrée » se lit dans `pages.json`."""
+    with render_cache.verrou_traduction(translation_path).ecrire():
+        ancien = ocr_pages.lire(translation_path, page)
+        if (ancien or {}).get("statut") == "ok":
+            return True
+        with open(translation_path, "rb") as f:
+            avant = f.read()
+        donnees = json.loads(avant)
+        if pdf is None and any(p.get("page_num") == page
+                               for p in donnees.get("pages", [])):
+            return True
+        pages = [p for p in donnees.get("pages", []) if p.get("page_num") != page]
+        donnees["pages"] = sorted(pages + [nouvelle], key=lambda p: p.get("page_num") or 0)
+
+        def revenir():
+            _remplacer(translation_path, page, avant)
+            if ancien:
+                ocr_pages.ecrire(translation_path, page, ancien["statut"], ancien.get("motif"))
+            elif pdf is not None:
+                ocr_pages.effacer(translation_path, page)
+
+        try:
+            _remplacer(translation_path, page, json.dumps(donnees, ensure_ascii=False).encode("utf-8"))
+            if pdf is not None:
+                ocr_pages.ecrire(translation_path, page, "ok", None, pdf)
+            debitee = debiter()
+        except BaseException:
+            # Cause gardée au journal : un échec du retour arrière la masquerait.
+            logging.getLogger(__name__).exception(
+                "Report de la page %s échoué, retour arrière", page)
+            revenir()
+            raise
+        if not debitee:
+            revenir()
+            return False
+        try:
+            ocr_pages.ecrire_choix(translation_path, [page], None)
+        finally:
+            render_cache.invalider(translation_path)
+        return True
+
+
+def _remplacer(translation_path: str, page: int, contenu: bytes) -> None:
+    tmp = translation_path + f".p{page}.tmp"
+    with open(tmp, "wb") as f:
+        f.write(contenu)
+    os.replace(tmp, translation_path)
+
+
+def _traduire_page_illisible(doc_id: str, user_id: str, original_path: str,
+                             translation_path: str, target_lang: str, page: int,
+                             debug: bool, beta: bool) -> str:
+    """Rend "ok", "illisible" (rien débité) ou "solde" (lue, non couverte)."""
+    info = ocr_pages.lire(translation_path, page)
+    if not info or info["statut"] != "illisible":
+        return "ignoree"
+    with ocr_file.tour():
+        with fitz.open(original_path) as src:
+            lecture = ocr.lire_page(src, page, forcee=True)
+    if lecture.statut != "ok" or not lecture.pdf:
+        return "illisible"
+    dossier = tempfile.mkdtemp(prefix="traduire-", dir=os.path.dirname(translation_path))
+    try:
+        travail = os.path.join(dossier, "travail.json")
+        with render_cache.verrou_traduction(translation_path).lire():
+            shutil.copy2(translation_path, travail)
+        pdf_v2_stream.translate_pdf_progressive(
+            original_path, os.path.join(dossier, "rendu.pdf"), target_lang=target_lang,
+            pages={page}, debug=debug, cache_path=travail,
+            lecteur_ocr=lambda numero, *_: lecture if numero == page else None)
+        with open(travail, encoding="utf-8") as f:
+            nouvelle = next((p for p in json.load(f).get("pages", [])
+                             if p.get("page_num") == page), None)
+        if not _page_traduite(nouvelle, debug):
+            return "illisible"
+        if not _reporter_page(translation_path, page, nouvelle, lecture.pdf,
+                              lambda: _debiter_une_page(doc_id, user_id, beta)):
+            ocr_pages.ecrire(translation_path, page, "illisible", "solde")
+            return "solde"
+        return "ok"
+    finally:
+        shutil.rmtree(dossier, ignore_errors=True)
+
+
+def _inclure_page(doc_id: str, user_id: str, original_path: str,
+                  translation_path: str, target_lang: str, page: int,
+                  debug: bool, beta: bool) -> str:
+    """Traduit après coup une page laissée hors de la sélection. Rend "ok",
+    "sans_texte" (enregistrée sans débit), "solde", un statut de lecture
+    (page de scan illisible ou blanche : elle rejoint ce parcours) ou
+    "ignoree" (déjà incluse)."""
+    if ocr_pages.lire(translation_path, page):
+        return "ignoree"
+    with render_cache.verrou_traduction(translation_path).lire():
+        with open(translation_path, encoding="utf-8") as f:
+            if any(p.get("page_num") == page for p in json.load(f).get("pages", [])):
+                return "ignoree"
+    lecture = None
+    if _lecture_par_page(translation_path):
+        with fitz.open(original_path) as src:
+            a_texte = bool(src[page - 1].get_text().strip())
+        if not a_texte:
+            with ocr_file.tour():
+                with fitz.open(original_path) as src:
+                    lecture = ocr.lire_page(src, page)
+            if lecture.statut != "ok" or not lecture.pdf:
+                ocr_pages.ecrire(translation_path, page, lecture.statut, lecture.motif)
+                render_cache.invalider(translation_path)
+                return lecture.statut
+    dossier = tempfile.mkdtemp(prefix="inclure-", dir=os.path.dirname(translation_path))
+    try:
+        travail = os.path.join(dossier, "travail.json")
+        with render_cache.verrou_traduction(translation_path).lire():
+            shutil.copy2(translation_path, travail)
+        pdf_v2_stream.translate_pdf_progressive(
+            original_path, os.path.join(dossier, "rendu.pdf"), target_lang=target_lang,
+            pages={page}, debug=debug, cache_path=travail,
+            lecteur_ocr=((lambda numero, *_: lecture if numero == page else None)
+                         if lecture else None))
+        with open(travail, encoding="utf-8") as f:
+            nouvelle = next((p for p in json.load(f).get("pages", [])
+                             if p.get("page_num") == page), None)
+        pdf = lecture.pdf if lecture else None
+        if not _page_traduite(nouvelle, debug):
+            # Rien à traduire : la page est notée incluse, sans débit.
+            _reporter_page(translation_path, page,
+                           nouvelle or {"page_num": page, "elements": []},
+                           pdf, lambda: True)
+            return "sans_texte"
+        if not _reporter_page(translation_path, page, nouvelle, pdf,
+                              lambda: _debiter_une_page(doc_id, user_id, beta)):
+            return "solde"
+        return "ok"
+    finally:
+        shutil.rmtree(dossier, ignore_errors=True)
+
+
+def run_traduire_pages_job(job_id: str, doc_id: str, user_id: str, original_path: str,
+                           translation_path: str, target_lang: str, pages,
+                           beta: bool = False) -> None:
+    """Seconde lecture des pages illisibles choisies, ou inclusion des pages
+    hors sélection, une à une."""
+    debug = mode_structure(translation_path)
+    restantes = set(pages)
+    try:
+        for page in sorted(pages):
+            try:
+                faire = (_traduire_page_illisible if ocr_pages.lire(translation_path, page)
+                         else _inclure_page)
+                issue = faire(doc_id, user_id, original_path, translation_path,
+                              target_lang, page, debug, beta)
+                logger.info("Traduire quand même : doc %s page %s → %s", doc_id, page, issue)
+            except Exception:
+                logger.exception("Traduire quand même : doc %s page %s en échec", doc_id, page)
+            finally:
+                liberer_pages(translation_path, [page])
+                restantes.discard(page)
+    finally:
+        liberer_pages(translation_path, restantes)
+        jobs.forget(job_id)

@@ -125,7 +125,8 @@ MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 Mo
 ALLOWED_EXTENSIONS = {"txt", "pdf", "docx", "pptx", "xlsx"}
 
 # ── Stockage ─────────────────────────────────────────────────────────────────
-TRANSLATIONS_DIR = str(BACKEND_DIR / "translations")
+# Surchargeable : une suite de tests peut travailler dans un magasin jetable.
+TRANSLATIONS_DIR = os.getenv("TRANSLATIONS_DIR") or str(BACKEND_DIR / "translations")
 os.makedirs(TRANSLATIONS_DIR, exist_ok=True)
 # Cache des polices téléchargées par le moteur PDF : même racine que le reste.
 os.environ.setdefault("PRECIS_FONTS_CACHE", os.path.join(TRANSLATIONS_DIR, "_polices"))
@@ -166,6 +167,19 @@ PROGRESS_EVERY_S = 3.0
 # défaut prudent pour un mono-serveur ; à monter avec le nombre de cœurs.
 TRANSLATION_WORKERS = max(1, int(os.getenv("TRANSLATION_WORKERS", "2")))
 
+# ── Lecture des scans (OCR) ──────────────────────────────────────────────────
+# Documents scannés : un second ordonnanceur, à part, pour que leur attente
+# devant le guichet OCR n'occupe jamais les workers des documents à texte.
+OCR_SCAN_WORKERS = max(1, int(os.getenv("OCR_SCAN_WORKERS", "3")))
+# Temps accordé à la lecture d'UNE page (le délai ne court qu'une fois le tour
+# obtenu au guichet).
+OCR_DELAI_PAGE_S = max(5, int(os.getenv("OCR_DELAI_PAGE_S", "90")))
+# Attente au guichet OCR au-delà de laquelle un ticket passe devant les autres.
+OCR_FILE_ANTI_FAMINE_S = max(1, int(os.getenv("OCR_FILE_ANTI_FAMINE_S", "300")))
+# Attente maximale au guichet pour une image de l'extension (au-delà : 503,
+# le client réessaie).
+OCR_DELAI_EXTENSION_S = max(5, int(os.getenv("OCR_DELAI_EXTENSION_S", "120")))
+
 # ── Modèles de traduction ────────────────────────────────────────────────────
 # Deux modes, choisis par requête via le paramètre `quality` :
 #  • "fast"    → modèle non-raisonnant, ~secondes/page, version stable (défaut) ;
@@ -195,6 +209,11 @@ BRAND_NAME = os.getenv("BRAND_NAME", "PRÉCIS")
 BRAND_TAGLINE = os.getenv("BRAND_TAGLINE", "Professional Translation")
 PUBLIC_SITE = os.getenv("PUBLIC_SITE", "precis-translator.trigenys.com")
 
+
+# ── Anti-robots à l'inscription (Cloudflare Turnstile) ───────────────────────
+# Clé secrète du widget ; la clé de site va dans `frontend/.env` sous le nom
+# VITE_TURNSTILE_SITE_KEY. Vide = contrôle désactivé (développement, tests).
+TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY", "")
 
 # ── Journal des erreurs ──────────────────────────────────────────────────────
 # Au-delà de ce nombre de logs NON traités, l'admin reçoit une alerte e-mail —
