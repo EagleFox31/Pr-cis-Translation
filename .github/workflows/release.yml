@@ -57,9 +57,19 @@ jobs:
                   subprocess.run(['gh','workflow','run','ci.yml','--repo',repo,'--ref',branch],check=True)
                   print('CI dispatched for release PR '+str(pr['number']))
           PYCODE
+  # Cible de production : VPS par défaut ; `vars.PRECIS_DEPLOY_TARGET=aws` rétablit EC2.
+  deploy-vps:
+    needs: release
+    if: needs.release.outputs.release_created == 'true' && vars.PRECIS_DEPLOY_TARGET != 'aws'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/deploy-vps.yml
+    with:
+      ref: ${{ needs.release.outputs.release_sha }}
+    secrets: inherit
   deploy-production:
     needs: release
-    if: needs.release.outputs.release_created == 'true'
+    if: needs.release.outputs.release_created == 'true' && vars.PRECIS_DEPLOY_TARGET == 'aws'
     permissions:
       contents: read
       id-token: write

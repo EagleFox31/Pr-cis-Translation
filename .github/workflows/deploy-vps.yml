@@ -1,0 +1,60 @@
+name: Deploy VPS
+
+# Déploie une révision sur le VPS. La clé `PRECIS_VPS_SSH_KEY` est limitée côté
+# serveur à `deploy/vps/remote-deploy.sh` (commande forcée) : elle ne donne aucun shell.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Révision à déployer (sha, tag ou branche)
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      PUBLIC_ORIGIN: https://precis-translator.trigenys.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Préparer SSH
+        env:
+          SSH_KEY: ${{ secrets.PRECIS_VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ vars.PRECIS_VPS_KNOWN_HOSTS }}
+        run: |
+          [ -n "$SSH_KEY" ] && [ -n "$KNOWN_HOSTS" ] || { echo "::error::PRECIS_VPS_SSH_KEY ou PRECIS_VPS_KNOWN_HOSTS manquant"; exit 1; }
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/precis_deploy && chmod 600 ~/.ssh/precis_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Déployer
+        env:
+          TARGET: ${{ vars.PRECIS_VPS_TARGET }}
+        run: |
+          [ -n "$TARGET" ] || { echo "::error::PRECIS_VPS_TARGET manquant"; exit 1; }
+          SHA="$(git rev-parse HEAD)"
+          git archive --format=tar.gz "$SHA" \
+            | ssh -i ~/.ssh/precis_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+                -o ServerAliveInterval=30 "$TARGET" "deploy $SHA"
+      - name: Vérifier la production
+        run: |
+          curl -fsS --retry 5 --retry-delay 5 "$PUBLIC_ORIGIN/health" >/dev/null
+          test "$(curl -fsS "$PUBLIC_ORIGIN/sitemap.xml" | grep -c '<loc>')" -gt 0
+      - name: Nettoyer
+        if: always()
+        run: rm -f ~/.ssh/precis_deploy
