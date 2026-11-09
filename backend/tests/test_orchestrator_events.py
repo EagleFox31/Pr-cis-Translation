@@ -16,10 +16,19 @@ import uuid
 import racine  # noqa: F401
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app import create_app
-from app.core.database import async_session
+from app.core.database import DATABASE_URL
 from app.models.orchestrator_payment_event import OrchestratorPaymentEvent
+
+# Each asyncio.run() opens its own event loop: pooled asyncpg connections from the
+# app engine (bound to the TestClient loop) cannot be reused there.
+async_session = async_sessionmaker(
+    create_async_engine(DATABASE_URL, poolclass=NullPool),
+    class_=AsyncSession, expire_on_commit=False,
+)
 
 SECRET = "orchestrator-ci-hmac-" + uuid.uuid4().hex
 PROJECT = "precis-ci-project"
