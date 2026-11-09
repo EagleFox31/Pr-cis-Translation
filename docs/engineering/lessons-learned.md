@@ -36,3 +36,12 @@ Mémoire des incidents et quasi-incidents. Consulter avant de toucher une zone c
 - **Résolution** : resynchronisation une par une via `workflow_dispatch` (`issue_number`), en attendant la fin de chaque run. Vérifié par GraphQL : les 5 issues sont sur le board avec Priority, Work type, Phase et Size.
 - **Prévention vérifiable** : après une création en lot, vérifier `projectItems` de chaque issue (pas seulement le statut des runs) ; correctif durable à porter dans le dépôt partagé (groupe de concurrence par issue/PR, ou bootstrap qui réconcilie toutes les issues ouvertes).
 - **Leçon** : un run « cancelled » par concurrence n'est pas un no-op ; une synchronisation pilotée par événements doit avoir une réconciliation périodique ou par lot.
+
+## 2026-11-09 — Release Please muette après une consolidation squash
+- **Contexte** : #57 (7 PR, plusieurs `feat`) fusionnée en squash sous un titre `chore:` ; Release Please : « No user facing commits found », aucune release.
+- **Cause racine** : le type Conventional Commits du titre de squash décide seul de la release ; un `chore:` masque les `feat` agrégés. Second écueil : le réglage du dépôt interdit à GitHub Actions de créer des PR.
+- **Classification** : processus de release, near miss (version et changelog absents, aucun échec visible).
+- **Résolution** : bloc `BEGIN_COMMIT_OVERRIDE` dans la description de #57, relance de `release.yml`, PR de release ouverte manuellement depuis la branche Release Please avec le label `autorelease: pending` (#66 → v1.7.0).
+- **Prévention vérifiable** : pour toute PR de consolidation, titre de squash au type le plus fort agrégé (`feat` si au moins un `feat`) ou bloc `BEGIN_COMMIT_OVERRIDE` avant fusion ; après fusion, vérifier le log Release Please (« skipping » = alerte).
+- **Leçon** : une consolidation hérite du type de changement le plus fort de ses composants, pas du type « ménage » de l'opération.
+
