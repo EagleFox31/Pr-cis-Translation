@@ -81,7 +81,7 @@ En clair :
 ### 5 bis. Règles de mise en place demandées (retour du 09/11)
 
 1. **Taille ≤ original**, jamais plus grande. Pour une source latine, la taille d'origine est mesurée par la largeur lue, plus fiable que la hauteur de boîte, qui est gonflée de ~30 %.
-2. **Ordre** : d'abord le même nombre de lignes qu'à l'origine sur toute la largeur de la case, puis une ligne de plus, puis seulement ensuite une réduction de taille.
+2. **Ordre** : d'abord le même nombre de lignes qu'à l'origine sur toute la largeur de la case, en réduisant au besoin jusqu'au seuil de réduction (5 %, `TOLERE`) ; une ligne de plus seulement si ce seuil est atteint ; ensuite seulement une réduction plus forte.
 3. Interligne calculé sur la taille d'origine. Sinon, la 2ᵉ ligne descend trop bas.
 4. Calage vertical à l'intérieur de la case.
 
@@ -150,7 +150,7 @@ Après le retour de l'utilisateur, on n'a pas corrigé les cas un par un. On a r
 | Côté sans mur | case rejetée (touche le bord) | la case s'étend d'au plus 12 lignes (`OUVERT`) et s'arrête à mi-distance des autres textes | « Non reproduit » utilise la place libre sans toucher ses voisins |
 | Alignement gauche / droite | calé au mur de la case | retrait d'origine gardé | « Close » reste à sa place, pas collé au bord |
 | Contour (liseré) | dès qu'un trait est proche | seulement sur fond chargé (texture) | plus de liseré parasite à côté d'un trait |
-| Ordre de placement | — | option A : même nombre de lignes → +1 ligne → réduction | inchangé, confirmé par l'utilisateur |
+| Ordre de placement | — | même nombre de lignes avec réduction jusqu'au seuil (5 %) → +1 ligne → réduction plus forte | corrigé par l'utilisateur le 09/11 |
 
 Banc (18 images) :
 

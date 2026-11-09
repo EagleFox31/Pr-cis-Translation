@@ -50,6 +50,7 @@ LISIBLE_PX = 24          # un grand titre peut descendre jusque-là : réduit, i
 MEME_HAUTEUR = 0.15
 MEME_COULEUR = 80        # distance RVB entre deux lignes d'un même bloc
 GRANDIR = 0.8            # au-delà d'une ligne de plus, pas de corps plus petit
+TOLERE = 0.95            # réduction invisible préférée à une ligne de plus
 CASE_PART = 0.97        # part de fond qu'une rangée doit garder pour agrandir la case
 CASE_UNIE = 0.9          # case unie à 90 % : pas de contour autour de la traduction
 CASE_MARGE = 0.06        # marge intérieure au plus 6 % de la largeur de la case
@@ -572,17 +573,20 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
     centre, droite = sens is True, sens == "droite"
     lmax = x1 - x0
     plancher = max(min(PLANCHER * s0, LISIBLE_PX), PLANCHER_PX)
-    # Ordre : le nombre de lignes d'origine sur toute la largeur, puis une
-    # ligne de plus, puis seulement une réduction de corps. Dernier passage :
+    # Ordre : le nombre de lignes d'origine sur toute la largeur (au besoin
+    # avec une réduction de corps de 5 % au plus, qui ne se voit pas, quand
+    # une ligne de plus se verrait), puis une ligne de plus, puis seulement
+    # une réduction de corps. Dernier passage :
     # un mot latin trop long même au plancher est coupé plutôt que de laisser
     # l'original. Au-delà d'une ligne de plus, le texte ne descend pas sous
     # `GRANDIR` × le corps : une traduction bien plus longue reste en original
     # plutôt que tassée en petit sur de nombreuses lignes.
-    passes = ([(n0 + 1, plancher, False), (None, GRANDIR * s0, False)] if libre
-              else [(None, plancher, False)])
+    passes = [(max(n0, n_min), TOLERE * min(s0, taille_max or s0), False)]
+    passes += ([(n0 + 1, plancher, False), (None, GRANDIR * s0, False)] if libre
+               else [(None, plancher, False)])
     if not _CJK.search(bloc.traduction):
         passes.append((n0 + 1 if libre else None, plancher, True))
-    for nmax, seuil, casser in passes:
+    for i_passe, (nmax, seuil, casser) in enumerate(passes):
         s = min(s0, taille_max or s0)
         if casser:  # couper un mot : seulement au plancher
             s = min(s, int(np.ceil(plancher)))
@@ -619,7 +623,7 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
                 return {"taille": s, "lignes": texte_l, "pas": pas, "x": xt, "xs": xs, "y": y1,
                         "haut_glyphe": k * s, "larg": larg, "haut": haut, "fichier": fichier,
                         "milieu": milieu}
-            s = int(s * 0.94) if s > 20 else s - 1
+            s = s - 1 if i_passe == 0 or s <= 20 else int(s * 0.94)
     return None
 
 
