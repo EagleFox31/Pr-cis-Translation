@@ -18,6 +18,8 @@ from .mask import anneau, composantes, masque_couleur
 
 # Marge autour d'une zone pour les méthodes qui travaillent sur un recadrage.
 MARGE = 24
+# Écart maximal (px) entre la zone et le trait qui la traverse, de chaque côté.
+CONTACT = 4
 # Fantôme : ~0,6 s par zone. Au-delà de ce budget par image, la règle (0,05 s).
 BUDGET_S = 8.0
 
@@ -136,6 +138,17 @@ def _pixels_traits(gris, mask):
     return np.abs(gris.astype(np.float32) - cv2.medianBlur(ref, 21).astype(np.float32)) > 40
 
 
+def _des_deux_cotes(t_s, t_min, t_max):
+    """Le trait s'étend avant `t_min` ET après `t_max`, sur au moins 4 positions
+    distinctes de chaque côté (une ligne perpendiculaire, jonction en T, n'en
+    couvre que son épaisseur), et touche la zone des deux côtés (un tracé
+    voisin, au-delà d'une bordure, ne la traverse pas)."""
+    t = np.unique(np.round(t_s))
+    avant, apres = t[t < t_min], t[t > t_max]
+    return (len(avant) >= 4 and len(apres) >= 4
+            and avant.max() >= t_min - CONTACT and apres.min() <= t_max + CONTACT)
+
+
 def _droites(struct):
     """Droites distinctes (angle, distance) trouvées par Hough dans `struct`."""
     segs = cv2.HoughLinesP(struct.astype(np.uint8) * 255, 1, np.pi / 180, 12,
@@ -192,7 +205,7 @@ def m_structurel(image, mask):
             t_s = (P[proches] - c0) @ u
             t_z = (Z - c0) @ u
             # Le trait doit exister des DEUX côtés de la zone.
-            if not ((t_s < t_z.min()).sum() >= 4 and (t_s > t_z.max()).sum() >= 4):
+            if not _des_deux_cotes(t_s, t_z.min(), t_z.max()):
                 continue
             epaisseur = max(1.0, 2 * np.percentile(np.abs((P[proches] - c0) @ nrm), 90) + 0.5)
             sel = (np.abs((Z - c0) @ nrm) <= epaisseur / 2) & (t_z >= t_s.min() - 1)
@@ -241,7 +254,7 @@ def traits_traversants(image, zone, mask):
         if proches.sum() < 8 or not (dz < 2).any():
             continue
         t_s = P[proches] @ u; t_z = Z[dz < 2] @ u
-        if (t_s < t_z.min()).sum() >= 4 and (t_s > t_z.max()).sum() >= 4:
+        if _des_deux_cotes(t_s, t_z.min(), t_z.max()):
             n += 1
     return n
 

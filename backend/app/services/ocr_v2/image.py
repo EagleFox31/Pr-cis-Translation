@@ -64,9 +64,12 @@ GOUTTIERE = 0.5          # × hauteur de ligne, gardée avant l'encre voisine
 MEME_BORD = 0.5          # × hauteur de ligne : deux blocs alignés à gauche
 MARGE_EFFACE = 0.2       # × hauteur de ligne, de chaque côté
 SEUIL_ENCRE = 40         # écart au fond qui compte comme encre
+PART_ENCRE = 0.3         # × contraste d'un texte pâle : son bord adouci compte encore
+ENCRE_MIN = 10           # sous cet écart, bruit de compression
 MUR = 10                 # écart au fond qui fait un mur de case (contour gris très pâle : 13)
 OUVERT = 12             # côté sans mur : la case gagne au plus 12 lignes (ou la largeur du texte)
 FLOTTANT = 2             # marges de plus de 2 lignes des deux côtés : étiquette dans le vide
+AXE_CASE = 0.10          # case fermée des 4 côtés : texte à 10 % de largeur de son axe = centré dessus
 FOND_MIN = 0.5           # moins de 50 % de fond derrière les lettres : fond chargé, pas de case
 # Puce ou numéro en tête de ligne. « 1 - », « 1- » (tiret suivi d'une espace)
 # et « 1－ » (tiret pleine chasse) numérotent ; « 3-days » reste un mot.
@@ -396,6 +399,17 @@ def conteneur(bgr, efface, lignes_bloc, autres=()):
     # l'autre est un trait ; le reste est du texte, compté comme fond.
     f = np.ones_like(z)
     tr, tc = z.mean(axis=1) < 0.15, z.mean(axis=0) < 0.15
+    # Un trait sort de la zone : la barre d'un « H » ou d'un « l », pleine
+    # hauteur dans une zone serrée, s'arrête à son bord.
+    sort_h = np.zeros(eh, bool)
+    for c in (ex - 1, ex + ew):
+        if 0 <= c < W:
+            sort_h |= ~ok[ey:ey + eh, c]
+    sort_v = np.zeros(ew, bool)
+    for r in (ey - 1, ey + eh):
+        if 0 <= r < H:
+            sort_v |= ~ok[r, ex:ex + ew]
+    tr, tc = tr & sort_h, tc & sort_v
     f[tr, :], f[:, tc] = z[tr, :], z[:, tc]
     # Lettres : taches d'encre qui touchent les lignes lues, même si elles
     # débordent de la boîte lue (première lettre rognée), mais pas plus hautes
@@ -472,7 +486,10 @@ def conteneur(bgr, efface, lignes_bloc, autres=()):
             x1 += 1
         while x0 > ax0 and suit(x0 - 1):
             x0 -= 1
-    return (x0, y0, x1, y1), float(ok[y0:y1, x0:x1].mean()), encre, part, ferme
+    # Close des quatre côtés : murs en haut et en bas, et sur les côtés un mur
+    # plutôt que la mi-distance d'un voisin ou le bord de l'image.
+    clos = ferme and ax0 < x0 and x1 < ax1
+    return (x0, y0, x1, y1), float(ok[y0:y1, x0:x1].mean()), encre, part, ferme, clos
 
 
 def _case(bgr, bloc, efface, autres=()):
@@ -481,9 +498,10 @@ def _case(bgr, bloc, efface, autres=()):
     se cherche par l'encre voisine (`cadre()`, `_libre()`).
 
     Alignement : bords des lignes s'ils varient assez ; sinon marges dans la
-    case. Une étiquette posée dans le vide (marges de plus de `FLOTTANT`
+    case ; seul dans une case close, à `AXE_CASE` de son axe, il s'y centre.
+    Une étiquette posée dans le vide (marges de plus de `FLOTTANT`
     lignes des deux côtés) garde son centre."""
-    c, uni, encre, part, ferme = conteneur(bgr, efface, bloc.lignes, autres)
+    c, uni, encre, part, ferme, clos = conteneur(bgr, efface, bloc.lignes, autres)
     if part < FOND_MIN:
         return None
     ix0, iy0, ix1, iy1 = encre
@@ -495,10 +513,15 @@ def _case(bgr, bloc, efface, autres=()):
     flottant = False
     mg, md = ix0 - c[0], c[2] - ix1
     large = c[2] - c[0]
+    # Seul dans une case close et presque centré : l'écart est une marge
+    # parasite, la traduction se centre sur l'axe de la case (comme le PDF).
+    axe = clos and len(ls) == 1 and abs(mg - md) / 2 <= AXE_CASE * large
     if len(ls) > 1 and np.ptp([l[2] for l in ls]) >= 0.5 * hl:
         ecarts = [np.ptp([l[0] for l in ls]), np.ptp([l[0] + l[2] / 2 for l in ls]),
                   np.ptp([l[0] + l[2] for l in ls])]
         sens = ("gauche", "centre", "droite")[int(np.argmin(ecarts))]
+    elif axe:
+        sens = "centre"
     elif flottant := len(ls) == 1 and min(mg, md) > FLOTTANT * hl:
         sens = "centre"
     else:
@@ -509,7 +532,7 @@ def _case(bgr, bloc, efface, autres=()):
             sens = "gauche"
     p = max(1, min(mg, md, 0.5 * hl, CASE_MARGE * large))
     x0, x1 = c[0] + p, c[2] - p
-    if sens == "centre" and (flottant or abs(mg - md) > max(0.5 * hl, 0.15 * large)):
+    if sens == "centre" and not axe and (flottant or abs(mg - md) > max(0.5 * hl, 0.15 * large)):
         # Centre propre du texte, et autant de place de chaque côté.
         cx, demi = (ix0 + ix1) / 2, min(mg, md) - p + (ix1 - ix0) / 2
         x0, x1 = cx - demi, cx + demi
@@ -706,7 +729,11 @@ def _elargie(boite, bgr):
     x0, y0 = max(x - d, 0), max(y - 2, 0)
     x1, y1 = min(x + w + d, l), min(y + hb + 2, h)
     bande = bgr[y0:y1].astype(np.int16)
-    encre = (np.abs(bande - np.median(bande.reshape(-1, 3), axis=0)).max(axis=2) > SEUIL_ENCRE).any(axis=0)
+    ecart = np.abs(bande - np.median(bande.reshape(-1, 3), axis=0)).max(axis=2)
+    # Texte pâle (gris 207 sur blanc : 48 d'écart) : son bord adouci passe sous
+    # SEUIL_ENCRE ; le seuil suit alors le contraste de la ligne lue.
+    contraste = float(ecart[:, x - x0:x - x0 + w].max()) if w > 0 else 0.0
+    encre = (ecart > max(ENCRE_MIN, min(SEUIL_ENCRE, PART_ENCRE * contraste))).any(axis=0)
     lim = int(round(0.5 * hb))
     while x1 < min(x + w + lim, l) and encre[x1]:
         x1 += 1
@@ -788,12 +815,28 @@ def _libre(bgr, bloc, autres, x0, x1, efface, poses=()):
     return min(haut + m, y), max(bas - m, y + h)
 
 
-def _freres(places, W, teintes):
-    """Des frères (même hauteur d'origine, police et couleur, n'importe où dans
+def _hauteur_encre(masque, boites):
+    """Hauteur médiane des lettres mesurées dans les lignes `boites` (0 sans
+    encre). La boîte lue d'un texte CJK court est gonflée (問診 : 59 px lus
+    pour 42 px de lettres, comme ses voisins de 50 px lus)."""
+    hs = []
+    for x, y, w, h in boites:
+        r = np.flatnonzero(masque[y:y + h, x:x + w].any(axis=1))
+        if r.size:
+            hs.append(r[-1] - r[0] + 1)
+    return float(np.median(hs)) if hs else 0.0
+
+
+def _freres(places, W, teintes, encres=None):
+    """Des frères (même hauteur d'origine et même couleur, n'importe où dans
     la figure : liste, cases d'un tableau, nœuds d'un organigramme) prennent
     une seule taille, celle du plus contraint ; `(bloc, placement)`. Un titre
-    ou une légende d'une autre taille garde la sienne."""
+    ou une légende d'une autre taille garde la sienne.
+
+    Même hauteur : celle des lignes lues, ou à défaut celle des lettres
+    mesurées (`encres`, une par place), que l'OCR ne gonfle pas."""
     famille = list(range(len(places)))
+    encres = encres or [0.0] * len(places)
 
     def racine(i):
         while famille[i] != i:
@@ -814,8 +857,10 @@ def _freres(places, W, teintes):
             tol = MEME_BORD * min(hi, hj)
             alignes = (min(abs(xa - xb), abs(xa + wa / 2 - xb - wb / 2), abs(xa + wa - xb - wb)) <= tol
                        or min(abs(ya - yb), abs(ya + ha / 2 - yb - hb / 2)) <= tol)
-            if (abs(hi - hj) <= (MEME_HAUTEUR if alignes else MEME_CORPS) * max(hi, hj)
-                    and pi["fichier"] == pj["fichier"]
+            marge = MEME_HAUTEUR if alignes else MEME_CORPS
+            ei, ej = encres[i], encres[j]
+            if ((abs(hi - hj) <= marge * max(hi, hj)
+                 or (ei > 0 and ej > 0 and abs(ei - ej) <= marge * max(ei, ej)))
                     and np.linalg.norm(np.subtract(teintes[i], teintes[j], dtype=float)) <= MEME_COULEUR):
                 famille[racine(i)] = racine(j)
     out = []
@@ -924,7 +969,7 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
         zx, zy, zw, zh = zones[b]
         x1 = max(zx + zw, bord + 2)
         zones[b] = (max(zx, bord + 1), zy, x1 - max(zx, bord + 1), zh)
-    m0 = masque_couleur(bgr, list(zones.values())) if lus else None
+    m0 = masque_couleur(bgr, list(zones.values()), halo=False) if lus else None
     tous = blocs(lus, [_couleur(bgr, m0, b) for _, b in lus], puces, bgr)
     if tous:
         t = time.monotonic()
@@ -933,7 +978,7 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
             b.traduction = _ponctuation_latine(_joindre((tr or "").split()))
         d["traduction"] = time.monotonic() - t
 
-    places, poses, unies = [], [], set()
+    places, poses, unies, encres = [], [], set(), []
     for b in tous:
         x, y, w, h = b.boite
         # Déjà dans la langue cible (le traducteur l'a rendu tel quel) : laissé intact.
@@ -957,20 +1002,25 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
         else:
             libre = _libre(bgr, b, [l for _, l in lus], cb[0], cb[1], efface, poses)
         z = [zones[l] for l in b.lignes]
-        gras = _gras(masque_couleur(bgr, z, dilatation=0), z, bool(_CJK.search(b.texte)))
+        encre = masque_couleur(bgr, z, dilatation=0, halo=False)
+        gras = _gras(encre, z, bool(_CJK.search(b.texte)))
         fichier = fichier_police or _police_couvrante(_fichier_police(gras), b.traduction, gras)
         p = placer(b, W, fichier, libre, cb, milieu=case[3] if case else None, dico=dico)
         if p is not None:
             places.append((b, p, cb, libre))
+            encres.append(_hauteur_encre(encre, z))
             poses.append((p["x"], p["y"], p["x"] + p["larg"], p["y"] + p["haut"]))
-    places = _freres(places, W, [_couleur(bgr, m0, b.boite) for b, *_ in places])
+    places = _freres(places, W, [_couleur(bgr, m0, b.boite) for b, *_ in places], encres)
 
     if places:
         boites = [zones[l] for b, _ in places for l in b.lignes]
         mask = masque_couleur(bgr, boites)
+        # Couleur et contour se mesurent sur le cœur des lettres : le halo
+        # (bord adouci, pour l'effacement) tirerait la teinte vers le fond.
+        coeur = masque_couleur(bgr, boites, halo=False)
         # Case unie : la traduction s'y lit sans contour.
-        styles = [(_couleur(bgr, mask, b.boite),
-                   b.boite not in unies and _contour(bgr, mask, b.boite)) for b, _ in places]
+        styles = [(_couleur(bgr, coeur, b.boite),
+                   b.boite not in unies and _contour(bgr, coeur, b.boite)) for b, _ in places]
         t = time.monotonic()
         reste = max(fin - t, 1.0)
         efface, choix = effacer(bgr, boites, budget_s=reste, mask=mask, limite_s=reste)

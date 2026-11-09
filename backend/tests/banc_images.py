@@ -38,6 +38,7 @@ from app.services.ocr_v2 import image as img
 
 BANC = os.path.join(os.path.dirname(cache_images.DOSSIER), "_banc_images")
 LANGUE = "fr"
+LOT = 5  # cas par lot (--lot N : cas 5N à 5N+4, ordre alphabétique)
 ECART_MAX = 1.15
 SEUIL_ENCRE = 40
 _LATIN = re.compile(r"[A-Za-zÀ-ÿ]")
@@ -173,7 +174,7 @@ def _restes(avant, apres, poses):
 
 # ── Rejeu ───────────────────────────────────────────────────────────────────
 
-def rejouer(live=False):
+def rejouer(live=False, lot=None):
     memoire = _charger(os.path.join(BANC, "memoire.json"), {})
     trad = memoire.setdefault(LANGUE, {})
     manque = []
@@ -190,9 +191,9 @@ def rejouer(live=False):
     espion = {}
     freres = img._freres
 
-    def _freres(places, W, teintes):
+    def _freres(places, *reste):
         espion["entrees"] = list(places)
-        espion["poses"] = out = freres(places, W, teintes)
+        espion["poses"] = out = freres(places, *reste)
         return out
 
     img._freres = _freres
@@ -200,7 +201,10 @@ def rejouer(live=False):
     os.makedirs(sorties, exist_ok=True)
     resultats = {}
     cas_dir = os.path.join(BANC, "cas")
-    for cas in sorted(os.listdir(cas_dir)):
+    tous = sorted(os.listdir(cas_dir))
+    if lot is not None:
+        tous = tous[LOT * lot:LOT * (lot + 1)]
+    for cas in tous:
         with open(os.path.join(cas_dir, cas, "source.img"), "rb") as f:
             data = f.read()
         lus = [(t, tuple(b)) for t, b in _charger(os.path.join(cas_dir, cas, "lus.json"), [])]
@@ -242,25 +246,34 @@ def main():
     ap.add_argument("--originaux")
     ap.add_argument("--reference", action="store_true")
     ap.add_argument("--live", action="store_true")
+    ap.add_argument("--lot", type=int, help=f"rejoue seulement le lot N ({LOT} cas)")
     a = ap.parse_args()
     if a.figer:
         if not a.originaux:
             ap.error("--figer exige --originaux")
         figer(a.originaux)
         return 0
-    res = rejouer(a.live)
+    res = rejouer(a.live, a.lot)
     ref = _charger(os.path.join(BANC, "reference.json"), {})
     cols = ("poses", "coupes", "ecarts", "occup", "restes", "manque")
-    print(f"{'cas':<11}" + "".join(f"{c:>9}" for c in cols))
+
+    def cellule(r, f, c):
+        # « réf→actuel » quand la valeur a bougé depuis la référence.
+        v = r[c] if f is None or f.get(c) == r[c] else f"{f.get(c)}→{r[c]}"
+        return f"{v:>13}"
+
+    print(f"{'cas':<11}" + "".join(f"{c:>13}" for c in cols))
     for cas, r in res.items():
-        print(f"{cas:<11}" + "".join(f"{r[c]:>9}" for c in cols))
+        print(f"{cas[:10]:<11}" + "".join(cellule(r, ref.get(cas), c) for c in cols))
     tot = _total(res)
-    print(f"{'TOTAL':<11}" + "".join(f"{tot[c]:>9}" for c in cols))
-    if ref:
-        rt = _total(ref)
-        print(f"{'référence':<11}" + "".join(f"{rt[c]:>9}" for c in cols))
+    print(f"{'TOTAL':<11}" + "".join(f"{tot[c]:>13}" for c in cols))
+    communs = {c: ref[c] for c in res if c in ref}
+    if communs:
+        rt = _total(communs)
+        print(f"{'référence':<11}" + "".join(f"{rt[c]:>13}" for c in cols))
     if a.reference:
-        _ecrire(os.path.join(BANC, "reference.json"), res)
+        # Un lot ne remplace que ses propres cas.
+        _ecrire(os.path.join(BANC, "reference.json"), {**ref, **res} if a.lot is not None else res)
         print("référence enregistrée.")
     print(f"planches : {os.path.join(BANC, 'sorties')}")
     return 0

@@ -12,6 +12,7 @@ import os
 import time
 
 import racine  # noqa: F401
+import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from app.services.ocr_v2 import image as module
@@ -409,9 +410,60 @@ def cas_symboles():
     assert (out[100:140, 84:98] > 200).all(), "traduction posée sur la puce"
 
 
+def cas_cases_et_encre():
+    """Règles du 09/11 (organigramme b76a516aca) : case close, encre pâle,
+    frères à même hauteur de lettres."""
+    # Case close des 4 côtés, texte décalé de 20 px (5 %) : axe de la case.
+    # Dans le vide, la même étiquette garde son propre centre.
+    for close in (True, False):
+        bgr = np.full((200, 600, 3), 255, np.uint8)
+        if close:
+            cv2.rectangle(bgr, (100, 50), (500, 150), (120, 120, 120), 2)
+        cv2.putText(bgr, "Hello", (275, 112), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2, cv2.LINE_AA)
+        ys, xs = np.nonzero((bgr[60:140, 110:490] < 128).any(2))
+        b = (110 + int(xs.min()), 60 + int(ys.min()), int(np.ptp(xs)) + 1, int(np.ptp(ys)) + 1)
+        bloc = module.Bloc("Hello", b, [b])
+        r = module._case(bgr, bloc, module._elargie(b, bgr))
+        cx = (r[0][0] + r[0][1]) / 2
+        if close:
+            assert abs(cx - 300) <= 2, r
+        else:
+            assert abs(cx - (b[0] + b[2] / 2)) <= 2, r
+
+    # Texte pâle (gris 207) : la zone d'effacement va jusqu'au bout de son
+    # bord adouci, même si la boîte lue s'arrête à SEUIL_ENCRE.
+    bgr = np.full((80, 400, 3), 255, np.uint8)
+    cv2.putText(bgr, "ECU", (40, 55), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (207, 207, 207), 2, cv2.LINE_AA)
+    ecart = 255 - bgr.min(2).astype(int)
+    fort, tout = np.flatnonzero((ecart > 40).any(0)), np.flatnonzero((ecart > 12).any(0))
+    ys = np.flatnonzero((ecart > 40).any(1))
+    b = (int(fort[0]), int(ys[0]), int(fort[-1] - fort[0] + 1), int(ys[-1] - ys[0] + 1))
+    x, _, w, _ = module._elargie(b, bgr)
+    assert x <= tout[0] and x + w > tout[-1], (b, (x, w), (tout[0], tout[-1]))
+
+    # Hauteur des lettres : médiane des lignes, sans la boîte lue gonflée.
+    m = np.zeros((100, 200), np.uint8)
+    m[30:72, 10:60] = 255
+    m[28:70, 110:160] = 255
+    assert module._hauteur_encre(m, [(0, 10, 100, 80), (100, 0, 100, 100)]) == 42
+
+    # Frères : boîtes lues de 42 et 59 px (écart 29 %), lettres de 42 et 43 px :
+    # même famille, une seule taille ; sans les hauteurs de lettres, deux tailles.
+    f = module._fichier_police()
+    blocs = [module.Bloc("Contrôle", (100, 100, 400, 42), [(100, 100, 400, 42)]),
+             module.Bloc("Entretien client", (650, 300, 400, 59), [(650, 300, 400, 59)])]
+    blocs[0].traduction, blocs[1].traduction = "Contrôle", "Entretien client"
+    places = [(b, module.placer(b, 1200, f), None, None) for b in blocs]
+    for encres, une in ((None, False), ([42.0, 43.0], True)):
+        out = module._freres(places, 1200, [(0, 0, 0)] * 2, encres)
+        tailles = {p["taille"] for _, p in out}
+        assert (len(tailles) == 1) == une, (encres, tailles)
+
+
 def main():
     debut = time.monotonic()
     cas_symboles()
+    cas_cases_et_encre()
     cas_ponctuation()
     cas_mots_entiers()
     cas_controles()
