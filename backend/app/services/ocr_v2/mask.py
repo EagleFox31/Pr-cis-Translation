@@ -22,8 +22,10 @@ def _couleur_fond_bord(roi):
     return np.median(bord, axis=0)
 
 
-def _pixels_du_trait(roi, long, interieur):
-    """Pixels de `long` qui ont la couleur de leur trait.
+def _pixels_du_trait(roi, long, interieur, fond):
+    """Pixels de `long` qui ont la couleur de leur trait, ou un mélange de
+    celle-ci et du fond (anticrénelage d'un trait de 2 px : la médiane tombe
+    entre les deux rangées et n'en reconnaît aucune).
 
     Seuls comptent les segments qui sortent de la boîte `interieur` (tranches
     dans `roi`) : une barre de lettre y reste, un trait de schéma la traverse.
@@ -39,8 +41,11 @@ def _pixels_du_trait(roi, long, interieur):
         sel = etiq == i
         if not (sel & ~dedans).any():
             continue
-        couleur = np.median(roi[sel], axis=0)
-        garde[sel] = np.linalg.norm(roi[sel] - couleur, axis=1) < DISTANCE_MIN
+        px = roi[sel]
+        d = np.linalg.norm(px - fond, axis=1)
+        coeur = np.median(px[d >= np.median(d)], axis=0) - fond
+        t = np.clip((px - fond) @ coeur / max(float(coeur @ coeur), 1.0), 0, 1)
+        garde[sel] = np.linalg.norm(px - fond - t[:, None] * coeur, axis=1) < DISTANCE_MIN
     return garde
 
 
@@ -80,7 +85,8 @@ def masque_couleur(image, boites, proteger_traits=True, dilatation=DILATATION):
             vert = cv2.morphologyEx(txt_g, cv2.MORPH_OPEN, np.ones((longueur, 1), np.uint8),
                                     borderType=cv2.BORDER_CONSTANT, borderValue=0)
             interieur = (slice(y - y0, y - y0 + h), slice(x - x0, x - x0 + w))
-            txt[_pixels_du_trait(grand, (horiz > 0) | (vert > 0), interieur)[interieur]] = 0
+            garde = _pixels_du_trait(grand, (horiz > 0) | (vert > 0), interieur, fond)
+            txt[garde[interieur]] = 0
         mask[y:y + h, x:x + w] = np.maximum(mask[y:y + h, x:x + w], txt)
     if dilatation:
         mask = cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=dilatation)

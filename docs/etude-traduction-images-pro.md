@@ -181,3 +181,11 @@ L'hypothèse « interligne et marges du moteur » est écartée : à la taille d
 Banc : 141 blocs posés (deux lignes réunies en un bloc), 0 coupe, 1 écart, restes 3854 ; `test_ocr_v2_image` vert.
 
 Limite : la taille commune des en-têtes reste imposée par la traduction la plus longue (« commandées », 16 px au lieu de ~24 px). Pour gagner ~2 px, il faudrait réduire la marge intérieure des cases (6 % de la largeur) ; ce n'est pas fait, à décider après l'essai.
+
+## 11. Traits de tableau effacés (cbc0dcf3fa)
+
+- Constat : la règle sous le titre et au-dessus des en-têtes disparaissait ou laissait des barres noires.
+- Cause mesurée : le trait fait 2 px, une rangée foncée (bleu 51) et une rangée anticrénelée (bleu 109). Le filtre de couleur prenait la **médiane** du segment, qui tombe entre les deux rangées : aucune rangée n'était à moins de `DISTANCE_MIN` → le trait entier restait au masque et l'inpainting l'effaçait.
+- Règle générale (`mask.py` `_pixels_du_trait`) : le cœur du trait = médiane de la moitié la plus contrastée ; un pixel est du trait s'il est proche du segment de couleur fond → cœur (mélange d'anticrénelage). Une lettre d'une autre couleur posée sur le trait reste au masque (test « trait traversant » vert).
+- Écarté : retirer le trait du masque après dilatation → le bord des lettres posées sur un trait restait visible (1103 px faux au test).
+- Banc : 141 / 0 coupe / 1 écart / restes 3820 (avant 3854) ; tests image et effacement verts.
