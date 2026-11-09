@@ -137,3 +137,31 @@ Réglages ajoutés pendant la mise en place :
 Banc (18 images) : 138 blocs posés (avant : 118), 0 coupe, 2 écarts entre frères (avant : 17), encre restante inchangée. Test `test_ocr_v2_image` vert.
 
 Limite connue : sur un schéma, une case et un cercle alignés en colonne sont traités comme des frères et prennent la plus petite des deux tailles.
+
+## 9. Étape .6 : règles générales de la case (retour du 09/11)
+
+Après le retour de l'utilisateur, on n'a pas corrigé les cas un par un. On a revu les règles qui servent à toutes les images.
+
+| Règle | Avant | Après | Effet visible |
+|---|---|---|---|
+| Ce qui est « fond » | écart ≤ 15 à une seule couleur | écart ≤ 10 (`MUR`) au fond, **ou** au fond local (médiane glissante) | un dégradé reste du fond ; un trait gris clair arrête la case (« 得た情報… » ne fuit plus jusqu'au grand cadre) |
+| Ce qui est « lettre » | toute la boîte lue | composantes d'encre qui touchent une ligne lue, de taille d'un caractère | une boîte qui mord sur une bordure n'est plus prise pour du texte (en-têtes 4S) |
+| Fond uni (part) | mesuré sur toute la boîte | mesuré hors des lettres (halo JPEG exclu) | les en-têtes 4S ne sont plus rejetés |
+| Côté sans mur | case rejetée (touche le bord) | la case s'étend d'au plus 12 lignes (`OUVERT`) et s'arrête à mi-distance des autres textes | « Non reproduit » utilise la place libre sans toucher ses voisins |
+| Alignement gauche / droite | calé au mur de la case | retrait d'origine gardé | « Close » reste à sa place, pas collé au bord |
+| Contour (liseré) | dès qu'un trait est proche | seulement sur fond chargé (texture) | plus de liseré parasite à côté d'un trait |
+| Ordre de placement | — | option A : même nombre de lignes → +1 ligne → réduction | inchangé, confirmé par l'utilisateur |
+
+Banc (18 images) :
+
+| Mesure | Avant l'étape | Après |
+|---|---|---|
+| Blocs posés | 138 | **142** |
+| Mots coupés | 0 | 0 |
+| Écarts entre frères | 2 | **1** |
+| Encre restante (restes) | 3916 | **3854** |
+| Test `test_ocr_v2_image` | vert | vert |
+
+Limites connues :
+- texte coloré dominant sur un dégradé (« Cooling water » en rouge) : la couleur dominante est celle du texte, donc la case est rejetée et l'ancien calcul s'applique ;
+- règle des frères : dans une colonne d'organigramme, la plus longue traduction impose sa petite taille aux autres cartes (424e5d0680).

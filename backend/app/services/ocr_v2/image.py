@@ -51,7 +51,6 @@ MEME_HAUTEUR = 0.15
 MEME_COULEUR = 80        # distance RVB entre deux lignes d'un même bloc
 GRANDIR = 0.8            # au-delà d'une ligne de plus, pas de corps plus petit
 CASE_PART = 0.97        # part de fond qu'une rangée doit garder pour agrandir la case
-CASE_RATIO = 40          # case plus grande que 40 × la zone du texte : pas une case
 CASE_UNIE = 0.9          # case unie à 90 % : pas de contour autour de la traduction
 CASE_MARGE = 0.06        # marge intérieure au plus 6 % de la largeur de la case
 GRANDIR_LIGNES = 4       # hauteur gagnée au plus, en lignes lues
@@ -60,7 +59,11 @@ GRAS = {True: 0.095, False: 0.142}  # épaisseur du trait / hauteur d'encre, jap
 GOUTTIERE = 0.5          # × hauteur de ligne, gardée avant l'encre voisine
 MEME_BORD = 0.5          # × hauteur de ligne : deux blocs alignés à gauche
 MARGE_EFFACE = 0.2       # × hauteur de ligne, de chaque côté
-SEUIL_ENCRE = 40         # écart au fond qui arrête l'agrandissement
+SEUIL_ENCRE = 40         # écart au fond qui compte comme encre
+MUR = 10                 # écart au fond qui fait un mur de case (contour gris très pâle : 13)
+OUVERT = 12             # côté sans mur : la case gagne au plus 12 lignes (ou la largeur du texte)
+FLOTTANT = 2             # marges de plus de 2 lignes des deux côtés : étiquette dans le vide
+FOND_MIN = 0.5           # moins de 50 % de fond derrière les lettres : fond chargé, pas de case
 _PUCE = re.compile(r"^\s*([0-9０-９]+[.)．）、]|[・•\-–*]|[①-⑳])")
 _FIN_PHRASE = re.compile(r"[。．.!?！？:：」』）)]\s*$")
 DELAI_S = 30.0
@@ -306,12 +309,21 @@ def _equilibrer(texte, police, largeur, casser=False):
     return essai if len(essai) == len(out) else out
 
 
-def conteneur(bgr, efface, lignes_bloc):
-    """Case autour du texte `(x0, y0, x1, y1)` et part de fond uni : on part
-    du cœur des lignes et on agrandit le rectangle de chaque côté tant que la
-    nouvelle rangée garde au moins `CASE_PART` de la couleur de fond (la plus
-    fréquente derrière les lettres) ; on s'arrête sur un trait ou un changement
-    de fond. Les lettres elles-mêmes ne comptent pas comme encre."""
+def conteneur(bgr, efface, lignes_bloc, autres=()):
+    """Place libre autour du texte : `(case, uni, encre, part)`.
+
+    `case` `(x0, y0, x1, y1)` : on part du cœur des lignes et on agrandit le
+    rectangle de chaque côté tant que la nouvelle rangée garde au moins
+    `CASE_PART` de la couleur de fond (la plus fréquente derrière les
+    lettres). Un écart de `MUR` suffit à faire un mur : le contour gris pâle
+    d'une case blanche arrête la croissance. Un côté sans mur s'arrête à
+    `OUVERT` lignes (`GRANDIR_LIGNES` en hauteur), au bord de l'image, ou à
+    mi-distance d'un autre texte lu (`autres` : boîtes de lignes) : deux
+    étiquettes voisines se partagent le vide qui les sépare.
+    `encre` `(x0, y0, x1, y1)` : lettres mesurées sur l'image, et non sur la
+    boîte lue, qui mord souvent sur les bords de la case.
+    `uni` : part de fond dans la case ; `part` : part de fond dans les lignes
+    (faible : fond chargé, photo, dégradé)."""
     H, W = bgr.shape[:2]
     ex, ey, ew, eh = efface
     px = np.concatenate([bgr[int(ly):int(ly + lh), int(lx):int(lx + lw)].reshape(-1, 3)
@@ -319,65 +331,138 @@ def conteneur(bgr, efface, lignes_bloc):
     q = px // 16
     cle = q[:, 0] * 256 + q[:, 1] * 16 + q[:, 2]
     fond = np.median(px[cle == np.bincount(cle).argmax()], axis=0)
-    ok = np.abs(bgr.astype(np.int16) - fond).max(axis=2) <= SEUIL_ENCRE
+    hl = float(np.median([l[3] for l in lignes_bloc]))
+    m = int(hl)
+    ok = np.abs(bgr.astype(np.int16) - fond).max(axis=2) <= MUR
+    # Fond qui varie lentement (dégradé) : comparé au fond local, il reste du
+    # fond tant qu'il ne s'écarte pas de plus de SEUIL_ENCRE ; un trait fin,
+    # même pâle, tranche sur son voisinage et reste un mur.
+    gx, gy = int(ew + 2 * m + OUVERT * hl) + 2, int(eh + 2 * m + GRANDIR_LIGNES * hl) + 2
+    gx0, gy0, gx1, gy1 = max(ex - gx, 0), max(ey - gy, 0), min(ex + ew + gx, W), min(ey + eh + gy, H)
+    reg = bgr[gy0:gy1, gx0:gx1]
+    r = max(1, int(hl // 6))
+    petit = cv2.resize(reg, (max((gx1 - gx0) // r, 1), max((gy1 - gy0) // r, 1)), interpolation=cv2.INTER_AREA)
+    lisse = cv2.resize(cv2.medianBlur(petit, max(3, int(2 * hl / r)) | 1), (gx1 - gx0, gy1 - gy0),
+                       interpolation=cv2.INTER_LINEAR).astype(np.int16)
+    reg = reg.astype(np.int16)
+    ok[gy0:gy1, gx0:gx1] |= ((np.abs(reg - lisse).max(axis=2) <= MUR)
+                             & (np.abs(reg - fond).max(axis=2) <= SEUIL_ENCRE))
     z = ok[ey:ey + eh, ex:ex + ew]
     # Dans la zone du texte, seule une rangée (colonne) d'encre d'un bord à
     # l'autre est un trait ; le reste est du texte, compté comme fond.
     f = np.ones_like(z)
     tr, tc = z.mean(axis=1) < 0.15, z.mean(axis=0) < 0.15
     f[tr, :], f[:, tc] = z[tr, :], z[:, tc]
+    # Lettres : taches d'encre qui touchent les lignes lues, même si elles
+    # débordent de la boîte lue (première lettre rognée), mais pas plus hautes
+    # que 1,6 ligne ni plus larges que leur ligne : ni bordure, ni trait.
+    rx0, ry0 = max(ex - m, 0), max(ey - m, 0)
+    rx1, ry1 = min(ex + ew + m, W), min(ey + eh + m, H)
+    encre_z = ~ok[ry0:ry1, rx0:rx1]
+    zz = encre_z[ey - ry0:ey - ry0 + eh, ex - rx0:ex - rx0 + ew]
+    zz[tr, :], zz[:, tc] = False, False
+    n, lab, st, _ = cv2.connectedComponentsWithStats(encre_z.astype(np.uint8), connectivity=8)
+    garde = np.zeros(n, bool)
+    for lx, ly, lw, lh in lignes_bloc:
+        sl = lab[max(int(ly) - ry0, 0):int(ly + lh) - ry0, max(int(lx) - rx0, 0):int(lx + lw) - rx0]
+        for k in np.unique(sl[sl > 0]):
+            garde[k] |= st[k, cv2.CC_STAT_HEIGHT] <= 1.6 * hl and st[k, cv2.CC_STAT_WIDTH] <= lw + 2 * hl
+    lettres = garde[lab]
+    # Part de fond derrière les lettres, halo compris (JPEG) : seul le fond
+    # entre les lettres dit si la case est unie ou chargée.
+    hors = ok[ry0:ry1, rx0:rx1].copy()
+    pres = cv2.dilate(lettres.astype(np.uint8), np.ones((5, 5), np.uint8)) == 0
+    dans = np.zeros_like(hors)
+    for lx, ly, lw, lh in lignes_bloc:
+        dans[max(int(ly) - ry0, 0):int(ly + lh) - ry0, max(int(lx) - rx0, 0):int(lx + lw) - rx0] = True
+    sel = dans & pres
+    part = float(hors[sel].mean()) if sel.any() else 0.0
     ok[ey:ey + eh, ex:ex + ew] = f
-    x0 = int(min(l[0] for l in lignes_bloc))
-    x1 = int(max(l[0] + l[2] for l in lignes_bloc))
+    ok[ry0:ry1, rx0:rx1] |= cv2.dilate(lettres.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+    ys, xs = np.nonzero(lettres)
+    if len(xs):
+        encre = (rx0 + int(xs.min()), ry0 + int(ys.min()), rx0 + int(xs.max()) + 1, ry0 + int(ys.max()) + 1)
+    else:
+        u = _union(lignes_bloc)
+        encre = (int(u[0]), int(u[1]), int(u[0] + u[2]), int(u[1] + u[3]))
+    lx0, ly0, lx1, ly1 = encre
+    ouvert = max(lx1 - lx0, OUVERT * hl)
+    bx0, bx1 = lx0 - ouvert, lx1 + ouvert
+    by0, by1 = ly0 - GRANDIR_LIGNES * hl, ly1 + GRANDIR_LIGNES * hl
+    for ax, ay, aw, ah in autres:
+        if min(ay + ah, ly1) > max(ay, ly0):  # même rangée
+            if ax >= lx1:
+                bx1 = min(bx1, (lx1 + ax) / 2)
+            elif ax + aw <= lx0:
+                bx0 = max(bx0, (ax + aw + lx0) / 2)
+        elif min(ax + aw, lx1) > max(ax, lx0):  # même colonne
+            if ay >= ly1:
+                by1 = min(by1, (ly1 + ay) / 2)
+            elif ay + ah <= ly0:
+                by0 = max(by0, (ay + ah + ly0) / 2)
+    bx0, by0 = max(min(int(np.ceil(bx0)), lx0), 0), max(min(int(np.ceil(by0)), ly0), 0)
+    bx1, by1 = min(max(int(bx1), lx1), W), min(max(int(by1), ly1), H)
+    x0, x1 = lx0, lx1
     y0 = int(lignes_bloc[0][1] + lignes_bloc[0][3] / 2)
     y1 = int(lignes_bloc[-1][1] + lignes_bloc[-1][3] / 2) + 1
     bouge = True
     while bouge:
         bouge = False
-        if x0 > 0 and ok[y0:y1, x0 - 1].mean() >= CASE_PART:
+        if x0 > bx0 and ok[y0:y1, x0 - 1].mean() >= CASE_PART:
             x0, bouge = x0 - 1, True
-        if x1 < W and ok[y0:y1, x1].mean() >= CASE_PART:
+        if x1 < bx1 and ok[y0:y1, x1].mean() >= CASE_PART:
             x1, bouge = x1 + 1, True
-        if y0 > 0 and ok[y0 - 1, x0:x1].mean() >= CASE_PART:
+        if y0 > by0 and ok[y0 - 1, x0:x1].mean() >= CASE_PART:
             y0, bouge = y0 - 1, True
-        if y1 < H and ok[y1, x0:x1].mean() >= CASE_PART:
+        if y1 < by1 and ok[y1, x0:x1].mean() >= CASE_PART:
             y1, bouge = y1 + 1, True
-    return (x0, y0, x1, y1), float(ok[y0:y1, x0:x1].mean())
+    return (x0, y0, x1, y1), float(ok[y0:y1, x0:x1].mean()), encre, part
 
 
-def _case(bgr, bloc, efface):
-    """Place offerte par la case du bloc : `(cadre, libre, uni)` à passer à
-    `placer()`, ou `None` si la case n'est pas fiable (elle touche le bord de
-    l'image ou dépasse `CASE_RATIO` fois la zone du texte : case pâle sur fond
-    blanc, dégradé, photo) ou si le texte est aligné à droite."""
-    H, W = bgr.shape[:2]
-    c, uni = conteneur(bgr, efface, bloc.lignes)
-    if c[0] == 0 or c[1] == 0 or c[2] == W or c[3] == H:
+def _case(bgr, bloc, efface, autres=()):
+    """Place offerte autour du bloc : `(cadre, libre, uni)` à passer à
+    `placer()`, ou `None` sur un fond chargé (photo, dégradé), où la place
+    se cherche par l'encre voisine (`cadre()`, `_libre()`).
+
+    Alignement : bords des lignes s'ils varient assez ; sinon marges dans la
+    case. Une étiquette posée dans le vide (marges de plus de `FLOTTANT`
+    lignes des deux côtés) garde son centre."""
+    c, uni, encre, part = conteneur(bgr, efface, bloc.lignes, autres)
+    if part < FOND_MIN:
         return None
-    if (c[2] - c[0]) * (c[3] - c[1]) > CASE_RATIO * max(efface[2] * efface[3], 1):
-        return None
+    ix0, iy0, ix1, iy1 = encre
+    if c[0] > ix0 or c[1] > iy0 or c[2] < ix1 or c[3] < iy1:
+        return None  # la case n'a pas pu s'étendre autour des lettres
     ls = bloc.lignes
     x, y, w, h = bloc.boite
-    if c[0] > x or c[1] > y or c[2] < x + w or c[3] < y + h:
-        return None  # la case n'a pas pu s'étendre autour du texte
     hl = float(np.median([l[3] for l in ls]))
-    # Alignement : bords des lignes s'ils varient assez ; sinon marges dans la case.
+    mg, md = ix0 - c[0], c[2] - ix1
+    large = c[2] - c[0]
     if len(ls) > 1 and np.ptp([l[2] for l in ls]) >= 0.5 * hl:
         ecarts = [np.ptp([l[0] for l in ls]), np.ptp([l[0] + l[2] / 2 for l in ls]),
                   np.ptp([l[0] + l[2] for l in ls])]
         sens = ("gauche", "centre", "droite")[int(np.argmin(ecarts))]
+    elif len(ls) == 1 and min(mg, md) > FLOTTANT * hl:
+        sens = "centre"
     else:
-        mg, md = x - c[0], c[2] - (x + w)
-        sens = ("centre" if abs(mg - md) <= max(0.5 * hl, 0.15 * (c[2] - c[0]))
+        sens = ("centre" if abs(mg - md) <= max(0.5 * hl, 0.15 * large)
                 else "gauche" if mg < md else "droite")
         # Paragraphe qui remplit sa case : marges égales mais sans portée.
-        if len(ls) > 1 and sens == "centre" and mg + md < 0.2 * (c[2] - c[0]):
+        if len(ls) > 1 and sens == "centre" and mg + md < 0.2 * large:
             sens = "gauche"
-    if sens == "droite":
-        return None
-    px = max(1, min(x - c[0], c[2] - x - w, 0.5 * hl, CASE_MARGE * (c[2] - c[0])))
-    py = max(1, min(y - c[1], c[3] - y - h, 0.3 * hl))
-    return (c[0] + px, c[2] - px, sens == "centre"), (c[1] + py, c[3] - py), uni
+    p = max(1, min(mg, md, 0.5 * hl, CASE_MARGE * large))
+    x0, x1 = c[0] + p, c[2] - p
+    if sens == "centre" and abs(mg - md) > max(0.5 * hl, 0.15 * large):
+        # Centre propre du texte, et autant de place de chaque côté.
+        cx, demi = (ix0 + ix1) / 2, min(mg, md) - p + (ix1 - ix0) / 2
+        x0, x1 = cx - demi, cx + demi
+    elif sens == "gauche":
+        x0 = ix0  # retrait d'origine gardé
+    elif sens == "droite":
+        x1 = ix1
+    py =max(1, min(iy0 - c[1], c[3] - iy1, 0.3 * hl))
+    sens = {"centre": True, "gauche": False}.get(sens, sens)
+    return (x0, x1, sens), (c[1] + py, c[3] - py), uni
 
 
 def colonnes(bloc, largeur_image):
@@ -446,7 +531,8 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
     pas0 = (bloc.lignes[-1][1] - bloc.lignes[0][1]) / (n0 - 1) if n0 > 1 else hl * 1.2
     if cadre is None:
         cadre = (*colonnes(bloc, largeur_image), n0 == 1)
-    x0, x1, centre = cadre
+    x0, x1, sens = cadre
+    centre, droite = sens is True, sens == "droite"
     lmax = x1 - x0
     plancher = max(min(PLANCHER * s0, LISIBLE_PX), PLANCHER_PX)
     # Ordre : le nombre de lignes d'origine sur toute la largeur, puis une
@@ -481,10 +567,11 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
                 y1 = (libre[0] + libre[1] - haut) / 2 if centre else min(max(y1, libre[0]), libre[1] - haut)
                 tient = True
             if tient:
-                xt = (x0 + x1) / 2 - larg / 2 if centre else x
+                xt = (x0 + x1) / 2 - larg / 2 if centre else x1 - larg if droite else x
                 xt = min(max(xt, x0), x1 - larg)
-                # Chaque ligne centrée pour elle-même, ou calée à gauche.
-                xs = [xt + (larg - police.getlength(t)) / 2 if centre else xt for t in texte_l]
+                # Chaque ligne centrée pour elle-même, ou calée à gauche ou à droite.
+                xs = [xt + (larg - police.getlength(t)) * (0.5 if centre else 1 if droite else 0)
+                      for t in texte_l]
                 return {"taille": s, "lignes": texte_l, "pas": pas, "x": xt, "xs": xs, "y": y1,
                         "haut_glyphe": k * s, "larg": larg, "haut": haut, "fichier": fichier}
             s = int(s * 0.94) if s > 20 else s - 1
@@ -645,12 +732,13 @@ def _freres(places, W, teintes):
 
 
 def _contour(bgr, mask, boite):
-    """Fond chargé ou trait traversant : la traduction reçoit un contour."""
+    """Fond chargé (texture, photo) : la traduction reçoit un contour. Jamais
+    pour un simple trait : l'original n'a pas de liseré."""
     sl, zone = zones_par_boite(mask, [boite])[0]  # recadré : pas de masque pleine page
     if not zone.any():
         return False
     f = indicateurs(bgr[sl], zone, mask[sl])
-    return f["traits"] > 0 or f["texture"] > T_TEX
+    return f["texture"] > T_TEX
 
 
 def _lire(lecteur, bgr, delai):
@@ -757,7 +845,7 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
         efface = _union([zones[l] for l in b.lignes])
         # Case dessinée autour du texte : sa place et son alignement ; sinon
         # l'encre voisine et le vide autour du bloc.
-        case = _case(bgr, b, efface)
+        case = _case(bgr, b, efface, [l for _, l in lus if l not in b.lignes])
         cb = case[0] if case else cadre(bgr, b, tous)
         if b.lignes[0] in puces:  # après la puce dessinée, aligné à gauche, sans la couvrir
             x0 = max(x, b.lignes[0][0])
