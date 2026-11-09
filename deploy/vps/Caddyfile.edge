@@ -1,0 +1,19 @@
+# Relais interne (VPS). Seule la passerelle du réseau Docker (172.30.250.1,
+# docker-compose.https.yml) peut fournir X-Forwarded-For : c'est par elle que
+# passe le Caddy de l'hôte, qui écrase lui-même l'en-tête envoyé par le client.
+{
+	auto_https off
+	admin off
+	servers {
+		trusted_proxies static 172.30.250.1/32
+		trusted_proxies_strict
+		client_ip_headers X-Forwarded-For
+	}
+}
+
+:80 {
+	reverse_proxy web:80 {
+		flush_interval -1
+		header_up X-Forwarded-For {client_ip}
+	}
+}

@@ -1,0 +1,25 @@
+# Hébergement sur un VPS mutualisé, derrière le Caddy de l'hôte (TLS côté hôte).
+#
+#   docker compose -p precis-translation --env-file backend/.env \
+#     -f docker-compose.yml -f docker-compose.https.yml -f deploy/vps/docker-compose.vps.yml up -d --build
+#
+# Le relais `edge` est conservé : c'est la seule source dont nginx croit
+# X-Forwarded-For (frontend/nginx.conf). Il n'écoute plus qu'en HTTP local et
+# ne croit lui-même que la passerelle Docker, par où arrive le Caddy hôte.
+# Limites mémoire : la machine est partagée avec d'autres services.
+services:
+  db:
+    mem_limit: 256m
+  backend:
+    mem_limit: 1g
+  web:
+    mem_limit: 96m
+    ports: !reset []
+  edge:
+    mem_limit: 64m
+    ports: !override
+      - "127.0.0.1:${PRECIS_EDGE_PORT:-8090}:80"
+    volumes: !override
+      - ./deploy/vps/Caddyfile.edge:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
