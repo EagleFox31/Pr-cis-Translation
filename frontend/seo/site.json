@@ -1,0 +1,175 @@
+{
+  "origin": "https://precis-translator.trigenys.com",
+  "name": "Précis Translator",
+  "publisher": "Trigenys Group",
+  "summary": "Précis Translator traduit des documents PDF, Word (DOCX), PowerPoint (PPTX), Excel (XLSX) et texte (TXT) en conservant leur mise en page : polices, colonnes, tableaux et images restent en place. Le service est édité par Trigenys Group.",
+  "facts": [
+    "Formats pris en charge : PDF, DOCX, PPTX, XLSX et TXT.",
+    "23 langues et 36 variantes régionales disponibles.",
+    "Aperçu de la traduction avant téléchargement.",
+    "Comptage : une page par page PDF ou par diapositive ; pour Word, Excel et texte, une page par tranche de mots entamée.",
+    "Une offre gratuite sans abonnement ni carte enregistrée, et des forfaits payants.",
+    "Extension navigateur pour Chrome et Edge : traduit le texte et les images d'une page web sur place."
+  ],
+  "routes": [
+    {
+      "path": "/home",
+      "source": "home",
+      "priority": "1.0",
+      "changefreq": "weekly"
+    },
+    {
+      "path": "/extension",
+      "source": "extension",
+      "title": "Extension navigateur Précis : traduire une page web sur Chrome et Edge",
+      "description": "Traduisez le texte et les images d'une page web en un clic, avec la mise en page conservée. Extension Précis pour Chrome et Edge.",
+      "priority": "0.8",
+      "changefreq": "monthly"
+    },
+    {
+      "path": "/traduire-pdf",
+      "source": "content",
+      "page": "traduire-pdf",
+      "priority": "0.8",
+      "changefreq": "monthly"
+    },
+    {
+      "path": "/traduire-word",
+      "source": "content",
+      "page": "traduire-word",
+      "priority": "0.8",
+      "changefreq": "monthly"
+    },
+    {
+      "path": "/traduire-powerpoint",
+      "source": "content",
+      "page": "traduire-powerpoint",
+      "priority": "0.8",
+      "changefreq": "monthly"
+    },
+    {
+      "path": "/traduire-excel",
+      "source": "content",
+      "page": "traduire-excel",
+      "priority": "0.8",
+      "changefreq": "monthly"
+    },
+    {
+      "path": "/traduire-anglais-francais",
+      "source": "content",
+      "page": "traduire-anglais-francais",
+      "priority": "0.7",
+      "changefreq": "monthly"
+    },
+    {
+      "path": "/traduire-francais-anglais",
+      "source": "content",
+      "page": "traduire-francais-anglais",
+      "priority": "0.7",
+      "changefreq": "monthly"
+    },
+    {
+      "path": "/tarifs",
+      "source": "content",
+      "page": "tarifs",
+      "priority": "0.7",
+      "changefreq": "monthly"
+    },
+    {
+      "path": "/confidentialite-documents",
+      "source": "content",
+      "page": "confidentialite-documents",
+      "priority": "0.7",
+      "changefreq": "monthly"
+    },
+    {
+      "path": "/comparatif",
+      "source": "content",
+      "page": "comparatif",
+      "priority": "0.7",
+      "changefreq": "monthly"
+    },
+    {
+      "path": "/mentions-legales",
+      "source": "legal",
+      "slug": "mentions-legales",
+      "priority": "0.3",
+      "changefreq": "yearly"
+    },
+    {
+      "path": "/conditions",
+      "source": "legal",
+      "slug": "conditions",
+      "priority": "0.3",
+      "changefreq": "yearly"
+    },
+    {
+      "path": "/confidentialite",
+      "source": "legal",
+      "slug": "confidentialite",
+      "priority": "0.3",
+      "changefreq": "yearly"
+    },
+    {
+      "path": "/cookies",
+      "source": "legal",
+      "slug": "cookies",
+      "priority": "0.3",
+      "changefreq": "yearly"
+    }
+  ],
+  "cta": {
+    "href": "/home",
+    "label": "Traduire un document avec Précis"
+  },
+  "blocks": {
+    "steps": {
+      "heading": "Comment faire, en quatre étapes",
+      "ordered": true,
+      "list": [
+        "Ouvrez Précis Translator et déposez votre fichier : PDF, DOCX, PPTX, XLSX ou TXT.",
+        "Choisissez la langue cible parmi 23 langues et 36 variantes régionales.",
+        "Suivez la traduction page par page dans l'aperçu.",
+        "Vérifiez la mise en page, puis téléchargez le document traduit."
+      ]
+    },
+    "limits": {
+      "heading": "Limites à connaître",
+      "list": [
+        "Taille maximale : 100 Mo par fichier.",
+        "PDF scannés : OCR automatique des PDF imprimés en français ou en anglais, jusqu'à 10 pages par envoi. Une page illisible est signalée et attend votre décision au lieu d'être traduite au hasard.",
+        "Comptage : une page par page PDF ou par diapositive ; pour Word, Excel et texte, une page par tranche de 500 mots entamée.",
+        "Offre gratuite : 5 pages équivalentes par mois, sans abonnement ni carte enregistrée."
+      ]
+    },
+    "demo": {
+      "heading": "Avant / après : un exemple réel",
+      "paragraphs": [
+        "Un journal en anglais sur plusieurs colonnes, traduit en français par Précis. Ouvrez les deux fichiers côte à côte : les colonnes, les titres et les images restent à leur place."
+      ],
+      "links": [
+        {
+          "href": "/demo_journal_avant.pdf",
+          "label": "Original en anglais (PDF)"
+        },
+        {
+          "href": "/demo_journal_apres.pdf",
+          "label": "Traduction en français par Précis (PDF)"
+        }
+      ]
+    },
+    "privacy": {
+      "heading": "Et la confidentialité ?",
+      "paragraphs": [
+        "Les échanges sont chiffrés par HTTPS. Le texte du document est transmis au prestataire de traduction DeepSeek ; l'hébergement est assuré par Amazon Web Services. Les fichiers temporaires de traduction sont gardés 7 jours au plus.",
+        "Le détail est expliqué sur la page Confidentialité des documents."
+      ],
+      "links": [
+        {
+          "href": "/confidentialite-documents",
+          "label": "Confidentialité des documents"
+        }
+      ]
+    }
+  }
+}

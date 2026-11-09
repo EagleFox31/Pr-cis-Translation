@@ -1,0 +1,35 @@
+{
+  "label": "Traduire un PowerPoint",
+  "title": "Traduire une présentation PowerPoint (PPTX) · Précis Translator",
+  "description": "Traduisez une présentation PowerPoint PPTX dans 23 langues : zones de texte, tableaux et images restent sur chaque diapositive. Une diapositive = une page.",
+  "h1": "Traduire une présentation PowerPoint (PPTX)",
+  "answer": "Pour traduire un PowerPoint, déposez le fichier PPTX dans Précis Translator, choisissez la langue cible et téléchargez une présentation traduite où chaque diapositive garde ses zones de texte, ses tableaux et ses images. Chaque diapositive compte pour une page.",
+  "sections": [
+    "steps",
+    {
+      "heading": "Ce qui est conservé",
+      "list": [
+        "Les zones de texte, traduites sur place.",
+        "Les tableaux et les images de chaque diapositive.",
+        "L'ordre et le nombre de diapositives."
+      ]
+    },
+    "limits",
+    "privacy"
+  ],
+  "faq": [
+    {
+      "q": "Comment une présentation est-elle comptée ?",
+      "a": "Une diapositive compte pour une page."
+    },
+    {
+      "q": "Le texte peut-il déborder après traduction ?",
+      "a": "Une traduction est parfois plus longue que l'original, par exemple de l'anglais vers le français. Vérifiez les diapositives denses dans l'aperçu avant de télécharger."
+    },
+    {
+      "q": "Les anciens fichiers .ppt sont-ils acceptés ?",
+      "a": "Non : enregistrez d'abord la présentation au format PPTX."
+    }
+  ],
+  "verified": "2026-11-07"
+}
