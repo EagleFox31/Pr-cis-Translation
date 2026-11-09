@@ -1,0 +1,64 @@
+{
+  "label": "Confidentialité des documents",
+  "title": "Vos documents sont-ils confidentiels ? · Précis Translator",
+  "description": "Ce que devient un document traduit avec Précis : chiffrement HTTPS, prestataires (DeepSeek, AWS), durées de conservation et suppression.",
+  "h1": "Ce que devient votre document",
+  "answer": "Un document envoyé à Précis voyage chiffré par HTTPS. Son texte est transmis au prestataire de traduction DeepSeek, le service est hébergé par Amazon Web Services, et vous gardez tous vos droits sur le document et sa traduction. Les fichiers temporaires de traduction sont gardés 7 jours au plus.",
+  "sections": [
+    {
+      "heading": "Qui voit le document",
+      "list": [
+        "DeepSeek reçoit le texte du document afin de le traduire.",
+        "Amazon Web Services héberge le service.",
+        "Chaque accès de notre équipe à un document est journalisé.",
+        "Certains prestataires peuvent traiter les données en dehors du Cameroun."
+      ]
+    },
+    {
+      "heading": "Combien de temps il est gardé",
+      "list": [
+        "Documents enregistrés dans votre espace : jusqu'à ce que vous les supprimiez.",
+        "Fichiers temporaires de traduction : 7 jours au plus, pour permettre la reprise d'une traduction.",
+        "Offre gratuite : traduction seule, sans stockage des documents dans un espace."
+      ]
+    },
+    {
+      "heading": "Sécurité",
+      "list": [
+        "Échanges chiffrés par HTTPS.",
+        "Mots de passe hachés avec bcrypt ; identifiants d'appareil et adresses IP hachés."
+      ]
+    },
+    {
+      "heading": "Pour aller plus loin",
+      "paragraphs": [
+        "La politique de confidentialité fait foi. Pour un document soumis à une obligation de secret, vérifiez qu'un traitement par un prestataire de traduction est compatible avec cette obligation avant l'envoi."
+      ],
+      "links": [
+        {
+          "href": "/confidentialite",
+          "label": "Politique de confidentialité"
+        },
+        {
+          "href": "/conditions",
+          "label": "Conditions d'utilisation"
+        }
+      ]
+    }
+  ],
+  "faq": [
+    {
+      "q": "Mes documents servent-ils à autre chose qu'à la traduction ?",
+      "a": "Les conditions d'utilisation précisent que vous ne nous accordez que les droits nécessaires pour traduire, conserver et vous afficher vos documents."
+    },
+    {
+      "q": "Puis-je supprimer un document ?",
+      "a": "Oui. Un document enregistré est conservé jusqu'à ce que vous le supprimiez."
+    },
+    {
+      "q": "Le texte quitte-t-il le Cameroun ?",
+      "a": "Il peut : certains prestataires, dont le service de traduction, peuvent traiter les données en dehors du Cameroun."
+    }
+  ],
+  "verified": "2026-11-07"
+}

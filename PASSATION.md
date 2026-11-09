@@ -88,3 +88,33 @@ EN COURS : branche `feat/ocr-file-pages-illisibles`, mission 6.13.11 commitée e
 - Vérifié localement : build + lint OK, contrôle SEO PASS sur nginx 1.27 (sources et vrai `dist`), JS 802 Ko → 294 Ko en gzip.
 - Non traité : hreflang / URL anglaises (routage i18n à concevoir), FAQ structurée sur `/home` (aucune FAQ visible sur la page React).
 - `public-https-verification` échouera contre la production tant que cette branche n'est pas déployée.
+
+## 2026-11-07 04:29 — Pages d'intention SEO/GEO (branche feat/seo-intent-pages)
+
+- Branche `feat/seo-intent-pages`, partie de `feat/seo-geo` (PR #58). Plan venant de la session « expert-seo-geo », vérifié contre le code avant exécution.
+- P0 : nœud `SoftwareApplication` complété (`offers` gratuit, `featureList`, `inLanguage`) ; `url` de l'Organization → `https://www.trigenys.com` (trigenys.com n'expose pas de JSON-LD, l'`@id` local est gardé).
+- P1 : 9 pages statiques sans JavaScript, décrites dans `frontend/seo/pages/*.json` et déclarées dans `site.json` (`source: "content"`) : `/traduire-pdf`, `/traduire-word`, `/traduire-powerpoint`, `/traduire-excel`, `/traduire-anglais-francais`, `/traduire-francais-anglais`, `/tarifs`, `/confidentialite-documents`, `/comparatif`. Blocs réutilisables (étapes, limites, avant/après, confidentialité) dans `site.json`. FAQPage par page, date `verified`, sources citées pour le comparatif.
+- `verify_public_seo.py` : contrat prix/limites contre le backend, pages de contenu sans script, FAQ visible, lien vers `/home`, `offers`/`featureList`.
+- Vérifié : build + lint OK, prérendu idempotent (octets identiques), contrôle SEO PASS sur nginx 1.27, test de mutation du contrat, rendu mobile sans défilement horizontal de page.
+- À décider : landing `comparison.row_data_precis` (« Supprimées sous 24h ») et `row_ocr_other` contredisent la politique / les faits concurrents. P2 (annuaires, Product Hunt, AlternativeTo, fiche store, article) à créer en issues après accord.
+- Ordre de fusion après accord : #57 → #58 → cette PR. Aucune fusion faite.
+
+## 2026-11-07 10:29 — Issues P2 SEO hors site et synchronisation du board
+
+- Issues activées sur le dépôt (`gh repo edit --enable-issues`, réversible) avec l'accord de l'utilisateur.
+- Créées avec métadonnées `appfactory-project` intégrées (P2, phase Release) : #60 annuaires, #61 Product Hunt, #62 AlternativeTo (S), #63 fiches Chrome/Edge, #64 article de lancement (Documentation). Script idempotent (saute un titre existant).
+- Board : #61 à #63 manquaient (runs annulés par la concurrence du workflow réutilisable) ; resynchronisées via `workflow_dispatch`, les 5 sont en Backlog avec les bons champs. Leçon ajoutée dans `docs/engineering/lessons-learned.md`.
+- PR ouvertes, rien fusionné : #57 (consolidation), #58 (feat/seo-geo), #59 (feat/seo-intent-pages, base #58).
+- Après accord : fusionner #57 → #58 → #59, fermer #32/#35/#52/#53/#54/#55/#56, fusionner la PR Release Please, déployer sur AWS, vérifier la production (`public-https-verification.yml`).
+- Toujours à décider : textes de la landing `comparison.row_data_precis` et `row_ocr_other`.
+
+## 2026-11-07 21:49 — Ré-épinglage appfactory v1.4.0 (PR #65)
+
+- PR #65 (`chore/repin-appfactory-v1.4.0`, base main) : `project-automation.yml` passe de `14d51168` à v1.4.0 `0523510` (concurrence par issue/PR, corrige la perte de syncs en rafale). Testée par `workflow_dispatch` depuis la branche sur #62 : succès, aucun doublon. Non fusionnée.
+- Côté appfactory : PR EagleFox31/appfactory-project-automation#148 (épinglage documenté, test anti-SHA défectueux, LESSON-2026-017), non fusionnée.
+
+## 2026-11-09 08:15 — Audit SEO à froid de la production
+
+- Prod mesurée : sitemap 1 URL, `/extension`, `/tarifs`, `/llms.txt` en 404, pas de gzip. Aucun des travaux #57/#58/#59 n'est en ligne.
+- Estimation : prod ~20/100 ; après déploiement ~45/100 (technique fort, autorité quasi nulle, contenu FR seulement).
+- Prochaine étape inchangée : accord de fusion #57 → #58 → #59 (+ #65, appfactory#148), puis déploiement et Search Console.
