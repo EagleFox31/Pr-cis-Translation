@@ -93,6 +93,7 @@ aperçus non-PDF.
 | [`docs/etude-visionneuse-defilement.md`](docs/etude-visionneuse-defilement.md) | Étude : zoom qui coupait la page gauche, molette « un geste = une action » (visionneuse) |
 | [`docs/etude-pdf-superposition.md`](docs/etude-pdf-superposition.md) | Étude : dessin peint au-dessus du texte (lettrine), ordre de peinture et ancrage (moteur PDF) |
 | [`docs/etude-pdf-lettres-dessinees.md`](docs/etude-pdf-lettres-dessinees.md) | Étude : reconstituer un mot dont une lettre est dessinée, mise en valeur reportée sur la traduction (moteur PDF) |
+| [`docs/etude-pdf-centrage-cadre.md`](docs/etude-pdf-centrage-cadre.md) | Étude : texte centré dans une pastille ou un cadre, lettre dessinée à la taille du parent dominant (moteur PDF) |
 | [`docs/etude-visionneuse-ergonomie.md`](docs/etude-visionneuse-ergonomie.md) | Étude : ergonomie de la visionneuse comparée aux outils de référence, améliorations proposées |
 | [`docs/etude-visionneuse.md`](docs/etude-visionneuse.md) | Étude : visionneuse (navigation, molette, vignettes), fidélité de la retraduction compacte, originaux côté admin |
 | [`docs/etude-invitations.md`](docs/etude-invitations.md) | Étude : inviter des proches par e-mail — choix et points à trancher |

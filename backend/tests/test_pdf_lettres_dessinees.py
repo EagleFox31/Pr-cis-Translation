@@ -536,6 +536,24 @@ def run():
     image("C8_traduction_longue", "C8  traduction longue près d'un avant-plan",
           src, out)
 
+    # ── C9 : parent dominant — grand dessin, aucun plafond ×2 ──────────────
+    src, pg0 = nouvelle_page()
+    pg0.insert_text((20, 60), "Seiri", fontname="helv", fontsize=12,
+                    color=GRIS)
+    w_s = fitz.get_text_length("S", fontname="helv", fontsize=12)
+    # Dessin uni, étroit (sur la seule 1re lettre) et haut : ~2,6 × l'encre.
+    # Tracé (pas un simple rectangle : celui-là est un cache classique).
+    x0, x1, y0, y1 = 19.6, 20 + w_s - 0.3, 60 - 23, 60.2
+    pg0.draw_polyline([(x0, y1), (x0, y0), (x1, y0), (x1, y1), (x0, y1)],
+                      color=None, fill=ROUGE, closePath=True)
+    eng, pd, out = traduire(src, {"Seiri": "Trier"})
+    ts = [c for c in caracteres(out[0]) if c[0] == "T"]
+    ok("C9  le T prend la taille entière du dessin (> 2 × le corps)",
+       ts and ts[0][2] > 2.0 * 12 + 1.0,
+       f"T={ts[0][2] if ts else None} corps=12")
+    image("C9_parent_dominant", "C9  grand dessin : taille du dessin",
+          src, out)
+
     planche(images, os.path.join(SORTIE, "planche.png"))
 
     # ── Rapport ─────────────────────────────────────────────────────────────

@@ -789,12 +789,12 @@ def _is_hidden(hidden, c):
 
 
 # Lettre dessinée (initiale colorée posée sur la vraie lettre) : rapport de
-# hauteur toléré entre le dessin et l'ENCRE de la lettre qu'il masque, taille
-# maximale de la lettre refaite (en × le corps du mot), et écart maximal (en ×
-# le corps) entre deux lettres voisines d'un même mot.
+# hauteur toléré entre le dessin et l'ENCRE de la lettre qu'il masque, et
+# écart maximal (en × le corps) entre deux lettres voisines d'un même mot. La
+# lettre refaite prend l'apparence du PARENT DOMINANT : le dessin, peint
+# au-dessus, impose sa taille entière (aucun plafond).
 _INI_RATIO_MIN = 0.8
 _INI_RATIO_MAX = 3.0
-_INI_SCALE_MAX = 2.0
 _INI_ADJ = 0.25
 _INI_PIXELS_MAX = 400000
 _helv_font = None
@@ -935,7 +935,7 @@ def _verdict_forme(page, el, masques, plat):
         return "avant_plan", None
     suivant = chaine[1]
     d = {"color": [float(v) for v in fill],
-         "scale": min(r, _INI_SCALE_MAX),
+         "scale": r,
          "base_size": suivant["size"],
          "base_color": _int_color_to_rgb(suivant["span"].get("color", 0))}
     return "initiale", (d, chaine)
@@ -2834,6 +2834,19 @@ class PDFObjectEngine:
             f_left, f_right = frame
             if f_right - f_left < 1.0:                  # cadre dégénéré
                 f_left, f_right = col_left, col_right
+            # LE BORD DU CADRE N'EST PAS UN VOISIN — le contour d'une pastille
+            # est décomposé en morceaux, dont un trait d'épaisseur nulle posé
+            # SUR son bord droit (« What is 4S? », pastille [24,1 ; 153,4]).
+            # Pris pour un objet à droite, il retranchait une gouttière
+            # (17,5 pt) au cadre : conteneur [24,1 ; 135,9], centre 80 au lieu
+            # de 88,75, et la traduction partait de travers vers la gauche.
+            # Un cadre dur borne déjà le conteneur (padding de la boîte) : ce
+            # qui est sur son bord ou au-delà ne borne plus.
+            if frame_dur:
+                if right_block >= f_right - 1.0:
+                    right_block = float("inf")
+                if left_block <= f_left + 1.0:
+                    left_block = float("-inf")
 
             col_w = max(1.0, f_right - f_left)
             lg, rg = pleft - f_left, f_right - pright
@@ -2856,12 +2869,77 @@ class PDFObjectEngine:
                 contains = (bb[0] <= pleft + 2 and bb[1] <= ptop + 2
                             and bb[2] >= pright - 2 and bb[3] >= pbottom - 2)
                 return not contains
-            wrapped = any(_partial_overlap(q["bbox"]) for q in boxed if q is not p)
-            if not wrapped:
-                wrapped = any(_partial_overlap(ob) for ob in obstacles)
-
             lbb = [ln["bbox"] for ln in p.get("lines", [])
                    if ln.get("bbox") and len(ln["bbox"]) >= 4]
+
+            # FOND, PAS ENROULEMENT — une forme dont les LIGNES passent
+            # par-dessus (l'encre du texte la recouvre) est un décor du cadre :
+            # quartiers d'un cercle dessiné en 4 morceaux, bouts arrondis d'une
+            # pastille, aplat débordant. Un vrai enroulement, lui, fait
+            # s'écarter les lignes de l'objet : elles ne le recouvrent pas.
+            # (4S : chiffres « 1 »–« 4 » dans leurs cercles, « Necessary
+            # items » sur 2 lignes, « Develop an ability… » lus à gauche.)
+            def _sous_le_texte(bb):
+                for lb in lbb:
+                    ox = min(bb[2], lb[2]) - max(bb[0], lb[0])
+                    oy = min(bb[3], lb[3]) - max(bb[1], lb[1])
+                    if (ox > max(2.0, 0.5 * size)
+                            and oy > 0.5 * max(1.0, lb[3] - lb[1])):
+                        return True
+                return False
+
+            # Une forme qui ne fait qu'EFFLEURER le haut ou le bas du
+            # paragraphe (moins d'une demi-ligne : jambage, interligne) est
+            # au-dessus ou en dessous de lui, pas à côté.
+            h_ligne = min((lb[3] - lb[1] for lb in lbb), default=size)
+
+            def _effleure(bb):
+                oy = min(bb[3], pbottom) - max(bb[1], ptop)
+                return oy < 0.5 * max(1.0, h_ligne)
+
+            wrapped = any(_partial_overlap(q["bbox"]) for q in boxed if q is not p)
+            if not wrapped:
+                parts = [list(ob[:4]) for ob in obstacles
+                         if _partial_overlap(ob)]
+                # Morceaux d'UN MÊME dessin (cercle en 4 quartiers, pastille
+                # en 3 pièces) : on regroupe ceux qui se touchent ; un groupe
+                # dont l'ensemble contient le paragraphe est son fond.
+                groupes = []
+                for bb in parts:
+                    lie = [g for g in groupes
+                           if bb[0] <= g[2] + 1 and g[0] <= bb[2] + 1
+                           and bb[1] <= g[3] + 1 and g[1] <= bb[3] + 1]
+                    for g in lie:
+                        groupes.remove(g)
+                        bb = [min(bb[0], g[0]), min(bb[1], g[1]),
+                              max(bb[2], g[2]), max(bb[3], g[3])]
+                    groupes.append(bb)
+                # Un groupe n'est un ENROULEMENT que s'il chevauche le
+                # paragraphe sans le contenir, sans passer sous ses lignes,
+                # et plus que par un simple effleurement.
+                wrapped = any(_partial_overlap(g) and not _sous_le_texte(g)
+                              and not _effleure(g) for g in groupes)            # Cadre fermé (case, pastille) avec le même blanc des deux côtés.
+            marges_egales = (frame_dur and min(lg, rg) >= 0.5
+                             and abs(lg - rg) <= max(1.0, 0.1 * (lg + rg)))
+            # MARGES DE COLONNE, PAS CENTRAGE — si une voisine du même cadre
+            # part du MÊME bord gauche sans partager l'axe, ces blancs égaux
+            # sont les marges de la colonne (ligne pleine largeur d'une
+            # attestation dans le cadre de sa page, 50 / 50 pt), pas un
+            # centrage. Une pile centrée (« Seiri » / « Shifting ») partage
+            # son axe : elle n'est pas concernée.
+            if marges_egales:
+                tol_g = max(2.5, 0.25 * size)
+                cx_p = (pleft + pright) / 2
+                for q in boxed:
+                    if q is p:
+                        continue
+                    qb = q["bbox"]
+                    if not (f_left - 1 <= (qb[0] + qb[2]) / 2 <= f_right + 1):
+                        continue
+                    if (abs(qb[0] - pleft) <= tol_g
+                            and abs((qb[0] + qb[2]) / 2 - cx_p) > tol_g):
+                        marges_egales = False
+                        break
             ferre_droite = False
             axe_pile = None                     # axe commun d'une pile centrée
             if len(lbb) >= 2:
@@ -2946,7 +3024,11 @@ class PDFObjectEngine:
                 # de mv21, « 6 | Driver's Manual », collé à la marge GAUCHE de sa
                 # page, passait pour ferré à droite.
                 colle_droite = pright >= f_right - max(2.0 * safety, 0.05 * col_w)
-                if not centered and not wrapped and colle_droite:
+                # Dans un cadre fermé aux marges ÉGALES, le texte touche autant
+                # le bord gauche que le droit : ce n'est pas un fer à droite
+                # (4S p.10 « The importance of 4S », 5,3 / 5,4 pt, dont la
+                # pastille voisine partage par hasard le bord droit).
+                if not centered and not wrapped and colle_droite and not marges_egales:
                     pile_r, pile_l = [pright], [pleft]
                     h = max(1.0, pbottom - ptop)
                     for q in boxed:
@@ -3005,6 +3087,26 @@ class PDFObjectEngine:
                                                               0.12 * larg_p):
                             centered, axe_pile = True, cx
                 justified = False
+
+            # CADRE FERMÉ À MARGES ÉGALES — un texte dans une case, une pastille
+            # ou une bulle, avec le MÊME blanc à gauche et à droite, est centré,
+            # quelle que soit la taille de ce blanc. Les seuils ci-dessus (blancs
+            # ≥ 14 pt, ≥ 10 % du cadre) visent la colonne ouverte ; dans un cadre
+            # serré, la marge intérieure est fine (2 à 10 pt) et le texte centré
+            # passait pour ferré à gauche (4S : « Necessary items » 2,0 / 2,0 pt,
+            # « Standardizing » 9,8 / 9,5, « Promoting 4S » traduit à gauche).
+            # Plusieurs lignes : il faut en plus que leurs CENTRES soient plus
+            # stables que leurs bords gauches (sinon c'est un fer à gauche).
+            if marges_egales and not centered and not ferre_droite and not wrapped:
+                if len(lbb) < 2:
+                    centered = True
+                else:
+                    gs = [b[0] for b in lbb]
+                    cs = [(b[0] + b[2]) / 2 for b in lbb]
+                    v_g, v_c = max(gs) - min(gs), max(cs) - min(cs)
+                    centered = v_c <= max(2.5, 0.25 * size) and v_c <= v_g
+                if centered:
+                    justified = False
 
             # Bord droit de référence. La marge SYMÉTRIQUE n'est un repli que si
             # le paragraphe est VRAIMENT SEUL (aucun voisin de colonne) : sinon,
@@ -3103,6 +3205,30 @@ class PDFObjectEngine:
                     demi = max(min(axe_pile - left_edge, ref_right - axe_pile),
                                (pright - pleft) / 2)
                     left_edge, ref_right = axe_pile - demi, axe_pile + demi
+                elif (frame_dur and left_block == float("-inf")
+                      and right_block == float("inf")
+                      and abs((pleft + pright) / 2 - (f_left + f_right) / 2)
+                      <= max(2.0, 0.1 * (f_right - f_left))):
+                    # Seulement si le texte est SEUL dans le cadre et déjà
+                    # centré dessus : un voisin dans le cadre (« Necessary
+                    # items », case 308–367 dans le cadre 213–374) veut dire
+                    # que le texte se centre sur sa case, pas sur le cadre.
+                    # Même chose pour l'axe du CADRE : le bord droit a perdu un
+                    # padding que le gauche n'a pas (pastille [24,1 ; 153,4] →
+                    # [24,1 ; 145,4], centre 84,8 au lieu de 88,75). On garde
+                    # le côté le plus serré des deux, de part et d'autre.
+                    # Seul dans son cadre : le CADRE est la référence, pas la
+                    # colonne d'un voisin hors cadre (« What is 4S? » bridé à
+                    # 468 par la pastille du dessous, cadre 232–562 → texte
+                    # traduit rapetissé). Toute la largeur, marge égale.
+                    axe = (f_left + f_right) / 2
+                    # Marge intérieure seulement DANS le cadre (pastille) : une
+                    # légende SOUS sa photo (P18) en garde les deux bords.
+                    marge = (0.0 if over_frame is not None else
+                             max(2.0, min(pleft - f_left, f_right - pright, 8.0)))
+                    demi = max((f_right - f_left) / 2 - marge,
+                               (pright - pleft) / 2)
+                    left_edge, ref_right = axe - demi, axe + demi
             else:
                 left_edge = None
             # FERRÉ À DROITE : le bord droit est le point FIXE — on n'étend pas
@@ -3132,6 +3258,8 @@ class PDFObjectEngine:
                 for ox0, oy0, ox1, oy1 in obstacles:
                     if oy1 <= lb[1] or oy0 >= lb[3]:
                         continue
+                    if frame_dur and ox0 >= f_right - 1.0:
+                        continue                # bord du cadre, pas un voisin
                     if ox0 >= lb[2] - 0.5 and ox0 < blk:
                         blk = ox0
                 t = ref_right
