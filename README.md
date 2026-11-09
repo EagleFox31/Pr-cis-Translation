@@ -91,6 +91,9 @@ aperçus non-PDF.
 | [`docs/etude-traduction-images-pro.md`](docs/etude-traduction-images-pro.md) | Étude : traduire les images comme un studio de PAO (cases, alignement, contour, méthode « conteneur ») |
 | [`docs/etude-pdf-formes-cadres.md`](docs/etude-pdf-formes-cadres.md) | Étude : lettre cachée sous une forme dessinée, étiquettes posées dans deux cadres (moteur PDF) |
 | [`docs/etude-visionneuse-defilement.md`](docs/etude-visionneuse-defilement.md) | Étude : zoom qui coupait la page gauche, molette « un geste = une action » (visionneuse) |
+| [`docs/etude-pdf-superposition.md`](docs/etude-pdf-superposition.md) | Étude : dessin peint au-dessus du texte (lettrine), ordre de peinture et ancrage (moteur PDF) |
+| [`docs/etude-pdf-lettres-dessinees.md`](docs/etude-pdf-lettres-dessinees.md) | Étude : reconstituer un mot dont une lettre est dessinée, mise en valeur reportée sur la traduction (moteur PDF) |
+| [`docs/etude-visionneuse-ergonomie.md`](docs/etude-visionneuse-ergonomie.md) | Étude : ergonomie de la visionneuse comparée aux outils de référence, améliorations proposées |
 | [`docs/etude-visionneuse.md`](docs/etude-visionneuse.md) | Étude : visionneuse (navigation, molette, vignettes), fidélité de la retraduction compacte, originaux côté admin |
 | [`docs/etude-invitations.md`](docs/etude-invitations.md) | Étude : inviter des proches par e-mail — choix et points à trancher |
 | [`docs/etude-source-credits.md`](docs/etude-source-credits.md) | Étude : source des crédits — téléchargement et filigrane (gratuit, bêta, payant) |
