@@ -633,6 +633,62 @@ def _opaque_covers(draw_els):
     return out
 
 
+def _shape_covers(draw_els):
+    """(seqno, bbox) des formes PLEINES et opaques autres qu'un simple
+    rectangle (lettre dessinée, logo, pastille). Leur boîte ne prouve pas
+    qu'elles cachent un caractère : `_ink_masked` le vérifie à l'image."""
+    out = []
+    for el in draw_els:
+        seq, items, bb = el.get("seqno"), el.get("items") or [], el.get("bbox")
+        if (seq is None or not bb or el.get("fill_color") is None
+                or "f" not in (el.get("draw_type") or "")
+                or (el.get("fill_opacity") if el.get("fill_opacity")
+                    is not None else 1) < 1
+                or (len(items) == 1 and items[0].get("op") == "re")):
+            continue
+        out.append((seq, fitz.Rect(bb)))
+    return out
+
+
+# Part minimale de la boîte d'un caractère qu'une forme doit couvrir pour
+# qu'on cherche s'il est masqué, et part maximale de pixels de SA couleur
+# encore visibles pour le déclarer caché.
+_MASK_OVERLAP = 0.4
+_MASK_VISIBLE = 0.005
+
+
+def _ink_masked(page, span, u, bb, shapes):
+    """Le caractère (boîte `bb`) est-il masqué par une forme peinte après lui ?
+    Exemple : un « S » gris sous un « S » rouge dessiné (initiale colorée). La
+    boîte de la forme ne contient pas celle du caractère (marges de la police) :
+    on regarde donc l'original à l'image et l'on exige qu'AUCUN pixel de la
+    couleur du texte ne subsiste. Un blanc n'a pas d'encre : jamais masqué.
+    Couleur inconnue, transparence, forme de même couleur : réponse « non »."""
+    if chr(u).isspace() or bb.is_empty or (span.get("opacity", 1) or 0) < 1:
+        return False
+    col = span.get("color")
+    if not col or len(col) not in (1, 3):
+        return False
+    if len(col) == 1:
+        col = (col[0],) * 3
+    if not any((r & bb).get_area() >= _MASK_OVERLAP * bb.get_area()
+               for r in shapes):
+        return False
+    try:
+        pix = page.get_pixmap(matrix=fitz.Matrix(4, 4), clip=bb, alpha=False)
+    except Exception:
+        return False
+    tot = pix.width * pix.height
+    if not tot or pix.n < 3:
+        return False
+    c = [int(v * 255) for v in col]
+    s, n = pix.samples, pix.n
+    vus = sum(1 for i in range(0, len(s), n)
+              if abs(s[i] - c[0]) < 26 and abs(s[i + 1] - c[1]) < 26
+              and abs(s[i + 2] - c[2]) < 26)
+    return vus <= _MASK_VISIBLE * tot
+
+
 def _hidden_chars(page, draw_els):
     """Caractères ENTIÈREMENT recouverts par un aplat opaque peint APRÈS eux.
 
@@ -647,7 +703,8 @@ def _hidden_chars(page, draw_els):
     garde autant d'exemplaires que la page en montre.
     Renvoie {unicode: [[origine, cachés, visibles], ...]}."""
     covers = _opaque_covers(draw_els)
-    if not covers:
+    shapes = _shape_covers(draw_els)
+    if not covers and not shapes:
         return {}
     try:
         trace = page.get_texttrace()
@@ -657,11 +714,13 @@ def _hidden_chars(page, draw_els):
     for span in trace:
         seq = span.get("seqno")
         after = [r for s, r in covers if seq is not None and s > seq]
+        over = [r for s, r in shapes if seq is not None and s > seq]
         for ch in span.get("chars", ()):
             u, origin, bb = ch[0], ch[2], fitz.Rect(ch[3])
             if bb.is_empty:
                 bb = fitz.Rect(origin, origin)
-            cache = any((r + (-0.5, -0.5, 0.5, 0.5)).contains(bb) for r in after)
+            cache = (any((r + (-0.5, -0.5, 0.5, 0.5)).contains(bb) for r in after)
+                     or (bool(over) and _ink_masked(page, span, u, bb, over)))
             for e in hidden[u]:
                 if abs(e[0][0] - origin[0]) < 0.5 and abs(e[0][1] - origin[1]) < 0.5:
                     e[1 if cache else 2] += 1
@@ -1452,6 +1511,27 @@ class PDFObjectEngine:
             def _in_gutter(a, b):
                 return any(a <= 0.5 * (g0 + g1) <= b for g0, g1 in guts)
 
+            # DEUX CADRES : deux textes posés chacun dans SON cadre (étiquettes
+            # « Necessary » | « Unnecessary » à 4 pt l'une de l'autre) ne
+            # forment pas une phrase, quel que soit l'écart. Un cadre est une
+            # boîte d'encre (rectangle, image) qui contient l'un sans l'autre.
+            ry0 = min(s["bbox"][1] for s in row_spans)
+            ry1 = max(s["bbox"][3] for s in row_spans)
+            frames = [w for w in ink_walls if w[1] <= ry1 and w[3] >= ry0
+                      and w[2] - w[0] > 1 and w[3] - w[1] > 1]
+
+            def _inside(w, s):
+                # Boîte de police plus haute que l'encre : en hauteur, il
+                # suffit que le cadre couvre le milieu du texte.
+                b = s["bbox"]
+                return (w[0] - 1 <= b[0] and b[2] <= w[2] + 1
+                        and w[1] <= 0.5 * (b[1] + b[3]) <= w[3])
+
+            def _two_frames(p, c):
+                fp = [w for w in frames if _inside(w, p) and not _inside(w, c)]
+                return bool(fp) and any(_inside(w, c) and not _inside(w, p)
+                                        for w in frames)
+
             # NB — on a tenté ici de neutraliser la coupe de largeur quand la
             # ligne porte PLUSIEURS grands blancs de taille voisine (signature
             # d'une justification lâche : « reshaped ␣␣ how ␣␣ businesses »).
@@ -1494,7 +1574,7 @@ class PDFObjectEngine:
                 if marqueur:
                     segment.append(cur)
                     continue
-                if gap > split_gap or in_gutter:
+                if gap > split_gap or in_gutter or _two_frames(prev, cur):
                     segs.append(segment)
                     segment = [cur]
                 else:
