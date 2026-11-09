@@ -50,7 +50,7 @@ LISIBLE_PX = 24          # un grand titre peut descendre jusque-là : réduit, i
 MEME_HAUTEUR = 0.15
 MEME_COULEUR = 80        # distance RVB entre deux lignes d'un même bloc
 GRANDIR = 0.8            # au-delà d'une ligne de plus, pas de corps plus petit
-TOLERE = 0.95            # réduction invisible préférée à une ligne de plus
+TOLERE = 0.90           # réduction invisible préférée à une ligne de plus
 CASE_PART = 0.97        # part de fond qu'une rangée doit garder pour agrandir la case
 CASE_UNIE = 0.9          # case unie à 90 % : pas de contour autour de la traduction
 CASE_MARGE = 0.06        # marge intérieure au plus 6 % de la largeur de la case
@@ -574,7 +574,7 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
     lmax = x1 - x0
     plancher = max(min(PLANCHER * s0, LISIBLE_PX), PLANCHER_PX)
     # Ordre : le nombre de lignes d'origine sur toute la largeur (au besoin
-    # avec une réduction de corps de 5 % au plus, qui ne se voit pas, quand
+    # avec une réduction de corps de 10 % au plus, qui ne se voit pas, quand
     # une ligne de plus se verrait), puis une ligne de plus, puis seulement
     # une réduction de corps. Dernier passage :
     # un mot latin trop long même au plancher est coupé plutôt que de laisser

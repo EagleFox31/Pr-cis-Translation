@@ -1,7 +1,7 @@
 # PASSATION — 09/11/2026
 ## 1. Objectif en cours
 (00) Traduire les images comme un studio de PAO (4S_EN.pdf + organigrammes). Étude : `docs/etude-traduction-images-pro.md` (§9–§11). Branche `feat/traduction-images-pao`, commits non poussés : 9b1ef5d, b7288f8, ef414bf, **a886a73**.
-- Règles utilisateur : taille traduite ≤ originale ; même nb de lignes en réduisant jusqu'au seuil (5 %, `TOLERE`) → +1 ligne seulement si le seuil est atteint → réduction plus forte. **Règles générales, jamais cas par cas.** Précision « chirurgicale » exigée.
+- Règles utilisateur : taille traduite ≤ originale ; même nb de lignes en réduisant jusqu'au seuil (10 %, `TOLERE`) → +1 ligne seulement si le seuil est atteint → réduction plus forte. **Règles générales, jamais cas par cas.** Précision « chirurgicale » exigée.
 - Étapes : .1–.8 [x] ; .9b [x] a886a73 : traits de tableau 2 px anticrénelés gardés (`mask.py` `_pixels_du_trait` : pixel = mélange fond→cœur du trait, plus la médiane). Banc 141/0/1/restes 3820 ; tests image + effacement verts ; cbc0dcf3fa vérifié net.
 - .10 [x] centrage vertical optique : dans une case fermée haut/bas, `placer(milieu=)` pose le milieu « haut des capitales → ligne de base » au milieu de la case (banc 312d4ab391).
 - .11 [x] case fermée haut/bas : `conteneur()` suit la bande au-delà de `OUVERT` tant que ses deux murs continuent (banc 1256de4600 : point 1 sur 1 ligne ; point 4 sur 2 lignes, conforme : trop long pour la bande à taille d'origine). Banc inchangé 141/0/1/3820, tests verts.
