@@ -165,3 +165,19 @@ Banc (18 images) :
 Limites connues :
 - texte coloré dominant sur un dégradé (« Cooling water » en rouge) : la couleur dominante est celle du texte, donc la case est rejetée et l'ancien calcul s'applique ;
 - règle des frères : dans une colonne d'organigramme, la plus longue traduction impose sa petite taille aux autres cartes (424e5d0680).
+
+## 10. Étape .8 : en-têtes de tableau (retour 4S du 09/11)
+
+Causes confirmées par trace sur le banc (080a3a0031, identique à 5ba73bf0c0) :
+
+| Symptôme | Cause mesurée | Règle générale retenue |
+|---|---|---|
+| « 3 jours » petit, « avant » grand dans la même case | boîtes OCR de 30 px (« 3-days », jambage du y) et 25 px (« Before ») : écart de 17 % > tolérance de 15 %, donc deux blocs traduits séparément | deux lignes latines empilées et **centrées l'une sur l'autre** : tolérance de hauteur doublée (30 %), comme pour une fin de phrase. Exclu en CJK : sans jambages, un écart de hauteur y sépare un titre de sa légende (test `test_ocr_v2_image`) |
+| En-têtes sur 1 ligne et petits | « commandées » ne tient pas dans sa case (99 px utiles) au-dessus de 16 px ; les frères descendent à 16 px puis sont **recoupés** sur 1 ligne | quand un frère prend une taille plus petite, il garde **son nombre de lignes** (`n_min` dans `placer` / `_equilibrer`) |
+| « Pièces commandées » collé au trait du haut | même cause : les voisins sur 1 ligne faisaient paraître le bloc décalé ; le calage vertical est déjà centré dans la case | aucun changement de calage |
+
+L'hypothèse « interligne et marges du moteur » est écartée : à la taille d'origine, deux lignes tiennent en hauteur ; seule la largeur limite.
+
+Banc : 141 blocs posés (deux lignes réunies en un bloc), 0 coupe, 1 écart, restes 3854 ; `test_ocr_v2_image` vert.
+
+Limite : la taille commune des en-têtes reste imposée par la traduction la plus longue (« commandées », 16 px au lieu de ~24 px). Pour gagner ~2 px, il faudrait réduire la marge intérieure des cases (6 % de la largeur) ; ce n'est pas fait, à décider après l'essai.

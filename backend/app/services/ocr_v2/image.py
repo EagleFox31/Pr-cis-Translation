@@ -251,7 +251,13 @@ def blocs(lignes_lues, couleurs=None, puces=(), bgr=None):
                      and x < px - MEME_BORD * ph)
             if titre:
                 continue
-            tol = (2 if suite else 1) * MEME_HAUTEUR
+            # Deux lignes centrées l'une sur l'autre (case d'un tableau, étiquette
+            # sur deux lignes) : la boîte varie avec les jambages (« 3-days » /
+            # « Before »), on tolère le double aussi. Pas en CJK : sans jambages,
+            # un écart de hauteur y sépare un titre de sa légende.
+            centrees = (abs(x + w / 2 - px - pw / 2) <= MEME_BORD * ph
+                        and not _CJK.search(texte + bl.texte))
+            tol = (2 if suite or centrees else 1) * MEME_HAUTEUR
             # Écart négatif toléré : les boîtes PP-OCR débordent sur la ligne voisine.
             if (abs(h - ph) <= tol * max(h, ph) and -0.3 * ph < y - (py + ph) < 0.8 * ph
                     and min(x + w, px + pw) > max(x, px)
@@ -291,11 +297,23 @@ def _couper(texte, police, largeur, casser=False):
     return out
 
 
-def _equilibrer(texte, police, largeur, casser=False):
+def _equilibrer(texte, police, largeur, casser=False, n_min=1):
     """Même coupure que `_couper`, au même nombre de lignes, mais à la largeur
     la plus étroite qui le permet : lignes de longueur voisine, jamais un mot
-    seul sur la dernière (« … de la / cause »)."""
+    seul sur la dernière (« … de la / cause »). `n_min` : au moins ce nombre
+    de lignes si les mots le permettent (corps réduit, coupure d'origine gardée)."""
     out = _couper(texte, police, largeur, casser)
+    if len(out) < n_min:
+        bas, haut = 1.0, float(largeur)  # plus grande largeur qui donne n_min lignes
+        while haut - bas > 1:
+            m = (bas + haut) / 2
+            if len(_couper(texte, police, m, casser)) >= n_min:
+                bas = m
+            else:
+                haut = m
+        essai = _couper(texte, police, bas, casser)
+        if len(essai) == n_min:
+            out, largeur = essai, bas
     if len(out) < 2:
         return out
     bas, haut = 1.0, float(largeur)
@@ -507,12 +525,12 @@ def cadre(bgr, bloc, tous):
     return max(cx - demi, 0), min(cx + demi, W), True
 
 
-def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max=None):
+def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max=None, n_min=1):
     """Taille, lignes et cadre `(x, y, w)` de la traduction, ou `None` si
     elle ne tient pas au-dessus du plancher. `libre` : rangées `(haut, bas)`
     vides autour du bloc, où il peut grandir vers le bas ; `cadre` :
     `(x0, x1, centre)` donné par `cadre()` ; `taille_max` : taille commune
-    d'une liste."""
+    d'une liste ; `n_min` : lignes gardées quand le corps baisse."""
     fichier = fichier or _fichier_police()
     x, y, w, h = bloc.boite
     hl = float(np.median([b[3] for b in bloc.lignes]))
@@ -551,7 +569,7 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
             s = min(s, int(np.ceil(plancher)))
         while s >= max(plancher, seuil):
             police = _police(fichier, s)
-            texte_l = _equilibrer(bloc.traduction, police, lmax, casser)
+            texte_l = _equilibrer(bloc.traduction, police, lmax, casser, n_min)
             # Interligne rapporté au corps lu, sinon la 2ᵉ ligne descend trop bas.
             pas = max(pas0, hl * 1.15) * s / s_h
             haut = (len(texte_l) - 1) * pas + k * s
@@ -725,8 +743,8 @@ def _freres(places, W, teintes):
     out = []
     for i, (b, p, cb, libre) in enumerate(places):
         t = min(q[1]["taille"] for j, q in enumerate(places) if racine(j) == racine(i))
-        if t < p["taille"]:  # plus petit : tient dans la même place
-            p = placer(b, W, p["fichier"], libre, cb, taille_max=t) or p
+        if t < p["taille"]:  # plus petit : tient dans la même place, sur autant de lignes
+            p = placer(b, W, p["fichier"], libre, cb, taille_max=t, n_min=len(p["lignes"])) or p
         out.append((b, p))
     return out
 
