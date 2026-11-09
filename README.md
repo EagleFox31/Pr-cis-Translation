@@ -90,6 +90,7 @@ aperçus non-PDF.
 | [`docs/etude-ocr.md`](docs/etude-ocr.md) | Étude initiale : traduire des PDF **scannés** (OCR) ; état actuel dans [`docs/ocr-production.md`](docs/ocr-production.md) |
 | [`docs/etude-traduction-images-pro.md`](docs/etude-traduction-images-pro.md) | Étude : traduire les images comme un studio de PAO (cases, alignement, contour, méthode « conteneur ») |
 | [`docs/etude-pdf-formes-cadres.md`](docs/etude-pdf-formes-cadres.md) | Étude : lettre cachée sous une forme dessinée, étiquettes posées dans deux cadres (moteur PDF) |
+| [`docs/etude-visionneuse-defilement.md`](docs/etude-visionneuse-defilement.md) | Étude : zoom qui coupait la page gauche, molette « un geste = une action » (visionneuse) |
 | [`docs/etude-visionneuse.md`](docs/etude-visionneuse.md) | Étude : visionneuse (navigation, molette, vignettes), fidélité de la retraduction compacte, originaux côté admin |
 | [`docs/etude-invitations.md`](docs/etude-invitations.md) | Étude : inviter des proches par e-mail — choix et points à trancher |
 | [`docs/etude-source-credits.md`](docs/etude-source-credits.md) | Étude : source des crédits — téléchargement et filigrane (gratuit, bêta, payant) |

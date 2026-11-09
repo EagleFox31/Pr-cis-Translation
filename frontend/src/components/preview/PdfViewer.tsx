@@ -433,6 +433,10 @@ export default function PdfViewer({
         alignItems: 'center',
         justifyContent: 'center',   // panneaux avant/après centrés dans le cadre
         minWidth: '100%',
+        // Jamais plus étroit que les deux pages : zoomées, elles débordaient
+        // de part et d'autre de cette boîte (centrage), et la partie gauche
+        // échappait au défilement horizontal du cadre.
+        flexShrink: 0,
       }}
     >
       {compact && sourceFile && (

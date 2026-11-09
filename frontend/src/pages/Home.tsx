@@ -22,6 +22,7 @@ import {
 } from '../hooks/useStreamingTranslation';
 import { isTrialFor } from '../lib/plans';
 import { subscribeSection } from '../lib/sectionBus';
+import { creerGesteMolette } from '../lib/molette';
 import type { TranslateConfig } from '../components/upload/TranslationSection';
 
 export default function Home() {
@@ -600,27 +601,21 @@ export default function Home() {
     };
     // Ctrl + molette = zoom (comme un lecteur PDF). `passive:false` pour pouvoir
     // annuler le zoom natif de la page.
-    // Molette seule : on défile dans la page ; une fois le BORD atteint, un
-    // nouvel élan passe à la page suivante / précédente. Le seuil cumulé et la
-    // pause évitent qu'un pavé tactile (inertie) saute plusieurs pages d'un coup.
+    // Molette seule : un geste = une action (cf. `lib/molette.ts`). Un geste
+    // qui défile s'arrête au bord de la page ; seul un NOUVEAU geste, lancé
+    // depuis le bord, change de page — une seule fois.
     const scrollEl = document.getElementById('scroll');
-    let cumul = 0;
-    let bloqueJusqua = 0;
+    const geste = creerGesteMolette();
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey) {
         if (!scrollEl || e.deltaY === 0) return;
-        const enBas = scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 2;
-        const enHaut = scrollEl.scrollTop <= 2;
         const sens = e.deltaY > 0 ? 1 : -1;
-        if ((sens > 0 && !enBas) || (sens < 0 && !enHaut)) { cumul = 0; return; }
+        const action = geste(e.deltaY, e.timeStamp, (s) => (s > 0
+          ? scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 2
+          : scrollEl.scrollTop <= 2));
+        if (action === 'defiler') return;
         e.preventDefault();
-        const now = Date.now();
-        if (now < bloqueJusqua) return;
-        if (Math.sign(cumul) !== sens) cumul = 0;
-        cumul += e.deltaY;
-        if (Math.abs(cumul) < 60) return;
-        cumul = 0;
-        bloqueJusqua = now + 500;
+        if (action === 'bloquer') return;
         setCurrentPage((p) => {
           const n = Math.min(effectiveNumPages, Math.max(1, p + sens));
           // Nouvelle page vue depuis son début (en avançant) ou sa fin (en reculant).
