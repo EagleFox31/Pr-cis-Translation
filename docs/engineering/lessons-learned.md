@@ -45,3 +45,12 @@ Mémoire des incidents et quasi-incidents. Consulter avant de toucher une zone c
 - **Prévention vérifiable** : pour toute PR de consolidation, titre de squash au type le plus fort agrégé (`feat` si au moins un `feat`) ou bloc `BEGIN_COMMIT_OVERRIDE` avant fusion ; après fusion, vérifier le log Release Please (« skipping » = alerte).
 - **Leçon** : une consolidation hérite du type de changement le plus fort de ses composants, pas du type « ménage » de l'opération.
 
+
+## 2026-11-09 — `gh -R` sur l'ancien nom du dépôt vise un autre dépôt
+
+- **Contexte** : migration vers le VPS ; vérifications `gh run list` / `gh api .../environments` lancées avec `-R EagleFox31/precis-translation`.
+- **Cause racine** : le dépôt s'appelle `EagleFox31/Pr-cis-Translation` ; `precis-translation` est un **autre** dépôt existant. Pas de redirection : les commandes répondaient sans erreur, mais sur le mauvais dépôt (0 environnement, runs étrangers).
+- **Classification** : near miss — contexte erroné, sans écriture.
+- **Résolution** : repérage via des runs incohérents ; nom pris depuis `git remote get-url origin`.
+- **Prévention vérifiable** : dans ce dépôt, ne jamais taper `-R` à la main : `R=$(gh repo view --json nameWithOwner -q .nameWithOwner)` depuis la copie locale.
+- **Leçon** : un identifiant de ressource se découvre (remote, API), il ne se reconstitue pas de mémoire ; une réponse vide n'est pas une preuve.
