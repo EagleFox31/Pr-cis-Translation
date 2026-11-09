@@ -118,3 +118,36 @@ EN COURS : branche `feat/ocr-file-pages-illisibles`, mission 6.13.11 commitée e
 - Prod mesurée : sitemap 1 URL, `/extension`, `/tarifs`, `/llms.txt` en 404, pas de gzip. Aucun des travaux #57/#58/#59 n'est en ligne.
 - Estimation : prod ~20/100 ; après déploiement ~45/100 (technique fort, autorité quasi nulle, contenu FR seulement).
 - Prochaine étape inchangée : accord de fusion #57 → #58 → #59 (+ #65, appfactory#148), puis déploiement et Search Console.
+
+## 2026-11-09 09:49 — Fusion, release 1.7.0, déploiement bloqué
+- **Fait** : #59 → #58 → #57 (squash 3bfbdc2) et #65 fusionnées dans main, CI verte ; #32, #35, #52–#56 fermées (renvoi vers #57). Tests de #57 stabilisés (490a598 : `with TestClient`, unicité PPTX par id d'élément).
+- **Release** : v1.7.0 publiée via #66 (PR ouverte à la main : Actions n'a pas le droit de créer des PR ; titre « chore: » de #57 corrigé par `BEGIN_COMMIT_OVERRIDE`).
+- **Verrou** : le job `deploy-production` (reusable-aws-ssm-compose-deploy @9496878) exige ≥ 75 USD de crédits AWS Free Plan ; seuil non atteint, prod toujours sur l'ancienne version. L'utilisatrice vérifie AWS (Billing → Free Tier).
+- **Prochaine étape** : une fois AWS débloqué, `gh workflow run aws-production-deploy.yml --ref main`, vérifier prod (sitemap 15 URL, /extension, /tarifs, /llms.txt, gzip, public-https-verification), puis renvoyer `https://precis-translator.trigenys.com/sitemap.xml` dans Search Console (propriété domaine `sc-domain:trigenys.com`, déjà vérifiée).
+- **Ouvert** : appfactory#148 (non fusionnée, sans accord) ; texte landing « Supprimées sous 24h ».
+
+## 2026-11-09 10:23 — Piste migration vers le VPS OVH
+- Déploiement AWS toujours bloqué (crédits Free Plan < 75 USD). Option étudiée : migrer Précis sur le VPS OVH `ubuntu@15.235.90.215` (infos consignées dans le CLAUDE.md global, section « Infrastructure partagée »).
+- Inventaire en lecture seule : 2 vCPU, 3,7 Go RAM (~2 Go disponibles), swap 2 Go, 16 Go disque libres ; Docker + Compose, Caddy systemd ; 9 conteneurs déjà présents (WAHA ~430 Mo).
+- Prochaine étape : accord explicite avant toute modification du VPS ; puis compose Précis avec limites mémoire, site Caddy, dump/restore Postgres depuis EC2, bascule DNS, EC2 gardé en secours.
+
+## 2026-11-09 11:02 — Migration vers le VPS OVH (stack prête, bascule DNS en attente)
+- Export EC2 : workflow jetable (OIDC + SSM), archive chiffrée RSA/AES, branche et artefact supprimés. Base 43 Ko, 13 tables.
+- VPS : `~/precis-translation/{releases,app-<sha>,current,shared/backend.env (600),migration-ec2}`, projet compose `precis-translation`, overlay `deploy/vps/` (PR #68). Relais `edge` sur 127.0.0.1:8090.
+- Restauration : comptes identiques ; migrations 0014→0020 appliquées. Mémoire : backend ~390 Mo / 1 Go.
+- Reste : installer `deploy/vps/precis-translator.caddy` dans `/etc/caddy/sites/` + reload **après** la bascule DNS (A `precis-translator` 13.36.127.47 → 15.235.90.215, Spaceship, TTL 1800) ; vérifier prod ; resoumettre le sitemap GSC ; EC2 en repli quelques jours.
+- Déploiement CI vers le VPS : nécessite une clé SSH dédiée en secret GitHub (création refusée par le garde-fou, décision utilisateur).
+
+## 2026-11-09 11:20 — Précis en production sur le VPS
+- DNS basculé (A `precis-translator` → 15.235.90.215), site `/etc/caddy/sites/precis-translator.caddy` installé, certificat obtenu (tls-alpn-01).
+- Vérifié via le VPS : 8 routes clés OK, sitemap 15 URLs, gzip, IP client réelle transmise jusqu'au backend, `X-Forwarded-For` falsifié ignoré.
+- GSC : sitemap resoumis, lu le 9 nov. 2026, 15 pages découvertes.
+- EC2 (i-0ce97ff971dd343b2) intact, en repli quelques jours puis à arrêter (coûts).
+- Reste : fusion PR #68 ; déploiement CI vers le VPS (clé SSH dédiée en secret GitHub, accord utilisateur requis) ; texte landing « Supprimées sous 24h » ; appfactory#148 (confirmation).
+- Redéploiement manuel : `git archive` → `~/precis-translation/releases/`, extraire dans `app-<sha>`, lien `current` + `backend/.env` → `shared/backend.env`, puis `docker compose -p precis-translation --env-file backend/.env -f docker-compose.yml -f docker-compose.https.yml -f deploy/vps/docker-compose.vps.yml up -d --build`.
+
+## 2026-11-09 11:57 — Déploiement CI vers le VPS
+- Clé `precis-deploy-ci` dans `~/.ssh/authorized_keys` du VPS avec `restrict,command="/home/ubuntu/precis-translation/bin/deploy.sh"` (copie de `deploy/vps/remote-deploy.sh`) ; sauvegarde `authorized_keys.bak-precis-deploy`. Privée seulement dans le secret GitHub `PRECIS_VPS_SSH_KEY` ; variables `PRECIS_VPS_TARGET`, `PRECIS_VPS_KNOWN_HOSTS`.
+- `deploy-vps.yml` (dispatch + appel depuis `release.yml`) ; job EC2 seulement si `vars.PRECIS_DEPLOY_TARGET=aws`.
+- Testé avec la clé CI : shell refusé, `déployé : 7630ad91a314`, rejeu no-op. PR #68 CI 8/8 verte, **non fusionnée**.
+- Prochaine étape : fusionner #68 (et #67), lancer `deploy-vps.yml` sur main pour valider le chemin GitHub → VPS. Si le script change : réinstaller `bin/deploy.sh` à la main (volontairement hors du flux de déploiement).
