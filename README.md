@@ -89,6 +89,7 @@ aperçus non-PDF.
 | [`docs/deploiement.md`](docs/deploiement.md) | **Mettre en ligne** : machine AWS, configuration, HTTPS, limites connues |
 | [`docs/etude-ocr.md`](docs/etude-ocr.md) | Étude initiale : traduire des PDF **scannés** (OCR) ; état actuel dans [`docs/ocr-production.md`](docs/ocr-production.md) |
 | [`docs/etude-traduction-images-pro.md`](docs/etude-traduction-images-pro.md) | Étude : traduire les images comme un studio de PAO (cases, alignement, contour, méthode « conteneur ») |
+| [`docs/etude-pdf-formes-cadres.md`](docs/etude-pdf-formes-cadres.md) | Étude : lettre cachée sous une forme dessinée, étiquettes posées dans deux cadres (moteur PDF) |
 | [`docs/etude-visionneuse.md`](docs/etude-visionneuse.md) | Étude : visionneuse (navigation, molette, vignettes), fidélité de la retraduction compacte, originaux côté admin |
 | [`docs/etude-invitations.md`](docs/etude-invitations.md) | Étude : inviter des proches par e-mail — choix et points à trancher |
 | [`docs/etude-source-credits.md`](docs/etude-source-credits.md) | Étude : source des crédits — téléchargement et filigrane (gratuit, bêta, payant) |
