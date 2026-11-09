@@ -1225,8 +1225,12 @@ def _p36_forme_et_cadres(eng):
     tout = " | ".join(textes)
     return [("P36  piège armé (le « S » caché reste lisible par fitz)",
              "Seiri" in pg.get_text(), ""),
-            ("P36  lettre sous une forme peinte après elle : cachée",
-             "eiri" in tout and "Seiri" not in tout, tout[:80]),
+            # Avant 1.0.14 la lettre masquée était retirée (« eiri » seul).
+            # Désormais une forme unie peinte après une initiale de mot est une
+            # « lettre dessinée = style » : le mot entier est conservé, la
+            # lettre porte la couleur de la forme, le dessin n'est pas repeint.
+            ("P36  initiale sous une forme unie : mot entier, lettre stylée",
+             "Seiri" in textes, tout[:80]),
             ("P36  forme partielle ou peinte avant : le texte reste",
              "Orbit" in tout and "Under" in tout, tout[:80]),
             ("P36  deux étiquettes dans deux cadres : deux textes",
