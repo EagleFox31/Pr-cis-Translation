@@ -112,3 +112,9 @@ EN COURS : branche `feat/ocr-file-pages-illisibles`, mission 6.13.11 commitée e
 
 - PR #65 (`chore/repin-appfactory-v1.4.0`, base main) : `project-automation.yml` passe de `14d51168` à v1.4.0 `0523510` (concurrence par issue/PR, corrige la perte de syncs en rafale). Testée par `workflow_dispatch` depuis la branche sur #62 : succès, aucun doublon. Non fusionnée.
 - Côté appfactory : PR EagleFox31/appfactory-project-automation#148 (épinglage documenté, test anti-SHA défectueux, LESSON-2026-017), non fusionnée.
+
+## 2026-11-09 08:15 — Audit SEO à froid de la production
+
+- Prod mesurée : sitemap 1 URL, `/extension`, `/tarifs`, `/llms.txt` en 404, pas de gzip. Aucun des travaux #57/#58/#59 n'est en ligne.
+- Estimation : prod ~20/100 ; après déploiement ~45/100 (technique fort, autorité quasi nulle, contenu FR seulement).
+- Prochaine étape inchangée : accord de fusion #57 → #58 → #59 (+ #65, appfactory#148), puis déploiement et Search Console.
