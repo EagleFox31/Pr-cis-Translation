@@ -383,6 +383,22 @@ def cas_symboles():
     assert len(blocs(lus[:2], puces={lus[1][1]})) == 2
     assert len(blocs(lus[:2])) == 1
 
+    # Numéro suivi d'un tiret : ouvre un bloc ; « 3-days » reste un mot.
+    for t in ("1 - Oil", "1- Oil", "2 – Tires", "１－点検", "3ー原因", "— Oil", "－点検"):
+        assert module._PUCE.match(t), t
+    for t in ("3-days", "1-day Before", "2024", "Oil - 5"):
+        assert not module._PUCE.match(t), t
+    assert len(blocs([("Brakes", (100, 100, 120, 40)), ("1 - Oil", (100, 145, 120, 40))])) == 2
+
+    # Tiret dessiné non lu à gauche d'une ligne : repéré comme une puce.
+    im3 = Image.fromarray(fond())
+    d3 = ImageDraw.Draw(im3)
+    d3.rectangle((60, 118, 82, 122), fill=(20, 20, 20))  # –
+    d3.text((100, 100), "Result", fill=(20, 20, 20), font=ImageFont.truetype(POLICE, 36))
+    bgr3 = np.asarray(im3.convert("RGB"))[:, :, ::-1]
+    p3 = module._symboles([("Result", (100, 100, 110, 40))], bgr3)
+    assert list(p3.values()) and 81 <= list(p3.values())[0] <= 85, p3
+
     # Bout en bout : le losange reste, la traduction ne déborde pas à gauche.
     buf = io.BytesIO()
     im.save(buf, "PNG")

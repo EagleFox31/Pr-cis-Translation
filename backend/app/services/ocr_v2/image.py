@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
+import pyphen
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from engines.pdf import polices
@@ -48,9 +49,11 @@ PLANCHER = 0.6
 PLANCHER_PX = 9
 LISIBLE_PX = 24          # un grand titre peut descendre jusque-là : réduit, il reste lisible
 MEME_HAUTEUR = 0.15
+MEME_CORPS = 0.06        # libellés non alignés d'une figure : même corps à 6 % près
 MEME_COULEUR = 80        # distance RVB entre deux lignes d'un même bloc
 GRANDIR = 0.8            # au-delà d'une ligne de plus, pas de corps plus petit
 TOLERE = 0.90           # réduction invisible préférée à une ligne de plus
+CENTRE_CASE = 0.25      # écart (× hauteur de ligne) entre texte d'origine et milieu de sa case
 CASE_PART = 0.97        # part de fond qu'une rangée doit garder pour agrandir la case
 CASE_UNIE = 0.9          # case unie à 90 % : pas de contour autour de la traduction
 CASE_MARGE = 0.06        # marge intérieure au plus 6 % de la largeur de la case
@@ -65,7 +68,10 @@ MUR = 10                 # écart au fond qui fait un mur de case (contour gris 
 OUVERT = 12             # côté sans mur : la case gagne au plus 12 lignes (ou la largeur du texte)
 FLOTTANT = 2             # marges de plus de 2 lignes des deux côtés : étiquette dans le vide
 FOND_MIN = 0.5           # moins de 50 % de fond derrière les lettres : fond chargé, pas de case
-_PUCE = re.compile(r"^\s*([0-9０-９]+[.)．）、]|[・•\-–*]|[①-⑳])")
+# Puce ou numéro en tête de ligne. « 1 - », « 1- » (tiret suivi d'une espace)
+# et « 1－ » (tiret pleine chasse) numérotent ; « 3-days » reste un mot.
+_PUCE = re.compile(r"^\s*([0-9０-９]+[.)．）、]|[0-9０-９]{1,3}\s*[－―—ー]"
+                   r"|[0-9０-９]{1,3}\s*[-–]\s|[・•\-–—－―*]|[①-⑳])")
 _FIN_PHRASE = re.compile(r"[。．.!?！？:：」』）)]\s*$")
 DELAI_S = 30.0
 _CJK = re.compile(r"[぀-ヿ㐀-鿿豈-﫿가-힯]")
@@ -274,10 +280,19 @@ def blocs(lignes_lues, couleurs=None, puces=(), bgr=None):
     return out
 
 
-def _couper(texte, police, largeur, casser=False):
+@functools.lru_cache(maxsize=None)
+def _dictionnaire(langue):
+    """Césures de la langue cible (`pyphen`), ou `None` si elle n'en a pas."""
+    code = pyphen.language_fallback((langue or "").replace("-", "_")) if langue else None
+    return pyphen.Pyphen(lang=code) if code else None
+
+
+def _couper(texte, police, largeur, casser=False, syllabes=None):
     """Retour à la ligne glouton, par mots. Un texte sans espace se coupe par
     caractères s'il est CJK ; un mot latin reste entier (le corps baisse à la
-    place), sauf `casser` : dernier recours quand même le plancher ne suffit pas."""
+    place), sauf `casser` : dernier recours quand même le plancher ne suffit pas.
+    `syllabes` : `(dictionnaire, largeur de la case)` ; un mot plus large que
+    sa case s'y coupe aux syllabes, avec un trait d'union (« environ- / nementaux »)."""
     t = texte.strip()
     if " " in t:
         unites, sep = t.split(), " "
@@ -287,32 +302,42 @@ def _couper(texte, police, largeur, casser=False):
         unites, sep = [t], ""
     out, cur = [], ""
     for u in unites:
-        essai = cur + sep + u if cur else u
-        if cur and police.getlength(essai) > largeur:
-            out.append(cur)
-            cur = u
-        else:
-            cur = essai
+        morceaux = [u]
+        if syllabes and not casser and police.getlength(u) > syllabes[1]:
+            bornes = [0, *syllabes[0].positions(u), len(u)]
+            morceaux = [u[a:b] for a, b in zip(bornes, bornes[1:])]
+        for k, m in enumerate(morceaux):
+            essai = cur + (sep if k == 0 else "") + m if cur else m
+            # Une coupure possible après ce morceau : son trait d'union doit tenir.
+            trait = "-" if k < len(morceaux) - 1 else ""
+            if cur and police.getlength(essai + trait) > largeur:
+                out.append(cur + ("-" if k else ""))
+                cur = m
+            else:
+                cur = essai
     if cur:
         out.append(cur)
     return out
 
 
-def _equilibrer(texte, police, largeur, casser=False, n_min=1):
+def _equilibrer(texte, police, largeur, casser=False, n_min=1, syllabes=None):
     """Même coupure que `_couper`, au même nombre de lignes, mais à la largeur
     la plus étroite qui le permet : lignes de longueur voisine, jamais un mot
     seul sur la dernière (« … de la / cause »). `n_min` : au moins ce nombre
     de lignes si les mots le permettent (corps réduit, coupure d'origine gardée)."""
-    out = _couper(texte, police, largeur, casser)
+    def couper(lg):
+        return _couper(texte, police, lg, casser, syllabes)
+
+    out = couper(largeur)
     if len(out) < n_min:
         bas, haut = 1.0, float(largeur)  # plus grande largeur qui donne n_min lignes
         while haut - bas > 1:
             m = (bas + haut) / 2
-            if len(_couper(texte, police, m, casser)) >= n_min:
+            if len(couper(m)) >= n_min:
                 bas = m
             else:
                 haut = m
-        essai = _couper(texte, police, bas, casser)
+        essai = couper(bas)
         if len(essai) == n_min:
             out, largeur = essai, bas
     if len(out) < 2:
@@ -320,11 +345,11 @@ def _equilibrer(texte, police, largeur, casser=False, n_min=1):
     bas, haut = 1.0, float(largeur)
     while haut - bas > 1:
         m = (bas + haut) / 2
-        if len(_couper(texte, police, m, casser)) == len(out):
+        if len(couper(m)) == len(out):
             haut = m
         else:
             bas = m
-    essai = _couper(texte, police, haut, casser)
+    essai = couper(haut)
     return essai if len(essai) == len(out) else out
 
 
@@ -467,13 +492,14 @@ def _case(bgr, bloc, efface, autres=()):
     ls = bloc.lignes
     x, y, w, h = bloc.boite
     hl = float(np.median([l[3] for l in ls]))
+    flottant = False
     mg, md = ix0 - c[0], c[2] - ix1
     large = c[2] - c[0]
     if len(ls) > 1 and np.ptp([l[2] for l in ls]) >= 0.5 * hl:
         ecarts = [np.ptp([l[0] for l in ls]), np.ptp([l[0] + l[2] / 2 for l in ls]),
                   np.ptp([l[0] + l[2] for l in ls])]
         sens = ("gauche", "centre", "droite")[int(np.argmin(ecarts))]
-    elif len(ls) == 1 and min(mg, md) > FLOTTANT * hl:
+    elif flottant := len(ls) == 1 and min(mg, md) > FLOTTANT * hl:
         sens = "centre"
     else:
         sens = ("centre" if abs(mg - md) <= max(0.5 * hl, 0.15 * large)
@@ -483,7 +509,7 @@ def _case(bgr, bloc, efface, autres=()):
             sens = "gauche"
     p = max(1, min(mg, md, 0.5 * hl, CASE_MARGE * large))
     x0, x1 = c[0] + p, c[2] - p
-    if sens == "centre" and abs(mg - md) > max(0.5 * hl, 0.15 * large):
+    if sens == "centre" and (flottant or abs(mg - md) > max(0.5 * hl, 0.15 * large)):
         # Centre propre du texte, et autant de place de chaque côté.
         cx, demi = (ix0 + ix1) / 2, min(mg, md) - p + (ix1 - ix0) / 2
         x0, x1 = cx - demi, cx + demi
@@ -493,8 +519,11 @@ def _case(bgr, bloc, efface, autres=()):
         x1 = ix1
     py =max(1, min(iy0 - c[1], c[3] - iy1, 0.3 * hl))
     sens = {"centre": True, "gauche": False}.get(sens, sens)
-    # Case fermée en haut et en bas : son milieu sert au centrage vertical.
-    return (x0, x1, sens), (c[1] + py, c[3] - py), uni, (c[1] + c[3]) / 2 if ferme else None
+    # Case fermée en haut et en bas, où l'original était centré : son milieu
+    # sert au centrage vertical. Un libellé posé sur un trait, sous une autre
+    # boîte, n'est pas au milieu de cet intervalle : il garde sa hauteur.
+    centre_v = ferme and abs((iy0 + iy1) / 2 - (c[1] + c[3]) / 2) <= CENTRE_CASE * hl
+    return (x0, x1, sens), (c[1] + py, c[3] - py), uni, (c[1] + c[3]) / 2 if centre_v else None
 
 
 def colonnes(bloc, largeur_image):
@@ -540,7 +569,7 @@ def cadre(bgr, bloc, tous):
 
 
 def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max=None, n_min=1,
-           milieu=None):
+           milieu=None, dico=None):
     """Taille, lignes et cadre `(x, y, w)` de la traduction, ou `None` si
     elle ne tient pas au-dessus du plancher. `libre` : rangées `(haut, bas)`
     vides autour du bloc, où il peut grandir vers le bas ; `cadre` :
@@ -548,7 +577,7 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
     d'une liste ; `n_min` : lignes gardées quand le corps baisse ; `milieu` :
     milieu vertical d'une case fermée, où un texte centré pose le milieu de
     ses capitales (du haut des capitales à la ligne de base), comme en PAO :
-    sans jambage, il ne remonte pas."""
+    sans jambage, il ne remonte pas. `dico` : césures de la langue cible."""
     fichier = fichier or _fichier_police()
     x, y, w, h = bloc.boite
     hl = float(np.median([b[3] for b in bloc.lignes]))
@@ -580,7 +609,9 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
     # un mot latin trop long même au plancher est coupé plutôt que de laisser
     # l'original. Au-delà d'une ligne de plus, le texte ne descend pas sous
     # `GRANDIR` × le corps : une traduction bien plus longue reste en original
-    # plutôt que tassée en petit sur de nombreuses lignes.
+    # plutôt que tassée en petit sur de nombreuses lignes. Dès la ligne de
+    # plus, un mot plus large que la case s'y coupe aux syllabes plutôt que
+    # de faire baisser le corps de tout le texte.
     passes = [(max(n0, n_min), TOLERE * min(s0, taille_max or s0), False)]
     passes += ([(n0 + 1, plancher, False), (None, GRANDIR * s0, False)] if libre
                else [(None, plancher, False)])
@@ -592,7 +623,8 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
             s = min(s, int(np.ceil(plancher)))
         while s >= max(plancher, seuil):
             police = _police(fichier, s)
-            texte_l = _equilibrer(bloc.traduction, police, lmax, casser, n_min)
+            texte_l = _equilibrer(bloc.traduction, police, lmax, casser, n_min,
+                                  (dico, lmax) if dico and i_passe else None)
             # Interligne rapporté au corps lu, sinon la 2ᵉ ligne descend trop bas.
             pas = max(pas0, hl * 1.15) * s / s_h
             haut = (len(texte_l) - 1) * pas + k * s
@@ -604,9 +636,19 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
             y1 = y + (h - haut) / 2 if centre and tient else y + (bloc.lignes[0][3] - k * s) / 2
             if centre and tient and milieu is not None:
                 y1 = milieu - optique / 2
+            elif centre and tient and _CJK.search(bloc.texte):
+                # Encre CJK ≈ carré du corps : son milieu reçoit le milieu
+                # « haut des capitales → ligne de base », pas celui des jambages.
+                y1 = y + h / 2 - optique / 2
             if tient and libre and libre[1] - libre[0] >= haut:
                 y1 = min(max(y1, libre[0]), libre[1] - haut)
-            if (not tient and libre and ok_n and larg <= lmax
+            # Mot coupé aux syllabes : seulement dans la hauteur lue, jamais
+            # en débordant vers le bas (« Pièces / com- / mandées » sous la case).
+            coupe = dico and i_passe and not casser and any(
+                m not in bloc.traduction.split() for t in texte_l for m in t.split())
+            if coupe and libre and haut > libre[1] - libre[0]:
+                tient = False  # boîte lue plus haute que l'intérieur de la case
+            if (not tient and not coupe and libre and ok_n and larg <= lmax
                     and haut <= min(libre[1] - libre[0], h + GRANDIR_LIGNES * hl)):
                 if centre:
                     m = milieu if milieu is not None else (libre[0] + libre[1]) / 2
@@ -622,7 +664,7 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
                       for t in texte_l]
                 return {"taille": s, "lignes": texte_l, "pas": pas, "x": xt, "xs": xs, "y": y1,
                         "haut_glyphe": k * s, "larg": larg, "haut": haut, "fichier": fichier,
-                        "milieu": milieu}
+                        "milieu": milieu, "dico": dico}
             s = s - 1 if i_passe == 0 or s <= 20 else int(s * 0.94)
     return None
 
@@ -693,9 +735,13 @@ def _symboles(lus, bgr):
             ecart = (x - x0) - (sx + sw)
             # Forme pleine, à peu près carrée, centrée sur la ligne, détachée
             # du premier glyphe (écart 0 = glyphe rogné par la boîte lue).
-            if (2 <= ecart <= 0.6 * h and sx > 0 and 0.4 * h <= sh <= h
-                    and 0.6 <= sw / sh <= 1.6 and a >= 0.45 * sw * sh
-                    and abs(sy + sh / 2 - h / 2) <= 0.2 * h):
+            pleine = (0.4 * h <= sh <= h and 0.6 <= sw / sh <= 1.6
+                      and a >= 0.45 * sw * sh and abs(sy + sh / 2 - h / 2) <= 0.2 * h)
+            # Tiret dessiné (« – Texte », « 1 – Texte » sans tiret lu) : barre
+            # horizontale fine et pleine, à mi-hauteur de la ligne.
+            tiret = (sh <= 0.2 * h and 0.25 * h <= sw <= h and sw >= 2 * sh
+                     and a >= 0.6 * sw * sh and abs(sy + sh / 2 - h / 2) <= 0.25 * h)
+            if 2 <= ecart <= 0.6 * h and sx > 0 and (pleine or tiret):
                 trouve = x0 + int(sx + sw)
         if trouve is not None and not any(
                 o is not b and o[0] < x and o[0] + o[2] > trouve
@@ -743,21 +789,16 @@ def _libre(bgr, bloc, autres, x0, x1, efface, poses=()):
 
 
 def _freres(places, W, teintes):
-    """Des frères (même hauteur, police et couleur, alignés en colonne ou en
-    rangée : liste, cases d'un tableau, boutons côte à côte) prennent une seule
-    taille, celle du plus contraint ; `(bloc, placement)`."""
+    """Des frères (même hauteur d'origine, police et couleur, n'importe où dans
+    la figure : liste, cases d'un tableau, nœuds d'un organigramme) prennent
+    une seule taille, celle du plus contraint ; `(bloc, placement)`. Un titre
+    ou une légende d'une autre taille garde la sienne."""
     famille = list(range(len(places)))
 
     def racine(i):
         while famille[i] != i:
             famille[i] = i = famille[famille[i]]
         return i
-
-    def alignes(a, b, tol):
-        (xa, ya, wa, ha), (xb, yb, wb, hb) = a, b
-        colonne = min(abs(xa - xb), abs(xa + wa / 2 - xb - wb / 2), abs(xa + wa - xb - wb))
-        rangee = min(abs(ya - yb), abs(ya + ha / 2 - yb - hb / 2))
-        return colonne <= tol or rangee <= tol
 
     for i, (bi, pi, *_) in enumerate(places):
         for j in range(i):
@@ -766,8 +807,14 @@ def _freres(places, W, teintes):
             # pas le même nombre de lignes mais le même corps.
             hi = float(np.median([l[3] for l in bi.lignes]))
             hj = float(np.median([l[3] for l in bj.lignes]))
-            if (abs(hi - hj) <= MEME_HAUTEUR * max(hi, hj)
-                    and alignes(bi.boite, bj.boite, MEME_BORD * min(hi, hj))
+            # Alignés : même corps à `MEME_HAUTEUR` près ; ailleurs dans la
+            # figure, à `MEME_CORPS` près, sans quoi des tailles voisines
+            # s'enchaînent de proche en proche jusqu'au titre.
+            (xa, ya, wa, ha), (xb, yb, wb, hb) = bi.boite, bj.boite
+            tol = MEME_BORD * min(hi, hj)
+            alignes = (min(abs(xa - xb), abs(xa + wa / 2 - xb - wb / 2), abs(xa + wa - xb - wb)) <= tol
+                       or min(abs(ya - yb), abs(ya + ha / 2 - yb - hb / 2)) <= tol)
+            if (abs(hi - hj) <= (MEME_HAUTEUR if alignes else MEME_CORPS) * max(hi, hj)
                     and pi["fichier"] == pj["fichier"]
                     and np.linalg.norm(np.subtract(teintes[i], teintes[j], dtype=float)) <= MEME_COULEUR):
                 famille[racine(i)] = racine(j)
@@ -776,7 +823,7 @@ def _freres(places, W, teintes):
         t = min(q[1]["taille"] for j, q in enumerate(places) if racine(j) == racine(i))
         if t < p["taille"]:  # plus petit : tient dans la même place, sur autant de lignes
             p = placer(b, W, p["fichier"], libre, cb, taille_max=t, n_min=len(p["lignes"]),
-                       milieu=p.get("milieu")) or p
+                       milieu=p.get("milieu"), dico=p.get("dico")) or p
         out.append((b, p))
     return out
 
@@ -841,7 +888,7 @@ def _pareil(a: str, b: str) -> bool:
 
 
 def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police=None, lus=None,
-                   tour=None):
+                   tour=None, langue=None):
     """Image traduite (`ImageTraduite`) à partir des octets reçus.
 
     `traduire(textes)` renvoie une traduction par texte. `lus` : lignes déjà
@@ -849,7 +896,10 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
     l'image n'est pas acceptée, `LectureEchouee` si le lecteur manque ou
     échoue. `tour()`, s'il est donné, encadre la seule reconnaissance (le
     guichet OCR n'est pas retenu pendant l'appel réseau de traduction).
+    `langue` : langue cible (« fr »…), pour couper aux syllabes un mot plus
+    large que sa case.
     """
+    dico = _dictionnaire(langue)
     debut = time.monotonic()
     fin = debut + delai_s
     d = {}
@@ -909,7 +959,7 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
         z = [zones[l] for l in b.lignes]
         gras = _gras(masque_couleur(bgr, z, dilatation=0), z, bool(_CJK.search(b.texte)))
         fichier = fichier_police or _police_couvrante(_fichier_police(gras), b.traduction, gras)
-        p = placer(b, W, fichier, libre, cb, milieu=case[3] if case else None)
+        p = placer(b, W, fichier, libre, cb, milieu=case[3] if case else None, dico=dico)
         if p is not None:
             places.append((b, p, cb, libre))
             poses.append((p["x"], p["y"], p["x"] + p["larg"], p["y"] + p["haut"]))

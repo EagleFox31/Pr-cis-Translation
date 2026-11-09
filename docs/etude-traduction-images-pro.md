@@ -189,3 +189,17 @@ Limite : la taille commune des en-têtes reste imposée par la traduction la plu
 - Règle générale (`mask.py` `_pixels_du_trait`) : le cœur du trait = médiane de la moitié la plus contrastée ; un pixel est du trait s'il est proche du segment de couleur fond → cœur (mélange d'anticrénelage). Une lettre d'une autre couleur posée sur le trait reste au masque (test « trait traversant » vert).
 - Écarté : retirer le trait du masque après dilatation → le bord des lettres posées sur un trait restait visible (1103 px faux au test).
 - Banc : 141 / 0 coupe / 1 écart / restes 3820 (avant 3854) ; tests image et effacement verts.
+
+## 12. Étape .13 : césure, harmonisation de figure, centrage, tirets (09/11)
+
+| Sujet | Avant | Règle générale retenue |
+|---|---|---|
+| Mot plus large que sa case (« environnementaux », « Signalement ») | réduction jusqu'à ce que le mot tienne (47 px) | coupure syllabique `pyphen` (langue cible) à l'étape « +1 ligne », seulement pour ce mot, et seulement si la version coupée tient dans la place libre ; sinon réduction |
+| Libellés d'une même figure | harmonisés seulement s'ils sont alignés | `_freres()` : même taille d'origine (±6 %, `MEME_CORPS`), même police et même couleur → taille commune = la plus petite, alignés ou non |
+| Texte remonté dans une case (« Reproduit / Non reproduit ») | centrage sur la case même quand l'original n'y était pas centré | milieu de case utilisé seulement si l'original y était centré (écart ≤ 0,25 ligne, `CENTRE_CASE`) ; encre CJK centrée sur « haut des capitales → ligne de base » |
+| Étiquette seule dans le vide | décalée vers un bord | marges > 2 lignes des deux côtés (`FLOTTANT`) : garde son centre |
+| Tiret après un numéro (« 1 - Texte », « 1－点検 ») | non reconnu : la ligne était collée à la précédente | `_PUCE` : numéro + tiret pleine chasse, ou numéro + tiret suivi d'une espace ; « 3-days » reste un mot. `_symboles` : un tiret dessiné non lu (barre fine à mi-hauteur) ouvre un bloc comme une puce |
+
+Banc : 141 posés / 6 coupes (césures voulues) / 1 écart / occupation 55,2 / restes 3829 / manque 0 ; tests image et effacement verts. 97a581da21 : ≈ 83 px partout (cible 80).
+
+Limite : 424e5d0680, les libellés passent à 27 px (≈ 48 à l'origine) car ils sont frères de « Vérification et sauvegarde des données ECU ». C'est la règle validée.

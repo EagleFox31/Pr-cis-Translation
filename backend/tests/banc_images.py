@@ -206,7 +206,8 @@ def rejouer(live=False):
         lus = [(t, tuple(b)) for t, b in _charger(os.path.join(cas_dir, cas, "lus.json"), [])]
         espion.clear()
         n_manque = len(manque)
-        rendu = img.traduire_image(data, traduire, lecteur=_SansLecteur(), delai_s=600, lus=lus)
+        rendu = img.traduire_image(data, traduire, lecteur=_SansLecteur(), delai_s=600, lus=lus,
+                                langue=LANGUE)
         poses, entrees = espion.get("poses", []), espion.get("entrees", [])
         avant = cv2.cvtColor(np.asarray(Image.open(io.BytesIO(data)).convert("RGB")), cv2.COLOR_RGB2BGR)
         apres = cv2.cvtColor(np.asarray(Image.open(io.BytesIO(rendu.data)).convert("RGB")), cv2.COLOR_RGB2BGR)
