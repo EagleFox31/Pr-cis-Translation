@@ -8,6 +8,25 @@ leurs propres numéros internes.
 
 Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 
+## [1.7.0](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.6.2...v1.7.0) (2026-11-09)
+
+
+### Features
+
+* **extension:** distribution, install page and per-page limits ([#55](https://github.com/EagleFox31/Pr-cis-Translation/issues/55)) ([3bfbdc2](https://github.com/EagleFox31/Pr-cis-Translation/commit/3bfbdc2f2277a91d04738af37fb86b323c7f1e57))
+* **invitations:** invite relatives to use Précis ([#32](https://github.com/EagleFox31/Pr-cis-Translation/issues/32)) ([3bfbdc2](https://github.com/EagleFox31/Pr-cis-Translation/commit/3bfbdc2f2277a91d04738af37fb86b323c7f1e57))
+* **ocr:** page-by-page scan reading, unreadable pages and embedded objects translation ([#56](https://github.com/EagleFox31/Pr-cis-Translation/issues/56)) ([3bfbdc2](https://github.com/EagleFox31/Pr-cis-Translation/commit/3bfbdc2f2277a91d04738af37fb86b323c7f1e57))
+* **pages:** beta, about, legal pages and credits source ([#54](https://github.com/EagleFox31/Pr-cis-Translation/issues/54)) ([3bfbdc2](https://github.com/EagleFox31/Pr-cis-Translation/commit/3bfbdc2f2277a91d04738af37fb86b323c7f1e57))
+* **payments:** signed orchestrator event inbox ([#52](https://github.com/EagleFox31/Pr-cis-Translation/issues/52)) ([3bfbdc2](https://github.com/EagleFox31/Pr-cis-Translation/commit/3bfbdc2f2277a91d04738af37fb86b323c7f1e57))
+* **pptx:** resume, pause and cancel; beta and anti-abuse; PPTX and preview fixes ([#53](https://github.com/EagleFox31/Pr-cis-Translation/issues/53)) ([3bfbdc2](https://github.com/EagleFox31/Pr-cis-Translation/commit/3bfbdc2f2277a91d04738af37fb86b323c7f1e57))
+* **seo:** intent landing pages ([#59](https://github.com/EagleFox31/Pr-cis-Translation/issues/59)) ([3bfbdc2](https://github.com/EagleFox31/Pr-cis-Translation/commit/3bfbdc2f2277a91d04738af37fb86b323c7f1e57))
+* **viewer:** navigation, wheel, thumbnails, original view; retranslation fidelity; admin documents ([#35](https://github.com/EagleFox31/Pr-cis-Translation/issues/35)) ([3bfbdc2](https://github.com/EagleFox31/Pr-cis-Translation/commit/3bfbdc2f2277a91d04738af37fb86b323c7f1e57))
+
+
+### Bug Fixes
+
+* **seo:** canonical, structured data, sitemap and crawler access fixes ([#58](https://github.com/EagleFox31/Pr-cis-Translation/issues/58)) ([3bfbdc2](https://github.com/EagleFox31/Pr-cis-Translation/commit/3bfbdc2f2277a91d04738af37fb86b323c7f1e57))
+
 ## [1.6.2](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.6.1...v1.6.2) (2026-10-21)
 
 
