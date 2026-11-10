@@ -11,7 +11,7 @@
         "DeepSeek reçoit le texte du document afin de le traduire.",
         "Amazon Web Services héberge le service.",
         "Chaque accès de notre équipe à un document est journalisé.",
-        "Certains prestataires peuvent traiter les données en dehors du Cameroun."
+        "Certains prestataires peuvent traiter les données en dehors de votre pays."
       ]
     },
     {
@@ -56,8 +56,8 @@
       "a": "Oui. Un document enregistré est conservé jusqu'à ce que vous le supprimiez."
     },
     {
-      "q": "Le texte quitte-t-il le Cameroun ?",
-      "a": "Il peut : certains prestataires, dont le service de traduction, peuvent traiter les données en dehors du Cameroun."
+      "q": "Le texte quitte-t-il votre pays ?",
+      "a": "Il peut : certains prestataires, dont le service de traduction, peuvent traiter les données en dehors de votre pays."
     }
   ],
   "verified": "2026-11-07"

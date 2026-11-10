@@ -291,7 +291,6 @@
     "pledge_payment_desc": "Mobile Money or bank card.",
     "card_label": "The publisher",
     "card_location_label": "Head office",
-    "card_location": "Douala, Cameroon",
     "card_products_label": "Also",
     "contact_cta": "Contact us",
     "contact_title": "Contact us",
@@ -303,6 +302,7 @@
   },
   "footer": {
     "rights": "© 2026 Précis by Trigenys Group. All rights reserved.",
+    "nav_label": "Legal information",
     "legal": "Legal notice",
     "terms": "Terms of use",
     "privacy": "Privacy",
