@@ -22,6 +22,8 @@ const BetaPage = lazy(() => import('./pages/BetaPage'));
 const LegalPage = lazy(() => import('./pages/LegalPage'));
 const ExtensionPage = lazy(() => import('./pages/ExtensionPage'));
 const ApiPage = lazy(() => import('./pages/ApiPage'));
+const ExtensionAutoriserPage = lazy(() => import('./pages/ExtensionAutoriserPage'));
+const ExtensionConnectePage = lazy(() => import('./pages/ExtensionConnectePage'));
 
 /** Redirige vers /home si déjà connecté ( pages auth ). */
 function GuestRoute({ children }: { children: React.ReactNode }) {
@@ -77,6 +79,8 @@ function MainApp() {
           <Route path="/admin/beta" element={<AdminRoute><Suspense fallback={null}><AdminBetaPage /></Suspense></AdminRoute>} />
           <Route path="/beta" element={<Suspense fallback={null}><BetaPage /></Suspense>} />
           <Route path="/extension" element={<Suspense fallback={null}><ExtensionPage /></Suspense>} />
+          <Route path="/extension/autoriser" element={<Suspense fallback={null}><ExtensionAutoriserPage /></Suspense>} />
+          <Route path="/extension/connecte" element={<Suspense fallback={null}><ExtensionConnectePage /></Suspense>} />
           <Route path="/integrations/api" element={<Suspense fallback={null}><ApiPage /></Suspense>} />
           <Route path="/mentions-legales" element={<Suspense fallback={null}><LegalPage slug="mentions-legales" /></Suspense>} />
           <Route path="/conditions" element={<Suspense fallback={null}><LegalPage slug="conditions" /></Suspense>} />
