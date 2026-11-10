@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -22,7 +24,27 @@ const ICONES: Array<[RegExp, LucideIcon]> = [
 ];
 const icone = (id: string): LucideIcon => ICONES.find(([re]) => re.test(id))?.[1] ?? FileText;
 
-export default function MobileMenu({ isOpen, links, activeSection, onNavClick }: MobileMenuProps) {
+export default function MobileMenu({ isOpen, links, activeSection, onNavClick, onClose }: MobileMenuProps) {
+  const { pathname } = useLocation();
+  const fermer = useRef(onClose);
+  fermer.current = onClose;
+
+  // Changement de page par un autre chemin que le menu (retour arrière, lien
+  // dans la page) : le menu ne reste pas ouvert par-dessus la nouvelle page.
+  useEffect(() => { fermer.current(); }, [pathname]);
+
+  // Échap ferme le menu et rend le focus au bouton ☰.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      fermer.current();
+      document.querySelector<HTMLElement>('.hamburger')?.focus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isOpen]);
+
   const { t, i18n } = useTranslation();
   const langue = i18n.language?.startsWith('en') ? 'en' : 'fr';
   return (

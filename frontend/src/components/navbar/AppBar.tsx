@@ -111,7 +111,7 @@ export default function AppBar({ links = [], linksLabel, exit = false, home }: A
           )}
 
           {links.length > 0 && (
-            <button className="hamburger" onClick={() => setMenuOpen((v) => !v)} aria-label="Toggle menu" aria-expanded={menuOpen}>
+            <button className="hamburger" onClick={() => setMenuOpen((v) => !v)} aria-label="Toggle menu" aria-expanded={menuOpen} aria-controls="mobile-menu">
               <span style={{ transform: menuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' }} />
               <span style={{ opacity: menuOpen ? 0 : 1 }} />
               <span style={{ transform: menuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none' }} />

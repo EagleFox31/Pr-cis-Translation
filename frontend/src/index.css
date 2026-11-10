@@ -3288,6 +3288,16 @@ html.preview-active .scroll {
 }
 .auth-pied a:hover { text-decoration: underline; }
 
+/* Écrans tactiles : zone de toucher d'au moins 44 px sans changer le dessin.
+   Boutons isolés : hauteur minimale. Liens dans une phrase : marge intérieure
+   compensée par une marge négative, la ligne ne bouge pas. */
+@media (pointer: coarse) {
+  .auth-retour { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+  .auth-lien, .auth-lien-discret { min-height: 44px; }
+  .auth-pied a, .auth-consent a { display: inline-block; padding: 13px 4px; margin: -13px -4px; }
+  .about-footer a { display: inline-flex; align-items: center; min-height: 44px; }
+}
+
 /* ── Étape « un code vous attend » ──────────────────────────────────────── */
 .auth-etape { text-align: center; margin-bottom: 22px; }
 .auth-etape__pastille {
