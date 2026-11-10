@@ -87,7 +87,7 @@ def _preparer_images(job_id: str, user_id: str | None, file_bytes: bytes, ext: s
         table, rapport = images_document.traduire_images(
             file_bytes, ext, lambda t: ext_service.traduire_textes(t, langue),
             os.path.join(os.path.dirname(translation_path), "images"), lu[0],
-            arret=lambda: jobs.verifier_arret(job_id))
+            arret=lambda: jobs.verifier_arret(job_id), langue=langue)
 
         k = rapport["traduites"]
         if k:

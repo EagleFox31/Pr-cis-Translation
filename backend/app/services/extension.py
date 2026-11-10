@@ -1,13 +1,12 @@
 """Traduction pour l'extension navigateur (étude extension §6 et §8).
 
-Deux services, sans rien conserver (ni texte de page, ni image) :
-- `traduire_textes` : segments d'une page, par le moteur des documents ;
-- `couverture` / `debiter` : la règle de débit des documents, appliquée à une
-  image remplacée (1 page équivalente) ou à un lot de segments (au volume).
+Sans rien conserver (ni texte de page, ni image) :
+- `traduire_textes` : segments d'une page, par le moteur des documents.
+L'extension elle-même ne débite aucun crédit (elle est limitée par page,
+services/limites_page.py) ; `couverture` / `debiter` ne servent qu'à la
+traduction des documents.
 """
 from __future__ import annotations
-
-import math
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,24 +21,15 @@ CARACTERES_MAX = 20_000
 # Contexte joint (titre + blocs voisins) : le moteur n'en garde que 2 500
 # caractères (`translation_ai._CONTEXTE_MAX`), on refuse au-delà de 4 fois.
 CONTEXTE_MAX = 10_000
-# Volume d'une page équivalente pour le texte des pages : la page de
-# traduction usuelle (250 mots).
-CARACTERES_PAR_PAGE = 1_500
 
 
 class TraductionIndisponible(RuntimeError):
-    """Le moteur n'a pas rendu de traduction : rien n'est débité."""
+    """Le moteur n'a pas rendu de traduction : rien n'est compté."""
 
 
 def caracteres(textes) -> int:
-    """Volume du texte nu : les balises `[[n]]` ne se paient pas."""
+    """Volume du texte nu : les balises `[[n]]` ne comptent pas."""
     return sum(len(runtags.sans_balises(t)) for t in textes)
-
-
-def pages_pour_segments(textes, avance: int = 0) -> int:
-    """Pages à débiter, au volume cumulé : `avance` (caractères déjà payés et
-    pas encore consommés) passe d'abord, une passe qu'elle couvre coûte 0."""
-    return max(0, math.ceil((caracteres(textes) - avance) / CARACTERES_PAR_PAGE))
 
 
 def traduire_textes(textes, langue, traducteur=None, titre="", contexte=()):
@@ -104,21 +94,6 @@ async def debiter(db: AsyncSession, user_id: str, pages: int,
     commite. Faux si le solde verrouillé ne couvre plus : rien n'est débité.
     `document_id` lie le débit à un document (remboursé s'il échoue)."""
     return await _debiter(db, await _verrouiller(db, user_id), pages, document_id)
-
-
-async def debiter_texte(db: AsyncSession, user_id: str, nb_caracteres: int) -> int | None:
-    """Débite le texte d'une passe au volume cumulé (étude mémoire §4) : l'avance
-    du compte couvre d'abord ; le reste se paie en pages entières, dont le
-    surplus devient la nouvelle avance. Rend les pages débitées (0 : ni débit
-    ni registre), None si le solde verrouillé ne couvre plus (rien ne change)."""
-    locked = await _verrouiller(db, user_id)
-    reste = nb_caracteres - locked.extension_avance
-    pages = max(0, math.ceil(reste / CARACTERES_PAR_PAGE))
-    locked.extension_avance = pages * CARACTERES_PAR_PAGE - reste
-    if not pages:
-        await db.commit()
-        return 0
-    return pages if await _debiter(db, locked, pages) else None
 
 
 async def _debiter(db: AsyncSession, locked: User, pages: int,

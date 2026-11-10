@@ -38,6 +38,7 @@ backend/fonts/catalogue/
 # sorties traduites, caches) — volumineux et regenerables localement.
 backend/tests files/
 backend/tests/_generic_tmp/
+backend/tests/out_lettres_dessinees/
 *.bak
 *.old
 
