@@ -20,6 +20,17 @@ export interface DemandeBibliotheque {
   bibliotheque: { action: 'apercu' | 'relance'; docId: string };
 }
 
+// Le fichier d'origine demandé par le tiroir pour l'aperçu : l'accueil le
+// reprend au lieu de le télécharger une seconde fois (une promesse ne passe
+// pas par l'état de navigation).
+let sourceEnAttente: { docId: string; source: Promise<Blob | undefined> } | null = null;
+
+export function prendreSource(docId: string): Promise<Blob | undefined> | null {
+  const s = sourceEnAttente?.docId === docId ? sourceEnAttente.source : null;
+  sourceEnAttente = null;
+  return s;
+}
+
 export default function BibliothequeHote({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -47,7 +58,10 @@ export default function BibliothequeHote({ isOpen, onClose }: { isOpen: boolean;
       isOpen={isOpen}
       onClose={onClose}
       documents={documents}
-      onPreview={(req) => versAccueil('apercu', req.docId)}
+      onPreview={(req) => {
+        sourceEnAttente = { docId: req.docId, source: req.source };
+        versAccueil('apercu', req.docId);
+      }}
       onDelete={deleteDocument}
       onClearAll={clearAll}
       getBlob={getBlob}

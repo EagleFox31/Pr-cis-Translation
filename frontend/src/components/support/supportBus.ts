@@ -22,14 +22,19 @@ export interface SupportPrefill {
 type Listener = (prefill: SupportPrefill) => void;
 
 let listeners: Listener[] = [];
+// L'hôte est chargé à la demande : une demande faite avant son arrivée est
+// gardée et lui est remise dès qu'il s'abonne, au lieu d'être perdue.
+let enAttente: SupportPrefill | null = null;
 
 /** Ouvre la fenêtre d'assistance, éventuellement pré-remplie. */
 export function openSupport(prefill: SupportPrefill = {}): void {
+  if (listeners.length === 0) { enAttente = prefill; return; }
   listeners.forEach((fn) => fn(prefill));
 }
 
 /** Abonne l'hôte (SupportModal). Renvoie la fonction de désabonnement. */
 export function subscribeSupport(fn: Listener): () => void {
   listeners.push(fn);
+  if (enAttente) { const p = enAttente; enAttente = null; fn(p); }
   return () => { listeners = listeners.filter((f) => f !== fn); };
 }

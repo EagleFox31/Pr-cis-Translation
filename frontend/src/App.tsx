@@ -8,8 +8,13 @@ import Home from './pages/Home';
 import './beta.css';
 import ToastContainer from './components/ui/Toast';
 import { authReturnTo } from './lib/authReturn';
-import { splashAttendu } from './lib/splash';
-import { pages } from './lib/routes';
+import { SPLASH_ATTENDU } from './lib/splash';
+import { pages, avecReprise } from './lib/routes';
+
+// Fenêtres d'assistance et d'invitation : un seul hôte pour toute l'appli
+// (accueil, administration, intégrations), chargé après le premier rendu.
+const SupportModal = lazy(avecReprise(() => import('./components/support/SupportModal')));
+const InviteModal = lazy(avecReprise(() => import('./components/invite/InviteModal')));
 
 // Hors accueil, chaque page est chargée à sa première ouverture : un visiteur
 // ne télécharge pas l'administration, la connexion ou la page carte d'office.
@@ -59,7 +64,7 @@ export default function App() {
 }
 
 function MainApp() {
-  const [showSplash, setShowSplash] = useState(splashAttendu);
+  const [showSplash, setShowSplash] = useState(SPLASH_ATTENDU);
 
   return (
     <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
@@ -94,6 +99,7 @@ function MainApp() {
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
         </Suspense>
+        <Suspense fallback={null}><SupportModal /><InviteModal /></Suspense>
         <ToastContainer />
       </AuthProvider>
     </BrowserRouter>

@@ -4,10 +4,30 @@
 
 type Chargeur = () => Promise<{ default: React.ComponentType<any> }>;
 
-function memo(charger: Chargeur): Chargeur {
-  let p: ReturnType<Chargeur> | undefined;
-  return () => (p ??= charger().catch((e) => { p = undefined; throw e; }));
+const RECHARGE = 'precis.recharge';
+
+/**
+ * Un fichier de code introuvable vient presque toujours d'une mise en ligne
+ * survenue pendant que l'onglet était ouvert (les noms de fichiers ont changé).
+ * On recharge la page une fois pour prendre la nouvelle version ; si l'échec
+ * se répète dans la minute, on le laisse remonter (vraie panne réseau).
+ */
+export function avecReprise<T>(charger: () => Promise<T>): () => Promise<T> {
+  let p: Promise<T> | undefined;
+  return () => (p ??= charger().catch((e) => {
+    p = undefined;
+    let derniere = 0;
+    try { derniere = Number(sessionStorage.getItem(RECHARGE)) || 0; } catch { /* stockage indisponible */ }
+    if (Date.now() - derniere > 60_000) {
+      try { sessionStorage.setItem(RECHARGE, String(Date.now())); } catch { /* idem */ }
+      window.location.reload();
+      return new Promise<T>(() => {});   // la page se recharge : ne rien afficher d'ici là
+    }
+    throw e;
+  }));
 }
+
+const memo = (charger: Chargeur): Chargeur => avecReprise(charger);
 
 export const pages = {
   login: memo(() => import('../pages/LoginPage')),

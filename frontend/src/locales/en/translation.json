@@ -142,6 +142,8 @@
     "free_plan_hint": "Your allowance is shared across all formats. Downloads included.",
     "retry_unavailable_title": "Cannot retry this document",
     "retry_unavailable_hint": "Its original file is missing or empty. Please upload it again.",
+    "request_missing_title": "Document not found",
+    "request_missing_hint": "It was deleted or is no longer in your library.",
     "precise_label": "Precise mode (admin)",
     "precise_desc": "Uses the reasoning model — slower (~2 min/page) but more reliable on complex layouts.",
     "ocr_notice": "{{count}} scanned page(s): the text will be read page by page during translation. Review the result: fonts and layout in scanned documents remain approximate.",

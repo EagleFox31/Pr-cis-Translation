@@ -14,6 +14,9 @@ function chargerAnglais(): Promise<void> {
   anglais ??= import('./locales/en/translation.json').then((m) => {
     // `bindI18nStore: 'added'` ci-dessous : l'ajout redessine les textes.
     i18n.addResourceBundle('en', 'translation', m.default, true, true);
+  }).catch((e) => {
+    anglais = null;   // un échec réseau ne doit pas bloquer l'anglais pour la session
+    console.error('Dictionnaire anglais non chargé', e);
   });
   return anglais;
 }

@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Navbar from '../components/navbar/Navbar';
-import type { DemandeBibliotheque } from '../components/library/BibliothequeHote';
+import { prendreSource, type DemandeBibliotheque } from '../components/library/BibliothequeHote';
 import HeroSection from '../components/hero/HeroSection';
 import LanguageMarquee from '../components/hero/LanguageMarquee';
 import FeaturesGrid from '../components/features/FeaturesGrid';
@@ -26,8 +26,6 @@ import { subscribeSection } from '../lib/sectionBus';
 import { creerGesteMolette } from '../lib/molette';
 import type { TranslateConfig } from '../components/upload/TranslationSection';
 
-const SupportModal = lazy(() => import('../components/support/SupportModal'));
-const InviteModal = lazy(() => import('../components/invite/InviteModal'));
 
 export default function Home() {
   const { t } = useTranslation();
@@ -121,7 +119,7 @@ export default function Home() {
   const stream = useStreamingTranslation(user?.plan === 'free');
 
   // ---- Document library ----
-  const { documents, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal, getIllegiblePages, setIllegiblePages } = useDocumentLibrary();
+  const { documents, charge: bibliothequeChargee, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal, getIllegiblePages, setIllegiblePages } = useDocumentLibrary();
 
   // Les droits du document viennent du serveur ; une mise à jour de la
   // bibliothèque après paiement doit aussi débloquer l'aperçu déjà ouvert.
@@ -368,18 +366,24 @@ export default function Home() {
   useEffect(() => {
     if (!demande) return;
     const doc = documents.find((d) => d.id === demande.docId);
-    if (!doc) return;
+    if (!doc && !bibliothequeChargee) return;   // liste pas encore arrivée
     navigate(location.pathname, { replace: true, state: null });
+    if (!doc) {
+      // Supprimé entre-temps : on le dit, et la demande ne reste pas armée.
+      prendreSource(demande.docId);
+      showToast('error', t('story.request_missing_title'), t('story.request_missing_hint'));
+      return;
+    }
     if (demande.action === 'relance') {
       handleRetry(doc);
     } else {
       handleLibraryPreview({
         docId: doc.id, paid: doc.paid, filename: doc.filename, ext: doc.ext,
         enCours: doc.status === 'translating',
-        source: getOriginalBlob(doc.id, true),
+        source: prendreSource(doc.id) ?? getOriginalBlob(doc.id, true),
       });
     }
-  }, [demande, documents, navigate, location.pathname, handleRetry, handleLibraryPreview, getOriginalBlob]);
+  }, [demande, documents, bibliothequeChargee, navigate, location.pathname, handleRetry, handleLibraryPreview, getOriginalBlob, t]);
 
   // ---- Aperçu bibliothèque : réseau seulement quand on ne SAIT pas ---------
   //
@@ -681,7 +685,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-white text-gray-900 font-body">
-      <Suspense fallback={null}><SupportModal /><InviteModal /></Suspense>
 
       {/* Paiement à la page : achat des crédits nécessaires à la traduction
           courante (402). Une fois payé, on REJOUE la traduction telle quelle. */}

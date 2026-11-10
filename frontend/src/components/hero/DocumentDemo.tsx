@@ -130,7 +130,8 @@ export default function DocumentDemo() {
 
     (async () => {
       const pdfjsLib = await chargerPdfjs().catch(() => null);
-      if (!pdfjsLib || !active) return;
+      if (!active) return;
+      if (!pdfjsLib) { setLoaded(true); return; }   // pdf.js absent : carte lisible, sans démo
 
       const draw = async (url: string, canvas: HTMLCanvasElement | null) => {
         if (!canvas) return null;

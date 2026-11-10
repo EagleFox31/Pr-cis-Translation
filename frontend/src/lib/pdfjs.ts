@@ -11,14 +11,17 @@ export function chargerPdfjs(): Promise<any> {
       const s = document.createElement('script');
       s.src = BASE + 'pdf.min.js';
       s.async = true;
+      const echec = () => {
+        chargement = null;
+        console.error('PDF.js non chargé');
+        reject(new Error('PDF.js non chargé'));
+      };
       s.onload = () => {
+        if (!w.pdfjsLib?.GlobalWorkerOptions) { echec(); return; }
         w.pdfjsLib.GlobalWorkerOptions.workerSrc = BASE + 'pdf.worker.min.js';
         resolve(w.pdfjsLib);
       };
-      s.onerror = () => {
-        chargement = null;
-        reject(new Error('PDF.js non chargé'));
-      };
+      s.onerror = echec;
       document.head.appendChild(s);
     });
   }

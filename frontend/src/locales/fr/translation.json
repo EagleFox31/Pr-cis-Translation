@@ -142,6 +142,8 @@
     "free_plan_hint": "Votre quota est partagé entre tous les formats. Téléchargement inclus.",
     "retry_unavailable_title": "Relance impossible",
     "retry_unavailable_hint": "Le fichier d'origine est absent ou vide. Renvoyez-le.",
+    "request_missing_title": "Document introuvable",
+    "request_missing_hint": "Il a été supprimé ou n'est plus dans votre bibliothèque.",
     "precise_label": "Mode précis (admin)",
     "precise_desc": "Utilise le modèle de raisonnement — plus lent (~2 min/page) mais plus fiable sur les mises en page complexes.",
     "ocr_notice": "{{count}} page(s) scannée(s) : le texte sera lu page par page pendant la traduction. Vérifiez le résultat : les polices et la mise en page d’un scan restent approximatives.",
