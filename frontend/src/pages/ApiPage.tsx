@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { ArrowLeft, Construction } from 'lucide-react';
+import { Construction } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import IntegrationsNav from '../components/IntegrationsNav';
@@ -31,9 +30,6 @@ export default function ApiPage() {
       <main className="legal-main">
         <div className="legal-head">
           <div className="legal-head__inner">
-            <Link to="/" className="tb-btn ghost admin-btn legal-back">
-              <ArrowLeft size={15} strokeWidth={2.2} /> <span>{t('extension_page.back')}</span>
-            </Link>
             <h1>
               {t('api_page.title')}
               <span className="api-statut">{t('api_page.status_badge')}</span>

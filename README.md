@@ -109,6 +109,7 @@ aperçus non-PDF.
 | [`docs/etude-interfaces-admin.md`](docs/etude-interfaces-admin.md) | Étude : refonte des interfaces d'administration (gabarit commun, campagne bêta, page /beta) |
 | [`docs/etude-fiche-utilisateur-integree.md`](docs/etude-fiche-utilisateur-integree.md) | Étude : fiche utilisateur à droite de la liste des comptes (plus de panneau latéral) |
 | [`docs/etude-historique-forfaits.md`](docs/etude-historique-forfaits.md) | Étude : historique des forfaits, fiche compte en pleine hauteur, tuiles cliquables |
+| [`docs/etude-navigation-integrations.md`](docs/etude-navigation-integrations.md) | Étude : barre partagée admin / pages d'intégration (Extension, API) |
 | [`docs/etude-menu-admin.md`](docs/etude-menu-admin.md)
 - [Étude — programmes Bêta multiples](docs/etude-programmes-beta.md) | Étude : « Administration » dans le menu principal, onglets admin dans la barre |
 - [Étude — fiche programme Bêta lisible](docs/etude-fiche-programme-beta.md)

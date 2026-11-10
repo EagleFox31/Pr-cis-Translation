@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Check, CreditCard, Download, HelpCircle, Monitor, ShieldCheck } from 'lucide-react';
+import { Check, CreditCard, Download, HelpCircle, Monitor, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { usePricing, formatMoney } from '../hooks/usePricing';
 import { goToSection } from '../lib/sectionBus';
@@ -396,9 +396,6 @@ export default function ExtensionPage() {
       <main className="legal-main">
         <div className="legal-head">
           <div className="legal-head__inner">
-            <Link to="/" className="tb-btn ghost admin-btn legal-back">
-              <ArrowLeft size={15} strokeWidth={2.2} /> <span>{t('extension_page.back')}</span>
-            </Link>
             <h1>{t('extension_page.title')}</h1>
           </div>
         </div>
