@@ -943,6 +943,10 @@ section {
   flex-direction: column;
 }
 section.about-section { padding: calc(var(--nav-h) + 24px) 0 0 !important; }
+/* Rebond de défilement (mobile, pavé tactile) : la zone révélée sous le pied de
+   page prend la couleur du fond racine. Bleu nuit sur les pages qui finissent
+   par « À propos » ; le `body` reste blanc et couvre le contenu. */
+html:has(.about-section) { background: var(--navy); }
 .about-section ::selection { background: var(--about-accent); color: var(--navy); }
 .about-section a:focus-visible, .about-section button:focus-visible { outline: 2px solid var(--about-accent); outline-offset: 3px; border-radius: 4px; }
 .about-inner { flex: 1; display: flex; flex-direction: column; justify-content: center; width: 100%; }
@@ -1029,6 +1033,26 @@ section.about-section { padding: calc(var(--nav-h) + 24px) 0 0 !important; }
   .about-footer { margin-top: 24px; }
   .about-footer-row { flex-direction: column; align-items: stretch; gap: 16px; padding-top: 16px; }
   .about-footer-links { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; }
+
+  /* Version compacte : le contenu de « À propos » tient en un écran de
+     téléphone (le pied de page suit en dessous). Engagements réduits à leur
+     titre, médaillon resserré, contact sur une ligne (bouton + icônes). */
+  .about-layout { gap: 20px; padding: 4px 0 16px; }
+  .about-title { font-size: 2rem; }
+  .about-text { margin-top: -6px; font-size: 0.95rem; line-height: 1.6; }
+  .about-seal { padding: 10px 18px 10px 14px; gap: 14px; border-radius: 20px; }
+  .about-mascot { height: 76px; }
+  .about-seal figcaption { padding-left: 14px; }
+  .about-seal figcaption strong { font-size: 1.2rem; }
+  .about-seal-also { margin-top: 2px; font-size: 0.8rem; }
+  .about-pledges li { grid-template-columns: 36px 1fr; align-items: baseline; padding: 11px 0; }
+  .about-pledge-num { grid-row: auto; font-size: 1.2rem; }
+  .about-pledges span:not(.about-pledge-num) { display: none; }
+  .about-contact { flex-direction: row; align-items: center; flex-wrap: nowrap; gap: 10px; }
+  .about-cta { flex: 1 1 auto; align-self: auto; padding: 13px 18px; }
+  .about-social { gap: 10px; }
+  .about-mail, .about-social a { flex: 0 0 44px; width: 44px; height: 44px; justify-content: center; border-radius: 999px; border: 1px solid var(--about-rule); font-size: 0; gap: 0; text-decoration: none; }
+  .about-mail svg, .about-social svg { width: 18px; height: 18px; color: var(--about-ink); }
 }
 .section-inner {
   max-width: var(--frame-max);
@@ -1097,15 +1121,15 @@ section.about-section { padding: calc(var(--nav-h) + 24px) 0 0 !important; }
   display: flex;
   flex-direction: column;
 }
-/* Mobile : plus de carte dans la section — le formulaire prend toute la
-   largeur, sans cadre ni ombre ni plancher de hauteur. */
+/* Mobile : carte à plat — cadre fin et fond blanc qui la détachent de la
+   section, sans ombre ni plancher de hauteur, marges intérieures réduites. */
 @media (max-width: 768px) {
   .story-form-card {
-    padding: 0;
-    border: 0;
-    border-radius: 0;
+    padding: 18px 16px;
+    border: 1px solid var(--gray-200);
+    border-radius: 14px;
     box-shadow: none;
-    background: transparent;
+    background: #fff;
     min-height: 0;
   }
 }
