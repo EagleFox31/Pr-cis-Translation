@@ -62,7 +62,8 @@ export default function MobileMenu({ isOpen, links, activeSection, onNavClick }:
             <div className="mm-seg" role="group" aria-label={t('nav.language')}>
               {(['fr', 'en'] as const).map((l) => (
                 <button key={l} className={langue === l ? 'active' : ''} aria-pressed={langue === l}
-                  onClick={() => i18n.changeLanguage(l)}>{l === 'fr' ? 'Français' : 'English'}</button>
+                  aria-label={l === 'fr' ? 'Français' : 'English'}
+                  onClick={() => i18n.changeLanguage(l)}>{l.toUpperCase()}</button>
               ))}
             </div>
           </div>

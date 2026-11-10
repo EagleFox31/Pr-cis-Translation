@@ -1812,10 +1812,10 @@ footer {
   padding: 14px 12px 0; border-top: 1px solid var(--gray-100);
 }
 .mm-lang-title { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--gray-700); }
-.mm-seg { display: grid; grid-template-columns: 1fr 1fr; flex: 1; max-width: 240px; background: var(--gray-100); border-radius: 12px; padding: 3px; }
+.mm-seg { display: inline-flex; background: var(--gray-100); border-radius: 999px; padding: 3px; }
 .mm-seg button {
-  min-height: 44px; border: none; background: none; border-radius: 10px;
-  font: inherit; font-size: 14px; font-weight: 600; color: var(--gray-500); cursor: pointer;
+  min-width: 48px; height: 32px; padding: 0 12px; border: none; background: none; border-radius: 999px;
+  font: inherit; font-size: 13px; font-weight: 700; color: var(--gray-500); cursor: pointer;
 }
 .mm-seg button.active { background: var(--white); color: var(--navy); box-shadow: var(--shadow-sm); }
 @media (max-width: 420px) {
