@@ -126,6 +126,7 @@ aperçus non-PDF.
 | [`docs/etude-objets-incorpores.md`](docs/etude-objets-incorpores.md) | Étude : objets incorporés (Excel, Word, PowerPoint, graphiques…) — traduire leur contenu et régénérer leur aperçu |
 | [`docs/etude-interface-extension.md`](docs/etude-interface-extension.md) | Étude : habiller l'interface de l'extension aux couleurs du site (jetons, polices, logo) |
 | [`docs/etude-distribution-extension.md`](docs/etude-distribution-extension.md) | Étude : présenter l'extension et la faire installer sans effort |
+| [`docs/etude-connexion-extension.md`](docs/etude-connexion-extension.md) | Étude : l'extension se connecte par le site (code à usage unique + PKCE) |
 | [`docs/etude-limites-page-extension.md`](docs/etude-limites-page-extension.md) | Étude : bornes par page de l'extension (texte, lots, images) contre les abus |
 | [`docs/etude-analyse-images-extension.md`](docs/etude-analyse-images-extension.md) | Étude : analyse des images visibles avant l'accord, seules les traduisibles sont annoncées |
 | [`docs/etude-vitesse-images-extension.md`](docs/etude-vitesse-images-extension.md) | Étude : vitesse des images de l'extension (effacement allégé, 2 images à la fois, cache 30 jours) |
