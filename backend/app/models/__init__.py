@@ -36,7 +36,8 @@ from .payment import Payment
 from .orchestrator_payment_event import OrchestratorPaymentEvent
 from .usage import (UsageRecord, KIND_CREDITS, KIND_FREE_OFFER, KIND_LEGACY,
                     KIND_PLAN)
-from .auth_tokens import RefreshToken, VerificationCode
+from .extension_usage import ExtensionTexteVu, ExtensionUsage
+from .auth_tokens import ExtensionAuthCode, RefreshToken, VerificationCode
 from .error_log import (ErrorLog, LEVELS, SOURCES, STATUS_HANDLED, STATUS_NEW)
 from .support_ticket import (SupportTicket, CATEGORIES,
                              STATUS_OPEN, STATUS_HANDLED as TICKET_HANDLED)
@@ -48,7 +49,8 @@ from .plan_event import (PlanEvent, EVENT_ADMIN, EVENT_EXPIRY, EVENT_RENEWAL,
 __all__ = [
     "Base", "new_uuid", "utcnow",
     "User", "Document", "Payment", "OrchestratorPaymentEvent", "UsageRecord", "BetaApplication", "BetaCampaign", "BetaEnrollment", "BetaUsage",
-    "KIND_CREDITS", "KIND_FREE_OFFER", "KIND_LEGACY", "KIND_PLAN", "RefreshToken", "VerificationCode",
+    "ExtensionUsage", "ExtensionTexteVu",
+    "KIND_CREDITS", "KIND_FREE_OFFER", "KIND_LEGACY", "KIND_PLAN", "RefreshToken", "VerificationCode", "ExtensionAuthCode",
     "ErrorLog", "LEVELS", "SOURCES", "STATUS_HANDLED", "STATUS_NEW",
     "SupportTicket", "CATEGORIES", "STATUS_OPEN", "TICKET_HANDLED",
     "Invitation", "DeviceLink", "FreeGrant",

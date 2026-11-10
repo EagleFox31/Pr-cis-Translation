@@ -2183,6 +2183,12 @@ footer {
 .tb-btn.primary:hover{background:#1d4ed8}
 .tb-btn.ghost{border-color:transparent}
 .tb-btn.ghost:hover{background:var(--color-background-secondary)}
+.tb-btn[aria-pressed="true"]{background:var(--blue-light,#eff6ff);color:var(--blue,#2563eb);border-color:var(--blue,#2563eb)}
+.tb-btn[aria-pressed="true"]:hover{background:var(--blue-light,#eff6ff)}
+.pg-num-champ{font-family:inherit;border:0;background:transparent;cursor:text}
+.pg-num-champ:hover{background:var(--color-background-primary);border-radius:6px}
+input.pg-num-champ{background:var(--color-background-primary);border-radius:6px;outline:2px solid #2563eb;-moz-appearance:textfield;appearance:textfield}
+input.pg-num-champ::-webkit-outer-spin-button,input.pg-num-champ::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .spacer{flex:1}
 .pg-ctrl{display:flex;align-items:center;gap:2px;background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:2px;height:32px}
 .pg-arrow{width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:6px;border:none;background:transparent;color:var(--color-text-secondary);cursor:pointer}
@@ -3343,6 +3349,13 @@ html.preview-active .scroll {
 .cv-bascule button{min-height:36px;padding:6px 16px;border:0;border-radius:999px;background:transparent;color:var(--color-text-secondary,#475569);font-size:13px;font-weight:500;cursor:pointer}
 .cv-bascule button[aria-pressed="true"]{background:var(--color-background-primary,#fff);color:var(--color-text-primary,#0f172a);box-shadow:0 1px 2px rgba(15,23,42,.12)}
 .cv-bascule button:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
+/* Rideau de comparaison : poignée glissable entre l'original et la traduction */
+.cv-rideau-poignee{position:absolute;top:0;bottom:0;width:28px;transform:translateX(-50%);z-index:40;cursor:ew-resize;touch-action:none;display:flex;align-items:center;justify-content:center;outline:none}
+.cv-rideau-poignee::before{content:'';position:absolute;top:0;bottom:0;left:50%;width:2px;margin-left:-1px;background:#2563eb;box-shadow:0 0 0 1px rgba(255,255,255,.7)}
+.cv-rideau-poignee span{position:relative;width:26px;height:26px;border-radius:999px;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(15,23,42,.35)}
+.cv-rideau-poignee:focus-visible span{outline:2px solid #1d4ed8;outline-offset:2px}
+.cv-rideau-etiq{left:8px;right:auto;z-index:41;pointer-events:none}
+.cv-rideau-etiq.droite{left:auto;right:8px}
 
 /* ── APERÇU SUR TÉLÉPHONE : visionneuse bord à bord ─────────────────────────
    Le CONTENEUR est bord à bord (ni cadre ni marge) ; le document garde une

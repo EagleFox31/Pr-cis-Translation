@@ -58,7 +58,7 @@ fin.writeUInt32LE(tailleCentrale, 12);
 fin.writeUInt32LE(decalage, 16);
 
 const { version } = JSON.parse(readFileSync("dist/manifest.json", "utf8"));
-const sortie = `precis-extension-${version}.zip`;
+const sortie = `precis-translator-${version}.zip`;
 writeFileSync(sortie, Buffer.concat([...locaux, ...centraux, fin]));
 console.log(`${sortie} : ${centraux.length / 2} fichiers`);
 
@@ -66,4 +66,6 @@ console.log(`${sortie} : ${centraux.length / 2} fichiers`);
 const site = join("..", "frontend", "public", "extension");
 mkdirSync(site, { recursive: true });
 copyFileSync(sortie, join(site, "precis-extension.zip"));
+// Lu par l'extension installée par dossier pour proposer la mise à jour.
+writeFileSync(join(site, "version.json"), JSON.stringify({ version }) + "\n");
 console.log(`copie : ${join(site, "precis-extension.zip")}`);

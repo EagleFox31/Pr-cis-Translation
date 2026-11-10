@@ -13,6 +13,11 @@ DISTANCE_MIN = 18.0
 # trait du schéma, pas une lettre.
 PART_TRAIT = 0.35
 DILATATION = 2
+# Halo des lettres : écart au fond au-dessus de HALO_BRUIT × le bruit du bord
+# (90e centile), au moins HALO_MIN, gagné sur HALO_PORTEE × la hauteur de boîte.
+HALO_BRUIT = 2.0
+HALO_MIN = 4.0
+HALO_PORTEE = 0.1
 # Débord examiné autour de la boîte pour reconnaître un trait qui la traverse.
 MARGE_TRAIT = 4
 
@@ -22,8 +27,32 @@ def _couleur_fond_bord(roi):
     return np.median(bord, axis=0)
 
 
-def _pixels_du_trait(roi, long, interieur):
-    """Pixels de `long` qui ont la couleur de leur trait.
+def _longs(binaire, cote):
+    """Segments horizontaux ou verticaux de `binaire` plus longs que
+    PART_TRAIT × `cote` (au moins 25 px)."""
+    b = binaire.astype(np.uint8) * 255
+    longueur = max(25, int(PART_TRAIT * cote))
+    # Bord à 0 : par défaut OpenCV prolonge l'image au-delà du bord.
+    horiz = cv2.morphologyEx(b, cv2.MORPH_OPEN, np.ones((1, longueur), np.uint8),
+                             borderType=cv2.BORDER_CONSTANT, borderValue=0)
+    vert = cv2.morphologyEx(b, cv2.MORPH_OPEN, np.ones((longueur, 1), np.uint8),
+                            borderType=cv2.BORDER_CONSTANT, borderValue=0)
+    return (horiz > 0) | (vert > 0)
+
+
+def _sortants(long, interieur):
+    """Composantes de `long` qui sortent de la boîte `interieur`."""
+    dehors = np.ones(long.shape, bool)
+    dehors[interieur] = False
+    n, etiq = cv2.connectedComponents(long.astype(np.uint8))
+    ids = np.unique(etiq[long & dehors])
+    return np.isin(etiq, ids[ids > 0])
+
+
+def _pixels_du_trait(roi, long, interieur, fond):
+    """Pixels de `long` qui ont la couleur de leur trait, ou un mélange de
+    celle-ci et du fond (anticrénelage d'un trait de 2 px : la médiane tombe
+    entre les deux rangées et n'en reconnaît aucune).
 
     Seuls comptent les segments qui sortent de la boîte `interieur` (tranches
     dans `roi`) : une barre de lettre y reste, un trait de schéma la traverse.
@@ -39,12 +68,15 @@ def _pixels_du_trait(roi, long, interieur):
         sel = etiq == i
         if not (sel & ~dedans).any():
             continue
-        couleur = np.median(roi[sel], axis=0)
-        garde[sel] = np.linalg.norm(roi[sel] - couleur, axis=1) < DISTANCE_MIN
+        px = roi[sel]
+        d = np.linalg.norm(px - fond, axis=1)
+        coeur = np.median(px[d >= np.median(d)], axis=0) - fond
+        t = np.clip((px - fond) @ coeur / max(float(coeur @ coeur), 1.0), 0, 1)
+        garde[sel] = np.linalg.norm(px - fond - t[:, None] * coeur, axis=1) < DISTANCE_MIN
     return garde
 
 
-def masque_couleur(image, boites, proteger_traits=True, dilatation=DILATATION):
+def masque_couleur(image, boites, proteger_traits=True, dilatation=DILATATION, halo=True):
     """Masque `uint8` (255 = lettre) des boîtes `(x, y, w, h)`.
 
     1. distance de couleur au fond mesuré sur le BORD de la boîte : marche pour
@@ -52,7 +84,9 @@ def masque_couleur(image, boites, proteger_traits=True, dilatation=DILATATION):
     2. seuil d'Otsu sur cette distance, avec un plancher ;
     3. retrait des traits longs horizontaux et verticaux qui sortent de la
        boîte (schéma, tableau) ;
-    4. dilatation : sans elle, l'anticrénelage laisse un liseré visible.
+    4. halo (`halo`) : bord adouci des lettres, pour l'effacement seulement ;
+       une mesure (couleur, graisse, hauteur) le laisse de côté ;
+    5. dilatation : sans elle, l'anticrénelage laisse un liseré visible.
     """
     mask = np.zeros(image.shape[:2], np.uint8)
     lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB).astype(np.float32)
@@ -68,19 +102,33 @@ def masque_couleur(image, boites, proteger_traits=True, dilatation=DILATATION):
         seuil, _ = cv2.threshold(d8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         seuil = max(seuil / 255 * haut, DISTANCE_MIN)
         txt = (dist > seuil).astype(np.uint8) * 255
+        trait = np.zeros(txt.shape, bool)
+        bord = np.concatenate([dist[0], dist[-1], dist[:, 0], dist[:, -1]])
+        seuil_doux = max(HALO_MIN, HALO_BRUIT * float(np.percentile(bord, 90)))
         if proteger_traits:
             # Boîte élargie de MARGE_TRAIT : un trait qui la traverse en sort.
             y0, x0 = max(y - MARGE_TRAIT, 0), max(x - MARGE_TRAIT, 0)
             grand = lab[y0:min(y + h + MARGE_TRAIT, H), x0:min(x + w + MARGE_TRAIT, W)]
-            txt_g = (np.linalg.norm(grand - fond, axis=2) > seuil).astype(np.uint8) * 255
-            longueur = max(25, int(PART_TRAIT * max(w, h)))
-            # Bord à 0 : par défaut OpenCV prolonge l'image au-delà du bord.
-            horiz = cv2.morphologyEx(txt_g, cv2.MORPH_OPEN, np.ones((1, longueur), np.uint8),
-                                     borderType=cv2.BORDER_CONSTANT, borderValue=0)
-            vert = cv2.morphologyEx(txt_g, cv2.MORPH_OPEN, np.ones((longueur, 1), np.uint8),
-                                    borderType=cv2.BORDER_CONSTANT, borderValue=0)
+            dist_g = np.linalg.norm(grand - fond, axis=2)
             interieur = (slice(y - y0, y - y0 + h), slice(x - x0, x - x0 + w))
-            txt[_pixels_du_trait(grand, (horiz > 0) | (vert > 0), interieur)[interieur]] = 0
+            longs = _longs(dist_g > seuil, max(w, h))
+            garde = _pixels_du_trait(grand, longs, interieur, fond)
+            trait = garde[interieur]
+            txt[trait] = 0
+            if halo:
+                # Bord adouci d'un trait : plus pâle que lui, mais aussi long et
+                # droit ; le halo des lettres ne s'y propage pas.
+                doux_g = _longs(dist_g > seuil_doux, max(w, h))
+                trait = trait | _sortants(doux_g, interieur)[interieur]
+        # Halo : bord adouci, liseré ou ombre des lettres, sous le seuil d'Otsu
+        # mais distinct du fond ; gagné depuis les lettres seules, de proche en
+        # proche. Le liseré d'un trait (1 px autour) appartient au trait.
+        if halo:
+            doux = dist > seuil_doux
+            doux &= ~cv2.dilate(trait.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
+            doux = doux.astype(np.uint8) * 255
+            for _ in range(max(2, int(HALO_PORTEE * h))):
+                txt = np.maximum(txt, cv2.dilate(txt, np.ones((3, 3), np.uint8)) & doux)
         mask[y:y + h, x:x + w] = np.maximum(mask[y:y + h, x:x + w], txt)
     if dilatation:
         mask = cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=dilatation)

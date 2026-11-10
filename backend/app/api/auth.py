@@ -275,11 +275,11 @@ def _check_password_strength(pw: str) -> None:
         )
 
 
-async def _issue(db: AsyncSession, user: User) -> AuthResponse:
-    """Couple de jetons pour une session ouverte."""
+async def _issue(db: AsyncSession, user: User, client: str = "site") -> AuthResponse:
+    """Couple de jetons pour une session ouverte (`client` : site ou extension)."""
     return AuthResponse(
         access_token=create_access_token(user.id, user.email),
-        refresh_token=await create_refresh_token(db, user.id),
+        refresh_token=await create_refresh_token(db, user.id, client),
         user=_user_response(user),
     )
 
@@ -424,8 +424,8 @@ async def logout(
     user: User = Depends(require_auth),
     db: AsyncSession = Depends(get_db),
 ):
-    """Révoque tous les refresh tokens de l'utilisateur."""
-    await revoke_user_tokens(db, user.id)
+    """Révoque les sessions du site ; celle de l'extension a sa propre sortie."""
+    await revoke_user_tokens(db, user.id, client="site")
     return {"message": "Déconnecté."}
 
 
