@@ -165,3 +165,9 @@ EN COURS : branche `feat/ocr-file-pages-illisibles`, mission 6.13.11 commitée e
 - Preuve : run 42788870679 (PR #70 d'Ibrahim vers `main`) rejoué → `bootstrap-github-app-user` et `sync-github-app-user` verts.
 - Règle d'équipe : les PR ciblent `main` (sinon ni sync Project ni CI complète). #71 (empilée sur `integration/main-1.7`) sera synchronisée une fois rebasée sur `main` après fusion de #70.
 - Restant : fermer appfactory-project-automation#52 (validation faite) ; EC2 i-0ce97ff971dd343b2 à arrêter après stabilité.
+
+## 2026-11-10 15:01 — Conflit PASSATION de #70/#71 résolu
+- #71 retargetée sur `main`. #73 avait mis #70 et #71 en conflit : la branche d'Ibrahim réécrivait `PASSATION.md` et supprimait le journal daté.
+- Résolution poussée sur `integration/main-1.7` (55779b5) puis `feat/connexion-extension-site` (c6d7e10) : état d'Ibrahim (sections 1 à 5) + journal daté complet. #70 et #71 : MERGEABLE.
+- Leçon ajoutée dans `docs/engineering/lessons-learned.md`.
+- Restant : CI de #70/#71 à surveiller ; relecture puis fusion de #70 ; EC2 i-0ce97ff971dd343b2 à arrêter après stabilité.
