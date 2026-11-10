@@ -79,6 +79,7 @@ export default function ExtensionPage() {
   };
   const [params] = useSearchParams();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const corpsRef = useRef<HTMLDivElement>(null);
   const [copie, setCopie] = useState<Copie>('idle');
   const [copieAdresse, setCopieAdresse] = useState<Copie>('idle');
 
@@ -105,7 +106,8 @@ export default function ExtensionPage() {
   const choisirRubrique = (r: Rubrique) => {
     setRubrique(r);
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${r}`);
-    scrollRef.current?.scrollTo(0, 0);
+    // La page garde sa position ; seul le corps de la fiche revient en haut.
+    corpsRef.current?.scrollTo(0, 0);
   };
 
   const choisirNavigateur = (id: NavId) => {
@@ -261,13 +263,12 @@ export default function ExtensionPage() {
     <section className="admin-panel ext-panel" aria-labelledby="ext-panel-title">
       <header className="admin-panel__head">
         <div>
-          <span className="admin-panel__eyebrow">{t('extension_page.panel_eyebrow')}</span>
           <h2 id="ext-panel-title">{titre}</h2>
-          {sous && <p className="admin-panel__muted ext-panel__sub">{sous}</p>}
+          {sous && <p className="admin-panel__muted ext-panel__sub" title={sous}>{sous}</p>}
         </div>
         {action && <div className="admin-panel__head-actions">{action}</div>}
       </header>
-      <div className="admin-panel__body">{corps}</div>
+      <div className="admin-panel__body" ref={corpsRef}>{corps}</div>
     </section>
   );
 

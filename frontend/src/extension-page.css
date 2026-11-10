@@ -102,6 +102,21 @@
 .ext-panel .admin-panel__head h2 { margin: 2px 0 0; font-family: var(--font-display); font-size: 22px; font-weight: 600; }
 .ext-panel__sub { margin-top: 4px; font-size: 14px; }
 .ext-panel .admin-panel__body { padding: 4px 24px 24px; overflow: visible; }
+/* Écran large : menu et fiche de même hauteur fixe ; seul le corps de la fiche défile. */
+@media (min-width: 1024px) {
+  .ext-layout { --ext-row-h: 76px; align-items: stretch; height: max(440px, calc(100dvh - var(--nav-h) - 150px)); }
+  .ext-menu { position: static; overflow-y: auto; }
+  .ext-content { display: flex; flex-direction: column; min-height: 0; }
+  .ext-content > .ext-panel { flex: 1; min-height: 0; }
+  .ext-panel .admin-panel__body { overflow-y: auto; overscroll-behavior: contain; }
+  /* En-tête de la fiche = hauteur exacte d'une ligne du menu ; texte sur une ligne chacun. */
+  .ext-menu__row { box-sizing: border-box; height: var(--ext-row-h); flex: none; }
+  .ext-panel .admin-panel__head { box-sizing: border-box; height: var(--ext-row-h); padding: 0 20px 0 24px; flex: none; }
+  .ext-panel .admin-panel__head h2 { margin: 0; font-size: 19px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ext-panel__sub { margin-top: 2px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ext-panel .admin-panel__head-actions .ext-btn { padding-block: 9px; }
+  .ext-panel .admin-panel__body { padding-top: 20px; }
+}
 .ext-panel .admin-panel__block-head h3 { font-size: 14px; }
 .ext-panel .admin-panel__facts dd { font-size: 15px; }
 .ext-panel .ext-section { margin: 0; }

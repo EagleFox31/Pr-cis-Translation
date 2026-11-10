@@ -35,7 +35,7 @@
 .admin-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--blue); }
 
 /* Liste : une carte, une ligne par élément */
-.admin-list { background: #fff; border: 1px solid var(--gray-200); border-radius: 12px; overflow: hidden; }
+.admin-list { background: #fff; border: 1px solid var(--gray-200); border-radius: 0; overflow: hidden; }
 .admin-row { display: flex; align-items: center; gap: 16px; padding: 14px 18px; }
 .admin-row + .admin-row, .admin-item + .admin-item { border-top: 1px solid var(--gray-100); }
 .admin-row__main { flex: 1; min-width: 0; }
