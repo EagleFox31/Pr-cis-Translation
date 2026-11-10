@@ -1,0 +1,35 @@
+{
+  "label": "Traduire un document Word",
+  "title": "Traduire un document Word (DOCX) en ligne · Précis Translator",
+  "description": "Traduisez un fichier Word DOCX dans 23 langues en conservant styles, titres et tableaux. Aperçu avant téléchargement, 100 Mo maximum.",
+  "h1": "Traduire un document Word (DOCX)",
+  "answer": "Pour traduire un document Word, déposez le fichier DOCX dans Précis Translator, choisissez la langue cible et récupérez un fichier Word traduit qui garde ses styles, ses titres et ses tableaux. Le document est compté en mots : une page par tranche de 500 mots entamée.",
+  "sections": [
+    "steps",
+    {
+      "heading": "Ce qui est conservé",
+      "list": [
+        "Les styles de paragraphe, les titres et les listes.",
+        "Les tableaux et leur structure.",
+        "Les images, qui restent à leur place."
+      ]
+    },
+    "limits",
+    "privacy"
+  ],
+  "faq": [
+    {
+      "q": "Le format .doc est-il accepté ?",
+      "a": "Non : Précis accepte le format DOCX. Enregistrez d'abord un fichier .doc au format .docx depuis Word ou LibreOffice."
+    },
+    {
+      "q": "Comment les pages d'un document Word sont-elles comptées ?",
+      "a": "En mots : une page par tranche de 500 mots entamée, quelle que soit la mise en page du fichier."
+    },
+    {
+      "q": "Puis-je modifier la traduction ensuite ?",
+      "a": "Oui. Le résultat est un fichier Word que vous ouvrez et retouchez comme n'importe quel document."
+    }
+  ],
+  "verified": "2026-11-07"
+}

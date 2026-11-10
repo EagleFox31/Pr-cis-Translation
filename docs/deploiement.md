@@ -260,3 +260,7 @@ git checkout v1.0.0 && ./scripts/precis.sh rebuild
 Les volumes survivent : ni les comptes, ni les documents ne sont perdus. Une
 migration de base, en revanche, ne se dé-applique pas toute seule — vérifier
 `CHANGELOG.md` pour savoir si la version quittée en a introduit une.
+
+## Production sur le VPS OVH (depuis le 09/11/2026)
+
+La production tourne sur le VPS OVH, déployée par `.github/workflows/deploy-vps.yml` (overlay `deploy/vps/`). Historique de la bascule et procédure de redéploiement manuel : [journal-mise-en-production-2026-11.md](journal-mise-en-production-2026-11.md).

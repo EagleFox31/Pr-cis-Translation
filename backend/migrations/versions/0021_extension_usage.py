@@ -2,8 +2,8 @@
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0020_extension_usage"
-down_revision = "0019_extension_avance"
+revision = "0021_extension_usage"
+down_revision = "0020_orchestrator_events"
 branch_labels = None
 depends_on = None
 
