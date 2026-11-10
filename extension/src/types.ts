@@ -1,6 +1,5 @@
 // Protocole de messages entre popup, content script et background.
 
-export type ErreurConnexion = "identifiants" | "non_verifie" | "indisponible";
 // « limite » : limite de la page atteinte ; « limite_jour » : pages traduites du jour épuisées.
 export type ErreurSegments = "credits" | "deconnecte" | "indisponible" | "trop" | "limite" | "limite_jour";
 export type ErreurImage = "credits" | "refusee" | "illisible" | "indisponible" | "deconnecte" | "limite" | "limite_jour";
@@ -21,7 +20,8 @@ export interface ReponseImage {
 }
 
 // popup / content -> background
-export type MsgConnexion = { type: "connexion"; email: string; motDePasse: string };
+/** popup -> background : ouvre le site pour y autoriser l'extension (code à usage unique + PKCE). */
+export type MsgConnexionSite = { type: "connexion-site" };
 export type MsgDeconnexion = { type: "deconnexion" };
 export type MsgEtat = { type: "etat" };
 export type MsgSegments = {
@@ -56,7 +56,7 @@ export type MsgAppliquer = { type: "appliquer"; mode: "traduire" | "original"; l
 export type MsgAccordImages = { type: "accord_images"; images: number };
 
 export type VersBackground =
-  | MsgConnexion
+  | MsgConnexionSite
   | MsgDeconnexion
   | MsgEtat
   | MsgSegments
@@ -69,7 +69,6 @@ export type VersBackground =
   | MsgAppliquer
   | MsgAccordImages;
 
-export type ReponseConnexion = { ok: true; email: string } | { ok: false; erreur: ErreurConnexion };
 export type ReponseEtat = { connecte: boolean; email?: string; plan?: string };
 export type ReponseSegments =
   | {
@@ -92,7 +91,7 @@ export type ReponseMemoire = { traductions: number };
 export type ReponseMaj = { version: string | null };
 
 export interface ReponsesBackground {
-  connexion: ReponseConnexion;
+  "connexion-site": { ok: true };
   deconnexion: { ok: true };
   etat: ReponseEtat;
   segments: ReponseSegments;
