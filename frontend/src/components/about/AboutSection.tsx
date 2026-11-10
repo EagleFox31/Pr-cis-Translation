@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowRight, Mail, MessageCircle, Phone, X } from 'lucide-react';
+import { ArrowRight, Facebook, Linkedin, Mail, MessageCircle, Phone, X } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
 import { openSupport } from '../support/supportBus';
@@ -80,8 +80,8 @@ export default function AboutSection() {
                 {CONTACT_EMAIL}
               </a>
               <span className="about-social">
-                <a href={LINKEDIN_URL} target="_blank" rel="noopener noreferrer">LinkedIn</a>
-                <a href={FACEBOOK_URL} target="_blank" rel="noopener noreferrer">Facebook</a>
+                <a href={LINKEDIN_URL} target="_blank" rel="noopener noreferrer"><Linkedin size={15} aria-hidden="true" />LinkedIn</a>
+                <a href={FACEBOOK_URL} target="_blank" rel="noopener noreferrer"><Facebook size={15} aria-hidden="true" />Facebook</a>
               </span>
             </div>
           </div>
