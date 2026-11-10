@@ -157,3 +157,11 @@ EN COURS : branche `feat/ocr-file-pages-illisibles`, mission 6.13.11 commitée e
 - `deploy-vps.yml` lancé sur main (run 42605991292) : succès, `déployé : 865e40a045f0`, contrôles publics OK.
 - Vérifié : /health 200, /tarifs 200, sitemap 15 URLs ; `current -> app-865e40a045f0`, 3 versions gardées ; conteneur db non recréé (données conservées).
 - Restant : arrêter l'EC2 i-0ce97ff971dd343b2 après quelques jours de stabilité ; supprimer ensuite `~/precis-translation/migration-ec2` et `~/.ssh/authorized_keys.bak-precis-deploy` sur le VPS.
+
+## 2026-11-10 14:33 — Sync Project des PR collaborateurs (403 broker) corrigée
+- Cause : le broker AppFactory n'acceptait que le propriétaire comme acteur ; les PR/issues d'Ibrahim (`MbowouIbrah`) échouaient en 403 `personal_owner_required`.
+- Correctif broker : appfactory-project-automation #153 ajoute `EagleFox31/Pr-cis-Translation/.github/workflows/project-automation.yml@refs/heads/main` à `DELEGATED_CALLER_WORKFLOW_REFS` (Workers Builds déployé).
+- Correctif Précis : #72 saute la sync pour les PR qui ne ciblent pas `main` (le broker les refuse par conception : le workflow de la branche de base y est modifiable par le contributeur).
+- Preuve : run 42788870679 (PR #70 d'Ibrahim vers `main`) rejoué → `bootstrap-github-app-user` et `sync-github-app-user` verts.
+- Règle d'équipe : les PR ciblent `main` (sinon ni sync Project ni CI complète). #71 (empilée sur `integration/main-1.7`) sera synchronisée une fois rebasée sur `main` après fusion de #70.
+- Restant : fermer appfactory-project-automation#52 (validation faite) ; EC2 i-0ce97ff971dd343b2 à arrêter après stabilité.
