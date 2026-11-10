@@ -9,25 +9,25 @@ import './beta.css';
 import ToastContainer from './components/ui/Toast';
 import { authReturnTo } from './lib/authReturn';
 import { splashAttendu } from './lib/splash';
+import { pages } from './lib/routes';
 
 // Hors accueil, chaque page est chargée à sa première ouverture : un visiteur
 // ne télécharge pas l'administration, la connexion ou la page carte d'office.
-const LoginPage = lazy(() => import('./pages/LoginPage'));
-const RegisterPage = lazy(() => import('./pages/RegisterPage'));
-const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'));
-const AdminLogsPage = lazy(() => import('./pages/AdminLogsPage'));
-const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'));
-const AdminSupportPage = lazy(() => import('./pages/AdminSupportPage'));
-const AdminDocumentsPage = lazy(() => import('./pages/AdminDocumentsPage'));
-const CardPaymentPage = lazy(() => import('./pages/CardPaymentPage'));
-
-const AdminBetaPage = lazy(() => import('./pages/AdminBetaPage'));
-const BetaPage = lazy(() => import('./pages/BetaPage'));
-const LegalPage = lazy(() => import('./pages/LegalPage'));
-const ExtensionPage = lazy(() => import('./pages/ExtensionPage'));
-const ApiPage = lazy(() => import('./pages/ApiPage'));
-const ExtensionAutoriserPage = lazy(() => import('./pages/ExtensionAutoriserPage'));
-const ExtensionConnectePage = lazy(() => import('./pages/ExtensionConnectePage'));
+const LoginPage = lazy(pages.login);
+const RegisterPage = lazy(pages.register);
+const VerifyEmailPage = lazy(pages.verifyEmail);
+const AdminLogsPage = lazy(pages.adminLogs);
+const AdminUsersPage = lazy(pages.adminUsers);
+const AdminSupportPage = lazy(pages.adminSupport);
+const AdminDocumentsPage = lazy(pages.adminDocuments);
+const CardPaymentPage = lazy(pages.cardPayment);
+const AdminBetaPage = lazy(pages.adminBeta);
+const BetaPage = lazy(pages.beta);
+const LegalPage = lazy(pages.legal);
+const ExtensionPage = lazy(pages.extension);
+const ApiPage = lazy(pages.api);
+const ExtensionAutoriserPage = lazy(pages.extensionAutoriser);
+const ExtensionConnectePage = lazy(pages.extensionConnecte);
 
 /** Redirige vers /home si déjà connecté ( pages auth ). */
 function GuestRoute({ children }: { children: React.ReactNode }) {
