@@ -267,9 +267,16 @@ def blocs(lignes_lues, couleurs=None, puces=(), bgr=None):
             # un écart de hauteur y sépare un titre de sa légende.
             centrees = (abs(x + w / 2 - px - pw / 2) <= MEME_BORD * ph
                         and not _CJK.search(texte + bl.texte))
+            # Les lignes d'un paragraphe partagent un bord ou un axe, ou l'une tient
+            # dans la largeur de l'autre ; des étiquettes en escalier d'une figure
+            # (« central sulcus » / « frontal lobe » décalée à droite) non.
+            m = MEME_BORD * max(h, ph)
+            aligne = (centrees or abs(x - px) <= m or abs(x + w - px - pw) <= m
+                      or (x >= px - m and x + w <= px + pw + m)
+                      or (px >= x - m and px + pw <= x + w + m))
             tol = (2 if suite or centrees else 1) * MEME_HAUTEUR
             # Écart négatif toléré : les boîtes PP-OCR débordent sur la ligne voisine.
-            if (abs(h - ph) <= tol * max(h, ph) and -0.3 * ph < y - (py + ph) < 0.8 * ph
+            if (aligne and abs(h - ph) <= tol * max(h, ph) and -0.3 * ph < y - (py + ph) < 0.8 * ph
                     and min(x + w, px + pw) > max(x, px)
                     and (c is None or np.linalg.norm(c - tb) <= MEME_COULEUR)
                     and (bgr is None or not _trait(bgr, bl.lignes[-1], b))):
