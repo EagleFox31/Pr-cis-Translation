@@ -1,0 +1,297 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-10T17:59:09+01:00",
+  "title": "Design System: Précis Translator",
+  "extensions": {
+    "colorMeta": {
+      "navy-ink": {
+        "role": "neutral",
+        "displayName": "Encre marine",
+        "tonalRamp": [
+          "#0d1b3e",
+          "#162248",
+          "#1a4dc7",
+          "#2563eb",
+          "#3b82f6",
+          "#93c5fd",
+          "#dbeafe",
+          "#eef2ff"
+        ]
+      },
+      "stamp-blue": {
+        "role": "primary",
+        "displayName": "Bleu tampon",
+        "tonalRamp": [
+          "#0d1b3e",
+          "#162248",
+          "#1a4dc7",
+          "#2563eb",
+          "#3b82f6",
+          "#93c5fd",
+          "#dbeafe",
+          "#eef2ff"
+        ]
+      },
+      "stamp-blue-bright": {
+        "role": "primary",
+        "displayName": "Bleu vif (survol, focus)",
+        "tonalRamp": [
+          "#0d1b3e",
+          "#162248",
+          "#1a4dc7",
+          "#2563eb",
+          "#3b82f6",
+          "#93c5fd",
+          "#dbeafe",
+          "#eef2ff"
+        ]
+      },
+      "blue-wash": {
+        "role": "primary",
+        "displayName": "Lavis bleu",
+        "tonalRamp": [
+          "#0d1b3e",
+          "#162248",
+          "#1a4dc7",
+          "#2563eb",
+          "#3b82f6",
+          "#93c5fd",
+          "#dbeafe",
+          "#eef2ff"
+        ]
+      },
+      "seal-gold": {
+        "role": "accent",
+        "displayName": "Or du sceau",
+        "tonalRamp": [
+          "#3d3215",
+          "#5e4d20",
+          "#8a7230",
+          "#c9a84c",
+          "#d9bf6a",
+          "#f0d98a",
+          "#f7ead0",
+          "#fcf6e8"
+        ]
+      },
+      "ivory-paper": {
+        "role": "neutral",
+        "displayName": "Papier ivoire",
+        "tonalRamp": [
+          "#0f172a",
+          "#334155",
+          "#64748b",
+          "#cbd5e1",
+          "#e2e8f0",
+          "#f1f5f9",
+          "#f8fafc",
+          "#ffffff"
+        ]
+      },
+      "gray-500": {
+        "role": "neutral",
+        "displayName": "Ardoise (texte secondaire)",
+        "tonalRamp": [
+          "#0f172a",
+          "#334155",
+          "#64748b",
+          "#cbd5e1",
+          "#e2e8f0",
+          "#f1f5f9",
+          "#f8fafc",
+          "#ffffff"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Titre de section",
+        "purpose": "Titres de la vitrine, filet bleu à gauche."
+      },
+      "heading-page": {
+        "displayName": "Titre de page de lecture",
+        "purpose": "Pages légales, extension, Nouveautés."
+      },
+      "heading-dialog": {
+        "displayName": "Titre de fenêtre",
+        "purpose": "Fenêtres et panneaux, précédé d'une icône bleue."
+      },
+      "wordmark": {
+        "displayName": "Mot-symbole",
+        "purpose": "« récis » à côté du hibou, barre de navigation uniquement."
+      }
+    },
+    "shadows": [
+      {
+        "name": "shadow-sm",
+        "value": "0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06)",
+        "purpose": "Contrôle actif (langue), carte de page de lecture."
+      },
+      {
+        "name": "shadow-md",
+        "value": "0 4px 16px rgba(13,27,62,.10)",
+        "purpose": "Barre de navigation fixée."
+      },
+      {
+        "name": "shadow-lg",
+        "value": "0 10px 40px rgba(13,27,62,.14)",
+        "purpose": "Panneaux flottants."
+      },
+      {
+        "name": "shadow-xl",
+        "value": "0 20px 60px rgba(13,27,62,.18)",
+        "purpose": "Grandes surfaces flottantes."
+      },
+      {
+        "name": "shadow-dialog",
+        "value": "0 24px 70px rgba(13,27,62,.28)",
+        "purpose": "Fenêtres (invitation, paiement)."
+      },
+      {
+        "name": "shadow-drawer",
+        "value": "-8px 0 40px rgba(13,27,62,.18)",
+        "purpose": "Tiroir du compte."
+      },
+      {
+        "name": "shadow-btn-hover",
+        "value": "0 4px 14px rgba(26,77,199,.28)",
+        "purpose": "Survol du bouton principal."
+      }
+    ],
+    "motion": [
+      {
+        "name": "transition",
+        "value": "0.35s cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Transitions d'état par défaut (var(--transition))."
+      },
+      {
+        "name": "dialog-enter",
+        "value": "framer-motion, opacité + translation courte",
+        "purpose": "Entrée des fenêtres en portail."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "xs",
+        "value": "420px",
+        "note": "Mot-symbole masqué"
+      },
+      {
+        "name": "md",
+        "value": "900px",
+        "note": "Pages de lecture resserrées"
+      },
+      {
+        "name": "lg",
+        "value": "1100px",
+        "note": "Menu hamburger"
+      },
+      {
+        "name": "frame",
+        "value": "1240px",
+        "note": "Largeur maximale du cadre"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "html": "<button class=\"ds-btn-primary\">Traduire un document</button>",
+      "css": ".ds-btn-primary{font-family:'DM Sans',system-ui,sans-serif;background:#1a4dc7;color:#fff;border:1px solid transparent;border-radius:9px;padding:9px 16px;font-size:13px;font-weight:600;line-height:1;cursor:pointer;transition:background .35s cubic-bezier(.4,0,.2,1),box-shadow .35s cubic-bezier(.4,0,.2,1)}.ds-btn-primary:hover{background:#2563eb;box-shadow:0 4px 14px rgba(26,77,199,.28)}.ds-btn-primary:focus-visible{outline:2px solid #2563eb;outline-offset:2px}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "html": "<button class=\"ds-btn-secondary\">Voir les tarifs</button>",
+      "css": ".ds-btn-secondary{font-family:'DM Sans',system-ui,sans-serif;background:#fff;color:#1a4dc7;border:1px solid #1a4dc7;border-radius:9px;padding:9px 16px;font-size:13px;font-weight:600;line-height:1;cursor:pointer;transition:background .35s}.ds-btn-secondary:hover{background:#dbeafe}.ds-btn-secondary:focus-visible{outline:2px solid #2563eb;outline-offset:2px}"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "html": "<button class=\"ds-btn-ghost\">Vider</button>",
+      "css": ".ds-btn-ghost{font-family:'DM Sans',system-ui,sans-serif;background:transparent;color:#64748b;border:1px solid #e2e8f0;border-radius:9px;padding:6px 12px;font-size:12px;font-weight:600;line-height:1;cursor:pointer}.ds-btn-ghost:hover{background:#f8fafc;color:#334155}.ds-btn-ghost:focus-visible{outline:2px solid #2563eb;outline-offset:2px}"
+    },
+    {
+      "name": "Badge",
+      "kind": "chip",
+      "html": "<span class=\"ds-badge\">Bêta</span> <span class=\"ds-badge ds-badge--success\">Disponible</span> <span class=\"ds-badge ds-badge--soon\">Bientôt</span>",
+      "css": ".ds-badge{font-family:'DM Sans',system-ui,sans-serif;display:inline-flex;align-items:center;border-radius:100px;padding:3px 10px;font-size:11px;font-weight:600;letter-spacing:.02em;background:#dbeafe;color:#1a4dc7;border:1px solid #93c5fd}.ds-badge--success{background:#f0fdf4;color:#15803d;border-color:#bbf7d0}.ds-badge--soon{background:#f1f5f9;color:#64748b;border-color:#cbd5e1;font-size:10px}"
+    },
+    {
+      "name": "Section Title",
+      "kind": "typography",
+      "html": "<p class=\"ds-tag\">Formats</p><h2 class=\"ds-section-title\">Vos documents, <em>tels quels</em></h2>",
+      "css": ".ds-tag{font-family:'DM Sans',system-ui,sans-serif;display:flex;align-items:center;gap:16px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#1a4dc7;margin:0 0 12px}.ds-tag::after{content:'';flex:1;height:1px;background:#1a4dc7}.ds-section-title{font-family:'Cormorant Garamond',Georgia,serif;font-size:2.4rem;font-weight:400;line-height:1.15;color:#0d1b3e;letter-spacing:-.01em;padding-left:16px;border-left:4px solid #1a4dc7;margin:0}.ds-section-title em{font-style:italic;color:#1a4dc7}"
+    },
+    {
+      "name": "Dialog",
+      "kind": "card",
+      "html": "<div class=\"ds-dialog\"><button class=\"ds-dialog__x\" aria-label=\"Fermer\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/></svg></button><div class=\"ds-dialog__head\"><span class=\"ds-dialog__ico\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z\"/></svg></span><h2>Bienvenue sur Précis</h2></div><p class=\"ds-dialog__sub\">Ce que vous pouvez faire dès maintenant.</p><button class=\"ds-dialog__cta\">Découvrir toutes les fonctionnalités</button></div>",
+      "css": ".ds-dialog{font-family:'DM Sans',system-ui,sans-serif;position:relative;width:400px;max-width:92vw;background:#fff;border-radius:18px;padding:26px 24px;box-shadow:0 24px 70px rgba(13,27,62,.28)}.ds-dialog__x{position:absolute;top:14px;right:14px;background:none;border:0;color:#64748b;cursor:pointer;padding:4px;border-radius:8px}.ds-dialog__x:hover{background:#f1f5f9;color:#334155}.ds-dialog__head{display:flex;align-items:center;gap:10px}.ds-dialog__ico{color:#1a4dc7;display:flex}.ds-dialog h2{margin:0;font-size:18px;font-weight:700;color:#0d1b3e}.ds-dialog__sub{margin:6px 0 18px;font-size:13px;color:#64748b}.ds-dialog__cta{width:100%;padding:12px;border:0;border-radius:10px;background:#1a4dc7;color:#fff;font-size:14.5px;font-weight:600;cursor:pointer}.ds-dialog__cta:hover{background:#2563eb}.ds-dialog__cta:focus-visible{outline:2px solid #2563eb;outline-offset:2px}"
+    },
+    {
+      "name": "Document Card",
+      "kind": "card",
+      "html": "<div class=\"ds-doc\"><span class=\"ds-doc__ico\">PDF</span><span class=\"ds-doc__name\">rapport-annuel.pdf</span><span class=\"ds-doc__lang\">EN</span></div>",
+      "css": ".ds-doc{font-family:'DM Sans',system-ui,sans-serif;display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc;width:340px}.ds-doc__ico{width:34px;height:34px;border-radius:9px;background:#dbeafe;color:#1a4dc7;font-size:10px;font-weight:700;display:grid;place-items:center}.ds-doc__name{flex:1;font-size:13px;font-weight:600;color:#0d1b3e}.ds-doc__lang{background:#dbeafe;color:#1a4dc7;font-size:11px;font-weight:700;border-radius:6px;padding:2px 7px}"
+    },
+    {
+      "name": "Navigation",
+      "kind": "navigation",
+      "html": "<nav class=\"ds-nav\"><span class=\"ds-nav__brand\">Précis</span><a class=\"ds-nav__link is-active\" href=\"#\">Traduire</a><a class=\"ds-nav__link\" href=\"#\">Tarifs</a><a class=\"ds-nav__link\" href=\"#\">Nouveautés</a></nav>",
+      "css": ".ds-nav{font-family:'DM Sans',system-ui,sans-serif;display:flex;align-items:center;gap:36px;height:72px;padding:0 24px;background:rgba(255,255,255,.98);border-bottom:1px solid rgba(13,27,62,.08);box-shadow:0 4px 16px rgba(13,27,62,.10)}.ds-nav__brand{font-family:'Pinyon Script',cursive;font-size:32px;color:#0d1b3e;margin-right:auto}.ds-nav__link{font-size:14px;font-weight:500;color:#334155;text-decoration:none;padding:6px 0;border-bottom:1.5px solid transparent}.ds-nav__link:hover,.ds-nav__link.is-active{color:#1a4dc7;border-bottom-color:#1a4dc7}.ds-nav__link:focus-visible{outline:2px solid #2563eb;outline-offset:2px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Le papier de cabinet",
+    "overview": "Précis se présente comme un document bien tenu : du papier blanc ou ivoire, une encre marine, un tampon bleu pour ce qu'on peut faire, un filet d'or pour ce qui mérite d'être remarqué. Les titres en Cormorant Garamond donnent la voix éditoriale ; tout ce qui se manipule (boutons, compteurs, listes, fenêtres) parle en DM Sans, net et compact. Le site promet de garder la mise en page ; son interface prouve le soin par l'ordre, pas par l'ornement.",
+    "keyCharacteristics": [
+      "Serif éditoriale pour les titres, sans-serif pour l'interface.",
+      "Bleu d'encre unique pour l'action ; or réservé à l'accent rare.",
+      "Surfaces blanches sur gray-50, filets gray-200, ombres teintées marine.",
+      "Fenêtres compactes (400–440 px), voile marine flouté.",
+      "Pastilles en pilule pour les statuts et les rubriques."
+    ],
+    "rules": [
+      {
+        "name": "The One Ink Rule",
+        "body": "Une seule couleur d'action : le bleu tampon. Une deuxième couleur saturée sur un bouton ou un lien est une erreur.",
+        "section": "colors"
+      },
+      {
+        "name": "The Rare Gold Rule",
+        "body": "L'or occupe moins de 2 % d'un écran. S'il apparaît sur une fenêtre ou un panneau, il est de trop.",
+        "section": "colors"
+      },
+      {
+        "name": "The Defined Gray Rule",
+        "body": "Seuls gray-50, 100, 200, 300, 500, 700, 900 existent. gray-400 et gray-600 sont référencés dans le code sans être définis : ne pas s'en servir.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two Voices Rule",
+        "body": "Cormorant pour ce qu'on lit, DM Sans pour ce qu'on manipule. Jamais de Cormorant dans un bouton, une pastille ou un compteur.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-Until-Lifted Rule",
+        "body": "Une carte posée sur la page n'a qu'un filet gray-200. L'ombre n'apparaît que pour ce qui flotte : barre fixée, tiroir, fenêtre.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do réutiliser les classes existantes (ui-btn, Badge, legal-page, ext-*, compte) avant d'en créer.",
+      "Do écrire chaque chiffre affiché à partir d'une source du code ou du README.",
+      "Do garder les cibles tactiles à 44 px au moins sur mobile.",
+      "Do utiliser les icônes lucide en trait de 2, à 16–20 px."
+    ],
+    "donts": [
+      "Don't utiliser de dégradés violets, de glassmorphism ni de mode sombre.",
+      "Don't mettre de l'or sur un contrôle ou un fond.",
+      "Don't reprendre « 100 % », « 50+ langues » ou « traducteurs humains certifiés » : ces affirmations ne sont pas sourcées.",
+      "Don't présenter la traduction de scans comme ouverte au public tant que le README dit le contraire.",
+      "Don't utiliser gray-400 ou gray-600."
+    ]
+  }
+}
