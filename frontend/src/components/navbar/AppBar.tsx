@@ -9,7 +9,7 @@
  * Réutilise les classes `.navbar/.nav-inner/.nav-links/.lang-toggle` d'`index.css`.
  */
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
@@ -17,6 +17,9 @@ import { ArrowLeft } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import MobileMenu from './MobileMenu';
 import '../admin/admin.css';
+
+// Tiroir « Mes documents » : chargé à la première ouverture seulement.
+const BibliothequeHote = lazy(() => import('../library/BibliothequeHote'));
 
 export interface AppBarLink {
   href: string;
@@ -41,6 +44,8 @@ export default function AppBar({ links = [], linksLabel, exit = false, home }: A
   const { pathname } = useLocation();
   const { user } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  // `null` : jamais ouvert (rien de monté) ; ensuite reste monté pour l'animation de fermeture.
+  const [biblio, setBiblio] = useState<boolean | null>(null);
   const fr = (i18n.language || 'fr').startsWith('fr');
   const accueil = home ?? (user ? '/home' : '/');
   const retour = t('admin.back_home', 'Retour à l’accueil');
@@ -92,8 +97,9 @@ export default function AppBar({ links = [], linksLabel, exit = false, home }: A
 
           {user && (
             <button
-              onClick={() => navigate('/home')}
+              onClick={() => setBiblio(true)}
               title={t('admin.my_account', 'Mon compte')}
+              aria-haspopup="dialog"
               style={{
                 width: '34px', height: '34px', borderRadius: '999px',
                 background: 'var(--blue)', color: 'white', border: 'none',
@@ -113,6 +119,12 @@ export default function AppBar({ links = [], linksLabel, exit = false, home }: A
           )}
         </div>
       </nav>
+
+      {user && biblio !== null && (
+        <Suspense fallback={null}>
+          <BibliothequeHote isOpen={biblio} onClose={() => setBiblio(false)} />
+        </Suspense>
+      )}
 
       {links.length > 0 && (
         <MobileMenu

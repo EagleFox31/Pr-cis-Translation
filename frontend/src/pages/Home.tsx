@@ -1,6 +1,8 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useLocation, useNavigate } from 'react-router-dom';
 import Navbar from '../components/navbar/Navbar';
+import type { DemandeBibliotheque } from '../components/library/BibliothequeHote';
 import HeroSection from '../components/hero/HeroSection';
 import LanguageMarquee from '../components/hero/LanguageMarquee';
 import FeaturesGrid from '../components/features/FeaturesGrid';
@@ -355,6 +357,29 @@ export default function Home() {
     },
     [getOriginalBlob, deleteDocument, handleStartTranslate, t],
   );
+
+  // ---- Demande venue du tiroir d'une autre page (admin, intégrations) -------
+  // L'aperçu et la relance vivent ici : le tiroir des autres pages y renvoie
+  // avec la demande dans l'état de navigation, exécutée une fois le document
+  // connu, puis effacée (un retour arrière ne la rejoue pas).
+  const location = useLocation();
+  const navigate = useNavigate();
+  const demande = (location.state as DemandeBibliotheque | null)?.bibliotheque;
+  useEffect(() => {
+    if (!demande) return;
+    const doc = documents.find((d) => d.id === demande.docId);
+    if (!doc) return;
+    navigate(location.pathname, { replace: true, state: null });
+    if (demande.action === 'relance') {
+      handleRetry(doc);
+    } else {
+      handleLibraryPreview({
+        docId: doc.id, paid: doc.paid, filename: doc.filename, ext: doc.ext,
+        enCours: doc.status === 'translating',
+        source: getOriginalBlob(doc.id, true),
+      });
+    }
+  }, [demande, documents, navigate, location.pathname, handleRetry, handleLibraryPreview, getOriginalBlob]);
 
   // ---- Aperçu bibliothèque : réseau seulement quand on ne SAIT pas ---------
   //
