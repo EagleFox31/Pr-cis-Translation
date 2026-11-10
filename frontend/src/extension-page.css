@@ -104,7 +104,7 @@
 .ext-panel .admin-panel__body { padding: 4px 24px 24px; overflow: visible; }
 /* Écran large : menu et fiche de même hauteur fixe ; seul le corps de la fiche défile. */
 @media (min-width: 1024px) {
-  .ext-layout { --ext-row-h: 76px; align-items: stretch; height: max(440px, calc(100dvh - var(--nav-h) - 150px)); }
+  .ext-layout, .ext-panel { --ext-row-h: 76px; } .ext-layout { align-items: stretch; height: max(440px, calc(100dvh - var(--nav-h) - 150px)); }
   .ext-menu { position: static; overflow-y: auto; }
   .ext-content { display: flex; flex-direction: column; min-height: 0; }
   .ext-content > .ext-panel { flex: 1; min-height: 0; }
@@ -150,7 +150,18 @@
 .ext-plans li:last-child { border-bottom: 0; }
 .ext-plans strong { color: var(--navy); }
 .ext-plans__price { font-weight: 600; color: var(--navy); white-space: nowrap; }
-.ext-docs { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px 24px; }
+/* Fiche : intro, tuiles de comptage, liste à coches, pied fixe pour les liens. */
+.ext-lead { margin: 0 0 4px; font-size: 15px; line-height: 1.6; color: var(--gray-700); }
+.ext-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.ext-tiles > div { padding: 12px 14px; border: 1px solid var(--gray-100); border-radius: 8px; background: var(--gray-50, #f8fafc); }
+.ext-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.ext-checks li { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; line-height: 1.55; color: var(--gray-700); }
+.ext-checks svg { flex: none; margin-top: 4px; color: var(--blue); }
+.ext-plans li { grid-template-columns: 130px minmax(0, 1fr) auto; }
+.ext-panel__foot { flex: none; border-top: 1px solid var(--gray-200); padding: 12px 24px; background: var(--white); }
+.ext-docs { display: flex; align-items: center; gap: 20px; white-space: nowrap; overflow-x: auto; font-size: 14px; }
+.ext-docs > span { color: var(--gray-500); font-size: 13px; }
+@media (max-width: 700px) { .ext-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ext-docs { flex-wrap: wrap; white-space: normal; gap: 8px 16px; } }
 @media (max-width: 600px) { .ext-plans li { grid-template-columns: minmax(0, 1fr) auto; } .ext-plans li > span:not(.ext-plans__price) { grid-column: 1 / -1; grid-row: 2; font-size: 14px; } }
 .ext-plans li > span { text-align: left; }
 .ext-plans li > .ext-plans__price { text-align: right; }
@@ -166,12 +177,10 @@
 .api-chantier strong { display: block; font-size: 16px; margin-bottom: 4px; color: #92400e; }
 .api-chantier p { margin: 0; font-size: 14px; line-height: 1.5; }
 .api-statut { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; background: #fef3c7; color: #92400e; vertical-align: middle; }
-.api-grille { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 18px 0; }
+.api-grille { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 18px 0 0; }
 .api-bloc { padding: 18px 20px; border: 1px solid var(--gray-200); border-radius: var(--radius); background: var(--white); }
 .api-bloc h3 { margin: 0 0 12px; font-size: 15px; font-weight: 600; color: var(--navy); }
-.api-bloc .ext-list { margin: 0; padding-left: 18px; }
-.api-bloc .ext-list li { font-size: 14.5px; line-height: 1.6; }
-.api-bloc .ext-list li:last-child { margin-bottom: 0; }
+.api-bloc .ext-checks li { font-size: 14.5px; }
 .api-hero { text-align: center; }
 .api-hero .ext-hero__lead { margin-inline: auto; }
 .api-statut { font-family: var(--font-body, inherit); }

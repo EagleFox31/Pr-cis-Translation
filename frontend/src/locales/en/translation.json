@@ -1063,6 +1063,7 @@
       "fact_video_v": "1 page per video frame",
       "fact_fail": "On failure",
       "fact_fail_v": "Nothing is charged",
+      "count_title": "How pages are counted",
       "plans_title": "Plans (same pages as the website)",
       "pages_month_one": "{{count}} page / month",
       "pages_month_other": "{{count}} pages / month",
@@ -1110,7 +1111,6 @@
   "api_page": {
     "doc_title": "API — Précis",
     "title": "Précis API",
-    "eyebrow": "Integration",
     "status_badge": "In progress",
     "status_title": "In development: the API is not available yet",
     "status_text": "This page describes what the API will include. Details may still change before it opens.",

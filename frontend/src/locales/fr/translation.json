@@ -1063,6 +1063,7 @@
       "fact_video_v": "1 page par image de vidéo",
       "fact_fail": "En cas d'échec",
       "fact_fail_v": "Rien n'est débité",
+      "count_title": "Comment les pages se comptent",
       "plans_title": "Forfaits (mêmes pages que le site)",
       "pages_month_one": "{{count}} page / mois",
       "pages_month_other": "{{count}} pages / mois",
@@ -1110,7 +1111,6 @@
   "api_page": {
     "doc_title": "API — Précis",
     "title": "API Précis",
-    "eyebrow": "Intégration",
     "status_badge": "En cours",
     "status_title": "En cours de développement : l'API n'est pas encore disponible",
     "status_text": "Cette page présente ce que l'API contiendra. Les détails peuvent encore évoluer d'ici son ouverture.",

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Construction } from 'lucide-react';
+import { Check, Construction } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import IntegrationsNav from '../components/IntegrationsNav';
@@ -54,14 +54,13 @@ export default function ApiPage() {
             <section className="admin-panel ext-panel" aria-labelledby="api-panel-title">
               <header className="admin-panel__head">
                 <div>
-                  <span className="admin-panel__eyebrow">{t('api_page.eyebrow')}</span>
                   <h2 id="api-panel-title">{t('api_page.panel_title')}</h2>
                   <p className="admin-panel__muted ext-panel__sub">{t('api_page.panel_sub')}</p>
                 </div>
               </header>
               <div className="admin-panel__body">
                 <section className="admin-panel__block">
-                  <dl className="admin-panel__facts">
+                  <dl className="admin-panel__facts ext-tiles">
                     {FAITS.map((f) => (
                       <div key={f}><dt>{t(`api_page.fact_${f}`)}</dt><dd>{t(`api_page.fact_${f}_v`)}</dd></div>
                     ))}
@@ -71,14 +70,14 @@ export default function ApiPage() {
                   {BLOCS.map(({ titre, puces }) => (
                     <section key={titre} className="api-bloc">
                       <h3>{t(`api_page.${titre}`)}</h3>
-                      <ul className="ext-list">
-                        {puces.map((p) => <li key={p}>{t(`api_page.${p}`)}</li>)}
+                      <ul className="ext-checks">
+                        {puces.map((p) => <li key={p}><Check size={16} strokeWidth={2.4} aria-hidden="true" />{t(`api_page.${p}`)}</li>)}
                       </ul>
                     </section>
                   ))}
                 </div>
-                <p className="admin-panel__muted">{t('api_page.notice')}</p>
               </div>
+              <footer className="ext-panel__foot admin-panel__muted">{t('api_page.notice')}</footer>
             </section>
           </div>
         </div>
