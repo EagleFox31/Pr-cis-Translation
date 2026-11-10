@@ -38,16 +38,10 @@ from engines.pdf import tagging                        # noqa: E402
 
 DOSSIER = os.path.dirname(os.path.abspath(__file__))
 SORTIE = os.path.join(DOSSIER, "out_lettres_dessinees")
-# Police grasse du poste : Arial sous Windows, DejaVu sous Linux (CI).
-POLICE_LETTRES = next(
-    (f for f in (
-        os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts",
-                     "arialbd.ttf"),
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    ) if os.path.exists(f)),
-    os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts",
-                 "arialbd.ttf"))
+# Police grasse livrée avec le dépôt : même dessin de lettre sur tous les postes
+# (Windows, CI Linux). Une police système change la forme des lettres.
+POLICE_LETTRES = os.path.join(os.path.dirname(DOSSIER), "fonts",
+                              "roboto-Bold.ttf")
 
 LARG, HAUT = 300, 130
 GRIS, ROUGE = (0.25, 0.25, 0.25), (0.93, 0.27, 0.18)
