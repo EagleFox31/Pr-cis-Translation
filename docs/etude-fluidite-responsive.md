@@ -75,3 +75,20 @@ de l'évaluation du paquet + rendu de Home (sinon : correctif ciblé).
 ## 6. Point à trancher
 - Écran de démarrage (B) : 1re visite seulement, ≤ 1 s (recommandé), ou le
   supprimer, ou le garder tel quel.
+
+## 7. Résultat (build de prod, mêmes scripts de mesure)
+
+| Mesure | Avant | Après | Objectif |
+|---|---|---|---|
+| Mobile bridé : premier affichage (FCP) | 6,9 s | 4,3 s | < 3 s, **non atteint** |
+| Mobile bridé : affichage principal (LCP) | 8,6 s | 6,0 s | n/a |
+| Mobile bridé : blocage du fil (TBT) | 6,7 s | 4,7 s | < 3,35 s, **non atteint** |
+| Mobile bridé : JS chargé | 315 Ko | 277 Ko | n/a |
+| Mobile bridé : /home → /extension | 1,9 s | 1,05 s | n/a |
+| Bureau : FCP / TBT / navigation | 1,1 s / 0,4 s / 0,4 s | 1,03 s / 0,28 s / 0,27 s | n/a |
+| Défilement horizontal (375 → 1440, invité et admin) | aucun | aucun | aucun |
+
+- Les mesures mobiles varient d'environ ±0,5 s d'un passage à l'autre.
+- Les cibles tactiles signalées sous 44 px sont des liens de texte (pied de page, e-mail, réseaux), que la règle WCAG 2.5.8 autorise.
+- Sur `/login`, en local, le 403 vient de Google : l'origine localhost:4173 n'est pas déclarée pour la connexion Google. C'est de la configuration, pas un défaut du code.
+- L'essentiel du temps restant sur mobile vient de `/home` : animations de la page d'accueil (motion) et tâches longues de 150 à 240 ms au démarrage.
