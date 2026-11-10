@@ -54,8 +54,8 @@ Contexte général : nettoyer le dépôt et mettre en ligne (push + PR vers `mai
      - [x] fiche d'intégration `docs/integration-nouveautes.md` (fait foi sur l'étude : plus de journal, plus de « Plus tard », plus de limite à 5) : fichiers à toucher, jetons manquants (dont `--gray-400` utilisé par InviteModal mais non défini), origine des données, comportements, i18n, a11y, étapes G.1–G.8 (G.6 → 6a fenêtres / 6b panneau), prérendu `seo/site.json` + `scripts/prerender.mjs`.
      - [x] toutes les recommandations acceptées (10/11) ; confirmer avec l'utilisateur avant chaque étape G.x, explication simple : URL `/fonctionnalites` ; dates juillet 2026 ; classement bêta/Polices PDF/PowerPoint ; onglet « Nouveautés » vs groupe « Fonctionnalités » (+ ancre navbar `#features` homonyme) ; lien Forfaits `/home#pricing` ; pages achetées gardées sur la ligne de solde, renouvellement retiré ; Reprendre / téléchargement partiel / Signaler / états scan → menu « … » + ligne d'état ; version affichée = constante du catalogue ; titres courts propres + champ `icone` pour l'accueil ; désabonnement e-mail = jeton signé (pas `/compte`) ; hook « traduction en cours » de `Home.tsx` à identifier en G.6a.
      Les étapes 5 et 6 suivent les maquettes ; la fenêtre « depuis » utilise des onglets, plus des rubriques dépliables.
-  1. [ ] catalogue backend `app/content/nouveautes.py` + test ; textes FR/EN relus par l'utilisateur
-  2. [ ] migration 0024 (vues_le, abonne, abonne_le, langue ; table nouveautes_envois)
+  1. [x] catalogue `backend/app/content/nouveautes.py` (19 éléments, FR/EN, VERSION alignée package.json) + `tests/test_nouveautes_catalogue.py` 6 verts — commit 13afa19 ; textes EN à relire
+  2. [x] migration 0024 (vues_le, abonne, abonne_le, langue ; table nouveautes_envois)
   3. [ ] API `/api/nouveautes` (liste, a-voir, vues, abonnement, désabonnement signé) + tests
   4. [ ] e-mail sur `_carte` + List-Unsubscribe + script d'envoi étalé ; essai réel
   5. [ ] page Fonctionnalités (URL à confirmer) + liens pied de page / menu mobile / sitemap
