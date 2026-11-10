@@ -4,16 +4,18 @@ import App from './App.tsx';
 import ErrorBoundary from './components/ErrorBoundary.tsx';
 import { installGlobalErrorReporting } from './lib/errorReporting.ts';
 import './index.css';
-import './i18n.ts';
+import { languePrete } from './i18n.ts';
 
 // Capteurs globaux AVANT le rendu : une erreur au tout premier montage compte
 // autant que les autres.
 installGlobalErrorReporting();
 
-createRoot(document.getElementById('root')!).render(
+// Visiteur anglophone : on attend son dictionnaire (chargé à part) plutôt que
+// d'afficher la page en français puis de la basculer.
+languePrete.catch(() => { /* repli français */ }).finally(() => createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
       <App />
     </ErrorBoundary>
   </StrictMode>,
-);
+));
