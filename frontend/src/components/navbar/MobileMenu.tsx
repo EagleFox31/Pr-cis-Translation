@@ -1,4 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
+import { useTranslation } from 'react-i18next';
 
 interface MobileMenuProps {
   isOpen: boolean;
@@ -9,6 +10,8 @@ interface MobileMenuProps {
 }
 
 export default function MobileMenu({ isOpen, links, activeSection, onNavClick, onClose }: MobileMenuProps) {
+  const { t, i18n } = useTranslation();
+  const langue = i18n.language?.startsWith('en') ? 'en' : 'fr';
   return (
     <AnimatePresence>
       {isOpen && (
@@ -38,6 +41,12 @@ export default function MobileMenu({ isOpen, links, activeSection, onNavClick, o
               </a>
             );
           })}
+          <div className="lang-toggle" role="group" aria-label={t('nav.language', 'Langue')}>
+            {(['fr', 'en'] as const).map((l) => (
+              <button key={l} className={langue === l ? 'active' : ''} aria-pressed={langue === l}
+                onClick={() => i18n.changeLanguage(l)}>{l.toUpperCase()}</button>
+            ))}
+          </div>
         </motion.div>
       )}
     </AnimatePresence>

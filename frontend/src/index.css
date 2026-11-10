@@ -1786,7 +1786,13 @@ footer {
 @media (max-width: 1100px) {
   .nav-links { display: none; }
   .hamburger { display: flex; }
+  /* Convention mobile : logo à gauche, compte + menu à droite ; la langue passe dans le menu. */
+  .nav-inner:has(.hamburger) .lang-toggle { display: none; }
+  .nav-inner:has(.hamburger) .nav-logo { margin-right: auto; }
+  .hamburger { min-width: 44px; min-height: 44px; align-items: center; justify-content: center; }
 }
+.mobile-menu .lang-toggle { display: flex; margin: 4px auto 0; }
+.mobile-menu .lang-toggle button { min-width: 64px; min-height: 44px; font-size: 13px; }
 @media (max-width: 420px) {
   .nav-inner { gap: 12px; }
   .nav-inner:has(.hamburger) .animated-logo-text { display: none; }
