@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import Navbar from '../components/navbar/Navbar';
 import HeroSection from '../components/hero/HeroSection';
@@ -9,9 +9,7 @@ import type { Ajustement } from '../components/preview/ViewerToolbar';
 import PricingSection from '../components/pricing/PricingSection';
 import AboutSection from '../components/about/AboutSection';
 import { showToast } from '../components/ui/Toast';
-import SupportModal from '../components/support/SupportModal';
-import InviteModal from '../components/invite/InviteModal';
-import PaymentModal from '../components/payment/PaymentModal';
+import PaymentModal from '../components/payment/LazyPaymentModal';
 import DocumentLibrary from '../components/library/DocumentLibrary';
 import { useAuth } from '../contexts/AuthContext';
 import { useDocumentLibrary, STATUTS_REPRENABLES, type DocMeta } from '../hooks/useDocumentLibrary';
@@ -25,6 +23,9 @@ import { isTrialFor } from '../lib/plans';
 import { subscribeSection } from '../lib/sectionBus';
 import { creerGesteMolette } from '../lib/molette';
 import type { TranslateConfig } from '../components/upload/TranslationSection';
+
+const SupportModal = lazy(() => import('../components/support/SupportModal'));
+const InviteModal = lazy(() => import('../components/invite/InviteModal'));
 
 export default function Home() {
   const { t } = useTranslation();
@@ -655,8 +656,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-white text-gray-900 font-body">
-      <SupportModal />
-      <InviteModal />
+      <Suspense fallback={null}><SupportModal /><InviteModal /></Suspense>
 
       {/* Paiement à la page : achat des crédits nécessaires à la traduction
           courante (402). Une fois payé, on REJOUE la traduction telle quelle. */}

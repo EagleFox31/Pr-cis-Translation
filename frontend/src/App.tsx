@@ -5,17 +5,21 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import SplashScreen from './components/SplashScreen';
 import Home from './pages/Home';
-import LoginPage from './pages/LoginPage';
-import RegisterPage from './pages/RegisterPage';
-import VerifyEmailPage from './pages/VerifyEmailPage';
-import AdminLogsPage from './pages/AdminLogsPage';
-import AdminUsersPage from './pages/AdminUsersPage';
-import AdminSupportPage from './pages/AdminSupportPage';
-import AdminDocumentsPage from './pages/AdminDocumentsPage';
-import CardPaymentPage from './pages/CardPaymentPage';
 import './beta.css';
 import ToastContainer from './components/ui/Toast';
 import { authReturnTo } from './lib/authReturn';
+import { splashAttendu } from './lib/splash';
+
+// Hors accueil, chaque page est chargée à sa première ouverture : un visiteur
+// ne télécharge pas l'administration, la connexion ou la page carte d'office.
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const RegisterPage = lazy(() => import('./pages/RegisterPage'));
+const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'));
+const AdminLogsPage = lazy(() => import('./pages/AdminLogsPage'));
+const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'));
+const AdminSupportPage = lazy(() => import('./pages/AdminSupportPage'));
+const AdminDocumentsPage = lazy(() => import('./pages/AdminDocumentsPage'));
+const CardPaymentPage = lazy(() => import('./pages/CardPaymentPage'));
 
 const AdminBetaPage = lazy(() => import('./pages/AdminBetaPage'));
 const BetaPage = lazy(() => import('./pages/BetaPage'));
@@ -50,12 +54,12 @@ export default function App() {
   // La page carte s'affiche dans le cadre de la fenêtre de paiement : hors
   // AuthProvider, pour qu'une seconde instance ne dispute pas le jeton de
   // rafraîchissement à l'application qui l'héberge.
-  if (window.location.pathname === '/paiement/carte') return <CardPaymentPage />;
+  if (window.location.pathname === '/paiement/carte') return <Suspense fallback={null}><CardPaymentPage /></Suspense>;
   return <MainApp />;
 }
 
 function MainApp() {
-  const [showSplash, setShowSplash] = useState(true);
+  const [showSplash, setShowSplash] = useState(splashAttendu);
 
   return (
     <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
@@ -66,6 +70,7 @@ function MainApp() {
             <SplashScreen key="splash" onComplete={() => setShowSplash(false)} />
           )}
         </AnimatePresence>
+        <Suspense fallback={null}>
         <Routes>
           {/* Accès visiteur : la page d'accueil est ouverte à tous */}
           <Route path="/home" element={<Home />} />
@@ -76,18 +81,19 @@ function MainApp() {
           <Route path="/admin/users" element={<AdminRoute><AdminUsersPage /></AdminRoute>} />
           <Route path="/admin/documents" element={<AdminRoute><AdminDocumentsPage /></AdminRoute>} />
           <Route path="/admin/support" element={<AdminRoute><AdminSupportPage /></AdminRoute>} />
-          <Route path="/admin/beta" element={<AdminRoute><Suspense fallback={null}><AdminBetaPage /></Suspense></AdminRoute>} />
-          <Route path="/beta" element={<Suspense fallback={null}><BetaPage /></Suspense>} />
-          <Route path="/extension" element={<Suspense fallback={null}><ExtensionPage /></Suspense>} />
-          <Route path="/extension/autoriser" element={<Suspense fallback={null}><ExtensionAutoriserPage /></Suspense>} />
-          <Route path="/extension/connecte" element={<Suspense fallback={null}><ExtensionConnectePage /></Suspense>} />
-          <Route path="/integrations/api" element={<Suspense fallback={null}><ApiPage /></Suspense>} />
-          <Route path="/mentions-legales" element={<Suspense fallback={null}><LegalPage slug="mentions-legales" /></Suspense>} />
-          <Route path="/conditions" element={<Suspense fallback={null}><LegalPage slug="conditions" /></Suspense>} />
-          <Route path="/confidentialite" element={<Suspense fallback={null}><LegalPage slug="confidentialite" /></Suspense>} />
-          <Route path="/cookies" element={<Suspense fallback={null}><LegalPage slug="cookies" /></Suspense>} />
+          <Route path="/admin/beta" element={<AdminRoute><AdminBetaPage /></AdminRoute>} />
+          <Route path="/beta" element={<BetaPage />} />
+          <Route path="/extension" element={<ExtensionPage />} />
+          <Route path="/extension/autoriser" element={<ExtensionAutoriserPage />} />
+          <Route path="/extension/connecte" element={<ExtensionConnectePage />} />
+          <Route path="/integrations/api" element={<ApiPage />} />
+          <Route path="/mentions-legales" element={<LegalPage slug="mentions-legales" />} />
+          <Route path="/conditions" element={<LegalPage slug="conditions" />} />
+          <Route path="/confidentialite" element={<LegalPage slug="confidentialite" />} />
+          <Route path="/cookies" element={<LegalPage slug="cookies" />} />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
+        </Suspense>
         <ToastContainer />
       </AuthProvider>
     </BrowserRouter>
