@@ -12,6 +12,8 @@ Le corpus reste hors du dépôt (images de tiers) : `backend/translations/_banc_
     python backend/tests/banc_images.py              rejoue, planches + indicateurs
     python backend/tests/banc_images.py --reference  garde ces indicateurs comme référence
     python backend/tests/banc_images.py --live       traduit les textes absents de la mémoire
+    python -I backend/tests/banc_images.py --banc _banc_public   même chose sur le banc public
+        (50 images tirées au hasard par banc_public_tirage.py, docs/etude-banc-public.md)
 
 Indicateurs (plus bas = mieux, sauf occupation) :
   coupes    blocs dont une ligne coupe un mot latin en deux
@@ -28,7 +30,8 @@ import os
 import re
 import sys
 
-import racine  # noqa: F401
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # `python -I` retire ce dossier
+import racine  # noqa: E402,F401
 import cv2
 import numpy as np
 from PIL import Image
@@ -197,7 +200,8 @@ def rejouer(live=False, lot=None):
         return out
 
     img._freres = _freres
-    sorties = os.path.join(BANC, "sorties")
+    # Un lot a son propre dossier de planches (original | traduit), une par image.
+    sorties = os.path.join(BANC, "sorties", *([f"lot{lot}"] if lot is not None else []))
     os.makedirs(sorties, exist_ok=True)
     resultats = {}
     cas_dir = os.path.join(BANC, "cas")
@@ -247,7 +251,11 @@ def main():
     ap.add_argument("--reference", action="store_true")
     ap.add_argument("--live", action="store_true")
     ap.add_argument("--lot", type=int, help=f"rejoue seulement le lot N ({LOT} cas)")
+    ap.add_argument("--banc", default="_banc_images",
+                    help="corpus sous backend/translations/ (_banc_public : banc public tiré au hasard)")
     a = ap.parse_args()
+    global BANC
+    BANC = os.path.join(os.path.dirname(cache_images.DOSSIER), a.banc)
     if a.figer:
         if not a.originaux:
             ap.error("--figer exige --originaux")
@@ -275,7 +283,7 @@ def main():
         # Un lot ne remplace que ses propres cas.
         _ecrire(os.path.join(BANC, "reference.json"), {**ref, **res} if a.lot is not None else res)
         print("référence enregistrée.")
-    print(f"planches : {os.path.join(BANC, 'sorties')}")
+    print(f"planches : {os.path.join(BANC, 'sorties', *([f'lot{a.lot}'] if a.lot is not None else []))}")
     return 0
 
 
