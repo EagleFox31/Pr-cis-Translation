@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, useMotionValue, useSpring, useTransform } from 'motion/react';
 import { ArrowRight, Check, ScanLine, Sparkles, LayoutTemplate } from 'lucide-react';
+import { chargerPdfjs } from '../../lib/pdfjs';
 
 /**
  * Démonstration animée du produit — c'est l'accroche du site.
@@ -128,9 +129,8 @@ export default function DocumentDemo() {
     const tasks: any[] = [];
 
     (async () => {
-      const pdfjsLib = (window as any).pdfjsLib;
-      if (!pdfjsLib) return;
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+      const pdfjsLib = await chargerPdfjs().catch(() => null);
+      if (!pdfjsLib || !active) return;
 
       const draw = async (url: string, canvas: HTMLCanvasElement | null) => {
         if (!canvas) return null;

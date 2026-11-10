@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
-import { motion, useScroll, useTransform } from 'motion/react';
+import { motion, useTransform } from 'motion/react';
+import { useScrollProgress } from '../../lib/useScrollProgress';
 import { useEffect, useRef } from 'react';
 import { Check, Minus, X } from 'lucide-react';
 import TranslationSection from '../upload/TranslationSection';
@@ -184,10 +185,7 @@ export default function StorySection({
     'pdf'
   ).toLowerCase();
 
-  const { scrollYProgress: storyScrollProgress } = useScroll({
-    target: storyRef,
-    offset: ['start end', 'end start'],
-  });
+  const storyScrollProgress = useScrollProgress(storyRef, 'cross');
   const storyVisualY = useTransform(storyScrollProgress, [0, 1], [40, -40]);
 
   return (

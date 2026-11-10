@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
 import { Loader2, Hourglass, Lock, FileX, ChevronsLeftRight } from 'lucide-react';
 import type { PagesIllisiblesVue } from '../../hooks/usePagesIllisibles';
+import { chargerPdfjs } from '../../lib/pdfjs';
 import ScanPageOverlay from './ScanPageOverlay';
 import type { Ajustement } from './ViewerToolbar';
 
@@ -29,19 +30,13 @@ function usePdfDoc(blob: Blob | null | undefined, garder: boolean) {
   useEffect(() => {
     if (!garder || !blob) setDoc(null);
     if (!blob) return;
-    const pdfjsLib = (window as any).pdfjsLib;
-    if (!pdfjsLib) {
-      console.error('PDF.js not loaded');
-      return;
-    }
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
     let active = true;
     let livre = false;
     let tache: any = null;
     // Données passées directement à pdf.js (PAS d'URL blob : révoquer l'URL
     // pendant que le worker la lisait encore donnait « blob introuvable »).
-    blob.arrayBuffer()
-      .then((buf) => {
+    Promise.all([blob.arrayBuffer(), chargerPdfjs()])
+      .then(([buf, pdfjsLib]) => {
         if (!active) return null;
         tache = pdfjsLib.getDocument({ data: buf });
         return tache.promise;
