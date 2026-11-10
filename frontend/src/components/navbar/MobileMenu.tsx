@@ -1,5 +1,9 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
+import {
+  Home, Sparkles, Workflow, Tag, Info, ShieldCheck, Puzzle, Code2, Users, FileText,
+  LifeBuoy, ScrollText, FlaskConical, Scale, Lock, Cookie, ChevronRight, Globe, type LucideIcon,
+} from 'lucide-react';
 
 interface MobileMenuProps {
   isOpen: boolean;
@@ -9,7 +13,16 @@ interface MobileMenuProps {
   onClose: () => void;
 }
 
-export default function MobileMenu({ isOpen, links, activeSection, onNavClick, onClose }: MobileMenuProps) {
+/** Icône d'un lien d'après son identifiant (section de l'accueil ou chemin). */
+const ICONES: Array<[RegExp, LucideIcon]> = [
+  [/^hero$/, Home], [/^features$/, Sparkles], [/^story$/, Workflow], [/^pricing$/, Tag],
+  [/^about$/, Info], [/^admin$/, ShieldCheck], [/extension/, Puzzle], [/api/, Code2],
+  [/users/, Users], [/documents/, FileText], [/support/, LifeBuoy], [/logs/, ScrollText],
+  [/beta/, FlaskConical], [/mentions|conditions/, Scale], [/confidentialite/, Lock], [/cookies/, Cookie],
+];
+const icone = (id: string): LucideIcon => ICONES.find(([re]) => re.test(id))?.[1] ?? FileText;
+
+export default function MobileMenu({ isOpen, links, activeSection, onNavClick }: MobileMenuProps) {
   const { t, i18n } = useTranslation();
   const langue = i18n.language?.startsWith('en') ? 'en' : 'fr';
   return (
@@ -23,29 +36,35 @@ export default function MobileMenu({ isOpen, links, activeSection, onNavClick, o
           className="mobile-menu open"
           id="mobile-menu"
         >
-          {links.map((link) => {
-            const isActive = link.id === 'hero'
-              ? activeSection === 'hero'
-              : (activeSection === link.id || (link.id === 'features' && activeSection === 'comparison'));
-            return (
-              <a
-                key={link.id}
-                href={link.href ?? `#${link.id}`}
-                onClick={(e) => { e.preventDefault(); onNavClick(link.id); }}
-                style={{
-                  color: isActive ? '#1a4dc7' : undefined,
-                  fontWeight: isActive ? 700 : 500,
-                }}
-              >
-                {link.label}
-              </a>
-            );
-          })}
-          <div className="lang-toggle" role="group" aria-label={t('nav.language', 'Langue')}>
-            {(['fr', 'en'] as const).map((l) => (
-              <button key={l} className={langue === l ? 'active' : ''} aria-pressed={langue === l}
-                onClick={() => i18n.changeLanguage(l)}>{l.toUpperCase()}</button>
-            ))}
+          <nav className="mm-links">
+            {links.map((link) => {
+              const isActive = link.id === 'hero'
+                ? activeSection === 'hero'
+                : (activeSection === link.id || (link.id === 'features' && activeSection === 'comparison'));
+              const Icone = icone(link.id);
+              return (
+                <a
+                  key={link.id}
+                  href={link.href ?? `#${link.id}`}
+                  className={`mm-link${isActive ? ' active' : ''}`}
+                  aria-current={isActive ? 'page' : undefined}
+                  onClick={(e) => { e.preventDefault(); onNavClick(link.id); }}
+                >
+                  <span className="mm-ico"><Icone size={18} strokeWidth={2} aria-hidden="true" /></span>
+                  <span className="mm-label">{link.label}</span>
+                  <ChevronRight className="mm-chev" size={16} strokeWidth={2} aria-hidden="true" />
+                </a>
+              );
+            })}
+          </nav>
+          <div className="mm-lang">
+            <span className="mm-lang-title"><Globe size={16} strokeWidth={2} aria-hidden="true" />{t('nav.language')}</span>
+            <div className="mm-seg" role="group" aria-label={t('nav.language')}>
+              {(['fr', 'en'] as const).map((l) => (
+                <button key={l} className={langue === l ? 'active' : ''} aria-pressed={langue === l}
+                  onClick={() => i18n.changeLanguage(l)}>{l === 'fr' ? 'Français' : 'English'}</button>
+              ))}
+            </div>
           </div>
         </motion.div>
       )}
