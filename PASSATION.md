@@ -56,7 +56,7 @@ Contexte général : nettoyer le dépôt et mettre en ligne (push + PR vers `mai
      Les étapes 5 et 6 suivent les maquettes ; la fenêtre « depuis » utilise des onglets, plus des rubriques dépliables.
   1. [x] catalogue `backend/app/content/nouveautes.py` (19 éléments, FR/EN, VERSION alignée package.json) + `tests/test_nouveautes_catalogue.py` 6 verts — commit 13afa19 ; textes EN à relire
   2. [x] migration 0024 (vues_le, abonne, abonne_le, langue ; table nouveautes_envois)
-  3. [ ] API `/api/nouveautes` (liste, a-voir, vues, abonnement, désabonnement signé) + tests
+  3. [x] API (`a-voir` vide = rien à afficher : ni fenêtre ni pastille ; tests 23/23) `/api/nouveautes` (liste, a-voir, vues, abonnement, désabonnement signé) + tests
   4. [ ] e-mail sur `_carte` + List-Unsubscribe + script d'envoi étalé ; essai réel
   5. [ ] page Fonctionnalités (URL à confirmer) + liens pied de page / menu mobile / sitemap
   6. [ ] `NouveautesModal` (accueil / depuis la dernière visite) + panneau compte

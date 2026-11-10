@@ -186,6 +186,7 @@ def create_app() -> FastAPI:
     from app.api.invitations import router as invitations_router
     from app.api.extension import router as extension_router
     from app.api.logs import router as logs_router
+    from app.api.nouveautes import router as nouveautes_router
     from app.api.payments import router as payments_router
     from app.api.orchestrator_events import router as orchestrator_events_router
     from app.api.support import router as support_router
@@ -194,7 +195,8 @@ def create_app() -> FastAPI:
 
     for router in (admin_documents_router, admin_users_router, beta_router,
                    auth_router, documents_router, extension_router,
-                   invitations_router, logs_router, orchestrator_events_router,
+                   invitations_router, logs_router, nouveautes_router,
+                   orchestrator_events_router,
                    payments_router, support_router, system_router,
                    translate_router):
         application.include_router(router)
