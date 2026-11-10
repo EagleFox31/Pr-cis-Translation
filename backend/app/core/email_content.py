@@ -135,6 +135,56 @@ TEXTES_INVITATION: dict[str, dict[str, str]] = {
 }
 
 
+TEXTES_NOUVEAUTES: dict[str, dict[str, str]] = {
+    "fr": {
+        "sujet": "Ce qui change dans Précis {version}",
+        "bandeau": "Nouveautés",
+        "titre": "Ce qui change dans Précis",
+        "intro": "La version {version} est disponible depuis le {date}. "
+                 "Voici l'essentiel.",
+        "nouveaute": "Nouveautés",
+        "amelioration": "Améliorations",
+        "correctif": "Correctifs",
+        "bouton": "Voir les fonctionnalités",
+        "note": "Tout ce que fait Précis est décrit sur la page Fonctionnalités.",
+        "pied": "Vous recevez cet e-mail car vous êtes abonné aux nouveautés "
+                "de Précis.",
+        "desabonner": "Se désabonner",
+        "mois": "janvier février mars avril mai juin juillet août septembre "
+                "octobre novembre décembre",
+    },
+    "en": {
+        "sujet": "What's new in Précis {version}",
+        "bandeau": "What's new",
+        "titre": "What's changing in Précis",
+        "intro": "Version {version} has been available since {date}. "
+                 "Here are the highlights.",
+        "nouveaute": "New",
+        "amelioration": "Improvements",
+        "correctif": "Fixes",
+        "bouton": "See all features",
+        "note": "Everything Précis does is described on the Features page.",
+        "pied": "You're receiving this email because you subscribed to "
+                "Précis product updates.",
+        "desabonner": "Unsubscribe",
+        "mois": "January February March April May June July August September "
+                "October November December",
+    },
+}
+
+
+def textes_nouveautes(langue: str) -> dict[str, str]:
+    """Les textes de l'e-mail Nouveautés dans une langue, français par défaut."""
+    return TEXTES_NOUVEAUTES.get(langue, TEXTES_NOUVEAUTES[LANGUE_DEFAUT])
+
+
+def date_longue(iso: str, langue: str) -> str:
+    """`2026-11-09` -> « 9 novembre 2026 » / « November 9, 2026 »."""
+    annee, mois, jour = (int(x) for x in iso.split("-"))
+    nom = textes_nouveautes(langue)["mois"].split()[mois - 1]
+    return f"{nom} {jour}, {annee}" if langue == "en" else f"{jour} {nom} {annee}"
+
+
 def normaliser_langue(accept_language: str | None) -> str:
     """Langue à employer, depuis un en-tête `Accept-Language`.
 

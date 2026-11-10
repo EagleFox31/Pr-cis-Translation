@@ -31,8 +31,9 @@ from email.mime.text import MIMEText
 from email.utils import formatdate, formataddr, make_msgid
 from pathlib import Path
 
-from app.core.email_content import (MARQUE, normaliser_langue, textes,
-                                    textes_invitation)
+from app.core.email_content import (MARQUE, date_longue, normaliser_langue,
+                                    textes, textes_invitation,
+                                    textes_nouveautes)
 
 logger = logging.getLogger("email_service")
 
@@ -238,6 +239,85 @@ def _html_alerte(*, titre: str, resume: str, niveau: str, bandeau: str,
                   "administrateurs. Ne pas transférer à un client.", marge=0)
     return _carte(lang="fr", niveau=niveau, bandeau=esc(bandeau),
                   corps=corps, pied=pied)
+
+
+def _sections_nouveautes(t: dict, elements: list[dict]) -> str:
+    """Nouveautés / Améliorations / Correctifs, chaque section omise si vide."""
+    m, esc, html = MARQUE, _html.escape, []
+    for type_ in ("nouveaute", "amelioration", "correctif"):
+        lignes = [e for e in elements if e["type"] == type_]
+        if not lignes:
+            continue
+        html.append(
+            f'<p style="margin:0 0 8px 0;font-size:11px;font-weight:700;'
+            f'letter-spacing:1px;text-transform:uppercase;color:{m["bleu"]}">'
+            f'{t[type_]}</p>'
+            '<table role="presentation" width="100%" cellpadding="0" '
+            'cellspacing="0" style="margin:0 0 14px 0">')
+        for e in lignes:
+            html.append(
+                f'<tr><td style="padding:0 0 10px 0;font-size:14px;line-height:1.55;'
+                f'color:{m["gris"]}"><strong style="color:{m["encre"]};'
+                f'font-weight:600">{esc(e["titre"])}.</strong> {esc(e["resume"])}'
+                '</td></tr>')
+        html.append("</table>")
+    return "\n".join(html)
+
+
+def _message_nouveautes(destinataire: str, langue: str, elements: list[dict], *,
+                        version: str, date_version: str,
+                        jeton: str) -> MIMEMultipart:
+    """Compose l'e-mail de version. `elements` : éléments du catalogue déjà
+    traduits (`catalogue.elements(langue)`), filtrés par l'appelant.
+
+    Deux liens de désabonnement : la PAGE (lien visible, qui confirme avant
+    d'agir) et l'API (en-tête `List-Unsubscribe`, que Gmail et Outlook
+    appellent en POST pour leur propre bouton « Se désabonner »)."""
+    t = textes_nouveautes(langue)
+    esc = _html.escape
+    page = f"{FRONTEND_URL}/fonctionnalites"
+    desab_page = f"{FRONTEND_URL}/desabonnement?jeton={jeton}"
+    desab_api = f"{FRONTEND_URL}/api/nouveautes/desabonnement?jeton={jeton}"
+    intro = t["intro"].format(version=version, date=date_longue(date_version, langue))
+
+    corps = (_titre(t["titre"]) + "\n" + _para(intro) + "\n"
+             + _sections_nouveautes(t, elements) + "\n"
+             + _bouton(t["bouton"], esc(page)) + "\n"
+             + _petit(t["note"], marge=10))
+    pied = _petit(f'{t["pied"]} <a href="{esc(desab_page)}" style="color:'
+                  f'{MARQUE["gris"]};text-decoration:underline">{t["desabonner"]}</a>',
+                  marge=0)
+    html = _carte(lang=langue, niveau="info", bandeau=t["bandeau"],
+                  corps=corps, pied=pied)
+
+    lignes = [t["titre"], "", intro, ""]
+    for type_ in ("nouveaute", "amelioration", "correctif"):
+        choix = [e for e in elements if e["type"] == type_]
+        if choix:
+            lignes.append(t[type_].upper())
+            lignes += [f"- {e['titre']}. {e['resume']}" for e in choix]
+            lignes.append("")
+    lignes += [f"{t['bouton']} : {page}", "", t["pied"],
+               f"{t['desabonner']} : {desab_page}"]
+    texte = "\n".join(lignes)
+
+    msg = MIMEMultipart("related")
+    _expediteur(msg)
+    msg["To"] = destinataire
+    msg["Subject"] = t["sujet"].format(version=version)
+    msg["Reply-To"] = SMTP_REPLY_TO
+    msg["List-Unsubscribe"] = f"<{desab_api}>"
+    msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+    msg["X-Auto-Response-Suppress"] = "All"
+
+    alt = MIMEMultipart("alternative")
+    alt.attach(MIMEText(texte, "plain", "utf-8"))
+    alt.attach(MIMEText(html, "html", "utf-8"))
+    msg.attach(alt)
+    logo = _logo()
+    if logo is not None:
+        msg.attach(logo)
+    return msg
 
 
 def _logo() -> MIMEImage | None:
@@ -478,5 +558,35 @@ async def send_invitation_email(destinataire: str, inviteur: str,
         logger.info("Invitation envoyée à %s (%s)", destinataire, langue)
     except Exception as exc:
         logger.error("Échec invitation à %s : %s", destinataire, exc)
+        raise EmailIndisponible(
+            "L'envoi de l'e-mail a échoué. Réessayez dans un instant.") from exc
+
+
+async def send_nouveautes_email(destinataire: str, langue: str,
+                                elements: list[dict], *, version: str,
+                                date_version: str, jeton: str) -> None:
+    """Envoie l'e-mail de version à UN abonné.
+
+    Lève `EmailIndisponible` si le serveur refuse : le script d'envoi s'arrête
+    alors, et une relance reprend là où il s'est arrêté."""
+    msg = _message_nouveautes(destinataire, langue, elements, version=version,
+                              date_version=date_version, jeton=jeton)
+
+    if not EMAIL_ENABLED or not SMTP_HOST:
+        logger.info("[DEV] Nouveautés %s → %s | langue=%s",
+                    version, destinataire, langue)
+        return
+
+    import aiosmtplib
+
+    try:
+        await aiosmtplib.send(
+            msg, hostname=SMTP_HOST, port=SMTP_PORT,
+            sender=SMTP_FROM or None, username=SMTP_USER or None, password=SMTP_PASSWORD or None,
+            start_tls=(SMTP_PORT != 465), use_tls=(SMTP_PORT == 465),
+        )
+        logger.info("Nouveautés %s envoyées à %s (%s)", version, destinataire, langue)
+    except Exception as exc:
+        logger.error("Échec nouveautés à %s : %s", destinataire, exc)
         raise EmailIndisponible(
             "L'envoi de l'e-mail a échoué. Réessayez dans un instant.") from exc
