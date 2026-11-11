@@ -1142,5 +1142,68 @@
     "d_examples": "Ready-to-copy request examples.",
     "d_errors": "Error codes and what to do.",
     "notice": "This page will be updated when the API opens."
+  },
+  "nouveautes": {
+    "nav_label": "Features",
+    "footer_link": "Features",
+    "page_title": "Features · Précis",
+    "title": "Features",
+    "version": "Version {{version}}",
+    "lead": "What Précis does, what has been improved and what has been fixed.",
+    "toc_label": "On this page",
+    "loading": "Loading features…",
+    "error": {
+      "text": "Features could not be loaded.",
+      "retry": "Try again"
+    },
+    "types": {
+      "nouveaute": {
+        "title": "Features",
+        "intro": "What Précis can do."
+      },
+      "amelioration": {
+        "title": "Improvements",
+        "intro": "What works better than before."
+      },
+      "correctif": {
+        "title": "Fixes",
+        "intro": "What has been repaired."
+      }
+    },
+    "domains": {
+      "documents": "Documents",
+      "visionneuse": "Viewer",
+      "extension": "Browser extension",
+      "compte": "Account"
+    },
+    "subscribe": {
+      "label": "Notify me by email",
+      "hint": "One email per new version.",
+      "login": "Sign in to be notified by email",
+      "error": "Your subscription could not be saved. Try again."
+    },
+    "unsub": {
+      "loading": "Checking the link…",
+      "home": "Back to home",
+      "see": "See the features",
+      "invalid": {
+        "title": "Invalid link",
+        "text": "This unsubscribe link is not valid or has expired. Once signed in, you can manage your subscription from the Features page."
+      },
+      "subscribed": {
+        "title": "Unsubscribe from updates",
+        "text": "You receive an email for every new version of Précis. Confirm to stop receiving them.",
+        "button": "Unsubscribe me"
+      },
+      "done": {
+        "title": "You are unsubscribed",
+        "text": "You will no longer receive Précis update emails. You can subscribe again at any time from the Features page."
+      },
+      "network": {
+        "title": "Connection failed",
+        "text": "The server cannot be reached. Check your connection and try again.",
+        "retry": "Try again"
+      }
+    }
   }
 }

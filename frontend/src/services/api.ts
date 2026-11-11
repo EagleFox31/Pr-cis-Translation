@@ -183,6 +183,7 @@ const api = {
   get: (path: string) => request('GET', path),
   post: (path: string, body?: unknown, headers?: Record<string, string>) =>
     request('POST', path, body, headers),
+  put: (path: string, body?: unknown) => request('PUT', path, body),
   patch: (path: string, body?: unknown) => request('PATCH', path, body),
   // DELETE avec corps facultatif : certaines routes (purge du journal) ciblent
   // une LISTE d'éléments, pas une ressource unique dans l'URL.

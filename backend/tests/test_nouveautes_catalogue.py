@@ -63,3 +63,14 @@ def test_version_alignee():
     pkg = json.loads((RACINE / "package.json").read_text(encoding="utf-8"))
     assert cat.VERSION == pkg["version"]
     assert cat.DATE_VERSION == max(e["date"] for e in cat.FONCTIONNALITES)
+
+
+def test_instantane_seo_a_jour():
+    import sys
+    sys.path.insert(0, str(RACINE / "backend" / "scripts"))
+    from exporter_fonctionnalites import CIBLE, instantane
+
+    assert CIBLE.read_text(encoding="utf-8") == instantane(), (
+        "frontend/seo/fonctionnalites.json n'est pas à jour : "
+        "lancer backend/scripts/exporter_fonctionnalites.py"
+    )

@@ -1142,5 +1142,68 @@
     "d_examples": "Exemples de requêtes prêts à copier.",
     "d_errors": "Liste des codes d'erreur et conduite à tenir.",
     "notice": "Cette page sera mise à jour à l'ouverture de l'API."
+  },
+  "nouveautes": {
+    "nav_label": "Fonctionnalités",
+    "footer_link": "Fonctionnalités",
+    "page_title": "Fonctionnalités · Précis",
+    "title": "Fonctionnalités",
+    "version": "Version {{version}}",
+    "lead": "Ce que fait Précis, ce qui a été amélioré et ce qui a été corrigé.",
+    "toc_label": "Sur cette page",
+    "loading": "Chargement des fonctionnalités…",
+    "error": {
+      "text": "Impossible de charger les fonctionnalités.",
+      "retry": "Réessayer"
+    },
+    "types": {
+      "nouveaute": {
+        "title": "Fonctionnalités",
+        "intro": "Ce que Précis sait faire."
+      },
+      "amelioration": {
+        "title": "Améliorations",
+        "intro": "Ce qui fonctionne mieux qu'avant."
+      },
+      "correctif": {
+        "title": "Correctifs",
+        "intro": "Ce qui a été réparé."
+      }
+    },
+    "domains": {
+      "documents": "Documents",
+      "visionneuse": "Visionneuse",
+      "extension": "Extension navigateur",
+      "compte": "Compte"
+    },
+    "subscribe": {
+      "label": "M'avertir par e-mail",
+      "hint": "Un e-mail par nouvelle version.",
+      "login": "Se connecter pour être averti par e-mail",
+      "error": "L'abonnement n'a pas pu être enregistré. Réessayez."
+    },
+    "unsub": {
+      "loading": "Vérification du lien…",
+      "home": "Retour à l'accueil",
+      "see": "Voir les fonctionnalités",
+      "invalid": {
+        "title": "Lien invalide",
+        "text": "Ce lien de désabonnement n'est pas valide ou a expiré. Connecté, vous pouvez gérer votre abonnement depuis la page Fonctionnalités."
+      },
+      "subscribed": {
+        "title": "Se désabonner des nouveautés",
+        "text": "Vous recevez un e-mail à chaque nouvelle version de Précis. Confirmez pour ne plus en recevoir.",
+        "button": "Me désabonner"
+      },
+      "done": {
+        "title": "Désabonnement effectué",
+        "text": "Vous ne recevrez plus les e-mails de nouveautés de Précis. Vous pouvez vous réabonner à tout moment depuis la page Fonctionnalités."
+      },
+      "network": {
+        "title": "Connexion impossible",
+        "text": "Le serveur est injoignable. Vérifiez votre connexion puis réessayez.",
+        "retry": "Réessayer"
+      }
+    }
   }
 }

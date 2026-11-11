@@ -27,6 +27,14 @@
       "changefreq": "monthly"
     },
     {
+      "path": "/fonctionnalites",
+      "source": "fonctionnalites",
+      "title": "Fonctionnalités de Précis : traduction de documents, visionneuse et extension",
+      "description": "Toutes les fonctionnalités de Précis, classées par domaine : traduction de documents, visionneuse, extension navigateur et compte. Mises à jour à chaque version",
+      "priority": "0.7",
+      "changefreq": "weekly"
+    },
+    {
       "path": "/traduire-pdf",
       "source": "content",
       "page": "traduire-pdf",

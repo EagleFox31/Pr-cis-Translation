@@ -18,7 +18,7 @@ interface MobileMenuProps {
 /** Icône d'un lien d'après son identifiant (section de l'accueil ou chemin). */
 const ICONES: Array<[RegExp, LucideIcon]> = [
   [/^hero$/, Home], [/^features$/, Sparkles], [/^story$/, Workflow], [/^pricing$/, Tag],
-  [/^about$/, Info], [/^admin$/, ShieldCheck], [/extension/, Puzzle], [/api/, Code2],
+  [/^about$/, Info], [/^admin$/, ShieldCheck], [/fonctionnalites/, Sparkles], [/extension/, Puzzle], [/api/, Code2],
   [/users/, Users], [/documents/, FileText], [/support/, LifeBuoy], [/logs/, ScrollText],
   [/beta/, FlaskConical], [/mentions|conditions/, Scale], [/confidentialite/, Lock], [/cookies/, Cookie],
 ];

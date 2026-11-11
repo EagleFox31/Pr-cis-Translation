@@ -45,6 +45,8 @@ export const pages = {
   api: memo(() => import('../pages/ApiPage')),
   extensionAutoriser: memo(() => import('../pages/ExtensionAutoriserPage')),
   extensionConnecte: memo(() => import('../pages/ExtensionConnectePage')),
+  fonctionnalites: memo(() => import('../pages/NouveautesPage')),
+  desabonnement: memo(() => import('../pages/DesabonnementPage')),
 } satisfies Record<string, Chargeur>;
 
 const PAR_CHEMIN: Record<string, Chargeur> = {
@@ -61,6 +63,8 @@ const PAR_CHEMIN: Record<string, Chargeur> = {
   '/extension': pages.extension,
   '/extension/autoriser': pages.extensionAutoriser,
   '/extension/connecte': pages.extensionConnecte,
+  '/fonctionnalites': pages.fonctionnalites,
+  '/desabonnement': pages.desabonnement,
   '/integrations/api': pages.api,
   '/mentions-legales': pages.legal,
   '/conditions': pages.legal,

@@ -34,7 +34,8 @@ export default function Navbar({ activeSection, onNavClick, onLibraryOpen }: Nav
   ];
   // Produit à part, pas une section : pastille à droite ; dans la liste du menu mobile.
   const extensionLink = { id: 'extension', label: t('extension_page.nav_label'), href: '/extension' };
-  const mobileLinks = [...navLinks, extensionLink];
+  const fonctionnalitesLink = { id: 'fonctionnalites', label: t('nouveautes.nav_label'), href: '/fonctionnalites' };
+  const mobileLinks = [...navLinks, fonctionnalitesLink, extensionLink];
 
   useEffect(() => {
     const handleScroll = () => {

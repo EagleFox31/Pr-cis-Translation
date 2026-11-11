@@ -33,6 +33,8 @@ const ExtensionPage = lazy(pages.extension);
 const ApiPage = lazy(pages.api);
 const ExtensionAutoriserPage = lazy(pages.extensionAutoriser);
 const ExtensionConnectePage = lazy(pages.extensionConnecte);
+const NouveautesPage = lazy(pages.fonctionnalites);
+const DesabonnementPage = lazy(pages.desabonnement);
 
 /** Redirige vers /home si déjà connecté ( pages auth ). */
 function GuestRoute({ children }: { children: React.ReactNode }) {
@@ -91,6 +93,8 @@ function MainApp() {
           <Route path="/extension" element={<ExtensionPage />} />
           <Route path="/extension/autoriser" element={<ExtensionAutoriserPage />} />
           <Route path="/extension/connecte" element={<ExtensionConnectePage />} />
+          <Route path="/fonctionnalites" element={<NouveautesPage />} />
+          <Route path="/desabonnement" element={<DesabonnementPage />} />
           <Route path="/integrations/api" element={<ApiPage />} />
           <Route path="/mentions-legales" element={<LegalPage slug="mentions-legales" />} />
           <Route path="/conditions" element={<LegalPage slug="conditions" />} />
