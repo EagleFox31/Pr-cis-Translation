@@ -486,6 +486,11 @@ button { font-family: inherit; cursor: pointer; border: none; }
     width: 100% !important;
     justify-content: center !important;
   }
+  /* Même colonne que les boutons : sinon la liste part plus à gauche. */
+  .hero-proofs {
+    max-width: 320px;
+    margin: 34px auto 0;
+  }
   .hero-stats > div {
     display: flex !important;
     flex-direction: column !important;
