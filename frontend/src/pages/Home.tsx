@@ -122,7 +122,7 @@ export default function Home() {
   const stream = useStreamingTranslation(user?.plan === 'free');
 
   // ---- Document library ----
-  const { documents, charge: bibliothequeChargee, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal, getIllegiblePages, setIllegiblePages } = useDocumentLibrary();
+  const { documents, charge: bibliothequeChargee, erreur: bibliothequeErreur, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal, getIllegiblePages, setIllegiblePages } = useDocumentLibrary();
 
   // Les droits du document viennent du serveur ; une mise à jour de la
   // bibliothèque après paiement doit aussi débloquer l'aperçu déjà ouvert.
@@ -778,6 +778,9 @@ export default function Home() {
         isOpen={showLibrary}
         onClose={() => setShowLibrary(false)}
         documents={documents}
+        loading={!bibliothequeChargee}
+        erreur={bibliothequeErreur}
+        onRefresh={refresh}
         onPreview={handleLibraryPreview}
         onDelete={deleteDocument}
         onClearAll={clearAll}

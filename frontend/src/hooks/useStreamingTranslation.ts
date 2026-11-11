@@ -265,6 +265,7 @@ export function useStreamingTranslation(deviceSignals = true) {
             const deviceLimit = err.reason === 'free_limit_device';
             const detail = err.reason === 'beta_inactive' ? t('beta.inactive_error')
               : deviceLimit ? t('story.free_limit_device')
+              : err.detail === 'stockage_requis' ? t('library.storage_required')
               : betaError ? t('beta.translation_error') : err.detail || err.error || t('story.error_default');
             const is402 = startRes.status === 402;
             // 402 « crédits insuffisants » : le serveur dit COMBIEN de pages

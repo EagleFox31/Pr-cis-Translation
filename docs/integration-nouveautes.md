@@ -40,7 +40,7 @@ Règle : aucune valeur codée en dur dans le CSS final ; une valeur absente des 
 | En-tête, solde, ligne Nouveautés | `frontend/src/components/library/AccountPanel.tsx` | réécriture | `Avatar`, `ProgressBar`, `/api/auth/me/usage` |
 | Ligne de document | `frontend/src/components/library/DocumentCard.tsx` | réécriture du rendu, logique conservée | `motion.article` (layout, sortie), `STATUTS_REPRENABLES`, `isTrialFor` |
 | Menus « … » (ligne et liste) | `frontend/src/components/library/RowMenu.tsx` | nouveau | — |
-| Date relative | `frontend/src/lib/format.ts` : `formatRelative(iso, lang)` | modif | `Intl.RelativeTimeFormat`, `Intl.DateTimeFormat` |
+| Date relative | `frontend/src/lib/format.ts` : `formatRelative(iso, locale, now)` | modif | `Intl.RelativeTimeFormat`, `Intl.DateTimeFormat` |
 | Langue source | `frontend/src/hooks/useDocumentLibrary.ts`, `toMeta` l.97-116 : `sourceLang: d.source_lang` | modif | `_doc_response` l'expose déjà |
 | Styles du panneau | `frontend/src/index.css` : remplacer `.compte*` (l.~2849), `.biblio*` (l.~2954), `.libdoc*` (l.~3029) par `.p-head`, `.bal`, `.news`, `.docs-head`, `.find`, `.doc`, `.acts`, `.menu`, `.p-foot` | modif | — |
 | RGPD | `frontend/src/content/legal/fr.ts` et `en.ts` : finalité « e-mail des nouveautés », base : consentement, retrait par lien ou interrupteur | modif | — |
@@ -183,12 +183,12 @@ Le contenu des éléments vient de l'API dans la langue demandée, pas des fichi
 |---|---|
 | `fonctionnalites.` | `meta_title`, `meta_description`, `title`, `version` (« Version {{version}} · {{date}} »), `subtitle`, `groups.<groupe>.title` et `.intro` (fonctionnalites, ameliorations, correctifs), `domains.<domaine>` (documents, visionneuse, extension, compte), `toc_label`, `count_aria` (« {{count}} éléments »), `subscribe.title`, `subscribe.hint`, `subscribe.login`, `load_error`, `retry` |
 | `nouveautes.` | `welcome.title`, `welcome.subtitle`, `welcome.optin`, `since.title`, `since.subtitle` (« {{count}} changements depuis le {{date}}. », pluriels `_one` et `_other`), `since.tabs_label`, `tabs.nouveaute`, `tabs.amelioration`, `tabs.correctif`, `optin.title`, `optin.hint`, `optin.done`, `cta`, `close`, `subscribe_error` |
-| `account.` | `forfaits_link`, `pages_free_left` (pluriel), `pages_left` (existante), `credits_inline` (« dont {{count}} achetées »), `news_row`, `news_count_aria`, `mail_switch` (« E-mail »), `mail_switch_aria` |
-| `library.` | nouvelles : `list_options`, `search_placeholder`, `search_aria`, `no_match`, `empty_title`, `empty_message`, `empty_formats`, `status_running`, `status_failed`, `unlock_hint`, `report_problem`, `download_partial_menu`, `row_options` (« Options de {{name}} »), `relative_now` ; réutilisées : `title`, `confirm_clear`, `cancel`, `preview`, `download`, `unlock`, `retry`, `resume`, `pause`, `cancel_translation`, `delete`, `scan_reading`, `scan_to_decide`, `resumed_status`, `empty_guest`, `download_partial` |
+| `nouveautes.panel.` | `title` (« Nouveautés »), `count` (« {{count}} élément(s) », pluriels `_one` et `_other`), `email` (« E-mail ») |
+| `library.` | nouvelles : `list_options`, `search_placeholder`, `search_aria`, `no_match`, `empty_title`, `empty_message`, `empty_formats`, `status_running`, `status_failed`, `unlock_hint`, `report_problem`, `download_partial_menu`, `row_options` (« Options de {{name}} »), `relative_now`, `clear_confirm_question`, `archived_row`, `ext_text`, `download_named` (« Télécharger {{name}} »), `pages_abbr` (« {{count}} p. »), `archive_note`, `archive_note_link`, `storage_required`, `unlock_label`, `close` ; réutilisées : `title`, `confirm_clear`, `cancel`, `preview`, `download`, `unlock`, `retry`, `resume`, `pause`, `cancel_translation`, `delete`, `scan_reading`, `scan_to_decide`, `resumed_status`, `empty_guest`, `download_partial` |
 | `footer.` | `features_page` (« Fonctionnalités ») |
 | E-mail (backend, `email_content.py`, langue = `users.langue`) | `subject`, `badge`, `title`, `intro`, rubriques, `cta`, `note`, `footer`, `unsubscribe` |
 
-Clés devenues inutiles (`account.renews`, `account.storage_*`, `beta.account_hint`, `beta.my_access`) : à supprimer seulement si `grep` ne trouve plus aucun usage.
+Clés devenues inutiles (`account.renews`, `account.storage_*`, `beta.account_hint`, `beta.my_access`, `library.preview_of`) : à supprimer seulement si `grep` ne trouve plus aucun usage.
 
 ---
 
