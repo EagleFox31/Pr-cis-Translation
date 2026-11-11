@@ -1182,6 +1182,12 @@
       "login": "Sign in to be notified by email",
       "error": "Your subscription could not be saved. Try again."
     },
+    "panel": {
+      "title": "What's new",
+      "count_one": "{{count}} item",
+      "count_other": "{{count}} items",
+      "email": "Email"
+    },
     "unsub": {
       "loading": "Checking the link…",
       "home": "Back to home",

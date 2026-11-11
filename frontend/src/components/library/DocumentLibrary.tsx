@@ -31,6 +31,7 @@ import { openSupport } from '../support/supportBus';
 import { openInvite } from '../invite/inviteBus';
 import AccountPanel from './AccountPanel';
 import DocumentCard from './DocumentCard';
+import NouveautesLigne from './NouveautesLigne';
 
 interface DocumentLibraryProps {
   isOpen: boolean;
@@ -134,6 +135,7 @@ export default function DocumentLibrary({
         {user && <AccountPanel user={user}
           refreshKey={documents.map(d => `${d.id}:${d.status}`).join('|')}
           onLogout={async () => { onClose(); await logout(); }} />}
+        {user && <NouveautesLigne user={user} onClose={onClose} />}
 
         <header className="biblio__tete">
           <div>

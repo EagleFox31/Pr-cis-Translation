@@ -1182,6 +1182,12 @@
       "login": "Se connecter pour être averti par e-mail",
       "error": "L'abonnement n'a pas pu être enregistré. Réessayez."
     },
+    "panel": {
+      "title": "Nouveautés",
+      "count_one": "{{count}} élément",
+      "count_other": "{{count}} éléments",
+      "email": "E-mail"
+    },
     "unsub": {
       "loading": "Vérification du lien…",
       "home": "Retour à l'accueil",
