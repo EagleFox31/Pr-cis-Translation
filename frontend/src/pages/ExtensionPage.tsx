@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Check, CreditCard, Download, HelpCircle, Monitor, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -114,6 +114,18 @@ export default function ExtensionPage() {
     setChoix(id);
     setCopieAdresse('idle');
   };
+  // Groupe radio (ARIA APG) : flèches = navigateur suivant/précédent, sélection
+  // et focus suivent ; Début/Fin vont aux extrémités.
+  const flechesNavigateur = (e: KeyboardEvent<HTMLDivElement>) => {
+    const i = NAVIGATEURS.findIndex((n) => n.id === choix);
+    const dernier = NAVIGATEURS.length - 1;
+    const cible = { ArrowRight: i + 1, ArrowDown: i + 1, ArrowLeft: i - 1, ArrowUp: i - 1, Home: 0, End: dernier }[e.key];
+    if (cible === undefined) return;
+    e.preventDefault();
+    const j = (cible + NAVIGATEURS.length) % NAVIGATEURS.length;
+    choisirNavigateur(NAVIGATEURS[j].id);
+    (e.currentTarget.children[j] as HTMLElement | undefined)?.focus();
+  };
 
   const copierAdresse = async (adresse: string) => {
     try {
@@ -227,15 +239,16 @@ export default function ExtensionPage() {
       <section className="ext-hero">
         <p className="ext-hero__lead">{t('extension_page.lead')}</p>
         {statut()}
-      </section>
 
       {!mobile && (
-          <div className="ext-browsers ext-pick">
+          <div className="ext-browsers">
             <p className="ext-browsers__title" id="ext-pick">{t('extension_page.cards_title')}</p>
-            <div className="ext-browsers__grid" role="radiogroup" aria-labelledby="ext-pick">
+            <div className="ext-browsers__grid" role="radiogroup" aria-labelledby="ext-pick"
+              onKeyDown={flechesNavigateur}>
               {NAVIGATEURS.map((n) => (
                 <button
                   key={n.id} type="button" role="radio" aria-checked={choix === n.id}
+                  tabIndex={choix === n.id ? 0 : -1}
                   className={`ext-browser${choix === n.id ? ' ext-browser--current' : ''}`}
                   onClick={() => choisirNavigateur(n.id)}
                 >
@@ -245,9 +258,10 @@ export default function ExtensionPage() {
                 </button>
               ))}
             </div>
-            <p className="ext-cta__hint">{t('extension_page.card_unsupported')}</p>
+            <p className="ext-browsers__hint">{t('extension_page.card_unsupported')}</p>
           </div>
       )}
+      </section>
     </>
   );
 
