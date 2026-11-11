@@ -1,0 +1,26 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "pulsing-dot",
+        "value": "*",
+        "files": [
+          "docs/maquettes/nouveautes/visite-accueil.html"
+        ],
+        "createdAt": "2026-11-11T08:02:18.191Z",
+        "reason": "Claude: diapo 5, pastille = clic simulé sur « Remettre l'original » (animation de démonstration qui s'efface), pas un indicateur d'état"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/maquettes/nouveautes/visite-accueil.html"
+        ],
+        "createdAt": "2026-11-11T08:34:29.883Z",
+        "reason": "Maquette animée : fond d'illustration (.stage), barre d'adresse du faux navigateur (.bar) et logo centré (.logo) ont une marge réelle que l'analyse statique ne calcule pas ; vérifié sur les captures"
+      }
+    ]
+  }
+}

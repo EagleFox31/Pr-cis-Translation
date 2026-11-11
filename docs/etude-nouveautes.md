@@ -150,3 +150,31 @@ Branche `feat/nouveautes`, créée depuis `perf/fluidite-responsive` une fois F.
 6. Fenêtre `NouveautesModal` (2 modes) + règles d'apparition ; entrée et pastille dans le panneau compte ; interrupteur.
 7. Mention RGPD dans `content/legal/{fr,en}.ts` (confidentialité).
 8. Vérifier : tsc/lint/build, pytest, Playwright (1re connexion, connexion suivante avec et sans nouveauté, 375/1280 px, clavier), impeccable `audit` ; `/code-review` (données + e-mail) ; captures montrées avant commit.
+
+## 10. Révision du 11/11 : la fenêtre d'accueil devient une visite en 5 diapositives
+
+Demande de l'utilisateur : remplacer la liste de l'accueil par une visite « vitrine », une fonctionnalité par diapositive (titre, phrase courte qui valorise, petite scène animée), sans consigne d'usage. Maquette : `docs/maquettes/nouveautes/visite-accueil.html` (`?profil=invite|gratuit|payant`, `?diapo=1..5`).
+
+| # | Sujet | Ce qui est affiché | Vérifié dans le code |
+|---|---|---|---|
+| 1 | Traduction | formats, 36 langues, contexte, mise en page conservée | `config.py:125` (txt, pdf, docx, pptx, xlsx) ; `frontend/src/lib/languages.ts` (36) |
+| 2 | Scans et images | documents scannés, texte dans les images, traduction d'images | chaîne OCR existante (états scan du panneau) |
+| 3 | Extension | pages + images traduites sur place, 30 pages/jour sans abonnement, 5 navigateurs | `services/limites_page.py` (`free.pages_jour = 30`) ; `ExtensionPage.tsx:20` |
+| 4 | API | badge « Bientôt » | — (annonce) |
+| 5 | Visionneuse | côte à côte ; remettre l'original d'une image ; « Bientôt : modification directe de tous vos documents » | `DocumentImagesPanel.tsx:15` |
+
+- **Navigation** : Précédent / Suivant, « Passer », 5 points cliquables (cibles 44 px), flèches du clavier, croix. Le défilement automatique est exclu (lecture à son rythme).
+- **Profil** (choix utilisateur : même visite, fin adaptée) : bouton final invité → « Créer un compte gratuit », gratuit → « Voir les forfaits », payant → « Traduire un document ». Interrupteur e-mail sur la dernière diapo, comptes connectés seulement.
+- **Animation** : CSS seul, boucles de 3 s environ, coupées sous `prefers-reduced-motion` ; composant chargé à la demande (pas dans le paquet principal).
+- **Invité** : « vu » mémorisé dans le navigateur ; compte : `vues_le` existant (aucune migration en plus).
+- **Administrateurs** : champ `audience` (tous | admin) ajouté au catalogue ; les entrées admin sont filtrées côté serveur (API, page publique, e-mail, snapshot SEO = « tous » seulement). Sans effet sur la visite.
+- Fenêtre « depuis votre dernière visite » : inchangée.
+
+### 10.1 Présentation premium (retour du 11/11)
+
+- **Format** : grande fenêtre de la largeur du contenu principal (1240 px max), **hauteur fixe 620 px** identique pour les 5 diapos ; illustration animée à gauche (56 %), texte à droite (44 %). Mobile (≤ 900 px, validé le 11/11) : plein écran (`100dvh`, fond blanc, sans bordure ni ombre), illustration en haut (`minmax(300px, 46dvh)`, scène décalée de 48 px sous la croix), texte qui défile, actions fixées en bas, étapes réduites à des traits.
+- **Illustrations** : petites images SVG dessinées en code (paysage de la diapo 3 avec bandeau de texte traduit, suspensions de la diapo 5), aucune image téléchargée.
+- **Repères** : 5 étapes nommées en haut (cliquables), « 01 — Traduction »…, bouton « Suivant · nom de l'étape suivante ».
+- **Textes** : un titre qui promet un résultat, un paragraphe qui dit concrètement ce que l'utilisateur gagne, trois arguments courts avec icône. Uniquement des faits vérifiés dans le code (formats, 36 langues, 30 pages/jour, 5 navigateurs, remettre l'original). Aucun argument de sécurité tant qu'il n'est pas vérifié.
+- **Fin** : bouton selon le profil (invité « Créer mon compte gratuit », gratuit « Voir les forfaits », payant « Traduire un document »), interrupteur e-mail pour les comptes, lien « Découvrir toutes les fonctionnalités ».
+- Sources : appcues.com/blog/user-onboarding-guide (bénéfice avant fonction, un seul appel à l'action) ; deepl.com/fr/blog/built-better-document-translation (« la mise en page est conservée » comme promesse centrale).
