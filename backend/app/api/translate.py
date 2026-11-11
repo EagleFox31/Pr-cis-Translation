@@ -33,6 +33,7 @@ from app.models import (Document, User, get_plan_page_limit,
                         get_plan_monthly_pages, is_paid_plan,
                         KIND_CREDITS, KIND_FREE_OFFER, KIND_PLAN)
 from app.rate_limit import verify_api_key
+from app.services.documents import acces_archive
 from app.services.documents import (build_job_paths, cap_pages_for_plan,
                                     count_pages, pages_avec_texte, pages_faites,
                                     reglages_de, translation_path_for)
@@ -488,6 +489,11 @@ async def translate_endpoint(
     if resume_of and not debug_mode:
         reprise = await db.get(Document, resume_of, with_for_update=True)
         file_hash = get_file_hash(file_bytes)
+        # Document archivé (sans stockage, plus de 30 jours) : refus explicite,
+        # jamais une traduction neuve facturée en silence (étude Nouveautés §11).
+        if (reprise is not None and reprise.user_id == locked.id
+                and acces_archive(locked, reprise)):
+            raise HTTPException(status_code=403, detail="stockage_requis")
         if (reprise is None or reprise.user_id != locked.id
                 or reprise.status not in STATUTS_REPRENABLES
                 or reprise.target_lang != target_lang

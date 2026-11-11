@@ -178,3 +178,21 @@ Demande de l'utilisateur : remplacer la liste de l'accueil par une visite « vit
 - **Textes** : un titre qui promet un résultat, un paragraphe qui dit concrètement ce que l'utilisateur gagne, trois arguments courts avec icône. Uniquement des faits vérifiés dans le code (formats, 36 langues, 30 pages/jour, 5 navigateurs, remettre l'original). Aucun argument de sécurité tant qu'il n'est pas vérifié.
 - **Fin** : bouton selon le profil (invité « Créer mon compte gratuit », gratuit « Voir les forfaits », payant « Traduire un document »), interrupteur e-mail pour les comptes, lien « Découvrir toutes les fonctionnalités ».
 - Sources : appcues.com/blog/user-onboarding-guide (bénéfice avant fonction, un seul appel à l'action) ; deepl.com/fr/blog/built-better-document-translation (« la mise en page est conservée » comme promesse centrale).
+
+## 11. Ajout du 11/11 : historique conservé, grisé sans stockage
+
+**Demande.** On ne supprime jamais un document. Une personne dont le forfait n'inclut pas de stockage voit tout son historique, mais grisé, avec une courte mention qui explique que l'accès au stockage est réservé aux forfaits.
+
+**Existant mesuré.**
+- Un visiteur non connecté ne peut pas traduire (`/api/translate` exige la connexion) : le cas « sans compte » n'existe pas, il s'agit du forfait **Gratuit**, le seul dont `PLAN_STORAGE` vaut 0.
+- Aucun document n'est purgé aujourd'hui ; un compte Gratuit garde un accès illimité dans le temps à ses documents (aperçu filigrané, téléchargement s'il a payé les pages).
+
+**Règle retenue (décision de l'utilisateur, 11/11).**
+- Forfait avec stockage : accès sans limite de durée.
+- Forfait sans stockage : accès complet pendant **30 jours** après la traduction (`created_at`). Au-delà, le document est **archivé** : nom, date et langue restent visibles, grisés ; aperçu, original, téléchargement et reprise renvoient 403 `stockage_requis`. Seule la suppression reste possible, à l'initiative de la personne.
+- Rien n'est effacé : passer à un forfait avec stockage rend l'accès immédiatement.
+- Une traduction en cours n'est jamais archivée.
+
+**Mise en œuvre.**
+- Serveur : `acces_archive(user, doc)` dans `api/documents.py`, appliqué à `/download`, `/original`, `/preview`, aux routes d'images et à la reprise ; `_doc_response` expose `archive` et `acces_jusqu_au` (ISO ou `null`). Tests pytest : avant / après 30 jours, forfait payant, document en cours.
+- Panneau : ligne grisée (opacité réduite, pas d'actions sauf « Supprimer » dans le menu « … »), et une seule note discrète en tête de liste, couleur d'information du thème : « Stockage réservé aux forfaits : vos documents de plus de 30 jours restent listés et se rouvrent avec un forfait. Voir les forfaits → ». Pas de note si aucun document n'est archivé.
