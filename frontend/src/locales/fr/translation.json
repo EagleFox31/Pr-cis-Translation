@@ -1213,7 +1213,6 @@
       "next": "Suivant",
       "skip": "Passer la visite",
       "soon": "Bientôt",
-      "optin": "Recevoir les prochaines nouveautés par e-mail",
       "all": "Découvrir toutes les fonctionnalités →",
       "cta": {
         "guest": "Créer mon compte gratuit",
@@ -1329,6 +1328,13 @@
         "restore": "↶ Remettre l’original",
         "restored": "✓ Original rétabli",
         "edit": "Bientôt · mode édition"
+      },
+      "fin": {
+        "titre": "Restez informé",
+        "texte": "Nouvelles fonctionnalités, améliorations, correctifs : un court e-mail à chaque version, désabonnement en un clic.",
+        "question": "Souhaitez-vous les recevoir ?",
+        "non": "Non merci",
+        "oui": "Oui, m'avertir"
       }
     },
     "depuis": {

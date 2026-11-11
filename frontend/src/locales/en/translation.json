@@ -1213,7 +1213,6 @@
       "next": "Next",
       "skip": "Skip the tour",
       "soon": "Soon",
-      "optin": "Get the next updates by email",
       "all": "Discover all the features →",
       "cta": {
         "guest": "Create my free account",
@@ -1329,6 +1328,13 @@
         "restore": "↶ Restore the original",
         "restored": "✓ Original restored",
         "edit": "Soon · edit mode"
+      },
+      "fin": {
+        "titre": "Stay in the loop",
+        "texte": "New features, improvements and fixes: one short email per release, one-click unsubscribe.",
+        "question": "Would you like to receive them?",
+        "non": "No thanks",
+        "oui": "Yes, keep me posted"
       }
     },
     "depuis": {

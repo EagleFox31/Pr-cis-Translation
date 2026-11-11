@@ -47,8 +47,12 @@
 .vst-btn small { font: 400 13px var(--font-body); opacity: .7; }
 .vst-link { color: var(--blue); font: 500 14px var(--font-body); text-decoration: none; padding: 12px 4px; }
 .vst-more { display: inline-block; margin-top: 2px; }
-.vst-opt { display: flex; align-items: center; gap: 10px; min-height: 44px; }
-.vst-opt span { font-size: 13.5px; line-height: 1.35; color: var(--gray-700); max-width: 190px; }
+/* Écran de fin : abonnement aux nouveautés */
+.vst-fin-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; justify-content: center; padding-right: 48px; }
+.vst-fin-ic { width: 48px; height: 48px; border-radius: 14px; background: var(--blue-light); color: var(--blue); display: grid; place-items: center; }
+.vst-fin h2 { font: 600 clamp(30px, 3.1vw, 42px)/1.08 var(--font-display); color: var(--navy); margin: 18px 0 14px; letter-spacing: -.01em; }
+.vst-fin-q { font: 600 16px var(--font-body); color: var(--navy); margin: 0; }
+.vst-btn:disabled { opacity: .6; cursor: default; }
 .vst [hidden] { display: none !important; }
 
 /* ——— Éléments communs des scènes ——— */
@@ -182,7 +186,8 @@
   .vst-close { color: #fff; } .vst-close:hover { background: rgba(255,255,255,.12); color: #fff; }
   .vst-copy h2 { font-size: 28px; } .vst-lede { font-size: 15px; margin-bottom: 16px; }
   .vst-btn small { display: none; }
-  .vst-actions { flex-wrap: wrap; } .vst-opt { width: 100%; } .vst-opt span { max-width: none; }
+  .vst-fin-body { padding-right: 0; } .vst-fin h2 { font-size: 28px; }
+  .vst-actions { flex-wrap: wrap; }
 }
 
 .vst:focus { outline: none; }

@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { X, ArrowLeft, ArrowRight } from 'lucide-react';
+import { X, ArrowLeft, ArrowRight, Mail } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNouveautes } from '../../hooks/useNouveautes';
 import { goToSection } from '../../lib/sectionBus';
-import Switch from '../ui/Switch';
 import VisiteScenes from './visiteScenes';
 import { useVisite } from './useVisite';
 import { ETAPES, IC, SEQ } from './visiteData';
@@ -31,7 +30,13 @@ export default function VisiteAccueil({ onClose }: Props) {
   const { pathname } = useLocation();
 
   const [diapo, setDiapo] = useState(0);
-  const [abonne, setAbonne] = useState(!!user?.abonne_nouveautes);
+  // Écran de fin « recevoir les nouveautés par e-mail » : comptes connectés non abonnés seulement,
+  // atteint par « Passer la visite » ou le bouton final ; la croix et Échap ferment sans le montrer.
+  const [proposerFin] = useState(() => !!user && !user.abonne_nouveautes);
+  const [fin, setFin] = useState(false);
+  const [envoi, setEnvoi] = useState(false);
+  const apres = useRef<(() => void) | null>(null);
+  const ouiRef = useRef<HTMLButtonElement>(null);
   const racine = useRef<HTMLDivElement>(null);
   const scene = useRef<HTMLDivElement>(null);
   const suivantRef = useRef<HTMLButtonElement>(null);
@@ -49,6 +54,7 @@ export default function VisiteAccueil({ onClose }: Props) {
 
   // Flèches gauche / droite : changent de diapositive.
   useEffect(() => {
+    if (fin) return;
     const touche = (e: KeyboardEvent) => {
       if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       if (e.key === 'ArrowRight') { e.preventDefault(); setDiapo((d) => Math.min(ETAPES.length - 1, d + 1)); }
@@ -56,7 +62,9 @@ export default function VisiteAccueil({ onClose }: Props) {
     };
     document.addEventListener('keydown', touche);
     return () => document.removeEventListener('keydown', touche);
-  }, []);
+  }, [fin]);
+
+  useEffect(() => { if (fin) ouiRef.current?.focus(); }, [fin]);
 
   // Un bouton masqué ne doit pas emporter le focus avec lui.
   useEffect(() => {
@@ -65,15 +73,32 @@ export default function VisiteAccueil({ onClose }: Props) {
     (derniere ? ctaRef.current : suivantRef.current)?.focus();
   }, [diapo, derniere]);
 
-  const bascule = async (actif: boolean) => {
-    setAbonne(actif);
-    if (!(await setAbonnement(actif))) setAbonne(!actif);
+  // Passer / bouton final : écran de fin d'abord si on doit le proposer.
+  const quitter = (action: (() => void) | null) => {
+    if (proposerFin && !fin) { apres.current = action; setFin(true); return; }
+    onClose(!action);
+    action?.();
+  };
+
+  const repondre = async (oui: boolean) => {
+    if (oui) {
+      setEnvoi(true);
+      const ok = await setAbonnement(true);
+      setEnvoi(false);
+      if (!ok) return; // le message d'erreur est affiché ; l'utilisateur peut réessayer ou refuser
+    }
+    const action = apres.current;
+    onClose(!action);
+    action?.();
   };
 
   // Fin de visite : on ferme (= « vu »), puis on va vers la bonne section de l'accueil.
   const finir = (e: React.MouseEvent) => {
     e.preventDefault();
-    onClose(false);
+    quitter(allerVers);
+  };
+
+  const allerVers = () => {
     if (!user) { navigate('/register'); return; }
     const cible = user.plan === 'free' ? 'pricing' : 'story';
     const surAccueil = pathname === '/home';
@@ -114,6 +139,21 @@ export default function VisiteAccueil({ onClose }: Props) {
         </div>
       </div>
 
+      {fin ? (
+      <div className="vst-side vst-fin">
+        <div className="vst-fin-body">
+          <span className="vst-fin-ic"><Mail size={22} aria-hidden="true" /></span>
+          <h2 id="vst-titre">{t('nouveautes.visite.fin.titre')}</h2>
+          <p className="vst-lede">{t('nouveautes.visite.fin.texte')}</p>
+          <p className="vst-fin-q">{t('nouveautes.visite.fin.question')}</p>
+        </div>
+        <div className="vst-actions">
+          <span className="vst-spacer" />
+          <button type="button" className="vst-btn" disabled={envoi} onClick={() => repondre(false)}>{t('nouveautes.visite.fin.non')}</button>
+          <button ref={ouiRef} type="button" className="vst-btn vst-primary" disabled={envoi} onClick={() => repondre(true)}>{t('nouveautes.visite.fin.oui')}</button>
+        </div>
+      </div>
+      ) : (
       <div className="vst-side">
         <nav className="vst-steps" aria-label={t('nouveautes.visite.steps_label')}>
           {ETAPES.map((d, n) => (
@@ -154,14 +194,8 @@ export default function VisiteAccueil({ onClose }: Props) {
         </div>
 
         <div className="vst-actions">
-          {derniere && user && (
-            <div className="vst-opt">
-              <Switch checked={abonne} onChange={bascule} aria-labelledby="vst-opt-lab" />
-              <span id="vst-opt-lab">{t('nouveautes.visite.optin')}</span>
-            </div>
-          )}
           {!derniere && (
-            <button type="button" className="vst-skip" onClick={() => onClose()}>{t('nouveautes.visite.skip')}</button>
+            <button type="button" className="vst-skip" onClick={() => quitter(null)}>{t('nouveautes.visite.skip')}</button>
           )}
           <span className="vst-spacer" />
           {diapo > 0 && (
@@ -180,6 +214,7 @@ export default function VisiteAccueil({ onClose }: Props) {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }
