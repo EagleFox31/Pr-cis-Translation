@@ -1204,6 +1204,150 @@
         "text": "The server cannot be reached. Check your connection and try again.",
         "retry": "Try again"
       }
+    },
+    "visite": {
+      "role": "tour",
+      "close": "Close the tour",
+      "steps_label": "Tour steps",
+      "prev": "Previous slide",
+      "next": "Next",
+      "skip": "Skip the tour",
+      "soon": "Soon",
+      "optin": "Get the next updates by email",
+      "all": "Discover all the features →",
+      "cta": {
+        "guest": "Create my free account",
+        "free": "See the plans",
+        "paid": "Translate a document"
+      },
+      "etapes": {
+        "traduction": {
+          "kicker": "Translation",
+          "court": "Translation",
+          "titre": "Your document translated, in its original layout.",
+          "lede": "Drop a PDF, Word, PowerPoint or Excel file: Précis returns it in one of 36 languages, with fonts, tables and images right where they were. No more reformatting, no more copy-paste.",
+          "pts": {
+            "1": { "t": "Meaning before word for word", "d": "Every sentence is translated with the context of the whole document." },
+            "2": { "t": "An intact layout", "d": "Columns, tables, bold and italics stay exactly where you put them." },
+            "3": { "t": "One term, one translation", "d": "The same label is translated the same way from start to finish." }
+          }
+        },
+        "scans": {
+          "kicker": "Scans and images",
+          "court": "Scans",
+          "titre": "Scanned or as an image, it gets translated.",
+          "lede": "Scanned contracts, diagrams, screenshots: Précis reads the text in the image and writes the translation in its place, on the same background.",
+          "pts": {
+            "1": { "t": "Scanned documents", "d": "Translated like a native file." },
+            "2": { "t": "Diagrams and charts", "d": "Captions and labels in your language." },
+            "3": { "t": "Images translated in place", "d": "The text replaced, the image intact." }
+          }
+        },
+        "extension": {
+          "kicker": "Browser extension",
+          "court": "Extension",
+          "titre": "Read the whole web in your language.",
+          "lede": "Articles, product pages, documentation: the extension translates the page you are reading, in place, including the text in images. No tab switching, no copy-paste.",
+          "pts": {
+            "1": { "t": "Free every day", "d": "Up to 30 pages a day, no subscription." },
+            "2": { "t": "Images included", "d": "The text in the page’s images is translated too." },
+            "3": { "t": "In your browsers", "d": "Chrome, Edge, Brave, Opera and Vivaldi." }
+          }
+        },
+        "api": {
+          "kicker": "API integration",
+          "court": "API",
+          "titre": "Précis, right inside your tools.",
+          "lede": "Soon, an API to send your documents to Précis from your own software: same quality, same layout, without going through the website.",
+          "pts": {
+            "1": { "t": "Translations that send themselves", "d": "Automate recurring submissions." },
+            "2": { "t": "The same result as on the site", "d": "The same engine, no compromises." },
+            "3": { "t": "Where you work", "d": "Intranet, document management, business apps." }
+          }
+        },
+        "visionneuse": {
+          "kicker": "Viewer",
+          "court": "Viewer",
+          "titre": "You check, you decide, you download.",
+          "lede": "Each page is shown next to its original. A logo, a signature or a photo that should not have been translated? One click and the original image comes back.",
+          "pts": {
+            "1": { "t": "Side by side", "d": "The original and the translation, page by page, with zoom." },
+            "2": { "t": "Restore the original", "d": "Image by image, and reversible at any time." },
+            "3": { "t": "Coming soon: edit mode", "d": "Edit the translated text directly, for all your documents." }
+          }
+        }
+      },
+      "legendes": {
+        "traduction": {
+          "1": "You drop your PDF",
+          "2": "The original document, in French",
+          "3": "Précis translates it into English",
+          "4": "Table, figure, layout: nothing moves",
+          "5": "In Spanish…",
+          "6": "… or in German: 36 languages to choose from"
+        },
+        "scans": {
+          "1": "A scanned diagram, in French",
+          "2": "Précis finds the text in the image",
+          "3": "And writes the translation in its place, on the same background",
+          "4": "In Spanish…",
+          "5": "… or in German"
+        },
+        "extension": {
+          "1": "You are reading a page in English",
+          "2": "One click on the Précis extension",
+          "3": "The page switches to French, in place",
+          "4": "The text in the image too",
+          "5": "Free: up to 30 pages a day"
+        },
+        "api": {
+          "1": "Your software sends the contract",
+          "2": "Précis translates it, layout included",
+          "3": "It comes back in German, ready to use"
+        },
+        "visionneuse": {
+          "1": "The original and its translation, side by side",
+          "2": "This logo should not have been translated…",
+          "3": "One click: the original image is back",
+          "4": "Soon: edit the text yourself"
+        }
+      },
+      "scene": {
+        "keep": "✓ Layout intact",
+        "found": "5 text zones found",
+        "popup_text": "Translate this page into",
+        "popup_lang": "French ▾",
+        "popup_go": "Translate",
+        "image_ok": "✓ Image translated too",
+        "quota": "Free · 30 pages a day",
+        "app": "your-app",
+        "soon": "Coming soon",
+        "page": "Page 2 / 8",
+        "zoom": "Zoom 100%",
+        "original": "ORIGINAL · FR",
+        "translation": "TRANSLATION · EN",
+        "restore": "↶ Restore the original",
+        "restored": "✓ Original restored",
+        "edit": "Soon · edit mode"
+      }
+    },
+    "depuis": {
+      "title": "Since your last visit",
+      "close": "Close",
+      "sub_one": "{{count}} change since {{date}}.",
+      "sub_other": "{{count}} changes since {{date}}.",
+      "tabs_label": "Types of changes",
+      "count_one": "{{count}} item",
+      "count_other": "{{count}} items",
+      "tabs": {
+        "nouveaute": "New",
+        "amelioration": "Improvements",
+        "correctif": "Fixes"
+      },
+      "optin": "Get the news by email",
+      "optin_hint": "One email per new version",
+      "optin_done": "You will receive the news",
+      "cta": "See all features"
     }
   }
 }

@@ -23,12 +23,15 @@ import {
 } from '../hooks/useStreamingTranslation';
 import { isTrialFor } from '../lib/plans';
 import { subscribeSection } from '../lib/sectionBus';
+import { splashTermine, surFinSplash } from '../lib/splash';
+import { openNouveautes } from '../components/nouveautes/nouveautesBus';
+import { useNouveautes } from '../hooks/useNouveautes';
 import { creerGesteMolette } from '../lib/molette';
 import type { TranslateConfig } from '../components/upload/TranslationSection';
 
 
 export default function Home() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [isAnnual, setIsAnnual] = useState(true);
   const [activeSection, setActiveSection] = useState('hero');
   const [showPreview, setShowPreview] = useState(false);
@@ -115,7 +118,7 @@ export default function Home() {
   } | null>(null);
 
   // ---- Traduction PROGRESSIVE (page par page) ----
-  const { user, refreshUser } = useAuth();
+  const { user, loading: authLoading, refreshUser } = useAuth();
   const stream = useStreamingTranslation(user?.plan === 'free');
 
   // ---- Document library ----
@@ -586,6 +589,69 @@ export default function Home() {
     document.addEventListener('click', onLink);
     return () => { off(); document.removeEventListener('click', onLink); };
   }, [showPreview, handleNavClick]);
+
+  // ---- Nouveautés : ouverture automatique, une fois par session ----
+  // Après l'écran de démarrage, sans traduction en cours ni autre fenêtre ouverte.
+  const { chargerAVoir } = useNouveautes();
+  const occupe = stream.isTranslating || !!suiviBiblio;
+  const occupeRef = useRef(occupe);
+  occupeRef.current = occupe;
+  const userId = user?.id ?? null;
+  const dejaVues = user?.nouveautes_vues_le ?? null;
+  const langue = i18n.language?.startsWith('en') ? 'en' : 'fr';
+  useEffect(() => {
+    if (authLoading) return;
+    const CLE_SESSION = 'precis.nouveautes_session';
+    let annule = false;
+    let minuteur: number | undefined;
+    let offSplash: (() => void) | undefined;
+
+    const dejaFait = () => {
+      try { return !!sessionStorage.getItem(CLE_SESSION); } catch { return true; }
+    };
+    const marquer = () => {
+      try { sessionStorage.setItem(CLE_SESSION, '1'); } catch { /* sans stockage : une seule tentative par chargement */ }
+    };
+    const autreFenetre = () => !!document.querySelector('[role="dialog"][aria-modal="true"]');
+    const surPageExtension = () => window.location.pathname.startsWith('/extension');
+    if (dejaFait() || surPageExtension()) return;
+
+    const tenter = async () => {
+      if (annule || dejaFait()) return;
+      // Occupé ou autre fenêtre ouverte : on réessaie un peu plus tard.
+      if (occupeRef.current || autreFenetre()) {
+        minuteur = window.setTimeout(tenter, 1500);
+        return;
+      }
+      if (!userId) {
+        let vue = false;
+        try { vue = !!localStorage.getItem('precis.visite_vue'); } catch { vue = true; }
+        if (!vue) { marquer(); openNouveautes('accueil'); }
+        else marquer();
+        return;
+      }
+      if (!dejaVues) { marquer(); openNouveautes('accueil'); return; }
+      const donnees = await chargerAVoir(langue);
+      if (annule || dejaFait()) return;
+      if (!donnees || !donnees.elements?.length) { marquer(); return; }
+      if (occupeRef.current || autreFenetre()) {
+        minuteur = window.setTimeout(tenter, 1500);
+        return;
+      }
+      marquer();
+      openNouveautes('depuis', donnees);
+    };
+
+    const demarrer = () => { minuteur = window.setTimeout(tenter, 600); };
+    if (splashTermine()) demarrer();
+    else offSplash = surFinSplash(demarrer);
+
+    return () => {
+      annule = true;
+      if (minuteur !== undefined) window.clearTimeout(minuteur);
+      offSplash?.();
+    };
+  }, [authLoading, userId, dejaVues, langue, chargerAVoir]);
 
   // ---- Original : le fichier tel qu'il a été déposé ----
   // Document de la bibliothèque : le serveur le renvoie au format NATIF (le

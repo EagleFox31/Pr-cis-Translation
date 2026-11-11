@@ -70,6 +70,23 @@
   --section-gap: 32px;
 
   --nav-h: 72px;
+
+  /* Fenêtres, pastilles et ombres des écrans « Nouveautés » et du panneau du compte. */
+  --gray-400: #94a3b8;
+  --blue-200: #93c5fd;
+  --green-50: #f0fdf4;
+  --green-200: #bbf7d0;
+  --green-700: #15803d;
+  --red-50: #fef2f2;
+  --red-700: #b91c1c;
+  --radius-sm: 10px;
+  --radius-dialog: 18px;
+  --shadow-dialog: 0 24px 70px rgba(13,27,62,.28);
+  --shadow-menu: 0 12px 32px rgba(13,27,62,.16);
+  --shadow-drawer: -12px 0 40px rgba(13,27,62,.18);
+  --veil: rgba(13,27,62,.45);
+  --z-veil: 1200;
+  --z-dialog: 1201;
 }
 
 /* ============================

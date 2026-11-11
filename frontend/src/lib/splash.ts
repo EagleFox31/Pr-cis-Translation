@@ -24,3 +24,21 @@ function calculer(): boolean {
 }
 
 export const SPLASH_ATTENDU = calculer();
+
+// Fin de l'écran de démarrage : les fenêtres d'accueil attendent qu'il ait disparu.
+let termine = !SPLASH_ATTENDU;
+const ecouteurs = new Set<() => void>();
+
+export const splashTermine = (): boolean => termine;
+
+export function signalerFinSplash(): void {
+  termine = true;
+  ecouteurs.forEach((fn) => fn());
+  ecouteurs.clear();
+}
+
+/** Appelle `fn` à la fin de l'écran de démarrage. Renvoie la fonction de désabonnement. */
+export function surFinSplash(fn: () => void): () => void {
+  ecouteurs.add(fn);
+  return () => { ecouteurs.delete(fn); };
+}

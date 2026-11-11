@@ -1204,6 +1204,150 @@
         "text": "Le serveur est injoignable. Vérifiez votre connexion puis réessayez.",
         "retry": "Réessayer"
       }
+    },
+    "visite": {
+      "role": "visite",
+      "close": "Fermer la visite",
+      "steps_label": "Étapes de la visite",
+      "prev": "Diapositive précédente",
+      "next": "Suivant",
+      "skip": "Passer la visite",
+      "soon": "Bientôt",
+      "optin": "Recevoir les prochaines nouveautés par e-mail",
+      "all": "Découvrir toutes les fonctionnalités →",
+      "cta": {
+        "guest": "Créer mon compte gratuit",
+        "free": "Voir les forfaits",
+        "paid": "Traduire un document"
+      },
+      "etapes": {
+        "traduction": {
+          "kicker": "Traduction",
+          "court": "Traduction",
+          "titre": "Votre document traduit, dans sa mise en page d’origine.",
+          "lede": "Déposez un PDF, un Word, un PowerPoint ou un Excel : Précis le restitue dans l’une de 36 langues, polices, tableaux et images à leur place. Plus de remise en page, plus de copier-coller.",
+          "pts": {
+            "1": { "t": "Le sens avant le mot à mot", "d": "Chaque phrase est traduite avec le contexte du document entier." },
+            "2": { "t": "Une forme intacte", "d": "Colonnes, tableaux, gras et italique restent là où vous les aviez mis." },
+            "3": { "t": "Un terme, une seule traduction", "d": "Le même libellé est traduit de la même façon d’un bout à l’autre." }
+          }
+        },
+        "scans": {
+          "kicker": "Scans et images",
+          "court": "Scans",
+          "titre": "Scanné ou en image, il se traduit.",
+          "lede": "Contrats numérisés, schémas, captures d’écran : Précis lit le texte de l’image et écrit la traduction à sa place, sur le même fond.",
+          "pts": {
+            "1": { "t": "Documents scannés", "d": "Traduits comme un fichier natif." },
+            "2": { "t": "Schémas et graphiques", "d": "Légendes et étiquettes dans votre langue." },
+            "3": { "t": "Images traduites sur place", "d": "Le texte remplacé, l’image intacte." }
+          }
+        },
+        "extension": {
+          "kicker": "Extension navigateur",
+          "court": "Extension",
+          "titre": "Lisez tout le web dans votre langue.",
+          "lede": "Articles, fiches produits, documentations : l’extension traduit la page que vous lisez, sur place, texte des images compris. Sans changer d’onglet, sans copier-coller.",
+          "pts": {
+            "1": { "t": "Gratuite au quotidien", "d": "Jusqu’à 30 pages par jour, sans abonnement." },
+            "2": { "t": "Images comprises", "d": "Le texte des images de la page est traduit lui aussi." },
+            "3": { "t": "Dans vos navigateurs", "d": "Chrome, Edge, Brave, Opera et Vivaldi." }
+          }
+        },
+        "api": {
+          "kicker": "Intégration API",
+          "court": "API",
+          "titre": "Précis, directement dans vos outils.",
+          "lede": "Bientôt, une API pour confier vos documents à Précis depuis vos propres logiciels : même qualité, même mise en page, sans passer par le site.",
+          "pts": {
+            "1": { "t": "Des traductions qui partent seules", "d": "Automatisez les envois récurrents." },
+            "2": { "t": "Le même rendu que sur le site", "d": "Le même moteur, sans compromis." },
+            "3": { "t": "Là où vous travaillez", "d": "Intranet, gestion documentaire, applications métier." }
+          }
+        },
+        "visionneuse": {
+          "kicker": "Visionneuse",
+          "court": "Visionneuse",
+          "titre": "Vous vérifiez, vous décidez, vous téléchargez.",
+          "lede": "Chaque page s’affiche à côté de son original. Un logo, une signature ou une photo ne devait pas être traduit ? Un clic, et l’image d’origine revient.",
+          "pts": {
+            "1": { "t": "Côte à côte", "d": "L’original et la traduction, page par page, avec zoom." },
+            "2": { "t": "Remettre l’original", "d": "Image par image, et réversible à tout moment." },
+            "3": { "t": "Bientôt : le mode édition", "d": "Retouchez directement le texte traduit, pour tous vos documents." }
+          }
+        }
+      },
+      "legendes": {
+        "traduction": {
+          "1": "Vous déposez votre PDF",
+          "2": "Le document original, en français",
+          "3": "Précis le traduit en anglais",
+          "4": "Tableau, figure, mise en page : rien ne bouge",
+          "5": "En espagnol…",
+          "6": "… ou en allemand : 36 langues au choix"
+        },
+        "scans": {
+          "1": "Un schéma scanné, en français",
+          "2": "Précis repère le texte dans l’image",
+          "3": "Et écrit la traduction à sa place, sur le même fond",
+          "4": "En espagnol…",
+          "5": "… ou en allemand"
+        },
+        "extension": {
+          "1": "Vous lisez une page en anglais",
+          "2": "Un clic sur l’extension Précis",
+          "3": "La page passe en français, sur place",
+          "4": "Le texte de l’image aussi",
+          "5": "Gratuit : jusqu’à 30 pages par jour"
+        },
+        "api": {
+          "1": "Votre logiciel envoie le contrat",
+          "2": "Précis le traduit, mise en page comprise",
+          "3": "Il revient en allemand, prêt à l’emploi"
+        },
+        "visionneuse": {
+          "1": "L’original et sa traduction, côte à côte",
+          "2": "Ce logo n’aurait pas dû être traduit…",
+          "3": "Un clic : l’image d’origine revient",
+          "4": "Bientôt : retouchez le texte vous-même"
+        }
+      },
+      "scene": {
+        "keep": "✓ Mise en page intacte",
+        "found": "5 zones de texte repérées",
+        "popup_text": "Traduire cette page en",
+        "popup_lang": "Français ▾",
+        "popup_go": "Traduire",
+        "image_ok": "✓ Image traduite aussi",
+        "quota": "Gratuit · 30 pages par jour",
+        "app": "votre-application",
+        "soon": "Bientôt disponible",
+        "page": "Page 2 / 8",
+        "zoom": "Zoom 100 %",
+        "original": "ORIGINAL · FR",
+        "translation": "TRADUCTION · EN",
+        "restore": "↶ Remettre l’original",
+        "restored": "✓ Original rétabli",
+        "edit": "Bientôt · mode édition"
+      }
+    },
+    "depuis": {
+      "title": "Depuis votre dernière visite",
+      "close": "Fermer",
+      "sub_one": "{{count}} changement depuis le {{date}}.",
+      "sub_other": "{{count}} changements depuis le {{date}}.",
+      "tabs_label": "Types de changements",
+      "count_one": "{{count}} élément",
+      "count_other": "{{count}} éléments",
+      "tabs": {
+        "nouveaute": "Nouveautés",
+        "amelioration": "Améliorations",
+        "correctif": "Correctifs"
+      },
+      "optin": "Recevoir les nouveautés par e-mail",
+      "optin_hint": "Un e-mail à chaque nouvelle version",
+      "optin_done": "Vous recevrez les nouveautés",
+      "cta": "Voir toutes les fonctionnalités"
     }
   }
 }
