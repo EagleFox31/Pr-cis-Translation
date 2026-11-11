@@ -1,6 +1,6 @@
 import type { LegalDoc } from './types';
 
-export const LEGAL_UPDATED = '6 novembre 2026';
+export const LEGAL_UPDATED = '11 novembre 2026';
 
 export const LEGAL_FR: LegalDoc[] = [
   {
@@ -249,6 +249,17 @@ export const LEGAL_FR: LegalDoc[] = [
           'Permissions « onglet actif » et « injection de scripts » : lire et remplacer le contenu de l\'onglet actif, seulement après votre clic sur l\'icône.',
           'Accès aux sites : demandé pour le seul site affiché, la première fois que vous cliquez sur « Traduire » ; vous pouvez le retirer à tout moment dans les paramètres de l\'extension.',
           'Accès au site de Précis : dialoguer avec votre compte et nos serveurs de traduction.',
+        ],
+      },
+      {
+        heading: 'E-mails « Nouveautés »',
+        paragraphs: [
+          'Recevoir par e-mail les nouveautés de Précis est facultatif : rien n\'est envoyé sans votre accord, et le service fonctionne de la même façon sans.',
+        ],
+        list: [
+          'Données utilisées : votre adresse e-mail, votre choix d\'abonnement et la date de votre dernière consultation des nouveautés, pour ne vous montrer que ce qui est nouveau.',
+          'Conservation : tant que le compte est actif ; la date de consultation est simplement remplacée à chaque visite.',
+          'Désinscription : par le lien présent dans chaque e-mail, ou par l\'interrupteur « E-mail » de la ligne « Nouveautés » de votre panneau de compte, à tout moment.',
         ],
       },
       {
