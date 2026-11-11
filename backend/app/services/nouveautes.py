@@ -32,13 +32,13 @@ def langue_de(valeur: str | None, defaut: str = "fr") -> str:
     return code if code in catalogue.LANGUES else defaut
 
 
-def a_voir(vues_le: datetime | None, lang: str) -> dict:
+def a_voir(vues_le: datetime | None, lang: str, admin: bool = False) -> dict:
     if vues_le is None:
         elements = catalogue.phares(lang)
         mode = "accueil"
     else:
         jour = vues_le.date().isoformat()
-        elements = [e for e in catalogue.elements(lang) if e["date"] > jour]
+        elements = [e for e in catalogue.elements(lang, admin=admin) if e["date"] > jour]
         mode = "depuis"
     if not elements:
         return {"mode": None, "depuis": None, "elements": []}

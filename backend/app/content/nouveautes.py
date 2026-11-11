@@ -12,6 +12,9 @@ Champs d'un élément :
     phare       affiché dans la fenêtre d'accueil (4 au plus)
     icone       nom d'icône lucide (éléments phares), sinon icône du domaine
     lien        chemin interne facultatif
+    audience    tous (défaut) | admin : un élément admin n'est montré qu'aux
+                administrateurs (fenêtre « depuis ») ; jamais sur la page publique,
+                dans l'e-mail ni dans l'instantané SEO
     fr / en     titre, resume, detail ; titre_court / resume_court pour
                 les éléments phares (textes de la fenêtre d'accueil)
 
@@ -25,6 +28,7 @@ DATE_VERSION = "2026-11-09"
 TYPES = ("nouveaute", "amelioration", "correctif")
 DOMAINES = ("documents", "visionneuse", "extension", "compte")
 LANGUES = ("fr", "en")
+AUDIENCES = ("tous", "admin")
 
 FONCTIONNALITES: list[dict] = [
     # ── Fonctionnalités ─────────────────────────────────────────────────
@@ -397,11 +401,15 @@ FONCTIONNALITES: list[dict] = [
 ]
 
 
-def elements(lang: str) -> list[dict]:
-    """Éléments à plat dans une langue (repli sur le français), plus récents d'abord."""
+def elements(lang: str, admin: bool = False) -> list[dict]:
+    """Éléments à plat dans une langue (repli sur le français), plus récents d'abord.
+
+    Les éléments `audience: admin` ne sont inclus que si `admin` est vrai."""
     lang = lang if lang in LANGUES else "fr"
     sortie = []
     for e in FONCTIONNALITES:
+        if e.get("audience", "tous") == "admin" and not admin:
+            continue
         textes = e[lang]
         sortie.append({
             "id": e["id"],

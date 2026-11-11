@@ -36,7 +36,8 @@ async def liste(lang: str = "fr"):
 
 @router.get("/a-voir")
 async def a_voir_route(lang: str | None = None, user: User = Depends(require_auth)):
-    return a_voir(user.nouveautes_vues_le, langue_de(lang, user.langue))
+    return a_voir(user.nouveautes_vues_le, langue_de(lang, user.langue),
+                  admin=user.plan == "admin")
 
 
 @router.post("/vues")

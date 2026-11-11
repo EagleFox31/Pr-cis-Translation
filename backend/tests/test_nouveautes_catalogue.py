@@ -34,6 +34,20 @@ def test_types_domaines_dates():
             assert e["lien"].startswith("/"), e["id"]
 
 
+def test_audience_admin_filtree(monkeypatch):
+    for e in cat.FONCTIONNALITES:
+        assert e.get("audience", "tous") in cat.AUDIENCES, e["id"]
+    interne = {**cat.FONCTIONNALITES[0], "id": "outil-admin", "audience": "admin", "phare": False}
+    monkeypatch.setattr(cat, "FONCTIONNALITES", [*cat.FONCTIONNALITES, interne])
+    assert "outil-admin" not in {e["id"] for e in cat.elements("fr")}
+    assert "outil-admin" in {e["id"] for e in cat.elements("fr", admin=True)}
+    from datetime import datetime
+    from app.services.nouveautes import a_voir
+    vues = datetime(2000, 1, 1)
+    assert "outil-admin" not in {e["id"] for e in a_voir(vues, "fr")["elements"]}
+    assert "outil-admin" in {e["id"] for e in a_voir(vues, "fr", admin=True)["elements"]}
+
+
 def test_textes_complets_fr_en():
     for e in cat.FONCTIONNALITES:
         for lang in cat.LANGUES:
