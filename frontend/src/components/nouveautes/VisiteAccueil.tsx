@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { X, ArrowLeft, ArrowRight, Mail } from 'lucide-react';
+import { X, ArrowLeft, ArrowRight, Mail, Sparkles, TrendingUp, Wrench } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNouveautes } from '../../hooks/useNouveautes';
 import { goToSection } from '../../lib/sectionBus';
@@ -95,12 +95,12 @@ export default function VisiteAccueil({ onClose }: Props) {
   // Fin de visite : on ferme (= « vu »), puis on va vers la bonne section de l'accueil.
   const finir = (e: React.MouseEvent) => {
     e.preventDefault();
-    quitter(allerVers);
+    quitter(user && user.plan !== 'free' ? null : allerVers);
   };
 
   const allerVers = () => {
     if (!user) { navigate('/register'); return; }
-    const cible = user.plan === 'free' ? 'pricing' : 'story';
+    const cible = 'pricing';
     const surAccueil = pathname === '/home';
     if (!surAccueil) navigate('/home');
     const debut = Date.now();
@@ -114,7 +114,7 @@ export default function VisiteAccueil({ onClose }: Props) {
   const libelleFin = !user ? t('nouveautes.visite.cta.guest')
     : user.plan === 'free' ? t('nouveautes.visite.cta.free')
     : t('nouveautes.visite.cta.paid');
-  const hrefFin = !user ? '/register' : user.plan === 'free' ? '/home#pricing' : '/home#story';
+  const hrefFin = !user ? '/register' : user.plan === 'free' ? '/home#pricing' : pathname;
   const suivante = ETAPES[diapo + 1];
 
   return (
@@ -141,10 +141,34 @@ export default function VisiteAccueil({ onClose }: Props) {
 
       {fin ? (
       <div className="vst-side vst-fin">
-        <div className="vst-fin-body">
-          <span className="vst-fin-ic"><Mail size={22} aria-hidden="true" /></span>
+        <nav className="vst-steps" aria-label={t('nouveautes.visite.steps_label')}>
+          {ETAPES.map((d, n) => (
+            <button
+              key={d.cle}
+              type="button"
+              className="done"
+              aria-label={`${n + 1}. ${t(`nouveautes.visite.etapes.${d.cle}.kicker`)}`}
+              onClick={() => { setFin(false); apres.current = null; aller(n); }}
+            >
+              {t(`nouveautes.visite.etapes.${d.cle}.court`)}
+            </button>
+          ))}
+        </nav>
+        <div className="vst-copy">
+          <div className="vst-kicker">
+            <Mail size={15} aria-hidden="true" />
+            <span>{t('nouveautes.visite.fin.kicker')}</span>
+          </div>
           <h2 id="vst-titre">{t('nouveautes.visite.fin.titre')}</h2>
           <p className="vst-lede">{t('nouveautes.visite.fin.texte')}</p>
+          <ul className="vst-points">
+            {[Sparkles, TrendingUp, Wrench].map((Ic, i) => (
+              <li key={i}>
+                <span className="vst-ic-sq"><Ic size={18} aria-hidden="true" /></span>
+                <div><b>{t(`nouveautes.visite.fin.pts.${i + 1}.t`)}</b><span>{t(`nouveautes.visite.fin.pts.${i + 1}.d`)}</span></div>
+              </li>
+            ))}
+          </ul>
           <p className="vst-fin-q">{t('nouveautes.visite.fin.question')}</p>
         </div>
         <div className="vst-actions">

@@ -65,6 +65,14 @@ export default function NouveautesModal() {
     contenant.current?.querySelector<HTMLElement>('[role="dialog"]')?.focus();
   }, [ouverte]);
 
+  // Visite : la barre du haut reste visible au-dessus du voile, seul FR/EN y reste actif (modal.css).
+  const visite = ouverte?.mode === 'accueil';
+  useEffect(() => {
+    if (!visite) return;
+    document.documentElement.classList.add('vst-ouverte');
+    return () => document.documentElement.classList.remove('vst-ouverte');
+  }, [visite]);
+
   // Échap ferme ; Tab reste dans la fenêtre.
   useEffect(() => {
     if (!ouverte) return;
@@ -73,13 +81,16 @@ export default function NouveautesModal() {
       if (e.key !== 'Tab') return;
       const dlg = contenant.current?.querySelector<HTMLElement>('[role="dialog"]');
       if (!dlg) return;
-      const liste = Array.from(dlg.querySelectorAll<HTMLElement>(FOCUSABLES)).filter((el) => el.offsetParent !== null);
+      // Pendant la visite, le choix FR/EN de la barre du haut fait partie du parcours au clavier.
+      const langues = Array.from(document.querySelectorAll<HTMLElement>('.vst-ouverte .navbar .lang-toggle button'));
+      const liste = [...langues, ...Array.from(dlg.querySelectorAll<HTMLElement>(FOCUSABLES))]
+        .filter((el) => el.offsetParent !== null);
       if (liste.length === 0) return;
       const premier = liste[0];
       const dernier = liste[liste.length - 1];
       const actif = document.activeElement;
-      if (!dlg.contains(actif)) { e.preventDefault(); premier.focus(); }
-      else if (actif === dlg) { e.preventDefault(); (e.shiftKey ? dernier : premier).focus(); }
+      if (actif === dlg) { e.preventDefault(); (e.shiftKey ? dernier : premier).focus(); }
+      else if (!(actif instanceof HTMLElement) || !liste.includes(actif)) { e.preventDefault(); premier.focus(); }
       else if (e.shiftKey && actif === premier) { e.preventDefault(); dernier.focus(); }
       else if (!e.shiftKey && actif === dernier) { e.preventDefault(); premier.focus(); }
     };

@@ -1217,7 +1217,7 @@
       "cta": {
         "guest": "Créer mon compte gratuit",
         "free": "Voir les forfaits",
-        "paid": "Traduire un document"
+        "paid": "Terminé"
       },
       "etapes": {
         "traduction": {
@@ -1330,8 +1330,14 @@
         "edit": "Bientôt · mode édition"
       },
       "fin": {
+        "kicker": "Dernière étape",
         "titre": "Restez informé",
-        "texte": "Nouvelles fonctionnalités, améliorations, correctifs : un court e-mail à chaque version, désabonnement en un clic.",
+        "texte": "À chaque nouvelle version, un court e-mail vous résume ce qui change. Désabonnement en un clic.",
+        "pts": {
+          "1": { "t": "Nouvelles fonctionnalités", "d": "Ce que vous pouvez désormais faire avec Précis." },
+          "2": { "t": "Améliorations", "d": "Traductions plus fidèles, mise en page mieux conservée." },
+          "3": { "t": "Correctifs", "d": "Les problèmes résolus depuis la version précédente." }
+        },
         "question": "Souhaitez-vous les recevoir ?",
         "non": "Non merci",
         "oui": "Oui, m'avertir"

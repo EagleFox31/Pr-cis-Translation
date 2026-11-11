@@ -1217,7 +1217,7 @@
       "cta": {
         "guest": "Create my free account",
         "free": "See the plans",
-        "paid": "Translate a document"
+        "paid": "Done"
       },
       "etapes": {
         "traduction": {
@@ -1330,8 +1330,14 @@
         "edit": "Soon · edit mode"
       },
       "fin": {
+        "kicker": "Last step",
         "titre": "Stay in the loop",
-        "texte": "New features, improvements and fixes: one short email per release, one-click unsubscribe.",
+        "texte": "With each new release, a short email sums up what changed. One-click unsubscribe.",
+        "pts": {
+          "1": { "t": "New features", "d": "What you can now do with Précis." },
+          "2": { "t": "Improvements", "d": "More faithful translations, better preserved layout." },
+          "3": { "t": "Fixes", "d": "Issues resolved since the previous release." }
+        },
         "question": "Would you like to receive them?",
         "non": "No thanks",
         "oui": "Yes, keep me posted"
