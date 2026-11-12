@@ -146,7 +146,7 @@ export default function NouveautesPage() {
 
   return (
     <div className="nv-page">
-      <AppBar exit />
+      <AppBar />
       <main className="nv-wrap">
         <header className="nv-head">
           <div className="nv-head__line">

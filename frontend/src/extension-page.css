@@ -111,7 +111,7 @@
 .ext-panel .admin-panel__body { padding: 4px 24px 24px; overflow: visible; }
 /* Écran large : menu et fiche de même hauteur fixe ; seul le corps de la fiche défile. */
 @media (min-width: 1024px) {
-  .ext-layout, .ext-panel { --ext-row-h: 76px; } .ext-layout { align-items: stretch; height: max(440px, calc(100dvh - var(--nav-h) - 150px)); }
+  .ext-layout, .ext-panel { --ext-row-h: 76px; } .ext-layout { align-items: stretch; height: max(440px, calc(100dvh - var(--nav-total) - 150px)); }
   .ext-menu { position: static; overflow-y: auto; }
   .ext-content { display: flex; flex-direction: column; min-height: 0; }
   .ext-content > .ext-panel { flex: 1; min-height: 0; }

@@ -2,14 +2,18 @@
   "nav": {
     "language": "Langue",
     "home": "Accueil",
-    "features": "Fonctionnalités",
-    "howItWorks": "Fonctionnement",
+    "features": "Avantages",
+    "howItWorks": "Comment ça marche",
     "my_account": "Mon compte",
     "pricing": "Tarifs",
-    "about": "À Propos",
-    "library": "Mes docs",
+    "about": "Qui sommes-nous",
+    "library": "Mes documents",
     "signIn": "Se connecter",
-    "signUp": "S'inscrire",
+    "signUp": "Créer un compte",
+    "integrations": "Extension et API",
+    "news": "Nouveautés",
+    "menu_label": "Menu principal",
+    "open_menu": "Ouvrir le menu",
     "logout": "Déconnexion"
   },
   "hero": {
@@ -610,11 +614,11 @@
     "loading": "Chargement…",
     "tabs_label": "Pages d’administration",
     "tabs": {
-      "users": "Comptes",
-      "documents": "Documents",
-      "support": "Assistance",
-      "logs": "Journal",
-      "beta": "Bêta"
+      "users": "Utilisateurs",
+      "documents": "Traductions",
+      "support": "Demandes d’aide",
+      "logs": "Erreurs",
+      "beta": "Bêta-testeurs"
     }
   },
   "admin_panel": {
@@ -960,7 +964,7 @@
     "tag": "Informations légales",
     "updated": "Dernière mise à jour : {{date}}",
     "back": "← Précis",
-    "nav_label": "Documents légaux",
+    "nav_label": "Informations légales",
     "question": "Une question ?"
   },
   "invite": {
@@ -994,10 +998,10 @@
   },
   "extension_page": {
     "doc_title": "Extension navigateur · Précis",
-    "nav_label": "Extension",
-    "nav_api": "API",
-    "nav_soon": "En cours",
-    "nav_aria": "Intégrations",
+    "nav_label": "Extension navigateur",
+    "nav_api": "API pour développeurs",
+    "nav_soon": "Bientôt",
+    "nav_aria": "Extension et API",
     "footer_link": "Extension navigateur",
     "back": "Retour",
     "title": "Extension navigateur",
@@ -1175,8 +1179,8 @@
     "notice": "Cette page sera mise à jour à l'ouverture de l'API."
   },
   "nouveautes": {
-    "nav_label": "Fonctionnalités",
-    "footer_link": "Fonctionnalités",
+    "nav_label": "Nouveautés",
+    "footer_link": "Nouveautés",
     "page_title": "Fonctionnalités · Précis",
     "title": "Fonctionnalités",
     "version": "Version {{version}}",

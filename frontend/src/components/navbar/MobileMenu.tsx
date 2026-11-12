@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import {
   Home, Sparkles, Workflow, Tag, Info, ShieldCheck, Puzzle, Code2, Users, FileText,
-  LifeBuoy, ScrollText, FlaskConical, Scale, Lock, Cookie, ChevronRight, Globe, type LucideIcon,
+  LifeBuoy, ScrollText, FlaskConical, Scale, Lock, Cookie, ChevronRight, Globe, LogIn, Megaphone, type LucideIcon,
 } from 'lucide-react';
 
 interface MobileMenuProps {
@@ -18,7 +18,7 @@ interface MobileMenuProps {
 /** Icône d'un lien d'après son identifiant (section de l'accueil ou chemin). */
 const ICONES: Array<[RegExp, LucideIcon]> = [
   [/^hero$/, Home], [/^features$/, Sparkles], [/^story$/, Workflow], [/^pricing$/, Tag],
-  [/^about$/, Info], [/^admin$/, ShieldCheck], [/fonctionnalites/, Sparkles], [/extension/, Puzzle], [/api/, Code2],
+  [/^about$/, Info], [/^admin$/, ShieldCheck], [/^integrations$/, Puzzle], [/^news$/, Megaphone], [/^login$/, LogIn], [/fonctionnalites/, Sparkles], [/extension/, Puzzle], [/api/, Code2],
   [/users/, Users], [/documents/, FileText], [/support/, LifeBuoy], [/logs/, ScrollText],
   [/beta/, FlaskConical], [/mentions|conditions/, Scale], [/confidentialite/, Lock], [/cookies/, Cookie],
 ];

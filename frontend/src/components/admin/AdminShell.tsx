@@ -49,11 +49,11 @@ export default function AdminShell({ title, count, actions, stats, tabs = true, 
   const { user } = useAuth();
   // Jamais montré à un non-admin : il trahirait les pages internes.
   const showTabs = tabs && user?.plan === 'admin';
-  const tabLinks = showTabs ? TABS.map((tab) => ({ href: tab.to, label: t(`admin.tabs.${tab.key}`, tab.label) })) : [];
+  const tabLinks = TABS.map((tab) => ({ href: tab.to, label: t(`admin.tabs.${tab.key}`, tab.label) }));
 
   return (
     <div className="admin-page">
-      <AppBar links={tabLinks} linksLabel={t('admin.tabs_label', 'Pages d’administration')} exit={showTabs} home="/home" />
+      <AppBar sub={showTabs ? { label: t('admin.menu', 'Administration'), links: tabLinks } : undefined} />
 
       {/* Contenu : décalé sous la barre fixe, cadré comme le reste du site */}
       <main className="admin-main">

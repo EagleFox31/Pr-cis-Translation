@@ -2,15 +2,19 @@
   "nav": {
     "language": "Language",
     "home": "Home",
-    "features": "Features",
+    "features": "Benefits",
     "howItWorks": "How it works",
     "my_account": "My account",
     "pricing": "Pricing",
-    "about": "About",
-    "library": "My docs",
+    "about": "About us",
+    "library": "My documents",
     "signIn": "Sign In",
-    "signUp": "Sign Up",
-    "logout": "Log out"
+    "signUp": "Create account",
+    "logout": "Log out",
+    "integrations": "Extension & API",
+    "news": "What’s new",
+    "menu_label": "Main menu",
+    "open_menu": "Open the menu"
   },
   "hero": {
     "badge": "Layout engine v2",
@@ -610,11 +614,11 @@
     "loading": "Loading…",
     "tabs_label": "Admin pages",
     "tabs": {
-      "users": "Accounts",
-      "documents": "Documents",
-      "support": "Support",
-      "logs": "Logs",
-      "beta": "Beta"
+      "users": "Users",
+      "documents": "Translations",
+      "support": "Help requests",
+      "logs": "Errors",
+      "beta": "Beta testers"
     }
   },
   "admin_panel": {
@@ -960,7 +964,7 @@
     "tag": "Legal",
     "updated": "Last updated: {{date}}",
     "back": "← Précis",
-    "nav_label": "Legal documents",
+    "nav_label": "Legal information",
     "question": "A question?"
   },
   "invite": {
@@ -994,10 +998,10 @@
   },
   "extension_page": {
     "doc_title": "Browser extension · Précis",
-    "nav_label": "Extension",
-    "nav_api": "API",
-    "nav_soon": "In progress",
-    "nav_aria": "Integrations",
+    "nav_label": "Browser extension",
+    "nav_api": "Developer API",
+    "nav_soon": "Soon",
+    "nav_aria": "Extension & API",
     "footer_link": "Browser extension",
     "back": "Back",
     "title": "Browser extension",
@@ -1175,8 +1179,8 @@
     "notice": "This page will be updated when the API opens."
   },
   "nouveautes": {
-    "nav_label": "Features",
-    "footer_link": "Features",
+    "nav_label": "What’s new",
+    "footer_link": "What’s new",
     "page_title": "Features · Précis",
     "title": "Features",
     "version": "Version {{version}}",

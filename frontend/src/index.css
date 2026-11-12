@@ -70,6 +70,8 @@
   --section-gap: 32px;
 
   --nav-h: 72px;
+  /* Hauteur réelle de la barre (2ᵉ rangée comprise), écrite par AppBar. */
+  --nav-total: var(--nav-h);
 
   /* Fenêtres, pastilles et ombres des écrans « Nouveautés » et du panneau du compte. */
   --gray-400: #94a3b8;
@@ -271,7 +273,7 @@ button { font-family: inherit; cursor: pointer; border: none; }
 .mobile-menu {
   display: none;
   position: fixed;
-  top: 72px; left: 0; right: 0;
+  top: var(--nav-total); left: 0; right: 0;
   background: var(--white);
   padding: 20px 24px 28px;
   border-bottom: 1px solid var(--gray-100);
@@ -940,7 +942,7 @@ button { font-family: inherit; cursor: pointer; border: none; }
 section {
   position: relative;
   z-index: 1;
-  scroll-margin-top: 72px;
+  scroll-margin-top: var(--nav-total);
   height: auto;
   overflow: visible;
 }
@@ -964,7 +966,7 @@ section {
   display: flex;
   flex-direction: column;
 }
-section.about-section { padding: calc(var(--nav-h) + 24px) 0 0 !important; }
+section.about-section { padding: calc(var(--nav-total) + 24px) 0 0 !important; }
 /* Rebond de défilement (mobile, pavé tactile) : la zone révélée sous le pied de
    page prend la couleur du fond racine. Bleu nuit sur les pages qui finissent
    par « À propos » ; le `body` reste blanc et couvre le contenu. */
@@ -997,7 +999,7 @@ html:has(.about-section) { background: var(--navy); }
 .about-mail, .about-social a { display: inline-flex; align-items: center; gap: 8px; }
 .about-mail svg, .about-social svg { color: var(--about-muted); flex-shrink: 0; }
 .about-mail:hover, .about-social a:hover { color: #fff; text-decoration-color: currentColor; }
-.about-social { display: inline-flex; gap: 18px; }
+.about-social { display: inline-flex; flex-wrap: wrap; gap: 18px; }
 .about-seal-also { margin-top: 6px; font-size: 0.85rem; color: var(--gray-500); }
 .about-seal-also a { color: var(--navy); text-decoration: underline; text-underline-offset: 3px; }
 .about-cta { display: inline-flex; align-items: center; gap: 10px; padding: 14px 26px; border-radius: 999px; background: var(--about-ink); color: var(--navy); font-weight: 700; font-size: 0.98rem; transition: background .2s, transform .2s; }
@@ -1022,7 +1024,7 @@ html:has(.about-section) { background: var(--navy); }
   .contact-modal { width: 100%; border-radius: 20px 20px 0 0; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
 }
 @media (max-width: 1024px) {
-  .about-layout { grid-template-columns: 1fr; gap: 40px; }
+  .about-layout { grid-template-columns: minmax(0, 1fr); gap: 40px; }
   .about-seal { order: 2; height: auto; flex-direction: row; align-items: center; justify-content: flex-start; border-radius: 999px 28px 28px 999px; padding: 20px 28px 20px 20px; }
   .about-seal { min-height: 0; }
   .about-mascot { flex: 0 0 auto; height: 150px; }
@@ -1041,7 +1043,7 @@ html:has(.about-section) { background: var(--navy); }
 .about-footer-links a { color: var(--about-text); text-decoration: none; text-underline-offset: 3px; }
 .about-footer-links a:hover, .about-footer-links a:focus-visible { color: var(--about-ink); text-decoration: underline; }
 @media (max-width: 640px) {
-  section.about-section { padding-top: calc(var(--nav-h) + 8px) !important; }
+  section.about-section { padding-top: calc(var(--nav-total) + 8px) !important; }
   .about-title { font-size: 2.3rem; }
   .about-pledges { grid-template-columns: 1fr; }
   .about-pledges li { display: grid; grid-template-columns: 44px 1fr; column-gap: 4px; padding: 18px 0; }
@@ -1478,6 +1480,7 @@ html:has(.about-section) { background: var(--navy); }
   font-weight: 700;
   color: var(--navy);
   line-height: 1;
+  overflow-wrap: anywhere;
   margin-bottom: 4px;
 }
 .pricing-card.popular .pricing-price { color: var(--white); }
@@ -1928,15 +1931,7 @@ footer {
   .footer-grid { grid-template-columns: 1fr 1fr; }
   .testimonials-grid { grid-template-columns: repeat(2, 1fr); }
 }
-/* Le menu central (5 à 6 liens) chevauchait logo et FR/EN sous ~1100 px : hamburger dès là. */
-@media (max-width: 1100px) {
-  .nav-links { display: none; }
-  .hamburger { display: flex; }
-  /* Convention mobile : logo à gauche, compte + menu à droite ; la langue passe dans le menu. */
-  .nav-inner:has(.hamburger) .lang-toggle { display: none; }
-  .nav-inner:has(.hamburger) .nav-logo { margin-right: auto; }
-  .hamburger { min-width: 44px; min-height: 44px; align-items: center; justify-content: center; }
-}
+/* Passage au menu ☰ : décidé par la place réelle (useRepli, appbar.css), plus par un seuil. */
 /* Menu mobile : lignes pleine largeur (icône, libellé, chevron), langue en bas. */
 .mobile-menu .mm-links { display: grid; gap: 4px; }
 .mobile-menu .mm-link {
@@ -1966,10 +1961,9 @@ footer {
 .mm-seg button.active { background: var(--white); color: var(--navy); box-shadow: var(--shadow-sm); }
 @media (max-width: 420px) {
   .nav-inner { gap: 12px; }
-  .nav-inner:has(.hamburger) .animated-logo-text { display: none; }
 }
 @media (max-width: 768px) {
-  .pricing-grid { grid-template-columns: 1fr; }
+  .pricing-grid { grid-template-columns: minmax(0, 1fr); }
   .pricing-card.popular { transform: none; }
   .comparison-row { grid-template-columns: 130px 1fr 1fr; }
   .comparison-cell { padding: 12px; font-size: 13px; }
@@ -2485,7 +2479,7 @@ input.pg-num-champ::-webkit-outer-spin-button,input.pg-num-champ::-webkit-inner-
     /* Padding haut = navbar + dégagement (la navbar fixe recouvre les 72px du
        haut), bas = dégagement seul : le titre démarre à `--section-gap` sous la
        navbar, exactement pareil partout. */
-    padding-top: calc(var(--nav-h) + var(--section-gap)) !important;
+    padding-top: calc(var(--nav-total) + var(--section-gap)) !important;
     padding-bottom: var(--section-gap) !important;
   }
 
@@ -2526,7 +2520,7 @@ input.pg-num-champ::-webkit-outer-spin-button,input.pg-num-champ::-webkit-inner-
        C'était l'unique raison pour laquelle Features restait « toujours haut ». */
     scroll-margin-top: 0;
     /* Même calage haut et mêmes marges que toutes les autres sections. */
-    padding-top: calc(var(--nav-h) + var(--section-gap)) !important;
+    padding-top: calc(var(--nav-total) + var(--section-gap)) !important;
     padding-bottom: var(--section-gap) !important;
   }
   
@@ -2567,7 +2561,7 @@ html.preview-active body {
 }
 html.preview-active .story-band {
   position: fixed !important;
-  inset: var(--nav-h) 0 0 0;
+  inset: var(--nav-total) 0 0 0;
   z-index: 900;
   height: auto;
   min-height: 0;

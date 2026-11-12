@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
-import Navbar from '../components/navbar/Navbar';
+import AppBar from '../components/navbar/AppBar';
 import { prendreSource, type DemandeBibliotheque } from '../components/library/BibliothequeHote';
 import HeroSection from '../components/hero/HeroSection';
 import LanguageMarquee from '../components/hero/LanguageMarquee';
@@ -572,6 +572,15 @@ export default function Home() {
     document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth' });
   }, [showPreview, handleBack]);
 
+  // Section demandée depuis une autre page (menu commun) : on y défile à
+  // l'arrivée, puis l'état est effacé (un retour arrière ne la rejoue pas).
+  const sectionVisee = (location.state as { section?: string } | null)?.section;
+  useEffect(() => {
+    if (!sectionVisee) return;
+    navigate(location.pathname, { replace: true, state: null });
+    requestAnimationFrame(() => handleNavClick(sectionVisee));
+  }, [sectionVisee, navigate, location.pathname, handleNavClick]);
+
   // Même règle pour TOUT ce qui mène à une section, pas seulement la barre :
   // boutons « voir les forfaits » (`goToSection`) et liens `#section` de la
   // page. Un lien dont le composant gère déjà le clic (preventDefault) est
@@ -781,10 +790,9 @@ export default function Home() {
         }}
       />
 
-      <Navbar
-        activeSection={activeSection}
-        onNavClick={handleNavClick}
-        onLibraryOpen={() => setShowLibrary(true)}
+      <AppBar
+        section={{ active: activeSection, onClick: handleNavClick }}
+        onAccount={() => setShowLibrary(true)}
       />
 
       <LanguageMarquee />

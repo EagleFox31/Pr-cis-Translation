@@ -10,13 +10,13 @@
 .vst-ouverte .navbar { z-index: calc(var(--z-dialog) + 1); background: #fff; }
 .vst-ouverte .navbar * { pointer-events: none; }
 .vst-ouverte .navbar .lang-toggle, .vst-ouverte .navbar .lang-toggle * { pointer-events: auto; }
-.vst-ouverte .nav-inner > :not(.nav-logo):not(.lang-toggle):not(.nav-aside),
-.vst-ouverte .nav-aside > :not(.lang-toggle) { opacity: .35; }
-/* Sous 1100 px, FR/EN passe d'ordinaire dans le menu : on l'affiche dans la barre le temps de la visite. */
-.vst-ouverte .nav-inner:has(.hamburger) .lang-toggle { display: flex; }
-.vst-ouverte .vst { top: calc(50% + var(--nav-h) / 2); height: min(620px, calc(100dvh - var(--nav-h) - 48px)); }
+.vst-ouverte .nav-inner > :not(.nav-logo):not(.lang-toggle),
+.vst-ouverte .nav-sub { opacity: .35; }
+/* Barre repliée : FR/EN passe d'ordinaire dans le menu ; on l'affiche dans la barre le temps de la visite. */
+.vst-ouverte .navbar.r2 .nav-inner .lang-toggle { display: flex; }
+.vst-ouverte .vst { top: calc(50% + var(--nav-total) / 2); height: min(620px, calc(100dvh - var(--nav-total) - 48px)); }
 @media (max-width: 900px) {
-  .vst-ouverte .vst { top: var(--nav-h); height: calc(100dvh - var(--nav-h)); }
+  .vst-ouverte .vst { top: var(--nav-total); height: calc(100dvh - var(--nav-total)); }
 }
 
 .nvd { position: fixed; z-index: var(--z-dialog); left: 50%; top: 50%; transform: translate(-50%, -50%);

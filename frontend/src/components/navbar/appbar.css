@@ -1,0 +1,79 @@
+/* Barre du haut unique (AppBar.tsx). Voir docs/etude-navigation-tarifs.md.
+   Règle d'or : rien ne rétrécit ni ne passe à la ligne dans la rangée
+   principale ; quand la place manque, useRepli replie d'un cran (r1…r4). */
+
+.nav-inner > * { flex-shrink: 0; }
+.nav-inner > nav { margin: 0 auto; }
+.nav-inner .nav-links { position: static; transform: none; gap: 28px; flex-wrap: nowrap; }
+.nav-inner .lang-toggle { margin-left: 0; }
+
+.nav-logo { background: none; border: none; padding: 0; cursor: pointer; }
+.nav-logo .animated-logo-text { line-height: 1; }   /* boîte de ligne dans la barre */
+.nav-logo:focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; border-radius: 6px; }
+
+.nav-progress {
+  position: absolute; bottom: -1px; left: 0; height: 2px; z-index: 1001;
+  background: linear-gradient(90deg, #1a4dc7, #c9a84c);
+  transition: width .1s linear;
+}
+
+.nav-avatar {
+  width: 34px; height: 34px; border-radius: 999px; border: none;
+  background: var(--blue); color: var(--white); font: inherit; font-weight: 700; font-size: 14px;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.nav-avatar:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+.nav-compte { display: flex; align-items: center; gap: 8px; }
+.nav-btn {
+  padding: 7px 14px; border-radius: 8px; border: 1.5px solid var(--gray-200);
+  background: transparent; color: var(--gray-700); font: inherit; font-weight: 600; font-size: 13px;
+  white-space: nowrap; cursor: pointer; transition: border-color .18s ease, color .18s ease, background .18s ease;
+}
+.nav-btn:hover { border-color: var(--blue); color: var(--blue); }
+.nav-btn.primary { border-color: var(--blue); background: var(--blue); color: var(--white); }
+.nav-btn.primary:hover { background: var(--navy); border-color: var(--navy); color: var(--white); }
+.nav-btn:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+/* Crans de repli, cumulatifs. */
+.navbar.r1 .nav-inner { gap: 16px; }
+.navbar.r1 .nav-inner .nav-links { gap: 18px; }
+.navbar.r2 .nav-inner > nav,
+.navbar.r2 .nav-inner .lang-toggle { display: none; }
+.navbar.r2 .nav-logo { margin-right: auto; }
+.navbar.r2 .hamburger {
+  display: flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px;
+}
+.navbar.r3 .animated-logo-text { display: none; }
+.navbar.r4 .nav-signin { display: none; }
+
+/* 2ᵉ rangée : pages de la rubrique. Défile à l'horizontale plutôt que de
+   passer à la ligne ou de déborder. */
+.nav-sub { background: var(--gray-50); border-top: 1px solid var(--gray-100); }
+.nav-sub-in {
+  max-width: var(--frame-max); margin: 0 auto; padding: 0 var(--frame-pad);
+  height: 44px; display: flex; align-items: center; gap: 2px;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none; white-space: nowrap;
+}
+.nav-sub-in::-webkit-scrollbar { display: none; }
+.nav-sub-in strong {
+  flex-shrink: 0; margin-right: 12px;
+  font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--gray-500);
+}
+.nav-sub-in ul { display: flex; align-items: stretch; list-style: none; margin: 0; padding: 0; height: 100%; }
+.nav-sub-in li { display: flex; }
+.nav-sub-in a {
+  display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; height: 100%;
+  font-size: 13.5px; font-weight: 500; color: var(--gray-700); white-space: nowrap;
+  box-shadow: inset 0 -2px 0 transparent; transition: color var(--transition), box-shadow var(--transition);
+}
+.nav-sub-in a:hover { color: var(--blue); }
+.nav-sub-in a.active { color: var(--navy); font-weight: 600; box-shadow: inset 0 -2px 0 var(--blue); }
+.nav-sub-in a:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; border-radius: 4px; }
+@media (max-width: 480px) {
+  .nav-sub-in strong { display: none; }
+  .nav-sub-in { padding: 0 8px; }
+}
+
+/* Le menu déroulant se place sous la barre, quelle que soit sa hauteur. */
+.mobile-menu { top: var(--nav-total); max-height: calc(100dvh - var(--nav-total)); overflow-y: auto; }

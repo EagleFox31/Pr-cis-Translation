@@ -1,22 +1,25 @@
 /**
- * Barre du haut partagée par les pages hors accueil (administration, intégrations).
+ * Barre du haut, la même sur toutes les pages (accueil compris).
  *
- * POURQUOI : chaque famille de pages avait sa copie de la barre, et les copies
- * dérivaient (sortie à des places différentes, avatar absent). Une seule barre :
- * logo, menu central, « Retour à l'accueil », FR/EN, avatar, menu mobile.
- * Voir docs/etude-navigation-integrations.md.
+ * POURQUOI : chaque famille de pages avait son menu ; on perdait ses repères en
+ * changeant de page. Désormais le menu principal ne change jamais ; une rubrique
+ * à plusieurs pages (Extension et API, Administration, Informations légales)
+ * ajoute une 2ᵉ rangée sous la barre. Voir docs/etude-navigation-tarifs.md.
  *
- * Réutilise les classes `.navbar/.nav-inner/.nav-links/.lang-toggle` d'`index.css`.
+ * Aucun chevauchement : la ligne se replie d'elle-même quand la place manque
+ * (useRepli), la 2ᵉ rangée défile à l'horizontale, et la hauteur réelle de la
+ * barre est publiée dans `--nav-total` pour décaler le contenu des pages.
  */
 import type { ReactNode } from 'react';
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
 import MobileMenu from './MobileMenu';
+import { useRepli } from './useRepli';
 import '../admin/admin.css';
+import './appbar.css';
 
 // Tiroir « Mes documents » : chargé à la première ouverture seulement.
 const BibliothequeHote = lazy(() => import('../library/BibliothequeHote'));
@@ -24,21 +27,22 @@ const BibliothequeHote = lazy(() => import('../library/BibliothequeHote'));
 export interface AppBarLink {
   href: string;
   label: string;
-  /** Pastille après le libellé (ex. « Bientôt »), barre large seulement. */
+  /** Pastille après le libellé (ex. « Bientôt »). */
   badge?: ReactNode;
 }
 
 interface AppBarProps {
-  /** Menu central ; vide → ni menu ni hamburger. */
-  links?: AppBarLink[];
-  linksLabel?: string;
-  /** Bouton « Retour à l'accueil » dans la barre. */
-  exit?: boolean;
-  /** Accueil visé par le logo, la sortie et l'avatar (défaut : `/home` connecté, `/` sinon). */
-  home?: string;
+  /** 2ᵉ rangée : pages de la rubrique en cours. */
+  sub?: { label: string; links: AppBarLink[] };
+  /** Accueil seulement : section visible et défilement vers une section. */
+  section?: { active: string; onClick: (id: string) => void };
+  /** Clic sur l'avatar ; par défaut ouvre « Mes documents ». */
+  onAccount?: () => void;
 }
 
-export default function AppBar({ links = [], linksLabel, exit = false, home }: AppBarProps) {
+interface Lien { id: string; label: string; href?: string }
+
+export default function AppBar({ sub, section, onAccount }: AppBarProps) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -46,92 +50,157 @@ export default function AppBar({ links = [], linksLabel, exit = false, home }: A
   const [menuOpen, setMenuOpen] = useState(false);
   // `null` : jamais ouvert (rien de monté) ; ensuite reste monté pour l'animation de fermeture.
   const [biblio, setBiblio] = useState<boolean | null>(null);
+  const [scrolled, setScrolled] = useState(!section);
+  const [progress, setProgress] = useState(0);
+  const barre = useRef<HTMLElement>(null);
+  const ligne = useRef<HTMLDivElement>(null);
+
   const fr = (i18n.language || 'fr').startsWith('fr');
-  const accueil = home ?? (user ? '/home' : '/');
-  const retour = t('admin.back_home', 'Retour à l’accueil');
-  const menu = links.map((l) => ({ id: l.href, href: l.href, label: l.label }));
+  const admin = user?.plan === 'admin';
+  const niveau = useRepli(ligne, `${i18n.language}|${user ? 1 : 0}|${admin ? 1 : 0}`);
+
+  const liens: Lien[] = [
+    { id: 'features', label: t('nav.features') },
+    { id: 'story', label: t('nav.howItWorks') },
+    { id: 'pricing', label: t('nav.pricing') },
+    { id: 'integrations', label: t('nav.integrations'), href: '/extension' },
+    { id: 'news', label: t('nav.news'), href: '/fonctionnalites' },
+    { id: 'about', label: t('nav.about') },
+    ...(admin ? [{ id: 'admin', label: t('admin.menu', 'Administration'), href: '/admin/users' }] : []),
+  ];
+
+  // Lien actif : la section visible sur l'accueil, la rubrique ailleurs.
+  const actif = section
+    ? (section.active === 'comparison' ? 'features' : section.active)
+    : /^\/(extension|integrations)/.test(pathname) ? 'integrations'
+    : pathname.startsWith('/fonctionnalites') ? 'news'
+    : pathname.startsWith('/admin') ? 'admin' : '';
+
+  const aller = (id: string) => {
+    setMenuOpen(false);
+    const page = [...liens, { id: 'login', label: '', href: '/login' }].find((l) => l.id === id)?.href;
+    if (page) navigate(page);
+    else if (section) section.onClick(id);
+    // Section de l'accueil depuis une autre page : l'accueil y défile à l'arrivée.
+    else navigate('/home', { state: { section: id } });
+  };
+
+  // Accueil : ombre au défilement et barre de progression.
+  useEffect(() => {
+    if (!section) return;
+    const onScroll = () => {
+      const d = document.documentElement;
+      const max = d.scrollHeight - d.clientHeight;
+      setScrolled(window.scrollY > 20);
+      setProgress(max > 0 ? d.scrollTop / max : 0);
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [!section]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Hauteur réelle de la barre (2ᵉ rangée comprise) → `--nav-total`.
+  useLayoutEffect(() => {
+    const el = barre.current;
+    if (!el) return;
+    const racine = document.documentElement.style;
+    const publier = () => racine.setProperty('--nav-total', `${el.offsetHeight}px`);
+    publier();
+    const ro = new ResizeObserver(publier);
+    ro.observe(el);
+    return () => { ro.disconnect(); racine.removeProperty('--nav-total'); };
+  }, []);
+
+  const menu: Lien[] = niveau >= 4 && !user ? [...liens, { id: 'login', label: t('nav.signIn'), href: '/login' }] : liens;
   const avatarLetter = user?.name ? user.name[0].toUpperCase() : (user?.email?.[0].toUpperCase() || '?');
+  const crans = Array.from({ length: niveau }, (_, i) => `r${i + 1}`).join(' ');
 
   return (
     <>
-      <nav className="navbar scrolled">
-        <div className="nav-inner">
-          <button
-            onClick={() => navigate(accueil)}
-            className="nav-logo"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-            title={retour}
+      <header ref={barre} className={`navbar ${scrolled ? 'scrolled' : ''} ${crans}`}>
+        {section && <div className="nav-progress" style={{ width: `${progress * 100}%` }} aria-hidden="true" />}
+
+        <div className="nav-inner" ref={ligne}>
+          <a
+            href="/home" className="nav-logo" aria-label={t('nav.home')}
+            onClick={(e) => { e.preventDefault(); if (section) section.onClick('hero'); else navigate('/home'); }}
           >
-            <img src="/Logo.png" alt="P" style={{ height: '46px', width: 'auto' }} />
-            <span className="animated-logo-text">
+            <img src="/Logo.png" alt="" />
+            <span className="animated-logo-text" aria-hidden="true">
               {'récis'.split('').map((c, i) => (
                 <span key={i} style={{ animationDelay: `${i / 10}s` }}>{c}</span>
               ))}
             </span>
-          </button>
+          </a>
 
-          {links.length > 0 && (
-            <ul className="nav-links" aria-label={linksLabel}>
-              {links.map((l) => (
-                <li key={l.href}>
-                  <NavLink to={l.href} className={l.badge ? 'ext-nav-lien' : undefined}>
-                    {l.label}
-                    {l.badge}
-                  </NavLink>
+          <nav aria-label={t('nav.menu_label')}>
+            <ul className="nav-links">
+              {liens.map((l) => (
+                <li key={l.id}>
+                  <a
+                    href={l.href ?? `/home#${l.id}`}
+                    className={actif === l.id ? 'active' : ''}
+                    aria-current={actif === l.id ? (l.href ? 'page' : 'location') : undefined}
+                    onClick={(e) => { e.preventDefault(); aller(l.id); }}
+                  >{l.label}</a>
                 </li>
               ))}
             </ul>
-          )}
+          </nav>
 
-          {exit && (
-            // Sortie explicite : le logo ramène aussi à l'accueil, mais ne se devine pas.
-            <button onClick={() => navigate(accueil)} className="tb-btn ghost admin-btn admin-exit" title={retour}>
-              <ArrowLeft size={15} strokeWidth={2.2} /> <span>{retour}</span>
-            </button>
-          )}
-
-          <div className="lang-toggle">
-            <button className={fr ? 'active' : ''} onClick={() => i18n.changeLanguage('fr')}>FR</button>
-            <button className={fr ? '' : 'active'} onClick={() => i18n.changeLanguage('en')}>EN</button>
+          <div className="lang-toggle" role="group" aria-label={t('nav.language')}>
+            <button className={fr ? 'active' : ''} aria-pressed={fr} onClick={() => i18n.changeLanguage('fr')}>FR</button>
+            <button className={fr ? '' : 'active'} aria-pressed={!fr} onClick={() => i18n.changeLanguage('en')}>EN</button>
           </div>
 
-          {user && (
+          {user ? (
             <button
-              onClick={() => setBiblio(true)}
-              title={t('admin.my_account', 'Mon compte')}
-              aria-haspopup="dialog"
-              style={{
-                width: '34px', height: '34px', borderRadius: '999px',
-                background: 'var(--blue)', color: 'white', border: 'none',
-                fontWeight: 700, fontSize: '14px', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontFamily: 'inherit', flexShrink: 0,
-              }}
+              className="nav-avatar" onClick={() => (onAccount ? onAccount() : setBiblio(true))}
+              title={t('nav.my_account')} aria-label={t('nav.my_account')} aria-haspopup="dialog"
             >{avatarLetter}</button>
+          ) : (
+            <div className="nav-compte">
+              <button className="nav-btn nav-signin" onClick={() => navigate('/login')}>{t('nav.signIn')}</button>
+              <button className="nav-btn primary" onClick={() => navigate('/register')}>{t('nav.signUp')}</button>
+            </div>
           )}
 
-          {links.length > 0 && (
-            <button className="hamburger" onClick={() => setMenuOpen((v) => !v)} aria-label="Toggle menu" aria-expanded={menuOpen} aria-controls="mobile-menu">
-              <span style={{ transform: menuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' }} />
-              <span style={{ opacity: menuOpen ? 0 : 1 }} />
-              <span style={{ transform: menuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none' }} />
-            </button>
-          )}
+          <button
+            className="hamburger" onClick={() => setMenuOpen((v) => !v)}
+            aria-label={t('nav.open_menu')} aria-expanded={menuOpen} aria-controls="mobile-menu"
+          >
+            <span style={{ transform: menuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' }} />
+            <span style={{ opacity: menuOpen ? 0 : 1 }} />
+            <span style={{ transform: menuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none' }} />
+          </button>
         </div>
-      </nav>
 
-      {user && biblio !== null && (
+        {sub && (
+          <nav className="nav-sub" aria-label={sub.label}>
+            <div className="nav-sub-in">
+              <strong>{sub.label}</strong>
+              <ul>
+                {sub.links.map((l) => (
+                  <li key={l.href}>
+                    <NavLink to={l.href}>{l.label}{l.badge}</NavLink>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </nav>
+        )}
+      </header>
+
+      {user && !onAccount && biblio !== null && (
         <Suspense fallback={null}>
           <BibliothequeHote isOpen={biblio} onClose={() => setBiblio(false)} />
         </Suspense>
       )}
 
-      {links.length > 0 && (
-        <MobileMenu
-          isOpen={menuOpen} links={menu} activeSection={pathname}
-          onNavClick={(to) => { setMenuOpen(false); navigate(to); }} onClose={() => setMenuOpen(false)}
-        />
-      )}
+      <MobileMenu
+        isOpen={menuOpen && niveau >= 2} links={menu} activeSection={actif}
+        onNavClick={aller} onClose={() => setMenuOpen(false)}
+      />
     </>
   );
 }

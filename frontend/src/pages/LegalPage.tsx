@@ -17,7 +17,11 @@ export default function LegalPage({ slug }: { slug: LegalDoc['slug'] }) {
   const doc = docs.find((d) => d.slug === slug) ?? docs[0];
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const links = docs.map((d) => ({ href: `/${d.slug}`, label: d.title }));
+  // Libellés courts (ceux du pied de page) : la 2ᵉ rangée tient sur un téléphone.
+  const court: Record<LegalDoc['slug'], string> = {
+    'mentions-legales': 'footer.legal', conditions: 'footer.terms', confidentialite: 'footer.privacy', cookies: 'footer.cookies',
+  };
+  const links = docs.map((d) => ({ href: `/${d.slug}`, label: court[d.slug] ? t(court[d.slug]) : d.title }));
 
   useEffect(() => {
     document.title = `${doc.title} · Précis`;
@@ -26,8 +30,8 @@ export default function LegalPage({ slug }: { slug: LegalDoc['slug'] }) {
 
   return (
     <div className="legal-page">
-      {/* Barre commune : documents au centre, « Retour à l'accueil » dans la barre. */}
-      <AppBar links={links} linksLabel={t('legal.nav_label')} exit />
+      {/* Barre commune ; les documents légaux en 2ᵉ rangée. */}
+      <AppBar sub={{ label: t('legal.nav_label'), links }} />
 
       {/* La page tient dans l'écran : le titre reste fixe, seul le texte défile. */}
       <main className="legal-main">

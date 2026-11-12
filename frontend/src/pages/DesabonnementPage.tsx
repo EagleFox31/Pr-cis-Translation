@@ -56,7 +56,7 @@ export default function DesabonnementPage() {
 
   return (
     <div className="nv-page">
-      <AppBar exit />
+      <AppBar />
       <main className="nv-unsub">
         <div className="nv-card" aria-live="polite">
           {etat === 'chargement' && (
