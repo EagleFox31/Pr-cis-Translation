@@ -3011,15 +3011,20 @@ html.preview-active .scroll {
 @keyframes archiveFloat { from { opacity: 0; transform: translateY(6px); } }
 @media (prefers-reduced-motion: reduce) { .panneau .archive-float { animation: none; } }
 /* Sélection multiple. */
-.panneau .doc--select .ft { background: var(--white); border: 1.5px solid var(--gray-300); color: transparent; }
-.panneau .doc--coche .ft { background: var(--navy); border-color: var(--navy); color: var(--white); }
-.panneau .sel-bar { display: flex; align-items: center; gap: 8px; margin: 0 20px 8px; padding: 6px 6px 6px 12px; border-radius: var(--radius-sm); background: var(--gray-100); }
-.panneau .sel-bar .tab { flex: 1; font-size: 13px; font-weight: 600; color: var(--navy); }
-.panneau .sel-bar button { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border: 0; border-radius: var(--radius-sm); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
-.panneau .sel-del { background: var(--red-700); color: var(--white); }
-.panneau .sel-del:disabled { opacity: .45; cursor: default; }
-.panneau .sel-cancel { background: transparent; color: var(--gray-700); }
-.panneau .sel-cancel:hover { background: var(--gray-200); }
+.panneau .doc--select .ft { background: transparent; }
+.panneau .ft .coche { width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--gray-300); background: var(--white); display: grid; place-items: center; transition: background .12s, border-color .12s; }
+.panneau .doc--select .open:hover .coche { border-color: var(--navy); }
+.panneau .doc--coche .coche { background: var(--navy); border-color: var(--navy); color: var(--white); }
+.panneau .doc.doc--coche, .panneau .doc.doc--coche:hover { background: var(--blue-light); }
+.panneau .sel-bar { display: flex; align-items: center; gap: 2px; margin: 0 20px 4px; min-height: 32px; }
+.panneau .sel-bar .tab { flex: 1; font-size: 12.5px; font-weight: 600; color: var(--gray-700); }
+.panneau .sel-bar button { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.panneau .sel-del { color: var(--red-700); }
+.panneau .sel-del:hover:not(:disabled) { background: var(--red-50); }
+.panneau .sel-del.sel-del--sur { background: var(--red-700); color: var(--white); }
+.panneau .sel-del:disabled { opacity: .4; cursor: default; }
+.panneau .sel-cancel { color: var(--gray-700); }
+.panneau .sel-cancel:hover { background: var(--gray-100); }
 .panneau .doc--archive .t b { color: var(--gray-700); }
 .panneau .doc--archive .lang, .panneau .doc--archive .ft { color: var(--gray-500); }
 /* Zone de clic agrandie du lien, sans changer la mise en page. */

@@ -284,7 +284,7 @@ export default function DocumentCard({
         onClick={auClic}>
         <span className="ft" title={selection ? undefined : nomFormat}>
           {selection
-            ? (selection.cochee && <Check size={18} strokeWidth={2.6} className="ic" aria-hidden="true" />)
+            ? <span className="coche">{selection.cochee && <Check size={12} strokeWidth={3} aria-hidden="true" />}</span>
             : <Icone size={18} strokeWidth={2} className="ic" aria-hidden="true" />}
         </span>
         <span className="t">

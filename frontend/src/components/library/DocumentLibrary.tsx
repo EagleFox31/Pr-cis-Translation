@@ -91,6 +91,13 @@ export default function DocumentLibrary({
   const [payFor, setPayFor] = useState<DocMeta | null>(null);
   // Archivé dont l'explication est dépliée sous la ligne (un seul à la fois).
   const [archiveOuverte, setArchiveOuverte] = useState<string | null>(null);
+  // La bulle se retire seule après le temps de lecture ; survol ou focus la retiennent.
+  const [bulleRetenue, setBulleRetenue] = useState(false);
+  useEffect(() => {
+    if (!archiveOuverte || bulleRetenue) return;
+    const id = window.setTimeout(() => setArchiveOuverte(null), 9000);
+    return () => window.clearTimeout(id);
+  }, [archiveOuverte, bulleRetenue]);
   // Sélection multiple : null = mode normal.
   const [selection, setSelection] = useState<Set<string> | null>(null);
   const [confirmerSel, setConfirmerSel] = useState(false);
@@ -250,15 +257,15 @@ export default function DocumentLibrary({
               <div className="sel-bar" role="toolbar" aria-label={t('library.select')}>
                 <span className="tab" aria-live="polite">{t('library.selected_count', { count: selection.size })}</span>
                 {confirmerSel ? (
-                  <button type="button" className="sel-del" disabled={suppression}
+                  <button type="button" className="sel-del sel-del--sur" disabled={suppression}
                     onClick={supprimerSelection}>
-                    <Trash2 size={15} strokeWidth={2} aria-hidden="true" />
+                    <Trash2 size={14} strokeWidth={2} aria-hidden="true" />
                     {t('library.confirm_delete_selection', { count: selection.size })}
                   </button>
                 ) : (
                   <button type="button" className="sel-del" disabled={selection.size === 0}
                     onClick={() => setConfirmerSel(true)}>
-                    <Trash2 size={15} strokeWidth={2} aria-hidden="true" />
+                    <Trash2 size={14} strokeWidth={2} aria-hidden="true" />
                     {t('library.delete')}
                   </button>
                 )}
@@ -319,7 +326,9 @@ export default function DocumentLibrary({
 
           {/* Explication d'archive : bulle flottante au-dessus de la barre du bas, hors de la liste (rien ne bouge). */}
           {archiveOuverte && !selection && (
-            <div className="archive-float" role="status">
+            <div className="archive-float" role="status"
+              onMouseEnter={() => setBulleRetenue(true)} onMouseLeave={() => setBulleRetenue(false)}
+              onFocus={() => setBulleRetenue(true)} onBlur={() => setBulleRetenue(false)}>
               <Info size={15} strokeWidth={2} aria-hidden="true" />
               <span>
                 {t('library.archive_note')}{' '}
@@ -328,7 +337,7 @@ export default function DocumentLibrary({
                 </a>
               </span>
               <button type="button" className="archive-float__x" aria-label={t('library.cancel')}
-                onClick={() => setArchiveOuverte(null)}>
+                onClick={() => { setBulleRetenue(false); setArchiveOuverte(null); }}>
                 <X size={15} strokeWidth={2} aria-hidden="true" />
               </button>
             </div>
