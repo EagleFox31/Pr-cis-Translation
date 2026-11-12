@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette grille de prix</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,400&family=DM+Mono:wght@400&family=DM+Sans:wght@400;500;600;700&family=Pinyon+Script&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../nouveautes/commun.css">
+<link rel="stylesheet" href="outils.css">
+<style>
+/* Section tarifs : styles repris de frontend/src/index.css (.pricing-*). */
+.sec { padding: 40px 40px 48px; background: #fff; }
+.sec-tag { font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--blue); }
+.sec h3 { font-family: var(--font-display); font-weight: 400; font-size: 44px; line-height: 1.1; color: var(--navy); margin: 6px 0 20px; }
+.sec h3 strong { font-weight: 600; font-style: italic; }
+.toggle { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 36px; font-size: 14px; color: var(--gray-500); }
+.toggle b { color: var(--navy); }
+.toggle i { width: 52px; height: 28px; background: var(--blue); border-radius: 100px; position: relative; }
+.toggle i::after { content: ''; position: absolute; width: 22px; height: 22px; background: #fff; border-radius: 50%; top: 3px; left: 3px; }
+.toggle em { font-style: normal; background: #dcfce7; color: #15803d; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 100px; }
+
+.grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; align-items: stretch; }
+.card { border: 1px solid var(--gray-200); border-radius: var(--radius-lg); padding: 32px 24px; position: relative; background: #fff; display: flex; flex-direction: column; }
+.card.pop { background: var(--navy); border-color: var(--navy); color: #fff; transform: scale(1.03); }
+.badge-pop { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: var(--gold); color: var(--navy); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; padding: 4px 14px; border-radius: 100px; white-space: nowrap; }
+.plan { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--blue); margin-bottom: 8px; }
+.pop .plan { color: var(--gold-light); }
+.price { font-family: var(--font-display); font-size: 2.6rem; font-weight: 600; color: var(--navy); line-height: 1.1; white-space: nowrap; }
+.pop .price { color: #fff; }
+.price small { font-family: var(--font-body); font-size: 1rem; font-weight: 300; opacity: .6; }
+.price sup { font-family: var(--font-body); font-size: .9rem; font-weight: 600; margin-right: 3px; }
+.annuel { font-size: 12px; color: var(--gray-500); margin: 4px 0 0; }
+.pop .annuel { color: rgba(255,255,255,.6); }
+.div { height: 1px; background: var(--gray-100); margin: 20px 0; }
+.pop .div { background: rgba(255,255,255,.15); }
+.feats { list-style: none; margin: 0 0 28px; padding: 0; display: flex; flex-direction: column; gap: 10px; flex-grow: 1; font-size: 13.5px; color: var(--gray-700); }
+.pop .feats { color: rgba(255,255,255,.8); }
+.feats li { display: flex; gap: 10px; align-items: flex-start; }
+.feats li::before { content: '✓'; flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--blue-light); color: var(--blue); font-size: 10px; font-weight: 700; display: grid; place-items: center; margin-top: 2px; }
+.pop .feats li::before { background: rgba(255,255,255,.15); color: #fff; }
+.feats li.off { color: #dc2626; } .feats li.off::before { content: '✕'; background: #fef2f2; color: #dc2626; }
+.btnp { display: block; text-align: center; padding: 12px; border-radius: 9px; font-weight: 600; font-size: 14px; border: 1.5px solid var(--navy); color: var(--navy); text-decoration: none; }
+.pop .btnp { background: #fff; border-color: #fff; }
+
+/* Carte bêta actuelle (5e colonne) */
+.grid.g5 { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+.g5 > .card { padding: 28px 18px; }
+.g5 .price { font-size: 1.9rem; }
+.beta-card { border-color: #bfd2fb; background: linear-gradient(160deg, #f0f5ff 0%, #fff 42%); color: var(--navy); }
+.beta-card h4 { font-size: 22px; line-height: 1.2; margin: 14px 0 8px; }
+.beta-card p { font-size: 13px; color: var(--gray-700); margin: 0 0 12px; }
+.beta-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--blue); background: var(--blue-light); padding: 4px 10px; border-radius: 100px; align-self: flex-start; }
+.beta-tag::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.2); }
+.quotas { list-style: none; margin: 0 0 16px; padding: 0; font-size: 12.5px; flex: 1; }
+.quotas li { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--gray-200); }
+.quotas b { color: var(--navy); font-weight: 600; }
+.btn-beta { display: flex; justify-content: center; align-items: center; gap: 8px; background: var(--blue); color: #fff; border-radius: 9px; padding: 12px 14px; font-weight: 600; font-size: 14px; text-decoration: none; white-space: nowrap; }
+
+/* A / B : bandeau */
+.band { display: grid; grid-template-columns: auto 1fr auto; gap: 20px 28px; align-items: center; border: 1px solid #bfd2fb; border-radius: var(--radius-lg); background: linear-gradient(100deg, #eef4ff 0%, #fff 70%); padding: 22px 28px; }
+.band.top { margin-bottom: 36px; }
+.band.bottom { margin-top: 32px; }
+.band h4 { margin: 8px 0 0; font-size: 20px; color: var(--navy); line-height: 1.25; }
+.band h4 span { display: block; font-size: 13px; font-weight: 400; color: var(--gray-500); margin-top: 2px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chips span { background: #fff; border: 1px solid var(--gray-200); border-radius: 100px; padding: 6px 12px; font-size: 12.5px; color: var(--gray-700); white-space: nowrap; }
+.chips b { color: var(--navy); }
+.places { font-size: 12px; color: var(--gray-500); margin-top: 6px; text-align: center; }
+
+/* C : ruban sur la carte Gratuit */
+.ribbon { margin: -32px -24px 20px; padding: 10px 16px; border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--blue-light); color: var(--blue); font-size: 12.5px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.ribbon a { color: var(--blue); font-weight: 700; white-space: nowrap; }
+.card.has-ribbon { border-color: #93c5fd; }
+.ribbon-pop { display: none; position: absolute; left: 16px; right: 16px; top: 46px; z-index: 5; background: #fff; border: 1px solid var(--gray-200); border-radius: 12px; box-shadow: var(--shadow-md); padding: 14px 16px; font-size: 13px; }
+.has-ribbon:hover .ribbon-pop, .has-ribbon:focus-within .ribbon-pop { display: block; }
+
+/* D : onglets */
+.tabs { display: flex; justify-content: center; margin-bottom: 28px; }
+.tabs div { display: inline-flex; background: var(--gray-100); border-radius: 12px; padding: 4px; gap: 4px; }
+.tabs button { border: 0; background: transparent; padding: 10px 18px; border-radius: 9px; font-weight: 600; font-size: 14px; color: var(--gray-500); cursor: pointer; display: inline-flex; gap: 8px; align-items: center; }
+.tabs button[aria-selected="true"] { background: #fff; color: var(--navy); box-shadow: var(--shadow-sm); }
+.tabs .dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; }
+.beta-panel { display: grid; grid-template-columns: 1.1fr 1fr; gap: 32px; border: 1px solid #bfd2fb; border-radius: var(--radius-lg); background: linear-gradient(160deg, #f0f5ff 0%, #fff 50%); padding: 32px; }
+.beta-panel h4 { font-size: 28px; margin: 12px 0 8px; color: var(--navy); font-family: var(--font-display); font-weight: 600; }
+.beta-panel p { color: var(--gray-700); font-size: 14px; }
+
+/* E : bêta à côté de « Sans abonnement » */
+.duo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-top: 32px; }
+.duo { align-items: stretch; }
+.strip { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 1fr; gap: 14px 20px; align-items: start; border-radius: var(--radius-lg); padding: 20px 22px; }
+.strip h5 { margin: 0; font-size: 15px; color: var(--navy); }
+.strip p { margin: 4px 0 0; font-size: 13px; color: var(--gray-700); line-height: 1.45; }
+.strip .btnp { width: auto; margin: 0; padding: 10px 18px; white-space: nowrap; }
+.strip .btnp, .strip .btn-beta { grid-column: 2; grid-row: 1; align-self: center; }
+.strip .chips { grid-column: 1 / -1; align-self: end; }
+.strip .chips span { flex: 1 1 auto; text-align: center; }
+.strip.payg { border: 1px dashed #c7d4e6; background: var(--gray-50); }
+.strip.beta { border: 1px solid #bfd2fb; background: linear-gradient(100deg, #eef4ff 0%, #fff 80%); }
+.strip.beta h5 .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #22c55e; margin-right: 6px; vertical-align: middle; }
+
+.v { display: none; }
+body[data-v="actuel"] .v-actuel, body[data-v="a"] .v-a, body[data-v="b"] .v-b, body[data-v="c"] .v-c, body[data-v="d"] .v-d, body[data-v="e"] .v-e { display: block; }
+
+/* Largeurs : container queries pour que « Vue mobile » soit fidèle. */
+@container (max-width: 1100px) {
+  .grid.g5 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .band { grid-template-columns: 1fr auto; } .band .chips { grid-column: 1 / -1; grid-row: 2; }
+}
+@container (max-width: 700px) {
+  .sec { padding: 28px 16px 36px; }
+  .sec h3 { font-size: 32px; }
+  .grid, .grid.g5 { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .card.pop { transform: none; }
+  .band { grid-template-columns: minmax(0, 1fr); padding: 20px; }
+  .band .chips { grid-row: auto; }
+  .beta-panel { grid-template-columns: minmax(0, 1fr); padding: 22px; }
+  .tabs button { padding: 10px 12px; font-size: 13px; }
+}
+@container (max-width: 1000px) {
+  .duo { grid-template-columns: minmax(0, 1fr); }
+}
+@container (max-width: 520px) {
+  .strip { grid-template-columns: minmax(0, 1fr); }
+  .strip .btnp, .strip .btn-beta { grid-column: 1; grid-row: 3; text-align: center; justify-content: center; }
+}
+</style>
+</head>
+<body data-v="a">
+<div class="mq-bar">
+  <a class="mq-home" href="index.html">← Maquettes</a>
+  <div class="mq-group" role="group" aria-label="Piste">
+    <button data-v="actuel">Actuel</button>
+    <button data-v="a">A · Bandeau au-dessus<span class="rec">★</span></button>
+    <button data-v="b">B · Bandeau dessous</button>
+    <button data-v="c">C · Ruban sur Gratuit</button>
+    <button data-v="d">D · Onglets</button>
+    <button data-v="e">E · À côté de « Sans abonnement »</button>
+  </div>
+  <div class="mq-group" role="group" aria-label="Largeur">
+    <button data-w="bureau">Bureau</button>
+    <button data-w="mobile">Mobile</button>
+  </div>
+</div>
+
+<div class="mq-note" id="note"></div>
+
+<div class="mq-stage">
+<section class="sec">
+  <div class="sec-tag">Nos tarifs transparents</div>
+  <h3>Des prix <strong>transparents</strong></h3>
+
+  <!-- Actuel -->
+  <div class="v v-actuel">
+    <div class="toggle"><span>Mensuel</span><i></i><b>Annuel</b><em>-20%</em></div>
+    <div class="grid g5" data-cartes="beta"></div>
+  </div>
+
+  <!-- A -->
+  <div class="v v-a">
+    <div class="band top" data-band></div>
+    <div class="toggle"><span>Mensuel</span><i></i><b>Annuel</b><em>-20%</em></div>
+    <div class="grid" data-cartes></div>
+  </div>
+
+  <!-- B -->
+  <div class="v v-b">
+    <div class="toggle"><span>Mensuel</span><i></i><b>Annuel</b><em>-20%</em></div>
+    <div class="grid" data-cartes></div>
+    <div class="band bottom" data-band></div>
+  </div>
+
+  <!-- C -->
+  <div class="v v-c">
+    <div class="toggle"><span>Mensuel</span><i></i><b>Annuel</b><em>-20%</em></div>
+    <div class="grid" data-cartes="ruban"></div>
+  </div>
+
+  <!-- D -->
+  <div class="v v-d">
+    <div class="tabs"><div role="tablist">
+      <button role="tab" aria-selected="true" data-tab="forfaits">Forfaits</button>
+      <button role="tab" aria-selected="false" data-tab="beta"><span class="dot"></span>Programme bêta</button>
+    </div></div>
+    <div data-panel="forfaits">
+      <div class="toggle"><span>Mensuel</span><i></i><b>Annuel</b><em>-20%</em></div>
+      <div class="grid" data-cartes></div>
+    </div>
+    <div data-panel="beta" hidden>
+      <div class="beta-panel">
+        <div>
+          <span class="beta-tag">Candidatures ouvertes</span>
+          <h4>Bêta Précis</h4>
+          <p>Essayez Précis gratuitement pendant 30 jours et aidez-nous à l’améliorer. 40 places, attribuées en deux vagues.</p>
+          <a class="btn-beta" href="#" style="display:inline-flex">Candidater →</a>
+        </div>
+        <ul class="quotas" data-quotas></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- E -->
+  <div class="v v-e">
+    <div class="toggle"><span>Mensuel</span><i></i><b>Annuel</b><em>-20%</em></div>
+    <div class="grid" data-cartes></div>
+    <div class="duo">
+      <div class="strip beta"><div><h5><span class="dot"></span>Bêta Précis : 30 jours gratuits</h5><p>Testez Précis sans payer et aidez-nous à l’améliorer. 40 places.</p></div><a class="btn-beta" href="#">Candidater →</a>
+        <div class="chips"><span>PDF <b>20 pages</b></span><span>PowerPoint <b>20 diapos</b></span><span>Word <b>10 000 mots</b></span><span>Excel <b>10 feuilles</b></span></div></div>
+      <div class="strip payg"><div><h5>Sans abonnement, à la page</h5><p>Payez seulement les pages que vous traduisez.</p></div><a class="btnp" href="#">Acheter des pages</a>
+        <div class="chips"><span><b>75 FCFA</b> la page</span><span><b>Sans</b> expiration</span><span>Payé <b>d’avance</b></span><span><b>Sans</b> engagement</span></div></div>
+    </div>
+  </div>
+</section>
+</div>
+
+<script>
+const PLANS = [
+  { nom: 'Gratuit', prix: '0', feats: ['5 pages équivalentes offertes par mois', 'Puis 75 FCFA par page — payées avant traduction', 'Aucun abonnement, aucune carte à enregistrer', { off: 'Sans espace de stockage personnel' }], btn: 'Commencer gratuitement' },
+  { nom: 'Starter', prix: '1 200', an: '14 400 FCFA facturés par an', feats: ['100 pages par mois', '2 Go de stockage', 'Téléchargement des traductions inclus', 'Traitement prioritaire', 'Support standard'], btn: 'Choisir Starter' },
+  { nom: 'Pro', prix: '3 500', an: '42 000 FCFA facturés par an', pop: true, feats: ['500 pages par mois', '20 Go de stockage', 'Téléchargement des traductions inclus', 'Priorité maximale — le plus rapide', 'Support prioritaire'], btn: 'Choisir Pro' },
+  { nom: 'Enterprise', devis: true, feats: ['Volume illimité, engagement annuel', '200 Go de stockage', 'Accès API et facturation automatique', 'File dédiée, traitement immédiat', 'Support dédié et SLA garanti'], btn: 'Nous contacter' },
+];
+const QUOTAS = [['PDF', '20 pages'], ['PowerPoint', '20 diapositives'], ['Word', '10 000 mots'], ['Excel', '10 feuilles · 5 000 mots']];
+
+const carte = (p, opt = '') => {
+  const prix = p.devis ? '<div class="price"><small style="opacity:1">Sur devis</small></div>'
+    : `<div class="price"><sup>FCFA</sup>${p.prix}<small>/mois</small></div>`;
+  const ruban = opt === 'ruban' && p.nom === 'Gratuit'
+    ? `<div class="ribbon"><span>● Bêta ouverte : 30 jours offerts</span><a href="#">Voir →</a></div>
+       <div class="ribbon-pop"><b style="color:var(--navy)">Bêta Précis · 40 places</b><ul class="quotas" style="margin:8px 0 10px">${QUOTAS.map(q => `<li><span>${q[0]}</span><b>${q[1]}</b></li>`).join('')}</ul><a class="btn-beta" href="#">Candidater →</a></div>` : '';
+  return `<div class="card${p.pop ? ' pop' : ''}${ruban ? ' has-ribbon' : ''}">${ruban}
+    ${p.pop ? '<div class="badge-pop">Recommandé</div>' : ''}
+    <div class="plan">${p.nom}</div>${prix}
+    ${p.an ? `<p class="annuel">${p.an}</p>` : '<p class="annuel">&nbsp;</p>'}
+    <div class="div"></div>
+    <ul class="feats">${p.feats.map(f => typeof f === 'string' ? `<li>${f}</li>` : `<li class="off">${f.off}</li>`).join('')}</ul>
+    <a class="btnp" href="#">${p.btn}</a></div>`;
+};
+const carteBeta = `<div class="card beta-card"><span class="beta-tag">Candidatures ouvertes</span><h4>Bêta Précis</h4>
+  <p>30 jours gratuits · 40 places</p><ul class="quotas">${QUOTAS.map(q => `<li><span>${q[0]}</span><b>${q[1]}</b></li>`).join('')}</ul>
+  <a class="btn-beta" href="#">Candidater →</a></div>`;
+
+document.querySelectorAll('[data-cartes]').forEach(g => {
+  const o = g.dataset.cartes;
+  g.innerHTML = (o === 'beta' ? carteBeta : '') + PLANS.map(p => carte(p, o)).join('');
+});
+document.querySelectorAll('[data-band]').forEach(b => {
+  b.innerHTML = `<div><span class="beta-tag">Candidatures ouvertes</span><h4>Bêta Précis : 30 jours gratuits<span>Testez Précis et aidez-nous à l’améliorer.</span></h4></div>
+    <div class="chips">${QUOTAS.map(q => `<span>${q[0]} <b>${q[1]}</b></span>`).join('')}</div>
+    <div><a class="btn-beta" href="#">Candidater →</a><div class="places">40 places · 2 vagues</div></div>`;
+});
+document.querySelectorAll('[data-quotas]').forEach(u => u.innerHTML = QUOTAS.map(q => `<li><span>${q[0]}</span><b>${q[1]}</b></li>`).join(''));
+document.querySelectorAll('[data-tab]').forEach(t => t.onclick = () => {
+  document.querySelectorAll('[data-tab]').forEach(x => x.setAttribute('aria-selected', x === t));
+  document.querySelectorAll('[data-panel]').forEach(p => p.hidden = p.dataset.panel !== t.dataset.tab);
+});
+
+const NOTES = {
+  actuel: ['Actuel : la bêta devient une 5ᵉ carte', 'Les 4 forfaits rétrécissent et le prix est écrit plus petit : la grille paraît serrée et change de taille selon que la bêta est ouverte ou non.', [], []],
+  a: ['A · Bandeau au-dessus (recommandé)', 'La bêta est annoncée en premier, sur toute la largeur ; les 4 cartes gardent exactement leur taille, bêta ouverte ou fermée.', ['Visible tout de suite', 'Grille identique à celle sans bêta', 'Les quotas tiennent sur une ligne'], ['Pousse les forfaits un peu plus bas']],
+  b: ['B · Bandeau sous les forfaits', 'Même bandeau, placé après les prix.', ['Les forfaits restent en tête', 'Grille identique à celle sans bêta'], ['Moins remarqué : il faut descendre pour le voir']],
+  c: ['C · Ruban sur la carte Gratuit', 'Une ligne « Bêta ouverte » en haut de la carte Gratuit ; le détail s’affiche au survol ou au clic.', ['Le plus discret', 'Aucune place en plus'], ['Le détail est caché', 'Mélange la bêta et l’offre gratuite']],
+  d: ['D · Onglets Forfaits | Programme bêta', 'Deux onglets ; la bêta a son propre panneau détaillé.', ['Séparation nette', 'Place pour bien présenter la bêta'], ['Il faut un clic pour découvrir la bêta', 'Beaucoup ne cliqueront pas']],
+  e: ['E · À côté de « Sans abonnement »', 'Sous les forfaits, la ligne « Sans abonnement, à la page » est coupée en deux : la bêta à gauche, l’achat à la page à droite, même structure (titre, phrase, 4 repères, bouton). Bêta fermée : « Sans abonnement » reprend toute la largeur.', ['Aucune place en plus', 'Grille identique à celle sans bêta', 'Range ensemble les « autres façons d’essayer »'], ['Moins visible qu’en haut de section', 'Repères en pastilles, plus discrets que la carte actuelle']],
+};
+const note = document.getElementById('note');
+function choisir(v) {
+  document.body.dataset.v = v;
+  document.querySelectorAll('[data-v]').forEach(b => b.tagName === 'BUTTON' && b.setAttribute('aria-pressed', b.dataset.v === v));
+  const [t, d, plus, moins] = NOTES[v];
+  note.innerHTML = `<h2>${t}</h2>${d}<ul>${plus.map(x => `<li class="plus">+ ${x}</li>`).join('')}${moins.map(x => `<li class="moins">− ${x}</li>`).join('')}</ul>`;
+}
+function largeur(w) {
+  document.body.classList.toggle('mobile', w === 'mobile');
+  document.querySelectorAll('[data-w]').forEach(b => b.setAttribute('aria-pressed', b.dataset.w === w));
+}
+document.querySelectorAll('button[data-v]').forEach(b => b.onclick = () => choisir(b.dataset.v));
+document.querySelectorAll('button[data-w]').forEach(b => b.onclick = () => largeur(b.dataset.w));
+choisir(new URLSearchParams(location.search).get('v') || 'a');
+largeur(new URLSearchParams(location.search).get('w') || 'bureau');
+</script>
+</body>
+</html>
