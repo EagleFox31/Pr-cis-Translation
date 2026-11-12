@@ -242,7 +242,7 @@
     "row_options": "Options for {{name}}",
     "relative_now": "just now",
     "archived_row": "Archived · access with a plan",
-    "archive_note": "Without a plan that includes storage, your documents are archived after 30 days. After that, they are only accessible with a plan that includes storage.",
+    "archive_note": "After 30 days, your documents are only accessible with a plan that includes storage.",
     "archive_note_link": "See plans",
     "storage_required": "This document is over 30 days old: access requires a plan with storage.",
     "download_named": "Download {{name}}",

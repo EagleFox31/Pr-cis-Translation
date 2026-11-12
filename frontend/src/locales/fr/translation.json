@@ -242,7 +242,7 @@
     "row_options": "Options de {{name}}",
     "relative_now": "à l'instant",
     "archived_row": "Archivé · accès avec un forfait",
-    "archive_note": "Sans forfait avec stockage, vos documents sont archivés au bout de 30 jours. Au-delà, ils ne sont accessibles qu'avec un forfait offrant le stockage.",
+    "archive_note": "Au-delà de 30 jours, vos documents ne sont accessibles qu'avec un forfait incluant le stockage.",
     "archive_note_link": "Voir les forfaits",
     "storage_required": "Ce document a plus de 30 jours : son accès demande un forfait avec stockage.",
     "download_named": "Télécharger {{name}}",
