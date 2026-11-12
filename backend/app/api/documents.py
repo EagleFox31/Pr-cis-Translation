@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import time
+import unicodedata
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import Response
@@ -33,6 +35,18 @@ from app.core.database import get_db
 from app.models import User, Document, is_paid_plan
 from app.core.security import require_auth
 from app.services.trial_preview import rasterize_for_trial
+
+
+def _piece_jointe(nom: str) -> str:
+    """En-tête Content-Disposition sûr pour tout nom de fichier.
+
+    Un en-tête HTTP est encodé en latin-1 : un nom avec « — », de l'arabe ou du
+    chinois y faisait échouer le téléchargement (500). Le nom exact passe par
+    `filename*` (RFC 6266) ; `filename` garde un repli ASCII sans guillemets.
+    """
+    repli = unicodedata.normalize("NFKD", nom).encode("ascii", "ignore").decode()
+    repli = repli.replace('"', "").replace("\\", "").strip() or "document"
+    return f"attachment; filename=\"{repli}\"; filename*=UTF-8''{quote(nom, safe='')}"
 
 router = APIRouter(prefix="/api/documents", tags=["Documents"])
 
@@ -391,7 +405,7 @@ async def download_document(
             raise HTTPException(status_code=404, detail="Le fichier n'est plus disponible. Réessayez ou rechargez la page.")
         data = await run_in_threadpool(_lire, doc.original_path)
         return Response(content=data, media_type="application/octet-stream",
-                        headers={"Content-Disposition": f'attachment; filename="{doc.original_name}"'})
+                        headers={"Content-Disposition": _piece_jointe(doc.original_name)})
 
     # `translated_path` désigne la TRADUCTION stockée (JSON), pas un rendu.
     #
@@ -433,7 +447,7 @@ async def download_document(
     dl_name = f"{base}_TRADUIT{'_PARTIEL' if livrables is not None else ''}.{ext}"
     media = "application/pdf" if ext == "pdf" else "application/octet-stream"
     return Response(content=data, media_type=media,
-                    headers={"Content-Disposition": f'attachment; filename="{dl_name}"'})
+                    headers={"Content-Disposition": _piece_jointe(dl_name)})
 
 
 # ── GET /documents/{id}/original ─────────────────────────────────────────────
