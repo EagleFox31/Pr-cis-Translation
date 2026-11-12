@@ -77,3 +77,27 @@
 
 /* Le menu déroulant se place sous la barre, quelle que soit sa hauteur. */
 .mobile-menu { top: var(--nav-total); max-height: calc(100dvh - var(--nav-total)); overflow-y: auto; }
+
+/* Liens vers une autre page : séparés des sections de l'accueil par un trait
+   fin, et signalés par une petite flèche. */
+.nav-links li.nav-sep { position: relative; padding-left: 28px; }
+.nav-links li.nav-sep::before {
+  content: ''; position: absolute; left: 0; top: 50%; width: 1px; height: 18px;
+  transform: translateY(-50%); background: var(--gray-200);
+}
+.navbar.r1 .nav-links li.nav-sep { padding-left: 18px; }
+.nav-links a .nav-ailleurs { display: inline-block; margin-left: 3px; vertical-align: -1px; opacity: .55; }
+.nav-links a:hover .nav-ailleurs, .nav-links a.active .nav-ailleurs { opacity: 1; }
+.mobile-menu .mm-link.mm-sep { margin-top: 9px; position: relative; }
+.mobile-menu .mm-link.mm-sep::before {
+  content: ''; position: absolute; left: 12px; right: 12px; top: -5px; height: 1px; background: var(--gray-200);
+}
+
+/* Fondu au changement de page (navigateurs qui gèrent les View Transitions).
+   La barre garde son propre calque : elle reste fixe pendant le fondu. */
+.navbar { view-transition-name: barre; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .25s; }
+::view-transition-group(barre) { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}

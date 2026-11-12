@@ -25,7 +25,9 @@ Maquettes : `docs/maquettes/navigation-tarifs/` (`navigation.html` = pistes comp
 Choix : **B** (validé par l'utilisateur).
 
 ## 4. Règles retenues
-- Rangée principale : logo · sections de l'accueil (Avantages, Comment ça marche, Tarifs, Extension et API, Nouveautés, Qui sommes-nous, Administration pour l'admin) · FR/EN · compte.
+- Rangée principale : logo · sections de l'accueil (Avantages, Comment ça marche, Tarifs, Qui sommes-nous) · trait fin · liens vers une autre page, fléchés ↗ (Extension et API, Administration pour l'admin) · FR/EN · compte. Même regroupement dans le menu ☰ (pages en bas, sous un séparateur).
+- Nouveautés retiré du menu (12/11/2026) : accessible depuis le panneau du compte et le bloc Qui sommes-nous.
+- Changement de page : fondu de 0,25 s (`avecFondu` dans `AppBar.tsx`, View Transitions ; la barre reste fixe). Immédiat si le navigateur ne le gère pas ou si « réduire les animations » est actif. `BrowserRouter` ignore l'option `viewTransition` de React Router, d'où l'appel direct à `document.startViewTransition`.
 - Depuis une autre page, un clic sur une section ramène à l'accueil et défile jusqu'à elle (`navigate('/home', {state:{section}})`, effet dans `Home.tsx`).
 - 2ᵉ rangée seulement pour les rubriques à plusieurs pages : Intégrations (Extension, API), Informations légales (4 pages, libellés courts), Administration (onglets).
 - Rien ne rétrécit ni ne passe à la ligne : quand la place manque, `useRepli` replie d'un cran — 1 espacements resserrés, 2 menu ☰, 3 logo sans texte, 4 « Se connecter » dans le menu. Mesure avant affichage (`useLayoutEffect` + `flushSync`), nouvelle mesure après chargement des polices.

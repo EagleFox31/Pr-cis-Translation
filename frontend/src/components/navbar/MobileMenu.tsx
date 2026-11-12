@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import {
   Home, Sparkles, Workflow, Tag, Info, ShieldCheck, Puzzle, Code2, Users, FileText,
-  LifeBuoy, ScrollText, FlaskConical, Scale, Lock, Cookie, ChevronRight, Globe, LogIn, Megaphone, type LucideIcon,
+  LifeBuoy, ScrollText, FlaskConical, Scale, Lock, Cookie, ChevronRight, ArrowUpRight, Globe, LogIn, Megaphone, type LucideIcon,
 } from 'lucide-react';
 
 interface MobileMenuProps {
@@ -59,7 +59,7 @@ export default function MobileMenu({ isOpen, links, activeSection, onNavClick, o
           id="mobile-menu"
         >
           <nav className="mm-links">
-            {links.map((link) => {
+            {links.map((link, i) => {
               const isActive = link.id === 'hero'
                 ? activeSection === 'hero'
                 : (activeSection === link.id || (link.id === 'features' && activeSection === 'comparison'));
@@ -68,13 +68,15 @@ export default function MobileMenu({ isOpen, links, activeSection, onNavClick, o
                 <a
                   key={link.id}
                   href={link.href ?? `#${link.id}`}
-                  className={`mm-link${isActive ? ' active' : ''}`}
+                  className={`mm-link${isActive ? ' active' : ''}${link.href && !links[i - 1]?.href ? ' mm-sep' : ''}`}
                   aria-current={isActive ? 'page' : undefined}
                   onClick={(e) => { e.preventDefault(); onNavClick(link.id); }}
                 >
                   <span className="mm-ico"><Icone size={18} strokeWidth={2} aria-hidden="true" /></span>
                   <span className="mm-label">{link.label}</span>
-                  <ChevronRight className="mm-chev" size={16} strokeWidth={2} aria-hidden="true" />
+                  {link.href
+                    ? <ArrowUpRight className="mm-chev" size={16} strokeWidth={2} aria-hidden="true" />
+                    : <ChevronRight className="mm-chev" size={16} strokeWidth={2} aria-hidden="true" />}
                 </a>
               );
             })}

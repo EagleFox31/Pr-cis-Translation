@@ -10,10 +10,12 @@
  * (useRepli), la 2ᵉ rangée défile à l'horizontale, et la hauteur réelle de la
  * barre est publiée dans `--nav-total` pour décaler le contenu des pages.
  */
-import type { ReactNode } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { ArrowUpRight } from 'lucide-react';
+import { flushSync } from 'react-dom';
 
 import { useAuth } from '../../contexts/AuthContext';
 import MobileMenu from './MobileMenu';
@@ -42,6 +44,14 @@ interface AppBarProps {
 
 interface Lien { id: string; label: string; href?: string }
 
+/** Change de page avec un fondu court (View Transitions) ; immédiat si le
+ *  navigateur ne le gère pas ou si l'utilisateur réduit les animations. */
+function avecFondu(changer: () => void) {
+  const doc = document as Document & { startViewTransition?: (f: () => void) => unknown };
+  if (!doc.startViewTransition || window.matchMedia('(prefers-reduced-motion: reduce)').matches) changer();
+  else doc.startViewTransition(() => flushSync(changer));
+}
+
 export default function AppBar({ sub, section, onAccount }: AppBarProps) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -63,9 +73,9 @@ export default function AppBar({ sub, section, onAccount }: AppBarProps) {
     { id: 'features', label: t('nav.features') },
     { id: 'story', label: t('nav.howItWorks') },
     { id: 'pricing', label: t('nav.pricing') },
-    { id: 'integrations', label: t('nav.integrations'), href: '/extension' },
-    { id: 'news', label: t('nav.news'), href: '/fonctionnalites' },
     { id: 'about', label: t('nav.about') },
+    // Puis les liens qui ouvrent une autre page (séparés et fléchés).
+    { id: 'integrations', label: t('nav.integrations'), href: '/extension' },
     ...(admin ? [{ id: 'admin', label: t('admin.menu', 'Administration'), href: '/admin/users' }] : []),
   ];
 
@@ -73,16 +83,22 @@ export default function AppBar({ sub, section, onAccount }: AppBarProps) {
   const actif = section
     ? (section.active === 'comparison' ? 'features' : section.active)
     : /^\/(extension|integrations)/.test(pathname) ? 'integrations'
-    : pathname.startsWith('/fonctionnalites') ? 'news'
     : pathname.startsWith('/admin') ? 'admin' : '';
 
   const aller = (id: string) => {
     setMenuOpen(false);
     const page = [...liens, { id: 'login', label: '', href: '/login' }].find((l) => l.id === id)?.href;
-    if (page) navigate(page);
+    if (page) avecFondu(() => navigate(page));
     else if (section) section.onClick(id);
     // Section de l'accueil depuis une autre page : l'accueil y défile à l'arrivée.
-    else navigate('/home', { state: { section: id } });
+    else avecFondu(() => navigate('/home', { state: { section: id } }));
+  };
+
+  // 2ᵉ rangée : même fondu ; Ctrl/Maj+clic garde le comportement du navigateur.
+  const ouvrir = (e: MouseEvent<HTMLAnchorElement>, href: string) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || href === pathname) return;
+    e.preventDefault();
+    avecFondu(() => navigate(href));
   };
 
   // Accueil : ombre au défilement et barre de progression.
@@ -123,7 +139,7 @@ export default function AppBar({ sub, section, onAccount }: AppBarProps) {
         <div className="nav-inner" ref={ligne}>
           <a
             href="/home" className="nav-logo" aria-label={t('nav.home')}
-            onClick={(e) => { e.preventDefault(); if (section) section.onClick('hero'); else navigate('/home'); }}
+            onClick={(e) => { e.preventDefault(); if (section) section.onClick('hero'); else avecFondu(() => navigate('/home')); }}
           >
             <img src="/Logo.png" alt="" />
             <span className="animated-logo-text" aria-hidden="true">
@@ -135,14 +151,14 @@ export default function AppBar({ sub, section, onAccount }: AppBarProps) {
 
           <nav aria-label={t('nav.menu_label')}>
             <ul className="nav-links">
-              {liens.map((l) => (
-                <li key={l.id}>
+              {liens.map((l, i) => (
+                <li key={l.id} className={l.href && !liens[i - 1]?.href ? 'nav-sep' : undefined}>
                   <a
                     href={l.href ?? `/home#${l.id}`}
                     className={actif === l.id ? 'active' : ''}
                     aria-current={actif === l.id ? (l.href ? 'page' : 'location') : undefined}
                     onClick={(e) => { e.preventDefault(); aller(l.id); }}
-                  >{l.label}</a>
+                  >{l.label}{l.href && <ArrowUpRight className="nav-ailleurs" size={13} strokeWidth={2.25} aria-hidden="true" />}</a>
                 </li>
               ))}
             </ul>
@@ -182,7 +198,7 @@ export default function AppBar({ sub, section, onAccount }: AppBarProps) {
               <ul>
                 {sub.links.map((l) => (
                   <li key={l.href}>
-                    <NavLink to={l.href}>{l.label}{l.badge}</NavLink>
+                    <NavLink to={l.href} onClick={(e) => ouvrir(e, l.href)}>{l.label}{l.badge}</NavLink>
                   </li>
                 ))}
               </ul>
