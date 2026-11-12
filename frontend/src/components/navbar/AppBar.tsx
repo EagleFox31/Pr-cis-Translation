@@ -14,7 +14,7 @@ import type { MouseEvent, ReactNode } from 'react';
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { ArrowUpRight } from 'lucide-react';
+import { ArrowUpRight, House } from 'lucide-react';
 import { flushSync } from 'react-dom';
 
 import { useAuth } from '../../contexts/AuthContext';
@@ -206,6 +206,21 @@ export default function AppBar({ sub, section, onAccount }: AppBarProps) {
           </nav>
         )}
       </header>
+
+      {/* Hors accueil : bouton flottant vers l'accueil (l'accueil a le sien,
+          « Revenir en haut », même place, même style). */}
+      {!section && (
+        <a
+          href="/home" className="retour-haut retour-haut--visible"
+          aria-label={t('nav.home')} title={t('nav.home')}
+          onClick={(e) => {
+            if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+            e.preventDefault(); avecFondu(() => navigate('/home'));
+          }}
+        >
+          <House size={22} strokeWidth={2.2} aria-hidden="true" />
+        </a>
+      )}
 
       {user && !onAccount && biblio !== null && (
         <Suspense fallback={null}>

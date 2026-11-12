@@ -3464,9 +3464,11 @@ html.preview-active .scroll {
   .cv-bascule button { min-height: 32px; padding: 4px 14px; white-space: nowrap; }
 }
 
-/* Bouton flottant « Revenir en haut » (accueil, hors première section). */
+/* Bouton flottant : « Revenir en haut » sur l'accueil (hors première section),
+   « Accueil » sur les autres pages. Aligné sur le bord droit du contenu
+   (même cadre que la barre du haut), pas sur le bord de la fenêtre. */
 .retour-haut {
-  position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom));
+  position: fixed; right: max(var(--frame-pad), env(safe-area-inset-right), calc((100% - var(--frame-max)) / 2 + var(--frame-pad))); bottom: max(20px, env(safe-area-inset-bottom));
   z-index: 950; width: 48px; height: 48px; border-radius: 50%; border: 0; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
   background: var(--blue); color: var(--white); box-shadow: 0 6px 18px rgba(13, 27, 62, 0.22);
