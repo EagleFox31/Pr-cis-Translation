@@ -268,7 +268,17 @@
     "active_plan": "Forfait actif",
     "buy_pages": "Acheter des pages",
     "payg_title": "Sans abonnement, à la page",
-    "payg_text": "{{price}} la page, sans engagement. Les pages achetées restent sur votre compte jusqu’à leur utilisation.",
+    "payg_lead": "Payez seulement les pages que vous traduisez.",
+    "payg_chips": {
+      "price": "<b>{{price}}</b> la page",
+      "no_expiry": "<b>Sans</b> expiration",
+      "prepaid": "Payé <b>d’avance</b>",
+      "no_commitment": "<b>Sans</b> engagement"
+    },
+    "beta_title": "Bêta Précis : {{days}} jours gratuits",
+    "beta_lead": "Testez Précis sans payer et aidez-nous à l’améliorer. {{count}} places.",
+    "beta_apply": "Candidater",
+    "beta_slides": "diapos",
     "start_free": "Commencer gratuitement",
     "contact_us": "Nous contacter",
     "choose": "Choisir {{plan}}",

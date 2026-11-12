@@ -1552,19 +1552,21 @@ html:has(.about-section) { background: var(--navy); }
 .btn-pricing--actif:hover { background: var(--gray-200); color: var(--gray-500); }
 
 /* Précision « facturé annuellement » sous le prix. */
-.pricing-payg {
-  margin-top: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px 32px;
-  padding: 20px 24px;
-  border: 1px dashed var(--gray-300);
-  border-radius: var(--radius-lg);
-  background: var(--gray-50);
-}
-.pricing-payg__title { margin: 0 0 4px; font-weight: 700; font-size: 15px; color: var(--navy); }
-.pricing-payg__text { margin: 0; font-size: 13.5px; color: var(--gray-600); line-height: 1.5; }
+/* Bandeaux sous la grille : bêta (si ouverte) et achat à la page, côte à côte,
+   même structure ; les repères occupent toute la largeur du bandeau. */
+.pricing-duo { margin-top: 20px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+@media (min-width: 1000px) { .pricing-duo--beta { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.pricing-strip { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 1fr; gap: 14px 20px; align-items: start; padding: 20px 22px; border-radius: var(--radius-lg); }
+.pricing-strip--payg { border: 1px dashed var(--gray-300); background: var(--gray-50); }
+.pricing-strip--beta { border: 1px solid #bfd2fb; background: linear-gradient(100deg, #eef4ff 0%, #fff 80%); }
+.pricing-strip__title { margin: 0; font-weight: 700; font-size: 15px; color: var(--navy); }
+.pricing-strip__dot { display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: #22c55e; vertical-align: middle; }
+.pricing-strip__text { margin: 4px 0 0; font-size: 13.5px; color: var(--gray-600); line-height: 1.5; }
+.pricing-strip__btn { grid-column: 2; grid-row: 1; align-self: center; width: auto; margin: 0; padding: 11px 22px; white-space: nowrap; }
+.pricing-strip--payg .pricing-strip__btn { background: var(--white); }
+.pricing-strip__chips { grid-column: 1 / -1; align-self: end; display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.pricing-strip__chips li { flex: 1 1 auto; text-align: center; padding: 6px 12px; border: 1px solid var(--gray-200); border-radius: 100px; background: var(--white); font-size: 12.5px; color: var(--gray-600); white-space: nowrap; }
+.pricing-strip__chips b { color: var(--navy); font-weight: 600; }
 .pricing-units { margin-top: 20px; padding: 18px 24px; border-radius: 14px; background: var(--gray-50); color: var(--gray-600); font-size: 13.5px; line-height: 1.6; }
 .pricing-units h3 { margin: 0 0 12px; font-size: 14px; font-weight: 700; color: var(--navy); }
 .pricing-units ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
@@ -1575,9 +1577,9 @@ html:has(.about-section) { background: var(--navy); }
   .pricing-units li + li::before { content: ''; position: absolute; left: -24px; top: 0; bottom: 0; border-left: 1px solid var(--gray-200); }
 }
 .pricing-units p { margin: 14px 0 0; font-size: 13px; color: var(--gray-500); }
-.pricing-payg__btn { flex-shrink: 0; padding: 11px 22px; background: var(--white); }
-@media (max-width: 640px) {
-  .pricing-payg { flex-direction: column; align-items: stretch; text-align: center; }
+@media (max-width: 560px) {
+  .pricing-strip { grid-template-columns: minmax(0, 1fr); }
+  .pricing-strip__btn { grid-column: 1; grid-row: 3; text-align: center; justify-content: center; }
 }
 
 /* Modale de paiement : quantité de pages d'un achat d'avance. */

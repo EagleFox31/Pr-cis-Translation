@@ -20,7 +20,7 @@
  * deux unités qu'on ne peut pas rapporter l'une à l'autre de tête.
  */
 import { useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
@@ -117,13 +117,11 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
   // terminée, elle promettrait 30 jours que personne ne peut obtenir.
   const { program: betaProgram } = useBetaProgram();
   const beta = betaProgram?.applications_open ? betaProgram : null;
-  const gridClass = 'pricing-grid' + (beta ? ' pricing-grid--with-beta' : '');
-  const betaOffer = beta && <BetaOffer program={beta} />;
+  const gridClass = 'pricing-grid';
 
   if (loading) {
     return (
       <div className={gridClass}>
-        {betaOffer}
         {[0, 1, 2, 3].map((i) => (
           <div key={i} className="pricing-card">
             <Skeleton height={260} />
@@ -137,7 +135,6 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
   // secours qui pourraient ne plus être ceux pratiqués.
   if (!pricing) {
     return <div className={gridClass}>
-      {betaOffer}
       <p className="pricing-indispo">{t('pricing.unavailable')}</p>
     </div>;
   }
@@ -156,7 +153,6 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
   return (
     <>
     <div className={gridClass}>
-      {betaOffer}
       {pricing.plans.map((plan, idx) => {
         const isActive = user ? user.plan === plan.key : false;
         const isPopular = plan.key === 'pro';
@@ -248,21 +244,28 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
       })}
     </div>
 
-    {/* Payer à la page, sans s'abonner : une offre à part entière, sous la
-        grille, et non un lien accroché à la seule carte Gratuit. Les pages
-        achetées restent créditées sur le compte jusqu'à leur utilisation. */}
-    <div className="pricing-payg">
-      <div>
-        <p className="pricing-payg__title">{t('pricing.payg_title')}</p>
-        <p className="pricing-payg__text">
-          {t('pricing.payg_text', {
-            price: formatMoney(pricing.page_price, pricing.currency, pricing.decimals, locale) })}
-        </p>
+    {/* Sous la grille : bêta à gauche (quand on peut y candidater), achat à
+        la page à droite, même structure pour que les deux se comparent. Sans
+        bêta, l'achat à la page prend toute la largeur. Les pages achetées
+        restent créditées sur le compte jusqu'à leur utilisation. */}
+    <div className={'pricing-duo' + (beta ? ' pricing-duo--beta' : '')}>
+      {beta && <BetaOffer program={beta} />}
+      <div className="pricing-strip pricing-strip--payg">
+        <div>
+          <p className="pricing-strip__title">{t('pricing.payg_title')}</p>
+          <p className="pricing-strip__text">{t('pricing.payg_lead')}</p>
+        </div>
+        <a href={user ? '#' : '/login'} className="btn-pricing pricing-strip__btn"
+           onClick={(e) => { e.preventDefault(); if (user) setPackOpen(true); else navigate('/login'); }}>
+          {t('pricing.buy_pages')}
+        </a>
+        <ul className="pricing-strip__chips">
+          {(['price', 'no_expiry', 'prepaid', 'no_commitment'] as const).map((k) => (
+            <li key={k}><Trans i18nKey={`pricing.payg_chips.${k}`} components={{ b: <b /> }}
+              values={{ price: formatMoney(pricing.page_price, pricing.currency, pricing.decimals, locale) }} /></li>
+          ))}
+        </ul>
       </div>
-      <a href={user ? '#' : '/login'} className="btn-pricing pricing-payg__btn"
-         onClick={(e) => { e.preventDefault(); if (user) setPackOpen(true); else navigate('/login'); }}>
-        {t('pricing.buy_pages')}
-      </a>
     </div>
 
     {/* Règle commune aux forfaits et à l'achat à la page : en fin de section,

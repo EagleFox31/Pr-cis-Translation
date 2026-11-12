@@ -35,9 +35,6 @@
   .beta-actions .tb-btn { flex: 1; text-align: center; }
 }
 
-.pricing-grid.pricing-grid--with-beta { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
-.pricing-grid--with-beta > .pricing-card { min-width: 0; padding: 28px 18px; }
-.pricing-grid--with-beta .pricing-price { font-size: 1.9rem; line-height: 1.2; }
 /* Page publique : programme à gauche, candidature ou accès à droite dès 900px ; pile en dessous. */
 .beta-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
 /* Hauteurs équilibrées par le contenu : quotas en liste, le reste se répartit sans trou. */
@@ -97,15 +94,7 @@
 .beta-card .beta-application-form .beta-note { margin: 0; font-size: 12px; }
 .beta-card textarea { border: 1px solid var(--gray-300); border-radius: 9px; padding: 12px; font: inherit; font-size: 14px; line-height: 1.6; color: var(--navy); resize: vertical; width: 100%; box-sizing: border-box; }
 .beta-card textarea:focus-visible { outline: 3px solid var(--blue-light); border-color: var(--blue); }
-@media (max-width: 1200px) {
-  .pricing-grid.pricing-grid--with-beta { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .pricing-grid--with-beta .pricing-price { font-size: 2.4rem; }
-}
-@media (max-width: 1024px) {
-  .pricing-grid.pricing-grid--with-beta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
 @media (max-width: 768px) {
-  .pricing-grid.pricing-grid--with-beta { grid-template-columns: minmax(0, 1fr); }
   .beta-public { padding: 20px; }
 }
 

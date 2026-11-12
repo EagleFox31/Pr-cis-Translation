@@ -268,7 +268,17 @@
     "active_plan": "Active plan",
     "buy_pages": "Buy pages",
     "payg_title": "No subscription, pay per page",
-    "payg_text": "{{price}} per page, no commitment. Purchased pages stay on your account until you use them.",
+    "payg_lead": "Pay only for the pages you translate.",
+    "payg_chips": {
+      "price": "<b>{{price}}</b> per page",
+      "no_expiry": "<b>No</b> expiry",
+      "prepaid": "Paid <b>upfront</b>",
+      "no_commitment": "<b>No</b> commitment"
+    },
+    "beta_title": "Précis beta: {{days}} days free",
+    "beta_lead": "Try Précis for free and help us improve it. {{count}} spots.",
+    "beta_apply": "Apply",
+    "beta_slides": "slides",
     "start_free": "Start for free",
     "contact_us": "Contact us",
     "choose": "Choose {{plan}}",
