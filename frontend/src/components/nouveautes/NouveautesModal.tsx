@@ -54,7 +54,10 @@ export default function NouveautesModal() {
     // Fermer = avoir vu : compte côté serveur, invité dans le navigateur.
     if (courant.current.user) void marquerVu();
     else {
-      try { localStorage.setItem(CLE_VISITE_INVITE, '1'); } catch { /* stockage indisponible */ }
+      try {
+        localStorage.setItem(CLE_VISITE_INVITE, '1');
+        sessionStorage.setItem('precis.visite_vue_session', '1');
+      } catch { /* stockage indisponible */ }
     }
   }, [marquerVu]);
 

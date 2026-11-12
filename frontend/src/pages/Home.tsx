@@ -592,7 +592,7 @@ export default function Home() {
 
   // ---- Nouveautés : ouverture automatique, une fois par session ----
   // Après l'écran de démarrage, sans traduction en cours ni autre fenêtre ouverte.
-  const { chargerAVoir } = useNouveautes();
+  const { chargerAVoir, marquerVu } = useNouveautes();
   const occupe = stream.isTranslating || !!suiviBiblio;
   const occupeRef = useRef(occupe);
   occupeRef.current = occupe;
@@ -601,7 +601,9 @@ export default function Home() {
   const langue = i18n.language?.startsWith('en') ? 'en' : 'fr';
   useEffect(() => {
     if (authLoading) return;
-    const CLE_SESSION = 'precis.nouveautes_session';
+    // Une tentative par session ET par identité : ouvrir l'app sans compte ne
+    // doit pas empêcher la visite de s'ouvrir à la connexion qui suit.
+    const CLE_SESSION = `precis.nouveautes_session:${userId ?? 'invite'}`;
     let annule = false;
     let minuteur: number | undefined;
     let offSplash: (() => void) | undefined;
@@ -630,7 +632,16 @@ export default function Home() {
         else marquer();
         return;
       }
-      if (!dejaVues) { marquer(); openNouveautes('accueil'); return; }
+      if (!dejaVues) {
+        marquer();
+        // Visite déjà vue sans compte dans cette session (ex. juste avant
+        // l'inscription) : on l'enregistre sur le compte sans la rejouer.
+        let vueCommeInvite = false;
+        try { vueCommeInvite = !!sessionStorage.getItem('precis.visite_vue_session'); } catch { /* rien */ }
+        if (vueCommeInvite) void marquerVu();
+        else openNouveautes('accueil');
+        return;
+      }
       const donnees = await chargerAVoir(langue);
       if (annule || dejaFait()) return;
       if (!donnees || !donnees.elements?.length) { marquer(); return; }
@@ -651,7 +662,7 @@ export default function Home() {
       if (minuteur !== undefined) window.clearTimeout(minuteur);
       offSplash?.();
     };
-  }, [authLoading, userId, dejaVues, langue, chargerAVoir]);
+  }, [authLoading, userId, dejaVues, langue, chargerAVoir, marquerVu]);
 
   // ---- Original : le fichier tel qu'il a été déposé ----
   // Document de la bibliothèque : le serveur le renvoie au format NATIF (le

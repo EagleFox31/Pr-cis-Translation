@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Files, Info, LifeBuoy, LogOut, Search, Trash2, UserPlus, X } from 'lucide-react';
+import { CheckSquare, Files, Info, LifeBuoy, LogOut, Search, Trash2, UserPlus, X } from 'lucide-react';
 
 import type { DocMeta } from '../../hooks/useDocumentLibrary';
 import type { StopMode } from '../../hooks/useStreamingTranslation';
@@ -52,7 +52,7 @@ interface DocumentLibraryProps {
     enCours: boolean;
     source: Promise<Blob | undefined>;
   }) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => void | Promise<void>;
   onClearAll: () => void;
   getBlob: (id: string) => Promise<Blob | undefined>;
   getOriginalBlob: (id: string, asPdf?: boolean) => Promise<Blob | undefined>;
@@ -89,12 +89,43 @@ export default function DocumentLibrary({
   const [requete, setRequete] = useState('');
   // Document dont on est en train de régler les pages (null = pas de paiement).
   const [payFor, setPayFor] = useState<DocMeta | null>(null);
+  // Archivé dont l'explication est dépliée sous la ligne (un seul à la fois).
+  const [archiveOuverte, setArchiveOuverte] = useState<string | null>(null);
+  // Sélection multiple : null = mode normal.
+  const [selection, setSelection] = useState<Set<string> | null>(null);
+  const [confirmerSel, setConfirmerSel] = useState(false);
+  const [suppression, setSuppression] = useState(false);
+
+  const quitterSelection = () => { setSelection(null); setConfirmerSel(false); };
+  const basculer = (id: string) => {
+    setConfirmerSel(false);
+    setSelection(prev => {
+      const s = new Set(prev ?? []);
+      if (s.has(id)) s.delete(id); else s.add(id);
+      return s;
+    });
+  };
+  const supprimerSelection = async () => {
+    if (!selection || selection.size === 0) return;
+    setSuppression(true);
+    try {
+      for (const id of selection) await onDelete(id);
+    } finally {
+      setSuppression(false);
+      quitterSelection();
+    }
+  };
 
   // À la fermeture du tiroir, la recherche repart de zéro : rouvert, il ne doit
   // pas montrer une liste filtrée par une requête oubliée. (La confirmation de
   // « Tout effacer » vit dans le menu, qui disparaît avec le tiroir.)
   useEffect(() => {
-    if (!isOpen) setRequete('');
+    if (!isOpen) {
+      setRequete('');
+      setArchiveOuverte(null);
+      setSelection(null);
+      setConfirmerSel(false);
+    }
   }, [isOpen]);
 
   // On n'ATTEND rien ici. L'aperçu rastérisé se calcule côté serveur en
@@ -156,7 +187,6 @@ export default function DocumentLibrary({
   // Un visiteur n'a rien à charger ; une relecture ratée ne cache pas une liste déjà là.
   const loading = enChargement && !!user;
   const erreur = enErreur && !!user && documents.length === 0;
-  const avecArchives = documents.some(d => d.archive);
   const listeVisible = !loading && !erreur && documents.length > 0;
 
   return (
@@ -173,9 +203,13 @@ export default function DocumentLibrary({
             <div className="docs-head">
               <h2 id="docs-t" tabIndex={-1}>{t('library.title')}</h2>
               {listeVisible && <span className="n tab">{documents.length}</span>}
-              {listeVisible && (
+              {listeVisible && !selection && (
                 <RowMenu label={t('library.list_options')}
                   entries={[{
+                    key: 'select', label: t('library.select'),
+                    icon: <CheckSquare size={16} strokeWidth={2} className="ic" aria-hidden="true" />,
+                    onSelect: () => { setArchiveOuverte(null); setSelection(new Set()); },
+                  }, {
                     key: 'clear', label: t('library.clear_all'), danger: true,
                     icon: <Trash2 size={16} strokeWidth={2} className="ic" aria-hidden="true" />,
                     onSelect: onClearAll,
@@ -212,16 +246,26 @@ export default function DocumentLibrary({
               </div>
             )}
 
-            {listeVisible && avecArchives && (
-              <p className="archive-note">
-                <Info size={14} strokeWidth={2} aria-hidden="true" />
-                <span>
-                  {t('library.archive_note')}{' '}
-                  <a href="/home#pricing" onClick={e => { e.preventDefault(); versForfaits(); }}>
-                    {t('library.archive_note_link')}
-                  </a>
-                </span>
-              </p>
+            {listeVisible && selection && (
+              <div className="sel-bar" role="toolbar" aria-label={t('library.select')}>
+                <span className="tab" aria-live="polite">{t('library.selected_count', { count: selection.size })}</span>
+                {confirmerSel ? (
+                  <button type="button" className="sel-del" disabled={suppression}
+                    onClick={supprimerSelection}>
+                    <Trash2 size={15} strokeWidth={2} aria-hidden="true" />
+                    {t('library.confirm_delete_selection', { count: selection.size })}
+                  </button>
+                ) : (
+                  <button type="button" className="sel-del" disabled={selection.size === 0}
+                    onClick={() => setConfirmerSel(true)}>
+                    <Trash2 size={15} strokeWidth={2} aria-hidden="true" />
+                    {t('library.delete')}
+                  </button>
+                )}
+                <button type="button" className="sel-cancel" onClick={quitterSelection}>
+                  {t('library.cancel')}
+                </button>
+              </div>
             )}
 
             {loading ? (
@@ -264,11 +308,31 @@ export default function DocumentLibrary({
                     onDelete={onDelete}
                     onRetry={onRetry}
                     onStop={onStop}
+                    selection={selection ? { cochee: selection.has(doc.id), onBasculer: () => basculer(doc.id) } : undefined}
+                    onArchive={() => setArchiveOuverte(o => (o === doc.id ? null : doc.id))}
+                    archiveActive={archiveOuverte === doc.id}
                   />
                 ))}
               </ul>
             )}
           </section>
+
+          {/* Explication d'archive : bulle flottante au-dessus de la barre du bas, hors de la liste (rien ne bouge). */}
+          {archiveOuverte && !selection && (
+            <div className="archive-float" role="status">
+              <Info size={15} strokeWidth={2} aria-hidden="true" />
+              <span>
+                {t('library.archive_note')}{' '}
+                <a href="/home#pricing" onClick={e => { e.preventDefault(); versForfaits(); }}>
+                  {t('library.archive_note_link')}
+                </a>
+              </span>
+              <button type="button" className="archive-float__x" aria-label={t('library.cancel')}
+                onClick={() => setArchiveOuverte(null)}>
+                <X size={15} strokeWidth={2} aria-hidden="true" />
+              </button>
+            </div>
+          )}
 
           <footer className={user ? 'p-foot' : 'p-foot p-foot--solo'}>
             {user && (

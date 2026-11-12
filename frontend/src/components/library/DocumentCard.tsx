@@ -20,7 +20,7 @@ import type { ReactNode } from 'react';
 import { motion } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import {
-  Eye, Download, Trash2, Lock, AlertTriangle, Loader2, RotateCcw, Flag, Pause, X, ScanText,
+  Eye, Download, Trash2, Lock, AlertTriangle, Loader2, RotateCcw, Flag, Pause, X, ScanText, Check,
   FileType2, FileText, Presentation, Sheet, File as FileIcon,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -53,6 +53,12 @@ interface DocumentCardProps {
   onDelete: (id: string) => void;
   onRetry?: (doc: DocMeta) => void;
   onStop?: (doc: DocMeta, mode: StopMode) => Promise<void>;
+  /** Mode sélection : la ligne devient une case à cocher, sans actions. */
+  selection?: { cochee: boolean; onBasculer: () => void };
+  /** Archivé : explication affichée SOUS la ligne quand elle est ouverte. */
+  /** Explication d'archive affichée (bulle flottante du panneau) pour cette ligne. */
+  archiveActive?: boolean;
+  onArchive?: () => void;
 }
 
 /** Sépare « rapport.final.pdf » en [« rapport.final », « .pdf »] : l'extension
@@ -64,6 +70,7 @@ function scinder(nom: string): [string, string] {
 
 export default function DocumentCard({
   doc, trial, busy, onPreview, onDownload, onDelete, onRetry, onStop,
+  selection, archiveActive, onArchive,
 }: DocumentCardProps) {
   const { t, i18n } = useTranslation();
   // Arrêt demandé : il prend effet après la page en cours, d'où l'attente.
@@ -246,8 +253,16 @@ export default function DocumentCard({
       ? <span className="when" title={formatDate(doc.date, i18n.language)}>{dateCourte}</span>
       : null;
 
-  const classes = ['doc', rapide ? 'doc--quick' : '', archive ? 'doc--archive' : ''].filter(Boolean).join(' ');
+  const classes = ['doc', rapide && !selection ? 'doc--quick' : '', archive ? 'doc--archive' : '',
+    selection ? 'doc--select' : '', selection?.cochee ? 'doc--coche' : '',
+    archiveActive && !selection ? 'doc--actif' : ''].filter(Boolean).join(' ');
   const ouvrable = (apercuPossible || aDebloquer) && !busy;
+  // Clic sur la ligne : cocher (sélection), expliquer (archivé) ou ouvrir.
+  const auClic = selection
+    ? selection.onBasculer
+    : archive
+      ? onArchive
+      : ouvrable ? () => (aDebloquer ? onDownload(doc) : onPreview(doc)) : undefined;
   // Sous-ligne = description du bouton (son nom reste le nom du fichier) ; elle
   // est masquée au nom pour ne pas être lue deux fois.
   const idSousLigne = `doc-sub-${doc.id}`;
@@ -262,10 +277,15 @@ export default function DocumentCard({
       <button type="button" className="open"
         title={`${doc.filename} — ${formatSize(doc.sizeByes, t)}`}
         aria-describedby={idSousLigne}
-        aria-disabled={ouvrable ? undefined : true}
-        onClick={ouvrable ? () => (aDebloquer ? onDownload(doc) : onPreview(doc)) : undefined}>
-        <span className="ft" title={nomFormat}>
-          <Icone size={18} strokeWidth={2} className="ic" aria-hidden="true" />
+        role={selection ? 'checkbox' : undefined}
+        aria-checked={selection ? selection.cochee : undefined}
+        aria-expanded={!selection && archive ? !!archiveActive : undefined}
+        aria-disabled={auClic ? undefined : true}
+        onClick={auClic}>
+        <span className="ft" title={selection ? undefined : nomFormat}>
+          {selection
+            ? (selection.cochee && <Check size={18} strokeWidth={2.6} className="ic" aria-hidden="true" />)
+            : <Icone size={18} strokeWidth={2} className="ic" aria-hidden="true" />}
         </span>
         <span className="t">
           <b>
@@ -284,7 +304,7 @@ export default function DocumentCard({
       </button>
       <span className="sr-only" role="status">{annonceVive}</span>
 
-      <div className="acts">
+      {!selection && <div className="acts">
         {rapide && (
           <button type="button" className="pill" title={rapide.title}
             disabled={busy} onClick={rapide.onClick}>
@@ -308,7 +328,7 @@ export default function DocumentCard({
           label={t('library.row_options', { name: doc.filename })}
           entries={entrees}
           buttonClassName="hov" />
-      </div>
+      </div>}
     </motion.li>
   );
 }

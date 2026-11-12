@@ -115,7 +115,8 @@
   .ext-menu { position: static; overflow-y: auto; }
   .ext-content { display: flex; flex-direction: column; min-height: 0; }
   .ext-content > .ext-panel { flex: 1; min-height: 0; }
-  .ext-panel .admin-panel__body { overflow-y: auto; overscroll-behavior: contain; }
+  /* Défilement interne d'abord, puis la page prend le relais en butée. */
+  .ext-panel .admin-panel__body { overflow-y: auto; overscroll-behavior: auto; }
   /* En-tête de la fiche = hauteur exacte d'une ligne du menu ; texte sur une ligne chacun. */
   .ext-menu__row { box-sizing: border-box; height: var(--ext-row-h); flex: none; }
   .ext-panel .admin-panel__head { box-sizing: border-box; height: var(--ext-row-h); padding: 0 20px 0 24px; flex: none; }
