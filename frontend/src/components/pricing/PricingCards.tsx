@@ -244,12 +244,12 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
       })}
     </div>
 
-    {/* Sous la grille : bêta à gauche (quand on peut y candidater), achat à
-        la page à droite, même structure pour que les deux se comparent. Sans
-        bêta, l'achat à la page prend toute la largeur. Les pages achetées
-        restent créditées sur le compte jusqu'à leur utilisation. */}
-    <div className={'pricing-duo' + (beta ? ' pricing-duo--beta' : '')}>
-      {beta && <BetaOffer program={beta} />}
+    {/* Sous la grille. Bêta ouverte : bêta à gauche, achat à la page à
+        droite, même structure pour que les deux se comparent. Sinon : le
+        bandeau d'achat à la page d'origine, seul. Les pages achetées restent
+        créditées sur le compte jusqu'à leur utilisation. */}
+    {beta ? <div className="pricing-duo">
+      <BetaOffer program={beta} />
       <div className="pricing-strip pricing-strip--payg">
         <div>
           <p className="pricing-strip__title">{t('pricing.payg_title')}</p>
@@ -266,7 +266,21 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
           ))}
         </ul>
       </div>
-    </div>
+    </div> : (
+      <div className="pricing-payg">
+        <div>
+          <p className="pricing-payg__title">{t('pricing.payg_title')}</p>
+          <p className="pricing-payg__text">
+            {t('pricing.payg_text', {
+              price: formatMoney(pricing.page_price, pricing.currency, pricing.decimals, locale) })}
+          </p>
+        </div>
+        <a href={user ? '#' : '/login'} className="btn-pricing pricing-payg__btn"
+           onClick={(e) => { e.preventDefault(); if (user) setPackOpen(true); else navigate('/login'); }}>
+          {t('pricing.buy_pages')}
+        </a>
+      </div>
+    )}
 
     {/* Règle commune aux forfaits et à l'achat à la page : en fin de section,
         avec un exemple chiffré plutôt qu'une formule. */}
