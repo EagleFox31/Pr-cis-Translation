@@ -632,16 +632,20 @@ export default function Home() {
         else marquer();
         return;
       }
+      // Le navigateur et le compte se transmettent la visite dans les deux
+      // sens : déjà vue sur l'un, elle n'est jamais rejouée sur l'autre.
       if (!dejaVues) {
         marquer();
-        // Visite déjà vue sans compte dans cette session (ex. juste avant
-        // l'inscription) : on l'enregistre sur le compte sans la rejouer.
-        let vueCommeInvite = false;
-        try { vueCommeInvite = !!sessionStorage.getItem('precis.visite_vue_session'); } catch { /* rien */ }
-        if (vueCommeInvite) void marquerVu();
+        let vueSurNavigateur = false;
+        try {
+          vueSurNavigateur = !!localStorage.getItem('precis.visite_vue')
+            || !!sessionStorage.getItem('precis.visite_vue_session');
+        } catch { /* rien */ }
+        if (vueSurNavigateur) void marquerVu();
         else openNouveautes('accueil');
         return;
       }
+      try { localStorage.setItem('precis.visite_vue', '1'); } catch { /* stockage indisponible */ }
       const donnees = await chargerAVoir(langue);
       if (annule || dejaFait()) return;
       if (!donnees || !donnees.elements?.length) { marquer(); return; }

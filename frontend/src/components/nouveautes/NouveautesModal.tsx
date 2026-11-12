@@ -51,14 +51,13 @@ export default function NouveautesModal() {
     const cible = origine.current;
     setOuverte(null);
     if (restaurerFocus && cible?.isConnected) window.setTimeout(() => cible.focus(), 0);
-    // Fermer = avoir vu : compte côté serveur, invité dans le navigateur.
+    // Fermer = avoir vu : toujours dans le navigateur (la visite n'y revient
+    // pas après déconnexion), et sur le compte si l'on est connecté.
     if (courant.current.user) void marquerVu();
-    else {
-      try {
-        localStorage.setItem(CLE_VISITE_INVITE, '1');
-        sessionStorage.setItem('precis.visite_vue_session', '1');
-      } catch { /* stockage indisponible */ }
-    }
+    try {
+      localStorage.setItem(CLE_VISITE_INVITE, '1');
+      sessionStorage.setItem('precis.visite_vue_session', '1');
+    } catch { /* stockage indisponible */ }
   }, [marquerVu]);
 
   // Focus sur la fenêtre elle-même à l'ouverture : lecteurs d'écran annoncés,
