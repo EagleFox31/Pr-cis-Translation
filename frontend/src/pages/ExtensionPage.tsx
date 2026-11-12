@@ -88,6 +88,10 @@ export default function ExtensionPage() {
   const [rubrique, setRubrique] = useState<Rubrique>(rubriqueInitiale);
 
   const mobile = estMobile();
+  // Téléphone : rien à installer (l'encart du haut le dit) → pas d'onglet
+  // « Installation », la fiche s'ouvre sur le tarif.
+  const onglets = mobile ? RUBRIQUES.filter((r) => r.id !== 'install') : RUBRIQUES;
+  const vue: Rubrique = mobile && rubrique === 'install' ? 'price' : rubrique;
   const { installe, version } = useExtensionInstalled();
   const bienvenue = params.get('bienvenue') === '1';
 
@@ -292,7 +296,7 @@ export default function ExtensionPage() {
   );
 
   const contenu = () => {
-    switch (rubrique) {
+    switch (vue) {
       case 'price':
         return fiche(t('extension_page.price.title'), (
           <>
@@ -434,10 +438,10 @@ export default function ExtensionPage() {
 
             <div className="ext-layout">
               <nav className="admin-list ext-menu" aria-label={t('extension_page.menu_title')}>
-                {RUBRIQUES.map(({ id, cle, Icone }) => (
+                {onglets.map(({ id, cle, Icone }) => (
                   <button
                     key={id} type="button" className="admin-row admin-row--button admin-duo__row ext-menu__row"
-                    aria-current={rubrique === id ? 'true' : undefined}
+                    aria-current={vue === id ? 'true' : undefined}
                     onClick={() => choisirRubrique(id)}
                   >
                     <span className="ext-menu__icon"><Icone size={18} strokeWidth={2} aria-hidden="true" /></span>

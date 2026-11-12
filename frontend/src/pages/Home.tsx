@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { ArrowUp } from 'lucide-react';
 import AppBar from '../components/navbar/AppBar';
 import { prendreSource, type DemandeBibliotheque } from '../components/library/BibliothequeHote';
 import HeroSection from '../components/hero/HeroSection';
@@ -794,6 +795,18 @@ export default function Home() {
         section={{ active: activeSection, onClick: handleNavClick }}
         onAccount={() => setShowLibrary(true)}
       />
+
+      {/* Retour au formulaire du haut depuis n'importe quelle section (la barre
+          n'a pas de lien « Accueil » : le logo seul y ramène). */}
+      <button
+        type="button"
+        className={`retour-haut${activeSection !== 'hero' && !showPreview ? ' retour-haut--visible' : ''}`}
+        onClick={() => handleNavClick('hero')}
+        aria-label={t('nav.backToTop')} title={t('nav.backToTop')}
+        tabIndex={activeSection !== 'hero' && !showPreview ? 0 : -1}
+      >
+        <ArrowUp size={22} strokeWidth={2.2} aria-hidden="true" />
+      </button>
 
       <LanguageMarquee />
 
