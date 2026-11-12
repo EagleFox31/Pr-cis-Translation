@@ -3,12 +3,12 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Check, Mail, MessageCircle, Phone, X } from 'lucide-react';
+import { ArrowRight, Facebook, Linkedin, Mail, MessageCircle, Phone, X } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
 import { openSupport } from '../support/supportBus';
 
-const CONTACT_EMAIL = 'contact@trigenys.com';
+const CONTACT_EMAIL = 'support.precis@trigenys.com';
 const LINKEDIN_URL = 'https://www.linkedin.com/company/trigenys-group';
 const INSIGHT_URL = 'https://insight.trigenys.com/fr';
 const FACEBOOK_URL = 'https://www.facebook.com/p/Trigenys-Group-61594499048324/';
@@ -31,60 +31,62 @@ export default function AboutSection() {
   return (
     <section className="about-section" id="about">
       <div className="section-inner about-inner">
-        <header className="about-head">
-          <span className="section-tag">{t('about.tag')}</span>
-          <h2
-            className="section-title"
-            dangerouslySetInnerHTML={{ __html: t('about.title') }}
-          />
-        </header>
-        <div className="story-grid about-grid">
-          <div className="about-story">
+        <div className="about-layout">
+          {/* Le hibou est bleu nuit : il repose sur un médaillon clair pour rester net sur le fond sombre. */}
+          <motion.figure
+            className="about-seal"
+            initial={{ opacity: 0, y: 28 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.3 }}
+            transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <img src="/Identite Precis.png" alt="" aria-hidden="true" className="about-mascot" />
+            <figcaption>
+              <span className="about-seal-label">{t('about.card_label')}</span>
+              <strong>Trigenys Group</strong>
+              <span className="about-seal-also">
+                {t('about.card_products_label')} AgenStudio, <a href={INSIGHT_URL} target="_blank" rel="noopener noreferrer">Trigenys Insight</a>
+              </span>
+            </figcaption>
+          </motion.figure>
+
+          <div className="about-body">
+            <h2 className="about-title" dangerouslySetInnerHTML={{ __html: t('about.title') }} />
             <p className="about-text">{t('about.desc')}</p>
-            <ul className="about-pledges">
+
+            <ol className="about-pledges">
               {PLEDGES.map((key, i) => (
                 <motion.li
                   key={key}
-                  initial={{ opacity: 0, y: 10 }}
+                  initial={{ opacity: 0, y: 12 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
-                  transition={{ delay: 0.1 * (i + 1) }}
+                  transition={{ delay: 0.15 + 0.1 * i, duration: 0.5 }}
                 >
-                  <Check size={18} aria-hidden="true" className="about-pledge-icon" />
-                  <div>
-                    <strong>{t(`about.pledge_${key}`)}</strong>
-                    <span>{t(`about.pledge_${key}_desc`)}</span>
-                  </div>
+                  <span className="about-pledge-num" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
+                  <strong>{t(`about.pledge_${key}`)}</strong>
+                  <span>{t(`about.pledge_${key}_desc`)}</span>
                 </motion.li>
               ))}
-            </ul>
-          </div>
+            </ol>
 
-          <div className="about-card-wrap">
-            <img src="/Identite Precis.png" alt="" aria-hidden="true" className="about-mascot" />
-            <aside className="about-card" aria-labelledby="about-card-title">
-              <p className="about-card-label">{t('about.card_label')}</p>
-              <h3 id="about-card-title" className="about-card-name">Trigenys Group</h3>
-              <dl className="about-card-facts">
-                <div><dt>{t('about.card_location_label')}</dt><dd>{t('about.card_location')}</dd></div>
-                <div><dt>{t('about.card_products_label')}</dt><dd>AgenStudio, <a href={INSIGHT_URL} target="_blank" rel="noopener noreferrer">Trigenys Insight</a></dd></div>
-              </dl>
-              <p className="about-card-links">
-                <Mail size={16} aria-hidden="true" />
-                <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
-                <span aria-hidden="true">·</span>
-                <a href={LINKEDIN_URL} target="_blank" rel="noopener noreferrer">LinkedIn</a>
-                <span aria-hidden="true">·</span>
-                <a href={FACEBOOK_URL} target="_blank" rel="noopener noreferrer">Facebook</a>
-              </p>
-              <button type="button" className="btn-primary about-card-cta" onClick={contact}>
+            <div className="about-contact">
+              <button type="button" className="about-cta" onClick={contact}>
                 {t('about.contact_cta')}
+                <ArrowRight size={18} aria-hidden="true" />
               </button>
-            </aside>
+              <a className="about-mail" href={`mailto:${CONTACT_EMAIL}`}>
+                <Mail size={15} aria-hidden="true" />
+                {CONTACT_EMAIL}
+              </a>
+              <span className="about-social">
+                <a href={LINKEDIN_URL} target="_blank" rel="noopener noreferrer"><Linkedin size={15} aria-hidden="true" />LinkedIn</a>
+                <a href={FACEBOOK_URL} target="_blank" rel="noopener noreferrer"><Facebook size={15} aria-hidden="true" />Facebook</a>
+              </span>
+            </div>
           </div>
         </div>
       </div>
-      {/* Integrated Footer */}
       <FooterSection />
       <ContactModal open={contactOpen} onClose={() => setContactOpen(false)} />
     </section>
@@ -149,47 +151,26 @@ function ContactModal({ open, onClose }: { open: boolean; onClose: () => void })
 function FooterSection() {
   const { t } = useTranslation();
 
+  const links = [
+    { to: '/mentions-legales', label: t('footer.legal') },
+    { to: '/conditions', label: t('footer.terms') },
+    { to: '/confidentialite', label: t('footer.privacy') },
+    { to: '/extension', label: t('extension_page.footer_link') },
+    { to: '/cookies', label: t('footer.cookies') },
+  ];
+
   return (
-    <div
-      className="about-footer"
-      style={{
-        borderTop: '1px solid var(--gray-200)',
-        paddingTop: '20px',
-        width: '100%',
-        maxWidth: '1240px',
-        margin: '0 auto',
-        padding: '20px 24px',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          fontSize: '0.75rem',
-          color: 'var(--gray-500)',
-          flexWrap: 'wrap',
-          gap: '12px',
-        }}
-      >
-        <p>{t('footer.rights')}</p>
-        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-          <Link to="/mentions-legales" style={{ color: 'inherit' }}>
-            {t('footer.legal')}
-          </Link>
-          <Link to="/conditions" style={{ color: 'inherit' }}>
-            {t('footer.terms')}
-          </Link>
-          <Link to="/confidentialite" style={{ color: 'inherit' }}>
-            {t('footer.privacy')}
-          </Link>
-          <Link to="/extension" style={{ color: 'inherit' }}>
-            {t('extension_page.footer_link')}
-          </Link>
-          <Link to="/cookies" style={{ color: 'inherit' }}>
-            {t('footer.cookies')}
-          </Link>
-        </div>
+    // div et non <footer> : la règle globale `footer` (pied sombre des autres pages) s'appliquerait.
+    <div className="about-footer">
+      <div className="about-footer-row">
+        <nav aria-label={t('footer.nav_label')}>
+          <ul className="about-footer-links">
+            {links.map(({ to, label }) => (
+              <li key={to}><Link to={to}>{label}</Link></li>
+            ))}
+          </ul>
+        </nav>
+        <p className="about-footer-rights">{t('footer.rights')}</p>
       </div>
     </div>
   );

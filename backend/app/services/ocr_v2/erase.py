@@ -18,6 +18,8 @@ from .mask import anneau, composantes, masque_couleur
 
 # Marge autour d'une zone pour les méthodes qui travaillent sur un recadrage.
 MARGE = 24
+# Écart maximal (px) entre la zone et le trait qui la traverse, de chaque côté.
+CONTACT = 4
 # Fantôme : ~0,6 s par zone. Au-delà de ce budget par image, la règle (0,05 s).
 BUDGET_S = 8.0
 
@@ -108,17 +110,21 @@ def m_telea(image, mask):
 def m_fsr(image, mask):
     """Frequency Selective Reconstruction (opencv-contrib) : meilleure méthode
     sans IA sur texture et quadrillage. Son masque est INVERSE (0 = à refaire)."""
+    # Lettres dont les recadrages se touchent : un seul appel (−25 % mesuré,
+    # même rendu), au lieu de refaire les mêmes pixels lettre par lettre.
     out = image.copy()
-    for z in composantes(mask):
-        ys, xs = np.nonzero(z)
-        y0, y1 = max(ys.min() - MARGE, 0), min(ys.max() + MARGE + 1, image.shape[0])
-        x0, x1 = max(xs.min() - MARGE, 0), min(xs.max() + MARGE + 1, image.shape[1])
-        crop = image[y0:y1, x0:x1].copy()
-        valide = (mask[y0:y1, x0:x1] == 0).astype(np.uint8) * 255
+    trou = (mask > 0).astype(np.uint8)
+    proches = cv2.dilate(trou, np.ones((2 * MARGE + 1, 2 * MARGE + 1), np.uint8))
+    n, groupes, stats, _ = cv2.connectedComponentsWithStats(proches)
+    for i in range(1, n):
+        x0, y0, w, h, _ = stats[i]
+        sl = np.s_[y0:y0 + h, x0:x0 + w]
+        crop = image[sl].copy()
+        valide = (1 - trou[sl]) * 255
         dst = np.zeros_like(crop)
         cv2.xphoto.inpaint(crop, valide, dst, cv2.xphoto.INPAINT_FSR_FAST)
-        sel = z[y0:y1, x0:x1]
-        out[y0:y1, x0:x1][sel] = dst[sel]
+        sel = (trou[sl] > 0) & (groupes[sl] == i)  # boîtes voisines qui se chevauchent
+        out[sl][sel] = dst[sel]
     return out
 
 
@@ -130,6 +136,17 @@ def _pixels_traits(gris, mask):
     """
     ref = cv2.inpaint(gris, (mask > 0).astype(np.uint8), 3, cv2.INPAINT_TELEA)
     return np.abs(gris.astype(np.float32) - cv2.medianBlur(ref, 21).astype(np.float32)) > 40
+
+
+def _des_deux_cotes(t_s, t_min, t_max):
+    """Le trait s'étend avant `t_min` ET après `t_max`, sur au moins 4 positions
+    distinctes de chaque côté (une ligne perpendiculaire, jonction en T, n'en
+    couvre que son épaisseur), et touche la zone des deux côtés (un tracé
+    voisin, au-delà d'une bordure, ne la traverse pas)."""
+    t = np.unique(np.round(t_s))
+    avant, apres = t[t < t_min], t[t > t_max]
+    return (len(avant) >= 4 and len(apres) >= 4
+            and avant.max() >= t_min - CONTACT and apres.min() <= t_max + CONTACT)
 
 
 def _droites(struct):
@@ -188,7 +205,7 @@ def m_structurel(image, mask):
             t_s = (P[proches] - c0) @ u
             t_z = (Z - c0) @ u
             # Le trait doit exister des DEUX côtés de la zone.
-            if not ((t_s < t_z.min()).sum() >= 4 and (t_s > t_z.max()).sum() >= 4):
+            if not _des_deux_cotes(t_s, t_z.min(), t_z.max()):
                 continue
             epaisseur = max(1.0, 2 * np.percentile(np.abs((P[proches] - c0) @ nrm), 90) + 0.5)
             sel = (np.abs((Z - c0) @ nrm) <= epaisseur / 2) & (t_z >= t_s.min() - 1)
@@ -237,7 +254,7 @@ def traits_traversants(image, zone, mask):
         if proches.sum() < 8 or not (dz < 2).any():
             continue
         t_s = P[proches] @ u; t_z = Z[dz < 2] @ u
-        if (t_s < t_z.min()).sum() >= 4 and (t_s > t_z.max()).sum() >= 4:
+        if _des_deux_cotes(t_s, t_z.min(), t_z.max()):
             n += 1
     return n
 
@@ -326,11 +343,32 @@ def erreur_fantome(pre_efface, zone, methode, positions):
     return float(np.mean(errs)) if errs else np.inf
 
 
+# FSR coûte ~20 fois les autres méthodes. Mesure du 06/11 (3 images de cours,
+# 37 zones) : une méthode simple à moins de 5 n'est jamais battue ; à plus de
+# 100, FSR gagne ou fait jeu égal. Entre les deux seulement, FSR passe au
+# fantôme, sur une position.
+FSR_INUTILE = 5.0
+FSR_SUR = 100.0
+
+
 def choisir_par_fantome(pre_efface, zone, mask, methodes=tuple(METHODES), occupe=None):
     pos = positions_fantomes(zone, mask, occupe=occupe)
     if not pos:
         return None
-    erreurs = {m: erreur_fantome(pre_efface, zone, m, pos) for m in methodes}
+    simples = [m for m in methodes if m != "fsr"]
+    erreurs = {m: erreur_fantome(pre_efface, zone, m, pos) for m in simples}
+    if "fsr" in methodes:
+        meilleure = min(erreurs.values(), default=np.inf)
+        if meilleure >= FSR_SUR:
+            return "fsr"
+        if meilleure > FSR_INUTILE:
+            # FSR, coûteux, n'est essayé que sur une position, face à la
+            # meilleure méthode simple mesurée sur cette même position.
+            simple = min(erreurs, key=erreurs.get)
+            un = pos[:1]
+            if erreur_fantome(pre_efface, zone, "fsr", un) < erreur_fantome(pre_efface, zone, simple, un):
+                return "fsr"
+            return simple
     return min(erreurs, key=erreurs.get)
 
 

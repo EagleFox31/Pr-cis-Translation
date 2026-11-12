@@ -31,7 +31,7 @@ import { formatSize } from '../../lib/format';
 import Skeleton from '../ui/Skeleton';
 import BetaOffer from './BetaOffer';
 import { useBetaProgram } from '../../hooks/useBetaProgram';
-import PaymentModal from '../payment/PaymentModal';
+import PaymentModal from '../payment/LazyPaymentModal';
 import { openSupport } from '../support/supportBus';
 import type { PlanChoice } from '../../hooks/usePayment';
 

@@ -1,16 +1,17 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useLocation, useNavigate } from 'react-router-dom';
 import Navbar from '../components/navbar/Navbar';
+import { prendreSource, type DemandeBibliotheque } from '../components/library/BibliothequeHote';
 import HeroSection from '../components/hero/HeroSection';
 import LanguageMarquee from '../components/hero/LanguageMarquee';
 import FeaturesGrid from '../components/features/FeaturesGrid';
 import StorySection from '../components/story/StorySection';
+import type { Ajustement } from '../components/preview/ViewerToolbar';
 import PricingSection from '../components/pricing/PricingSection';
 import AboutSection from '../components/about/AboutSection';
 import { showToast } from '../components/ui/Toast';
-import SupportModal from '../components/support/SupportModal';
-import InviteModal from '../components/invite/InviteModal';
-import PaymentModal from '../components/payment/PaymentModal';
+import PaymentModal from '../components/payment/LazyPaymentModal';
 import DocumentLibrary from '../components/library/DocumentLibrary';
 import { useAuth } from '../contexts/AuthContext';
 import { useDocumentLibrary, STATUTS_REPRENABLES, type DocMeta } from '../hooks/useDocumentLibrary';
@@ -22,7 +23,9 @@ import {
 } from '../hooks/useStreamingTranslation';
 import { isTrialFor } from '../lib/plans';
 import { subscribeSection } from '../lib/sectionBus';
+import { creerGesteMolette } from '../lib/molette';
 import type { TranslateConfig } from '../components/upload/TranslationSection';
+
 
 export default function Home() {
   const { t } = useTranslation();
@@ -32,6 +35,15 @@ export default function Home() {
   const [currentPage, setCurrentPage] = useState(1);
   const [numPages, setNumPages] = useState(1);
   const [zoom, setZoom] = useState(1.0);
+  // Ajustement du zoom à l'écran (« pleine page » par défaut à l'ouverture ;
+  // `null` = zoom manuel) et rideau de comparaison original / traduction.
+  const [ajustement, setAjustement] = useState<Ajustement>('page');
+  const [rideau, setRideau] = useState(false);
+  // Un zoom choisi à la main quitte l'ajustement automatique.
+  const changerZoom = useCallback((z: number) => {
+    setAjustement(null);
+    setZoom(z);
+  }, []);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   // Le fichier SOURCE affiché est-il déjà un PDF ? Vrai pour un aperçu ouvert
   // depuis la bibliothèque (le serveur le convertit). Faux pour une traduction
@@ -107,7 +119,7 @@ export default function Home() {
   const stream = useStreamingTranslation(user?.plan === 'free');
 
   // ---- Document library ----
-  const { documents, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal, getIllegiblePages, setIllegiblePages } = useDocumentLibrary();
+  const { documents, charge: bibliothequeChargee, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal, getIllegiblePages, setIllegiblePages } = useDocumentLibrary();
 
   // Les droits du document viennent du serveur ; une mise à jour de la
   // bibliothèque après paiement doit aussi débloquer l'aperçu déjà ouvert.
@@ -221,6 +233,8 @@ export default function Home() {
       setTranslatedBlob(null);
       setTranslatedFilename('');
       setCurrentPage(1);
+      setAjustement('page');
+      setRideau(false);
       setShowPreview(true);
 
       stream
@@ -283,6 +297,8 @@ export default function Home() {
       // En cours : rien n'est tenu pour traduit avant la réponse du serveur.
       setSuiviBiblio(req.enCours ? { pretes: {}, etats: {} } : null);
       setCurrentPage(1);
+      setAjustement('page');
+      setRideau(false);
       setPreviewLoading(true);
       setShowLibrary(false);
       setShowPreview(true);   // ← l'aperçu est visible AVANT le premier octet
@@ -339,6 +355,35 @@ export default function Home() {
     },
     [getOriginalBlob, deleteDocument, handleStartTranslate, t],
   );
+
+  // ---- Demande venue du tiroir d'une autre page (admin, intégrations) -------
+  // L'aperçu et la relance vivent ici : le tiroir des autres pages y renvoie
+  // avec la demande dans l'état de navigation, exécutée une fois le document
+  // connu, puis effacée (un retour arrière ne la rejoue pas).
+  const location = useLocation();
+  const navigate = useNavigate();
+  const demande = (location.state as DemandeBibliotheque | null)?.bibliotheque;
+  useEffect(() => {
+    if (!demande) return;
+    const doc = documents.find((d) => d.id === demande.docId);
+    if (!doc && !bibliothequeChargee) return;   // liste pas encore arrivée
+    navigate(location.pathname, { replace: true, state: null });
+    if (!doc) {
+      // Supprimé entre-temps : on le dit, et la demande ne reste pas armée.
+      prendreSource(demande.docId);
+      showToast('error', t('story.request_missing_title'), t('story.request_missing_hint'));
+      return;
+    }
+    if (demande.action === 'relance') {
+      handleRetry(doc);
+    } else {
+      handleLibraryPreview({
+        docId: doc.id, paid: doc.paid, filename: doc.filename, ext: doc.ext,
+        enCours: doc.status === 'translating',
+        source: prendreSource(doc.id) ?? getOriginalBlob(doc.id, true),
+      });
+    }
+  }, [demande, documents, bibliothequeChargee, navigate, location.pathname, handleRetry, handleLibraryPreview, getOriginalBlob, t]);
 
   // ---- Aperçu bibliothèque : réseau seulement quand on ne SAIT pas ---------
   //
@@ -587,9 +632,9 @@ export default function Home() {
         case 'ArrowRight': setCurrentPage((p) => Math.min(effectiveNumPages, p + 1)); break;
         case 'Home':       setCurrentPage(1); break;
         case 'End':        setCurrentPage(effectiveNumPages); break;
-        case '+': case '=': setZoom((z) => Math.min(3, +(z + 0.25).toFixed(2))); break;
-        case '-':          setZoom((z) => Math.max(0.5, +(z - 0.25).toFixed(2))); break;
-        case '0':          setZoom(1); break;
+        case '+': case '=': setAjustement(null); setZoom((z) => Math.min(3, +(z + 0.25).toFixed(2))); break;
+        case '-':          setAjustement(null); setZoom((z) => Math.max(0.5, +(z - 0.25).toFixed(2))); break;
+        case '0':          setAjustement('page'); break;
         case 'f': case 'F': setPreviewFocus((v) => !v); break;
         case 'Escape':
           if (previewFocus) setPreviewFocus(false);
@@ -600,27 +645,21 @@ export default function Home() {
     };
     // Ctrl + molette = zoom (comme un lecteur PDF). `passive:false` pour pouvoir
     // annuler le zoom natif de la page.
-    // Molette seule : on défile dans la page ; une fois le BORD atteint, un
-    // nouvel élan passe à la page suivante / précédente. Le seuil cumulé et la
-    // pause évitent qu'un pavé tactile (inertie) saute plusieurs pages d'un coup.
+    // Molette seule : un geste = une action (cf. `lib/molette.ts`). Un geste
+    // qui défile s'arrête au bord de la page ; seul un NOUVEAU geste, lancé
+    // depuis le bord, change de page — une seule fois.
     const scrollEl = document.getElementById('scroll');
-    let cumul = 0;
-    let bloqueJusqua = 0;
+    const geste = creerGesteMolette();
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey) {
         if (!scrollEl || e.deltaY === 0) return;
-        const enBas = scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 2;
-        const enHaut = scrollEl.scrollTop <= 2;
         const sens = e.deltaY > 0 ? 1 : -1;
-        if ((sens > 0 && !enBas) || (sens < 0 && !enHaut)) { cumul = 0; return; }
+        const action = geste(e.deltaY, e.timeStamp, (s) => (s > 0
+          ? scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 2
+          : scrollEl.scrollTop <= 2));
+        if (action === 'defiler') return;
         e.preventDefault();
-        const now = Date.now();
-        if (now < bloqueJusqua) return;
-        if (Math.sign(cumul) !== sens) cumul = 0;
-        cumul += e.deltaY;
-        if (Math.abs(cumul) < 60) return;
-        cumul = 0;
-        bloqueJusqua = now + 500;
+        if (action === 'bloquer') return;
         setCurrentPage((p) => {
           const n = Math.min(effectiveNumPages, Math.max(1, p + sens));
           // Nouvelle page vue depuis son début (en avançant) ou sa fin (en reculant).
@@ -632,6 +671,7 @@ export default function Home() {
         return;
       }
       e.preventDefault();
+      setAjustement(null);
       setZoom((z) => Math.min(3, Math.max(0.5,
         +(z + (e.deltaY < 0 ? 0.15 : -0.15)).toFixed(2))));
     };
@@ -645,8 +685,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-white text-gray-900 font-body">
-      <SupportModal />
-      <InviteModal />
 
       {/* Paiement à la page : achat des crédits nécessaires à la traduction
           courante (402). Une fois payé, on REJOUE la traduction telle quelle. */}
@@ -730,7 +768,12 @@ export default function Home() {
           onUnlock={handleUnlock}
           onToggleFocus={toggleFocus}
           onStop={stream.isTranslating || (suiviBiblio && libraryJobId) ? handleStop : undefined}
-          onZoomChange={setZoom}
+          onZoomChange={changerZoom}
+          ajustement={ajustement}
+          onAjustementChange={setAjustement}
+          onZoomAjuste={setZoom}
+          rideau={rideau}
+          onRideauChange={setRideau}
           onPageChange={setCurrentPage}
           onDownload={handleDownload}
           onDownloadOriginal={selectedFile ? handleDownloadOriginal : undefined}

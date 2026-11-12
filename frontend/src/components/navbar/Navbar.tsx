@@ -94,8 +94,8 @@ export default function Navbar({ activeSection, onNavClick, onLibraryOpen }: Nav
             <span>{t('extension_page.nav_label')}</span>
           </a>
           <div className="lang-toggle">
-            <button className={i18n.language === 'fr' ? 'active' : ''} onClick={() => i18n.changeLanguage('fr')}>FR</button>
-            <button className={i18n.language === 'en' ? 'active' : ''} onClick={() => i18n.changeLanguage('en')}>EN</button>
+            <button className={i18n.language?.startsWith('fr') ? 'active' : ''} aria-pressed={!!i18n.language?.startsWith('fr')} onClick={() => i18n.changeLanguage('fr')}>FR</button>
+            <button className={i18n.language?.startsWith('en') ? 'active' : ''} aria-pressed={!!i18n.language?.startsWith('en')} onClick={() => i18n.changeLanguage('en')}>EN</button>
           </div>
           </div>
 
@@ -125,7 +125,7 @@ export default function Navbar({ activeSection, onNavClick, onLibraryOpen }: Nav
             </div>
           )}
 
-          <button className="hamburger" onClick={() => setIsMenuOpen(!isMenuOpen)} aria-label="Toggle menu">
+          <button className="hamburger" onClick={() => setIsMenuOpen(!isMenuOpen)} aria-label="Toggle menu" aria-expanded={isMenuOpen} aria-controls="mobile-menu">
             <span style={{ transform: isMenuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' }} />
             <span style={{ opacity: isMenuOpen ? 0 : 1 }} />
             <span style={{ transform: isMenuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none' }} />

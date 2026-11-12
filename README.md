@@ -88,6 +88,13 @@ aperçus non-PDF.
 | [`docs/feuille-de-route-production.md`](docs/feuille-de-route-production.md) | **Aller en production** : les 6 étapes dans l'ordre, qui fait quoi, et la preuve de chacune |
 | [`docs/deploiement.md`](docs/deploiement.md) | **Mettre en ligne** : machine AWS, configuration, HTTPS, limites connues |
 | [`docs/etude-ocr.md`](docs/etude-ocr.md) | Étude initiale : traduire des PDF **scannés** (OCR) ; état actuel dans [`docs/ocr-production.md`](docs/ocr-production.md) |
+| [`docs/etude-traduction-images-pro.md`](docs/etude-traduction-images-pro.md) | Étude : traduire les images comme un studio de PAO (cases, alignement, contour, méthode « conteneur ») |
+| [`docs/etude-pdf-formes-cadres.md`](docs/etude-pdf-formes-cadres.md) | Étude : lettre cachée sous une forme dessinée, étiquettes posées dans deux cadres (moteur PDF) |
+| [`docs/etude-visionneuse-defilement.md`](docs/etude-visionneuse-defilement.md) | Étude : zoom qui coupait la page gauche, molette « un geste = une action » (visionneuse) |
+| [`docs/etude-pdf-superposition.md`](docs/etude-pdf-superposition.md) | Étude : dessin peint au-dessus du texte (lettrine), ordre de peinture et ancrage (moteur PDF) |
+| [`docs/etude-pdf-lettres-dessinees.md`](docs/etude-pdf-lettres-dessinees.md) | Étude : reconstituer un mot dont une lettre est dessinée, mise en valeur reportée sur la traduction (moteur PDF) |
+| [`docs/etude-pdf-centrage-cadre.md`](docs/etude-pdf-centrage-cadre.md) | Étude : texte centré dans une pastille ou un cadre, lettre dessinée à la taille du parent dominant (moteur PDF) |
+| [`docs/etude-visionneuse-ergonomie.md`](docs/etude-visionneuse-ergonomie.md) | Étude : ergonomie de la visionneuse comparée aux outils de référence, améliorations proposées |
 | [`docs/etude-visionneuse.md`](docs/etude-visionneuse.md) | Étude : visionneuse (navigation, molette, vignettes), fidélité de la retraduction compacte, originaux côté admin |
 | [`docs/etude-invitations.md`](docs/etude-invitations.md) | Étude : inviter des proches par e-mail — choix et points à trancher |
 | [`docs/etude-source-credits.md`](docs/etude-source-credits.md) | Étude : source des crédits — téléchargement et filigrane (gratuit, bêta, payant) |
@@ -102,6 +109,7 @@ aperçus non-PDF.
 | [`docs/etude-interfaces-admin.md`](docs/etude-interfaces-admin.md) | Étude : refonte des interfaces d'administration (gabarit commun, campagne bêta, page /beta) |
 | [`docs/etude-fiche-utilisateur-integree.md`](docs/etude-fiche-utilisateur-integree.md) | Étude : fiche utilisateur à droite de la liste des comptes (plus de panneau latéral) |
 | [`docs/etude-historique-forfaits.md`](docs/etude-historique-forfaits.md) | Étude : historique des forfaits, fiche compte en pleine hauteur, tuiles cliquables |
+| [`docs/etude-navigation-integrations.md`](docs/etude-navigation-integrations.md) | Étude : barre partagée admin / pages d'intégration (Extension, API) |
 | [`docs/etude-menu-admin.md`](docs/etude-menu-admin.md)
 - [Étude — programmes Bêta multiples](docs/etude-programmes-beta.md) | Étude : « Administration » dans le menu principal, onglets admin dans la barre |
 - [Étude — fiche programme Bêta lisible](docs/etude-fiche-programme-beta.md)
@@ -114,10 +122,16 @@ aperçus non-PDF.
 | [`docs/etude-extension-navigateur.md`](docs/etude-extension-navigateur.md) | Étude : extension navigateur traduisant une page entière, images comprises après accord |
 | [`docs/etude-memoire-extension.md`](docs/etude-memoire-extension.md) | Étude : ne plus repayer une page déjà traduite (mémoire locale, texte compté au volume cumulé) |
 | [`docs/etude-images-documents.md`](docs/etude-images-documents.md) | Étude : traduire aussi les images à texte d'un document, avec le coût sans et avec images |
+| [`docs/etude-images-halo-encre-axe.md`](docs/etude-images-halo-encre-axe.md) | Étude : images traduites — halo des lettres, tailles des étiquettes sœurs, centrage dans les cases |
+| [`docs/etude-banc-public.md`](docs/etude-banc-public.md) | Étude : banc public de 50 images tirées au hasard dans des jeux publics (schémas AI2D, scans FUNSD/DocVQA, graphiques ChartQA, organigrammes et schémas de procédé Wikimedia) |
 | [`docs/etude-objets-incorpores.md`](docs/etude-objets-incorpores.md) | Étude : objets incorporés (Excel, Word, PowerPoint, graphiques…) — traduire leur contenu et régénérer leur aperçu |
 | [`docs/etude-interface-extension.md`](docs/etude-interface-extension.md) | Étude : habiller l'interface de l'extension aux couleurs du site (jetons, polices, logo) |
 | [`docs/etude-distribution-extension.md`](docs/etude-distribution-extension.md) | Étude : présenter l'extension et la faire installer sans effort |
+| [`docs/etude-connexion-extension.md`](docs/etude-connexion-extension.md) | Étude : l'extension se connecte par le site (code à usage unique + PKCE) |
 | [`docs/etude-limites-page-extension.md`](docs/etude-limites-page-extension.md) | Étude : bornes par page de l'extension (texte, lots, images) contre les abus |
+| [`docs/etude-analyse-images-extension.md`](docs/etude-analyse-images-extension.md) | Étude : analyse des images visibles avant l'accord, seules les traduisibles sont annoncées |
+| [`docs/etude-vitesse-images-extension.md`](docs/etude-vitesse-images-extension.md) | Étude : vitesse des images de l'extension (effacement allégé, 2 images à la fois, cache 30 jours) |
+| [`docs/etude-traduction-auto-extension.md`](docs/etude-traduction-auto-extension.md) | Étude : traduction automatique de l'extension (fenêtre popup, « toujours » par site, raccourci, proposition par détection de langue) |
 | [`docs/fiches-boutiques-extension.md`](docs/fiches-boutiques-extension.md) | Textes à recopier pour les fiches Chrome Web Store et Edge Add-ons (permissions, données, visuels) |
 | [`docs/guide-premiere-mise-en-ligne.md`](docs/guide-premiere-mise-en-ligne.md) | Pas à pas de la toute première mise en ligne |
 | [`infra/aws/README.md`](infra/aws/README.md) | L'infrastructure AWS (CloudFormation, OIDC, secrets) |

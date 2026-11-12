@@ -10,7 +10,6 @@ import { betaError } from '../lib/betaError';
 import AdminShell from '../components/admin/AdminShell';
 import BetaAllowances, { BETA_FORMATS } from '../components/library/BetaAllowances';
 import BetaProgramDetails from '../components/pricing/BetaProgramDetails';
-import SupportModal from '../components/support/SupportModal';
 import { openSupport } from '../components/support/supportBus';
 
 function ApplicationForm({ onSubmitted }: { onSubmitted: () => Promise<void> }) {
@@ -136,7 +135,6 @@ export default function BetaPage() {
         )}
       </section>
       </div>
-      <SupportModal />
     </AdminShell>
   );
 }

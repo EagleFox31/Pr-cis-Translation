@@ -1,9 +1,12 @@
+import { lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
 import { Loader2, AlertTriangle } from 'lucide-react';
-import PdfViewer from './PdfViewer';
+import type { Ajustement } from './ViewerToolbar';
 import { usePdfPreview } from '../../hooks/usePdfPreview';
 import type { PagesIllisiblesVue } from '../../hooks/usePagesIllisibles';
+
+const PdfViewer = lazy(() => import('./PdfViewer'));
 
 interface DocumentPreviewProps {
   sourceFile?: File | null;
@@ -15,6 +18,10 @@ interface DocumentPreviewProps {
   translatedExt?: string;
   currentPage: number;
   zoom: number;
+  /** Ajustement du zoom (voir PdfViewer) et rideau de comparaison. */
+  ajustement?: Ajustement;
+  onZoomAjuste?: (zoom: number) => void;
+  rideau?: boolean;
   isTrialMode: boolean;
   onPagesLoaded?: (numPages: number) => void;
   /** La page courante est-elle déjà traduite (streaming page par page) ? */
@@ -63,6 +70,9 @@ export default function DocumentPreview({
   translatedExt,
   currentPage,
   zoom,
+  ajustement,
+  onZoomAjuste,
+  rideau,
   isTrialMode,
   onPagesLoaded,
   translatedPageReady = true,
@@ -136,12 +146,23 @@ export default function DocumentPreview({
     );
   }
 
+  // Visionneuse (et pdf.js) chargée à la 1re ouverture d'un aperçu seulement.
+  const attente = (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '300px', width: '100%', color: 'var(--color-text-secondary)' }}>
+      <Loader2 size={28} strokeWidth={2.2} className="animate-spin" aria-label={t('preview.loading')} />
+    </div>
+  );
+
   return (
+    <Suspense fallback={attente}>
     <PdfViewer
       sourceFile={sourcePdf}
       translatedBlob={translatedPdf}
       currentPage={currentPage}
       zoom={zoom}
+      ajustement={ajustement}
+      onZoomAjuste={onZoomAjuste}
+      rideau={rideau}
       isTrialMode={isTrialMode}
       onPagesLoaded={onPagesLoaded}
       translatedPageReady={translatedPageReady}
@@ -161,5 +182,6 @@ export default function DocumentPreview({
       onUnlock={onUnlock}
       scanPages={scanPages}
     />
+    </Suspense>
   );
 }

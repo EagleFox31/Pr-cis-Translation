@@ -34,26 +34,48 @@ def style_sig(run):
     """
     font = run.get("font") or ""
     clean = font.split("+")[-1] if "+" in font else font
+    # Lettre dessinée devenue texte (« initiale ») : le run de la lettre et le
+    # reste du mot partagent la signature de STYLE DE BASE (taille et couleur du
+    # mot, pas celles de la lettre) plus un 10e élément qui porte la mise en
+    # valeur → un seul segment « [[0]]Seiri[[/0]] », donc un mot entier pour le
+    # traducteur ; la mise en valeur est reportée sur la 1re lettre de sa
+    # traduction (cf. `_parse_translated_segments`).
+    ini = run.get("initiale") or run.get("initiale_suite")
     color = run.get("color") or [0, 0, 0]
+    size = run.get("size", 0) or 0
+    if run.get("initiale"):
+        color = ini.get("base_color") or color
+        size = ini.get("base_size") or size
     try:
         col = tuple(round(float(c), 3) for c in color)
     except Exception:
         col = (0.0, 0.0, 0.0)
-    return (clean, bool(run.get("bold")), bool(run.get("italic")),
-            round(float(run.get("size", 0) or 0), 1), col,
-            bool(run.get("underline")),
-            round(float(run.get("rise", 0) or 0), 1),
-            bool(run.get("synth_bold")), run.get("synth_italic") or 0.0)
+    sig = (clean, bool(run.get("bold")), bool(run.get("italic")),
+           round(float(size), 1), col,
+           bool(run.get("underline")),
+           round(float(run.get("rise", 0) or 0), 1),
+           bool(run.get("synth_bold")), run.get("synth_italic") or 0.0)
+    if ini:
+        try:
+            ic = tuple(round(float(c), 3) for c in ini.get("color") or (0, 0, 0))
+        except Exception:
+            ic = (0.0, 0.0, 0.0)
+        sig += (("initiale", ic, round(float(ini.get("scale", 1.0)), 3)),)
+    return sig
 
 
 def _sig_to_meta(sig):
     """Signature -> dict de style lisible (pour la table `segments`)."""
     (font, bold, italic, size, color, underline, rise, synth_bold,
-     synth_italic) = sig
-    return {"font": font, "bold": bold, "italic": italic,
+     synth_italic) = sig[:9]
+    meta = {"font": font, "bold": bold, "italic": italic,
             "size": size, "color": list(color), "underline": underline,
             "rise": rise, "synth_bold": synth_bold,
             "synth_italic": synth_italic}
+    if len(sig) > 9:
+        _, ic, scale = sig[9]
+        meta["initiale"] = {"color": list(ic), "scale": scale}
+    return meta
 
 
 # ── Reconstruction du texte balisé d'un paragraphe ────────────────────────────
@@ -218,7 +240,9 @@ def _line_segments(line):
     if not runs:
         return []
     size = max((r.get("size", 0) or 0 for r in runs), default=10.0)
-    ls = _letterspaced_segments(runs, size)
+    ls = (None if any(r.get("initiale") or r.get("initiale_suite")
+                      for r in runs)
+          else _letterspaced_segments(runs, size))
     if ls is not None:
         return ls
     gw = line.get("gw") or 1.0

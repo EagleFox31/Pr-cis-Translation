@@ -62,26 +62,32 @@ export function formatMoney(
   }
 }
 
+// Une seule requête par chargement de page : l'accueil monte usePricing à
+// plusieurs endroits (tarifs, formulaire, modale), qui partagent cette promesse.
+// Un échec n'est pas mémorisé : le montage suivant réessaie.
+let tarifs: Promise<Pricing> | null = null;
+function chargerTarifs(): Promise<Pricing> {
+  tarifs ??= fetch(`${API_BASE}/api/pricing`)
+    .then((res) => {
+      if (!res.ok) throw new Error(String(res.status));
+      return res.json() as Promise<Pricing>;
+    })
+    .catch((e) => { tarifs = null; throw e; });
+  return tarifs;
+}
+
 export function usePricing(): { pricing: Pricing | null; loading: boolean } {
   const [pricing, setPricing] = useState<Pricing | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
-    (async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/pricing`);
-        if (!res.ok) throw new Error(String(res.status));
-        const data = (await res.json()) as Pricing;
-        if (active) setPricing(data);
-      } catch {
-        // Pas de repli sur des prix codés en dur : afficher un tarif inventé
-        // parce que le serveur n'a pas répondu, c'est afficher un prix faux.
-        if (active) setPricing(null);
-      } finally {
-        if (active) setLoading(false);
-      }
-    })();
+    chargerTarifs()
+      .then((data) => { if (active) setPricing(data); })
+      // Pas de repli sur des prix codés en dur : afficher un tarif inventé
+      // parce que le serveur n'a pas répondu, c'est afficher un prix faux.
+      .catch(() => { if (active) setPricing(null); })
+      .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
 

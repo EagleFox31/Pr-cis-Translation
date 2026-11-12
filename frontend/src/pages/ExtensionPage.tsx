@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Link, NavLink, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Check, CreditCard, Download, HelpCircle, Monitor, ShieldCheck } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Check, CreditCard, Download, HelpCircle, Monitor, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { usePricing, formatMoney } from '../hooks/usePricing';
 import { goToSection } from '../lib/sectionBus';
 
-import MobileMenu from '../components/navbar/MobileMenu';
+import IntegrationsNav from '../components/IntegrationsNav';
 import { useExtensionInstalled } from '../hooks/useExtensionInstalled';
 import {
   detecterNavigateurPrecis, estMobile, EXTENSION_URL, EXTENSION_ZIP, versionPlusAncienne,
@@ -44,6 +44,16 @@ const DOCUMENTS = [
   ['/cookies', 'footer.cookies'],
 ] as const;
 const NOM_BOUTIQUE = { edge: 'Edge Add-ons', chrome: 'Chrome Web Store' } as const;
+
+// Installation directe (sans boutique) : adresse de la page des extensions, libellés propres
+// au navigateur et captures réelles (Chrome et Edge) rangées dans /public/guides.
+const GUIDES: Record<NavId, { adresse: string; dev: 'chrome' | 'edge'; charger: 'chrome' | 'edge' | 'opera'; captures: Partial<Record<number, string[]>> }> = {
+  chrome: { adresse: 'chrome://extensions', dev: 'chrome', charger: 'chrome', captures: { 3: ['chrome-1-mode-developpeur'], 4: ['chrome-2-charger'] } },
+  edge: { adresse: 'edge://extensions', dev: 'edge', charger: 'edge', captures: { 3: ['edge-1-mode-developpeur'], 4: ['edge-2-charger', 'edge-3-installee'] } },
+  brave: { adresse: 'brave://extensions', dev: 'chrome', charger: 'chrome', captures: {} },
+  opera: { adresse: 'opera://extensions', dev: 'chrome', charger: 'opera', captures: {} },
+  vivaldi: { adresse: 'vivaldi://extensions', dev: 'chrome', charger: 'chrome', captures: {} },
+};
 type Rubrique = (typeof RUBRIQUES)[number]['id'];
 
 const rubriqueInitiale = (): Rubrique => {
@@ -53,7 +63,6 @@ const rubriqueInitiale = (): Rubrique => {
 
 export default function ExtensionPage() {
   const { t, i18n } = useTranslation();
-  const fr = (i18n.language || 'fr').startsWith('fr');
   const navigate = useNavigate();
   const { pricing } = usePricing();
 
@@ -70,8 +79,9 @@ export default function ExtensionPage() {
   };
   const [params] = useSearchParams();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const corpsRef = useRef<HTMLDivElement>(null);
   const [copie, setCopie] = useState<Copie>('idle');
+  const [copieAdresse, setCopieAdresse] = useState<Copie>('idle');
 
   const precis = detecterNavigateurPrecis();
   const [choix, setChoix] = useState<NavId>(precis === 'autre' ? 'chrome' : precis);
@@ -88,12 +98,6 @@ export default function ExtensionPage() {
   const miseAJour = !urlBoutique && installe && !!version && !!EXTENSION_ZIP.version
     && versionPlusAncienne(version, EXTENSION_ZIP.version);
 
-  const links = [
-    { id: '/home', href: '/home', label: t('nav.home') },
-    { id: '/extension', href: '/extension', label: t('extension_page.nav_label') },
-    { id: '/confidentialite', href: '/confidentialite', label: t('footer.privacy') },
-  ];
-
   useEffect(() => {
     document.title = t('extension_page.doc_title');
     scrollRef.current?.scrollTo(0, 0);
@@ -102,11 +106,22 @@ export default function ExtensionPage() {
   const choisirRubrique = (r: Rubrique) => {
     setRubrique(r);
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${r}`);
-    scrollRef.current?.scrollTo(0, 0);
+    // La page garde sa position ; seul le corps de la fiche revient en haut.
+    corpsRef.current?.scrollTo(0, 0);
   };
 
   const choisirNavigateur = (id: NavId) => {
     setChoix(id);
+    setCopieAdresse('idle');
+  };
+
+  const copierAdresse = async (adresse: string) => {
+    try {
+      await navigator.clipboard.writeText(adresse);
+      setCopieAdresse('ok');
+    } catch {
+      setCopieAdresse('erreur');
+    }
   };
 
   const copierLien = async () => {
@@ -161,18 +176,49 @@ export default function ExtensionPage() {
     return null;
   };
 
-  const etape = (num: number, titre: string, texte: string) => (
+  const etape = (num: number, titre: string, texte: string, suite?: ReactNode) => (
     <li key={num}>
       <span className="ext-steps__num" aria-hidden="true">{num}</span>
       <div>
         <strong>{titre}</strong>
         <p>{texte}</p>
+        {suite}
       </div>
     </li>
   );
 
-  const etapes = (['add', 'pin', 'use'] as const).map((k, i) =>
-    etape(i + 1, t(`extension_page.how.${k}_title`), t(`extension_page.how.${k}_text`)));
+  const guide = GUIDES[choix];
+  const captures = (num: number) => guide.captures[num]?.map((nom) => (
+    <figure key={nom} className="ext-shot">
+      <img
+        src={`/guides/${nom}.webp`} width={1280} height={720} loading="lazy"
+        alt={t('extension_page.manual.shot_alt', { step: t(`extension_page.manual.s${num}_title`), browser: nomChoix })}
+      />
+    </figure>
+  ));
+
+  // Boutique publiée : les trois étapes en un clic ; sinon le guide du navigateur choisi.
+  const etapes = urlBoutique
+    ? (['add', 'pin', 'use'] as const).map((k, i) =>
+      etape(i + 1, t(`extension_page.how.${k}_title`), t(`extension_page.how.${k}_text`)))
+    : [
+      etape(1, t('extension_page.manual.s1_title'), t('extension_page.manual.s1_text')),
+      etape(2, t('extension_page.manual.s2_title'), t('extension_page.manual.s2_text', { browser: nomChoix }), (
+        <div className="ext-address">
+          <code>{guide.adresse}</code>
+          <button type="button" className="ext-btn ext-btn--ghost ext-btn--small" onClick={() => copierAdresse(guide.adresse)}>
+            {t('extension_page.manual.copy')}
+          </button>
+          <span className="ext-cta__status" role="status">
+            {copieAdresse === 'ok' && t('extension_page.manual.copied')}
+            {copieAdresse === 'erreur' && t('extension_page.copy_error')}
+          </span>
+        </div>
+      )),
+      etape(3, t('extension_page.manual.s3_title'), t(`extension_page.manual.s3_text_${guide.dev}`), captures(3)),
+      etape(4, t('extension_page.manual.s4_title'), t(`extension_page.manual.s4_text_${guide.charger}`), captures(4)),
+      etape(5, t('extension_page.manual.s5_title'), t('extension_page.manual.s5_text')),
+    ];
 
 
   // En-tête fixe, pleine largeur : accroche, statut et choix du navigateur.
@@ -210,22 +256,20 @@ export default function ExtensionPage() {
       <Download size={16} strokeWidth={2.2} aria-hidden="true" />
       {t('extension_page.download_for', { browser: nomChoix })}
     </a>
-  ) : (
-    <button type="button" className="ext-btn ext-btn--ghost" disabled>{t('extension_page.soon')}</button>
-  );
+  ) : telecharger(t('extension_page.download_for', { browser: nomChoix }));
 
   // Fiche de droite, sur le modèle de la fiche utilisateur de l'administration.
-  const fiche = (titre: string, corps: ReactNode, action?: ReactNode, sous?: string) => (
+  const fiche = (titre: string, corps: ReactNode, action?: ReactNode, sous?: string, pied?: ReactNode) => (
     <section className="admin-panel ext-panel" aria-labelledby="ext-panel-title">
       <header className="admin-panel__head">
         <div>
-          <span className="admin-panel__eyebrow">{t('extension_page.panel_eyebrow')}</span>
           <h2 id="ext-panel-title">{titre}</h2>
-          {sous && <p className="admin-panel__muted ext-panel__sub">{sous}</p>}
+          {sous && <p className="admin-panel__muted ext-panel__sub" title={sous}>{sous}</p>}
         </div>
         {action && <div className="admin-panel__head-actions">{action}</div>}
       </header>
-      <div className="admin-panel__body">{corps}</div>
+      <div className="admin-panel__body" ref={corpsRef}>{corps}</div>
+      {pied && <footer className="ext-panel__foot">{pied}</footer>}
     </section>
   );
 
@@ -238,12 +282,16 @@ export default function ExtensionPage() {
       case 'price':
         return fiche(t('extension_page.price.title'), (
           <>
-            <dl className="admin-panel__facts">
-              {fait('price.fact_text', t('extension_page.price.fact_text_v'))}
-              {fait('price.fact_image', t('extension_page.price.fact_image_v'))}
-              {fait('price.fact_video', t('extension_page.price.fact_video_v'))}
-              {fait('price.fact_fail', t('extension_page.price.fact_fail_v'))}
-            </dl>
+            <p className="ext-lead">{t('extension_page.price.text')}</p>
+            <section className="admin-panel__block ext-section">
+              <div className="admin-panel__block-head"><h3>{t('extension_page.price.count_title')}</h3></div>
+              <dl className="admin-panel__facts ext-tiles">
+                {fait('price.fact_text', t('extension_page.price.fact_text_v'))}
+                {fait('price.fact_image', t('extension_page.price.fact_image_v'))}
+                {fait('price.fact_video', t('extension_page.price.fact_video_v'))}
+                {fait('price.fact_fail', t('extension_page.price.fact_fail_v'))}
+              </dl>
+            </section>
             <section className="admin-panel__block ext-section">
               <div className="admin-panel__block-head"><h3>{t('extension_page.price.plans_title')}</h3></div>
               {pricing ? (
@@ -266,21 +314,13 @@ export default function ExtensionPage() {
                     <span className="ext-plans__price">{formatMoney(pricing.page_price, pricing.currency, pricing.decimals, i18n.language)}{t('extension_page.price.per_page')}</span>
                   </li>
                 </ul>
-              ) : <p>{t('extension_page.price.text')}</p>}
+              ) : null}
             </section>
             <section className="admin-panel__block ext-section">
               <div className="admin-panel__block-head"><h3>{t('extension_page.price.know_title')}</h3></div>
-              <ul className="ext-list">
+              <ul className="ext-checks">
                 {(['know_credits', 'know_order', 'know_carry', 'know_limits'] as const).map((k) => (
-                  <li key={k}>{t(`extension_page.price.${k}`)}</li>
-                ))}
-              </ul>
-            </section>
-            <section className="admin-panel__block ext-section">
-              <div className="admin-panel__block-head"><h3>{t('extension_page.price.docs_title')}</h3></div>
-              <ul className="ext-docs">
-                {DOCUMENTS.map(([to, cle]) => (
-                  <li key={to}><Link className="ext-link" to={to}>{t(cle)}</Link></li>
+                  <li key={k}><Check size={16} strokeWidth={2.4} aria-hidden="true" />{t(`extension_page.price.${k}`)}</li>
                 ))}
               </ul>
             </section>
@@ -289,7 +329,12 @@ export default function ExtensionPage() {
           <button type="button" className="ext-btn ext-btn--primary" onClick={voirTarifs}>
             {t('extension_page.price.link')}
           </button>
-        ), t('extension_page.price.text'));
+        ), undefined, (
+          <nav className="ext-docs" aria-label={t('extension_page.price.docs_title')}>
+            <span>{t('extension_page.price.docs_title')}</span>
+            {DOCUMENTS.map(([to, cle]) => <Link key={to} className="ext-link" to={to}>{t(cle)}</Link>)}
+          </nav>
+        ));
       case 'perms':
         return fiche(t('extension_page.permissions.title'), (
           <section className="admin-panel__block ext-section">
@@ -321,63 +366,39 @@ export default function ExtensionPage() {
                     <img src={`/browsers/${choix}.png`} alt="" width={20} height={20} />{nomChoix}
                   </span>
                 ))}
-                {fait('fact_store', NOM_BOUTIQUE[boutique])}
-                {fait('fact_install', t('extension_page.fact_install_v'))}
-                {fait('fact_updates', t('extension_page.fact_updates_v'))}
+                {fait('fact_store', urlBoutique ? NOM_BOUTIQUE[boutique] : t('extension_page.manual.fact_store_v'))}
+                {fait('fact_install', t(urlBoutique ? 'extension_page.fact_install_v' : 'extension_page.manual.fact_install_v'))}
+                {fait('fact_updates', t(urlBoutique ? 'extension_page.fact_updates_v' : 'extension_page.manual.fact_updates_v'))}
               </dl>
             </section>
             <section className="admin-panel__block ext-section" aria-labelledby="ext-steps-title">
               <div className="admin-panel__block-head"><h3 id="ext-steps-title">{t('extension_page.steps_title')}</h3></div>
               <ol className="ext-steps">{etapes}</ol>
             </section>
+            {!urlBoutique && (
+              <section className="admin-panel__block ext-section">
+                <div className="admin-panel__block-head"><h3>{t('extension_page.manual.notes_title')}</h3></div>
+                <ul className="ext-list">
+                  {(['note_folder', 'note_update', 'note_alert'] as const).map((k) => (
+                    <li key={k}>{t(`extension_page.manual.${k}`)}</li>
+                  ))}
+                </ul>
+              </section>
+            )}
           </>
-        ), bouton, t('extension_page.card_one_click'));
+        ), bouton, urlBoutique
+          ? t('extension_page.card_one_click')
+          : t('extension_page.manual.sub', { version: EXTENSION_ZIP.version }));
     }
   };
 
   return (
     <div className="legal-page ext-page">
-      <nav className="navbar scrolled">
-        <div className="nav-inner">
-          <Link to="/" className="nav-logo" title={t('extension_page.back')}>
-            <img src="/Logo.png" alt="P" style={{ height: '46px', width: 'auto' }} />
-            <span className="animated-logo-text">
-              {'récis'.split('').map((c, i) => (
-                <span key={i} style={{ animationDelay: `${i / 10}s` }}>{c}</span>
-              ))}
-            </span>
-          </Link>
-
-          <ul className="nav-links" aria-label={t('extension_page.nav_aria')}>
-            {links.map((l) => (
-              <li key={l.id}><NavLink to={l.href}>{l.label}</NavLink></li>
-            ))}
-          </ul>
-
-          <div className="lang-toggle">
-            <button className={fr ? 'active' : ''} onClick={() => i18n.changeLanguage('fr')}>FR</button>
-            <button className={fr ? '' : 'active'} onClick={() => i18n.changeLanguage('en')}>EN</button>
-          </div>
-
-          <button className="hamburger" onClick={() => setMenuOpen((v) => !v)} aria-label="Toggle menu" aria-expanded={menuOpen}>
-            <span style={{ transform: menuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' }} />
-            <span style={{ opacity: menuOpen ? 0 : 1 }} />
-            <span style={{ transform: menuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none' }} />
-          </button>
-        </div>
-      </nav>
-
-      <MobileMenu
-        isOpen={menuOpen} links={links} activeSection="/extension"
-        onNavClick={(to) => { setMenuOpen(false); navigate(to); }} onClose={() => setMenuOpen(false)}
-      />
+      <IntegrationsNav />
 
       <main className="legal-main">
         <div className="legal-head">
           <div className="legal-head__inner">
-            <Link to="/" className="tb-btn ghost admin-btn legal-back">
-              <ArrowLeft size={15} strokeWidth={2.2} /> <span>{t('extension_page.back')}</span>
-            </Link>
             <h1>{t('extension_page.title')}</h1>
           </div>
         </div>
