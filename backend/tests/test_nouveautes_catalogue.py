@@ -13,6 +13,8 @@ import json
 from datetime import date
 from pathlib import Path
 
+import racine  # noqa: F401  -- met backend/ sur le chemin
+
 from app.content import nouveautes as cat
 
 RACINE = Path(__file__).resolve().parents[2]
@@ -34,18 +36,22 @@ def test_types_domaines_dates():
             assert e["lien"].startswith("/"), e["id"]
 
 
-def test_audience_admin_filtree(monkeypatch):
+def test_audience_admin_filtree():
     for e in cat.FONCTIONNALITES:
         assert e.get("audience", "tous") in cat.AUDIENCES, e["id"]
     interne = {**cat.FONCTIONNALITES[0], "id": "outil-admin", "audience": "admin", "phare": False}
-    monkeypatch.setattr(cat, "FONCTIONNALITES", [*cat.FONCTIONNALITES, interne])
-    assert "outil-admin" not in {e["id"] for e in cat.elements("fr")}
-    assert "outil-admin" in {e["id"] for e in cat.elements("fr", admin=True)}
     from datetime import datetime
     from app.services.nouveautes import a_voir
-    vues = datetime(2000, 1, 1)
-    assert "outil-admin" not in {e["id"] for e in a_voir(vues, "fr")["elements"]}
-    assert "outil-admin" in {e["id"] for e in a_voir(vues, "fr", admin=True)["elements"]}
+    origine = cat.FONCTIONNALITES
+    cat.FONCTIONNALITES = [*origine, interne]
+    try:
+        assert "outil-admin" not in {e["id"] for e in cat.elements("fr")}
+        assert "outil-admin" in {e["id"] for e in cat.elements("fr", admin=True)}
+        vues = datetime(2000, 1, 1)
+        assert "outil-admin" not in {e["id"] for e in a_voir(vues, "fr")["elements"]}
+        assert "outil-admin" in {e["id"] for e in a_voir(vues, "fr", admin=True)["elements"]}
+    finally:
+        cat.FONCTIONNALITES = origine
 
 
 def test_textes_complets_fr_en():
@@ -88,3 +94,18 @@ def test_instantane_seo_a_jour():
         "frontend/seo/fonctionnalites.json n'est pas à jour : "
         "lancer backend/scripts/exporter_fonctionnalites.py"
     )
+
+
+if __name__ == "__main__":
+    import sys
+
+    echecs = 0
+    for nom, fn in list(globals().items()):
+        if nom.startswith("test_") and callable(fn):
+            try:
+                fn()
+                print(f"  OK  {nom}")
+            except Exception as exc:  # noqa: BLE001
+                echecs += 1
+                print(f"  ECHEC  {nom} : {exc!r}")
+    sys.exit(1 if echecs else 0)
