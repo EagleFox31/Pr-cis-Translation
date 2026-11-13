@@ -139,8 +139,34 @@ def cas_blocs():
     # Après une ponctuation finale, la même ligne courte reste un bloc à part.
     fini = [("点検をする。", (1118, 823, 687, 48)), ("注意", (1116, 874, 105, 59))]
     assert len(blocs(fini)) == 2
+    # Cause A — fiche, tableau, adresse : chaque ligne reste à part.
+    fiche = [("To:", (10, 10, 30, 20)), ("Kelli Scruggs", (60, 10, 120, 20)),
+             ("From:", (10, 36, 45, 20)), ("Bob Lee", (60, 36, 80, 20))]
+    assert len(blocs(fiche)) == 4, [b.texte for b in blocs(fiche)]
+    table = [("Salaries", (10, 10, 80, 20)), ("1,200", (300, 10, 50, 20)),
+             ("Office Expenses", (10, 36, 150, 20)), ("340", (300, 36, 40, 20))]
+    assert len(blocs(table)) == 4, [b.texte for b in blocs(table)]
+    entete = [("Fax Transmittal", (10, 10, 150, 20)),
+              ("450 Lexington Avenue New York", (10, 36, 300, 20))]
+    assert len(blocs(entete)) == 2, [b.texte for b in blocs(entete)]
+    # Liste de marques empilée (b3374ed8d5) : chaque nom reste à part ;
+    # un paragraphe étroit qui repart en minuscule reste un seul bloc.
+    marques = [("Nature Made", (663, 408, 167, 33)), ("Caltrate", (659, 447, 106, 38)),
+               ("·Os-Cal", (647, 486, 114, 42)), ("Your Life", (666, 531, 130, 37)),
+               ("Centrum", (668, 572, 106, 36))]
+    assert len(blocs(marques)) == 5, [b.texte for b in blocs(marques)]
+    etroit = [("Check the", (10, 10, 100, 24)), ("pump before", (10, 38, 110, 24)),
+              ("each start", (10, 66, 100, 24))]
+    assert len(blocs(etroit)) == 1, [b.texte for b in blocs(etroit)]
+    # Paragraphe étroit tout en capitales : la majuscule ne prouve rien, il reste entier.
+    capitales = [("CHECK THE", (10, 10, 100, 24)), ("PUMP BEFORE", (10, 38, 110, 24)),
+                 ("EACH START", (10, 66, 100, 24))]
+    assert len(blocs(capitales)) == 1, [b.texte for b in blocs(capitales)]
+    # Un vrai retour à la ligne reste réuni, même avec une dernière ligne courte.
+    phrase = [("the main pump is", (10, 10, 160, 20)), ("on", (10, 36, 20, 20))]
+    assert len(blocs(phrase)) == 1, [b.texte for b in blocs(phrase)]
     print("  blocs : lignes empilées réunies, confiance < 70 ignorée, japonais sans espace, "
-          "hauteur, puce et couleur séparent")
+          "hauteur, puce et couleur séparent ; fiche, tableau et en-tête découpés")
 
 
 def cas_placer():
@@ -246,6 +272,19 @@ def cas_bords():
                          Simule(mots))
     assert res.remplacee, res.blocs
     print(f"  bords : {rouge_a[bords].sum()} px de glyphe hors boîte effacés ; étiquette longue placée dans le vide")
+
+
+def cas_couleur_petit_corps():
+    """Cause N (banc public, schéma de procédé) : texte noir de ~9 px, masque
+    dilaté surtout fait de fond ; la couleur mesurée doit rester celle des lettres."""
+    for couleur in [(0, 0, 0), ROUGE]:
+        im = Image.new("RGB", (120, 30), "white")
+        ImageDraw.Draw(im).text((4, 8), "Pump Steam", font=ImageFont.truetype(POLICE, 9), fill=couleur)
+        bgr = np.asarray(im)[:, :, ::-1].copy()
+        boite = (2, 6, 70, 16)
+        mesure = module._couleur(bgr, module.masque_couleur(bgr, [boite], halo=False), boite)
+        assert np.abs(np.array(mesure) - couleur).max() < 90, (couleur, mesure)
+    print("  petit corps : couleur des lettres gardée (pas celle du fond)")
 
 
 def cas_mise_en_page():
@@ -460,6 +499,37 @@ def cas_cases_et_encre():
         assert (len(tailles) == 1) == une, (encres, tailles)
 
 
+def cas_axes():
+    """Alignement commun des blocs empilés d'une colonne (`_axes()`)."""
+    B = module.Bloc
+
+    def bloc(x, y, w, h=30):
+        return B("x", (x, y, w, h), [(x, y, w, h)])
+
+    # En-tête officiel à deux colonnes, chacune centrée sur son propre axe (200 et 800).
+    gauche = [bloc(50, 10, 300), bloc(150, 50, 100), bloc(90, 90, 220)]
+    droite = [bloc(640, 10, 320), bloc(750, 50, 100), bloc(700, 90, 200)]
+    axes = module._axes(gauche + droite)
+    assert all(axes.get(id(b)) == "centre" for b in gauche + droite), axes
+    # Même bord gauche, longueurs différentes : aligné à gauche.
+    liste = [bloc(40, 10, 300), bloc(40, 50, 120), bloc(40, 90, 200)]
+    axes = module._axes(liste)
+    assert all(axes.get(id(b)) == "gauche" for b in liste), axes
+    # Longueurs égales : centré ou à gauche, impossible à dire, rien n'est décidé.
+    egales = [bloc(40, 10, 200), bloc(40, 50, 200)]
+    assert module._axes(egales) == {}
+    # Trop éloignés, ou sans axe commun : rien.
+    loin = [bloc(150, 10, 100), bloc(100, 300, 200)]
+    epars = [bloc(10, 10, 100), bloc(300, 50, 150)]
+    assert module._axes(loin) == {} and module._axes(epars) == {}
+    # Titre pleine largeur au-dessus de deux colonnes : il ne casse pas leur groupe.
+    titre = bloc(0, 10, 1000)
+    col = [bloc(150, 50, 100), bloc(90, 90, 220)]
+    axes = module._axes([titre] + col)
+    assert id(titre) not in axes and all(axes.get(id(b)) == "centre" for b in col), axes
+    print("  axes : en-tête centré par colonne, liste à gauche, longueurs égales sans décision")
+
+
 def main():
     debut = time.monotonic()
     cas_symboles()
@@ -468,9 +538,11 @@ def main():
     cas_mots_entiers()
     cas_controles()
     cas_blocs()
+    cas_axes()
     cas_placer()
     cas_rendu()
     cas_bords()
+    cas_couleur_petit_corps()
     cas_mise_en_page()
     cas_ppocr()
     print(f"OK image traduite ({time.monotonic() - debut:.1f} s)")
