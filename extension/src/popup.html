@@ -19,7 +19,11 @@
     .marque { display: flex; align-items: center; margin: 0 0 14px; padding-bottom: 12px; border-bottom: 1px solid var(--gray-200); }
     .marque img { height: 32px; width: auto; }
     .marque span { margin-left: -2px; font: 400 32px/1 "Pinyon Script", cursive; color: var(--navy); }
-    form, #vue-connecte { display: flex; flex-direction: column; }
+    #vue-connexion, #vue-connecte { display: flex; flex-direction: column; }
+    #vue-connexion[hidden], #vue-connecte[hidden] { display: none; }
+    .intro { margin: 0 0 4px; font-size: 13px; color: var(--gray-700); }
+    .lien { margin-top: 12px; text-align: center; font-size: 13px; color: var(--blue); }
+    .lien:hover { color: var(--navy); }
     label { margin: 12px 0 5px; font-size: 13px; font-weight: 500; color: var(--gray-700); }
     label:first-child { margin-top: 0; }
     input[type="email"], input[type="password"], select { width: 100%; box-sizing: border-box; padding: 9px 12px;
@@ -35,33 +39,75 @@
     button.secondaire:hover:not(:disabled) { background: var(--blue-light); box-shadow: none; }
     button:focus-visible, a:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: 2px; }
     button:disabled { opacity: .55; cursor: not-allowed; }
-    .compte { margin: 0 0 12px; font-size: 13px; color: var(--gray-500); word-break: break-all; }
+    button.charge { display: inline-flex; align-items: center; justify-content: center; gap: 8px; opacity: .8; cursor: progress; }
+    button.charge::before { content: ""; width: 12px; height: 12px; border-radius: 50%;
+      border: 2px solid currentColor; border-right-color: transparent; animation: tourne .7s linear infinite; }
+    @keyframes tourne { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { button.charge::before { animation-duration: 2s; } }
+    .marque .version { margin-left: auto; margin-right: 0; font-family: inherit; font-size: 12px; line-height: 1; color: var(--gray-500); }
+    .compte { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 10px 12px;
+      background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 10px; }
+    .initiale { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+      background: var(--blue-light); color: var(--blue); font-size: 13px; font-weight: 600; text-transform: uppercase; }
+    .identite { flex: 1; min-width: 0; font-size: 13px; }
+    .identite span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .identite small { display: block; font-size: 11px; color: var(--gray-500); }
+    button.icone { flex: none; display: grid; place-items: center; width: 30px; height: 30px; margin: 0; padding: 0;
+      background: var(--white); color: var(--gray-500); border-color: var(--gray-200); border-radius: 8px; }
+    button.icone:hover:not(:disabled) { background: var(--gray-50); color: var(--gray-900); box-shadow: none; }
+    button.icone svg { width: 16px; height: 16px; }
+    .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+    .duo button { margin: 0; }
+    .pied { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; padding-top: 12px;
+      border-top: 1px solid var(--gray-200); font-size: 12px; color: var(--gray-500); }
+    .case { display: flex; align-items: center; gap: 6px; margin: 10px 0 0; font-size: 12px; font-weight: 400; color: var(--gray-700); cursor: pointer; }
+    .case input { margin: 0; accent-color: var(--blue); }
+    .pied .taille { margin-left: auto; }
+    .pied a { color: var(--blue); }
+    .pied a:hover { color: var(--navy); }
     .message { margin: 12px 0 0; font-size: 13px; color: var(--gray-700); }
     .message:empty { display: none; }
     .message.erreur { padding: 10px 12px; border: 1px solid #fecaca; border-radius: 10px; background: #fef2f2; color: #991b1b; }
-    .note { margin: 12px 0 0; font-size: 12px; color: var(--gray-500); }
-    a.lien { align-self: flex-start; margin-top: 12px; font-size: 13px; color: var(--gray-500); }
-    a.lien:hover, .memoire a:hover { color: var(--gray-700); }
-    .memoire { display: flex; justify-content: space-between; gap: 8px; }
-    .memoire a { color: var(--gray-500); }
+    .maj { margin: 0 0 14px; padding: 12px; border: 1px solid var(--blue-light); border-radius: 10px; background: #eff6ff; font-size: 13px; color: var(--gray-700); }
+    .maj strong { display: block; color: var(--navy); }
+    .maj ol { margin: 6px 0 0; padding-left: 18px; }
+    .maj-actions { display: flex; gap: 8px; margin-top: 10px; }
+    .maj-actions button { margin-top: 0; }
     [hidden] { display: none !important; }
   </style>
 </head>
 <body>
   <header class="marque">
-    <img src="logo.png" alt="P"><span>récis</span>
+    <img src="logo.png" alt="P"><span>récis</span><span class="version" id="version"></span>
   </header>
 
-  <form id="vue-connexion" hidden>
-    <label for="email">Adresse e-mail</label>
-    <input id="email" type="email" required autocomplete="username">
-    <label for="mdp">Mot de passe</label>
-    <input id="mdp" type="password" required autocomplete="current-password">
-    <button id="btn-connexion" type="submit">Se connecter</button>
-  </form>
+  <section id="maj" class="maj" hidden aria-live="polite">
+    <strong>Nouvelle version <span id="maj-version"></span> disponible</strong>
+    <ol>
+      <li>Téléchargez-la.</li>
+      <li>Décompressez-la à la place du dossier actuel de l'extension.</li>
+      <li>Cliquez sur « Recharger ».</li>
+    </ol>
+    <div class="maj-actions">
+      <button id="btn-maj-telecharger" type="button">Télécharger</button>
+      <button id="btn-maj-recharger" type="button" class="secondaire">Recharger</button>
+    </div>
+  </section>
+
+  <div id="vue-connexion" hidden>
+    <p class="intro">Connectez-vous avec votre compte Précis sur le site.</p>
+    <button id="btn-connexion" type="button">Se connecter avec Précis</button>
+    <a id="lien-inscription" class="lien" href="#" target="_blank" rel="noopener">Créer un compte</a>
+  </div>
 
   <div id="vue-connecte" hidden>
-    <p class="compte" id="compte"></p>
+    <div class="compte">
+      <span class="initiale" id="initiale" aria-hidden="true"></span>
+      <span class="identite"><span id="compte"></span><small id="forfait" hidden></small></span>
+      <button id="btn-deconnexion" type="button" class="icone" title="Déconnexion" aria-label="Déconnexion">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+      </button>
+    </div>
     <label for="langue">Langue cible</label>
     <select id="langue">
       <option value="fr">Français</option>
@@ -72,14 +118,17 @@
       <option value="pt">Português</option>
       <option value="ar">العربية</option>
     </select>
-    <button id="btn-traduire" type="button">Traduire cette page</button>
-    <button id="btn-original" type="button" class="secondaire">Afficher l'original</button>
-    <p class="note memoire">
+    <label class="case"><input type="checkbox" id="toujours"> Toujours appliquer pour ce site</label>
+    <label class="case"><input type="checkbox" id="images-toujours"> Traduire les images de ce site sans demander</label>
+    <div class="duo">
+      <button id="btn-traduire" type="button">Traduire</button>
+      <button id="btn-original" type="button" class="secondaire">Original</button>
+    </div>
+    <p class="pied">
       <span id="memoire"></span>
       <a id="btn-memoire" href="#" hidden>Effacer</a>
+      <span id="taille" class="taille"></span>
     </p>
-    <a id="btn-deconnexion" class="lien" href="#">Déconnexion</a>
-    <p class="note">Les cadres d'une autre origine non accordée ne sont pas traités.</p>
   </div>
 
   <p id="message" class="message" role="status"></p>

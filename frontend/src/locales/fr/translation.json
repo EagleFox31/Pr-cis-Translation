@@ -1,14 +1,20 @@
 {
   "nav": {
+    "language": "Langue",
     "home": "Accueil",
-    "features": "Fonctionnalités",
-    "howItWorks": "Fonctionnement",
+    "backToTop": "Revenir en haut",
+    "features": "Avantages",
+    "howItWorks": "Comment ça marche",
     "my_account": "Mon compte",
     "pricing": "Tarifs",
-    "about": "À Propos",
-    "library": "Mes docs",
+    "about": "Qui sommes-nous",
+    "library": "Mes documents",
     "signIn": "Se connecter",
-    "signUp": "S'inscrire",
+    "signUp": "Créer un compte",
+    "integrations": "Extension et API",
+    "news": "Nouveautés",
+    "menu_label": "Menu principal",
+    "open_menu": "Ouvrir le menu",
     "logout": "Déconnexion"
   },
   "hero": {
@@ -141,6 +147,8 @@
     "free_plan_hint": "Votre quota est partagé entre tous les formats. Téléchargement inclus.",
     "retry_unavailable_title": "Relance impossible",
     "retry_unavailable_hint": "Le fichier d'origine est absent ou vide. Renvoyez-le.",
+    "request_missing_title": "Document introuvable",
+    "request_missing_hint": "Il a été supprimé ou n'est plus dans votre bibliothèque.",
     "precise_label": "Mode précis (admin)",
     "precise_desc": "Utilise le modèle de raisonnement — plus lent (~2 min/page) mais plus fiable sur les mises en page complexes.",
     "ocr_notice": "{{count}} page(s) scannée(s) : le texte sera lu page par page pendant la traduction. Vérifiez le résultat : les polices et la mise en page d’un scan restent approximatives.",
@@ -178,9 +186,19 @@
       "more_one": "… et {{count}} autre",
       "more_other": "… et {{count}} autres",
       "raisons": {
-        "lie": "lié", "visio": "Visio", "pdf": "PDF", "equation": "équation",
-        "paquet": "paquet", "absent": "introuvable", "conversion": "conversion impossible",
-        "erreur": "erreur", "profondeur": "trop imbriqué", "illisible": "illisible", "reinjection": "remise en place impossible", "hors_diapo": "sur un masque, une disposition ou des notes", "autre": "non pris en charge"
+        "lie": "lié",
+        "visio": "Visio",
+        "pdf": "PDF",
+        "equation": "équation",
+        "paquet": "paquet",
+        "absent": "introuvable",
+        "conversion": "conversion impossible",
+        "erreur": "erreur",
+        "profondeur": "trop imbriqué",
+        "illisible": "illisible",
+        "reinjection": "remise en place impossible",
+        "hors_diapo": "sur un masque, une disposition ou des notes",
+        "autre": "non pris en charge"
       }
     }
   },
@@ -193,30 +211,50 @@
     "cancelled_status": "Annulée — vos pages traduites sont gardées",
     "pause": "Mettre en pause",
     "cancel_translation": "Annuler la traduction",
-    "download_partial": "Télécharger les pages déjà traduites",
     "title": "Mes documents",
-    "count_suffix": "document(s) traduit(s)",
-    "empty": "Vos documents traduits apparaîtront ici après chaque traduction.",
     "preview": "Aperçu",
     "download": "Télécharger",
     "delete": "Supprimer",
     "clear_all": "Tout effacer",
-    "confirm_clear": "Confirmer",
+    "confirm_clear": "Confirmer l'effacement",
     "cancel": "Annuler",
     "view_action": "Voir dans la bibliothèque",
-    "error_status": "Échec de la traduction",
     "unlock": "Débloquer",
     "empty_guest": "Connectez-vous pour retrouver vos traductions ici.",
-    "translating": "Traduction en cours",
-    "in_progress": "En cours…",
-    "download_wait": "Disponible à la fin de la traduction",
-    "download_locked": "Réglez les pages de ce document pour le télécharger",
     "unlock_label": "Débloquer « {{name}} »",
     "clear_confirm_question": "Effacer tous les documents ?",
     "retry": "Réessayer",
     "interrupted_status": "Interrompue — vos pages traduites sont gardées",
     "resume": "Reprendre",
-    "resumed_status": "Reprise — la suite est dans la traduction relancée"
+    "resumed_status": "Reprise — la suite est dans la traduction relancée",
+    "list_options": "Options de la liste",
+    "select": "Sélectionner",
+    "selected_count_one": "{{count}} sélectionné",
+    "selected_count_other": "{{count}} sélectionnés",
+    "confirm_delete_selection_one": "Supprimer {{count}} document",
+    "confirm_delete_selection_other": "Supprimer {{count}} documents",
+    "search_placeholder": "Rechercher un document",
+    "search_aria": "Rechercher dans vos documents",
+    "no_match": "Aucun document ne correspond.",
+    "empty_title": "Aucun document pour l'instant",
+    "empty_message": "Vos documents traduits apparaîtront ici après chaque traduction.",
+    "empty_formats": "PDF · DOCX · PPTX · XLSX · TXT",
+    "status_running": "Traduction en cours",
+    "status_failed": "Échec de la traduction",
+    "unlock_hint": "Réglez les pages de ce document pour le télécharger",
+    "report_problem": "Signaler un problème",
+    "download_partial_menu": "Télécharger les pages déjà traduites",
+    "row_options": "Options de {{name}}",
+    "relative_now": "à l'instant",
+    "archived_row": "Archivé · accès avec un forfait",
+    "archive_note": "Au-delà de 30 jours, vos documents ne sont accessibles qu'avec un forfait incluant le stockage.",
+    "archive_note_link": "Voir les forfaits",
+    "storage_required": "Ce document a plus de 30 jours : son accès demande un forfait avec stockage.",
+    "download_named": "Télécharger {{name}}",
+    "pages_abbr": "{{count}} p.",
+    "ext_text": "Texte",
+    "close": "Fermer",
+    "load_error": "Impossible de charger vos documents."
   },
   "pricing": {
     "feat_free_page_other": "{{count}} pages équivalentes offertes par mois",
@@ -236,6 +274,17 @@
     "buy_pages": "Acheter des pages",
     "payg_title": "Sans abonnement, à la page",
     "payg_text": "{{price}} la page, sans engagement. Les pages achetées restent sur votre compte jusqu’à leur utilisation.",
+    "payg_lead": "Payez seulement les pages que vous traduisez.",
+    "payg_chips": {
+      "price": "<b>{{price}}</b> la page",
+      "no_expiry": "<b>Sans</b> expiration",
+      "prepaid": "Payé <b>d’avance</b>",
+      "no_commitment": "<b>Sans</b> engagement"
+    },
+    "beta_title": "Bêta Précis : {{days}} jours gratuits",
+    "beta_lead": "Testez Précis sans payer et aidez-nous à l’améliorer. {{count}} places.",
+    "beta_apply": "Candidater",
+    "beta_slides": "diapos",
     "start_free": "Commencer gratuitement",
     "contact_us": "Nous contacter",
     "choose": "Choisir {{plan}}",
@@ -280,7 +329,6 @@
     "pledge_payment_desc": "Mobile Money ou carte bancaire.",
     "card_label": "L'éditeur",
     "card_location_label": "Siège",
-    "card_location": "Douala, Cameroun",
     "card_products_label": "Aussi",
     "contact_cta": "Nous écrire",
     "contact_title": "Nous contacter",
@@ -292,6 +340,7 @@
   },
   "footer": {
     "rights": "© 2026 Précis by Trigenys Group. Tous droits réservés.",
+    "nav_label": "Informations légales",
     "legal": "Mentions légales",
     "terms": "Conditions d'utilisation",
     "privacy": "Confidentialité",
@@ -354,6 +403,14 @@
     "back": "Retour",
     "zoom_in": "Zoomer",
     "zoom_out": "Dézoomer",
+    "fit_page": "Pleine page",
+    "fit_width": "Largeur",
+    "go_to_page": "Aller à la page",
+    "compare": "Comparer",
+    "compare_wait": "Disponible quand la traduction de la page est prête",
+    "curtain_original": "Original",
+    "curtain_translation": "Traduction",
+    "curtain_handle": "Position du rideau de comparaison",
     "prev_page": "Page précédente",
     "next_page": "Page suivante",
     "download": "Télécharger la traduction",
@@ -401,18 +458,19 @@
   },
   "account": {
     "default_name": "Utilisateur",
-    "storage": "Stockage",
     "unlimited": "Illimité",
-    "no_storage": "Sans espace de stockage personnel",
     "logout": "Déconnexion",
-    "translations_left": "Traductions restantes",
-    "free_left_one": "{{count}} page offerte restante",
-    "free_left_other": "{{count}} pages offertes restantes",
     "pages_left": "Pages restantes ce mois",
-    "credits_one": "+ {{count}} page achetée disponible",
-    "credits_other": "+ {{count}} pages achetées disponibles",
-    "renews": "Renouvellement le {{date}}",
-    "storage_left": "Stockage restant"
+    "pages_free_left_one": "page offerte restante",
+    "pages_free_left_other": "pages offertes restantes",
+    "pages_available_one": "page disponible",
+    "pages_available_other": "pages disponibles",
+    "detail_free": "Pages offertes ce mois",
+    "detail_plan": "Pages du forfait ce mois",
+    "detail_credits": "Pages achetées",
+    "detail_free_resets": "Pages offertes renouvelées le",
+    "detail_plan_resets": "Quota renouvelé le",
+    "detail_expires": "Abonnement actif jusqu'au"
   },
   "plans": {
     "free": "Gratuit",
@@ -420,6 +478,20 @@
     "pro": "Pro",
     "enterprise": "Enterprise",
     "admin": "Admin"
+  },
+  "extension_auth": {
+    "title": "Autoriser l'extension Précis Translator ?",
+    "account": "Compte : {{email}}",
+    "body": "L'extension pourra traduire des pages avec les crédits de ce compte. Vous pourrez la déconnecter à tout moment depuis l'extension.",
+    "allow": "Autoriser",
+    "cancel": "Annuler",
+    "invalid": "Lien invalide : relancez la connexion depuis l'extension.",
+    "error": "L'autorisation a échoué. Réessayez depuis l'extension.",
+    "unverified": "Vérifiez d'abord votre adresse e-mail, puis relancez la connexion depuis l'extension.",
+    "done_title": "Autorisation accordée",
+    "done": "L'extension termine la connexion et cet onglet va se fermer. S'il reste ouvert, ouvrez l'extension : si elle n'est pas connectée, cliquez à nouveau sur « Se connecter avec Précis ».",
+    "refused_title": "Connexion annulée",
+    "refused": "Connexion annulée. Vous pouvez fermer cet onglet."
   },
   "auth": {
     "sign_in": "Se connecter",
@@ -543,11 +615,11 @@
     "loading": "Chargement…",
     "tabs_label": "Pages d’administration",
     "tabs": {
-      "users": "Comptes",
-      "documents": "Documents",
-      "support": "Assistance",
-      "logs": "Journal",
-      "beta": "Bêta"
+      "users": "Utilisateurs",
+      "documents": "Traductions",
+      "support": "Demandes d’aide",
+      "logs": "Erreurs",
+      "beta": "Bêta-testeurs"
     }
   },
   "admin_panel": {
@@ -723,7 +795,6 @@
     "quota_hint": "Chaque format possède son propre quota. Word est compté en mots ; Excel est limité en feuilles et en mots. Un échec de traduction restitue les unités. Le téléchargement d’un document déjà livré ne consomme rien.",
     "translate": "Traduire un document",
     "feedback": "Donner mon avis",
-    "account_hint": "Consultez vos quotas par format et votre date de fin.",
     "use_credits": "Utiliser mon quota Bêta",
     "choice_hint": "Décochez pour utiliser votre forfait habituel et vos pages achetées.",
     "translation_error": "Votre quota Bêta ne couvre pas ce fichier. Consultez vos quotas, sélectionnez moins de pages ou désactivez le quota Bêta pour utiliser votre forfait habituel.",
@@ -894,7 +965,7 @@
     "tag": "Informations légales",
     "updated": "Dernière mise à jour : {{date}}",
     "back": "← Précis",
-    "nav_label": "Documents légaux",
+    "nav_label": "Informations légales",
     "question": "Une question ?"
   },
   "invite": {
@@ -928,8 +999,10 @@
   },
   "extension_page": {
     "doc_title": "Extension navigateur · Précis",
-    "nav_label": "Extension",
-    "nav_aria": "Pages du site",
+    "nav_label": "Extension navigateur",
+    "nav_api": "API pour développeurs",
+    "nav_soon": "Bientôt",
+    "nav_aria": "Extension et API",
     "footer_link": "Extension navigateur",
     "back": "Retour",
     "title": "Extension navigateur",
@@ -943,7 +1016,7 @@
     "installed_nov": "Extension installée",
     "other_browser": "Disponible pour Chrome et Edge",
     "mobile_title": "À installer sur ordinateur",
-    "mobile_hint": "L'extension fonctionne sur Chrome et Edge pour ordinateur. Copiez le lien pour le rouvrir depuis votre poste.",
+    "mobile_hint": "L'extension fonctionne sur Chrome, Edge, Brave, Opera et Vivaldi pour ordinateur. Copiez le lien pour le rouvrir depuis votre poste.",
     "copy_link": "Copier le lien de cette page",
     "copied": "Lien copié",
     "copy_error": "Copie impossible, copiez l'adresse depuis la barre du navigateur.",
@@ -963,11 +1036,10 @@
     "tab_install": "Installation",
     "install_for": "Installer sur {{browser}}",
     "download_for": "Télécharger pour {{browser}}",
-    "menu_hint_install": "Étapes et lien vers la boutique",
+    "menu_hint_install": "Téléchargement et étapes pas à pas",
     "menu_hint_price": "Coût et crédits utilisés",
     "menu_hint_perms": "Accès demandés, données envoyées",
     "menu_hint_faq": "Réponses aux questions courantes",
-    "panel_eyebrow": "Extension Précis",
     "fact_browser": "Navigateur",
     "fact_store": "Boutique",
     "fact_install": "Installation",
@@ -990,12 +1062,18 @@
       "s4_title": "Chargez le dossier",
       "s4_text_chrome": "Cliquez sur « Charger l'extension non empaquetée », puis choisissez le dossier décompressé (celui qui contient manifest.json).",
       "s4_text_edge": "Cliquez sur « Charger l'extension décompressée », puis choisissez le dossier décompressé (celui qui contient manifest.json).",
+      "s4_text_opera": "Cliquez sur « Charger l'extension non empaquetée » (ou « Load unpacked »), puis choisissez le dossier décompressé (celui qui contient manifest.json).",
       "s5_title": "Épinglez l'icône et connectez-vous",
-      "s5_text": "Ouvrez le menu en forme de puzzle de la barre d'outils, épinglez Précis, puis connectez-vous avec votre compte Précis.",
+      "s5_text": "Ouvrez le menu Extensions de la barre d'outils (icône puzzle, ou cube sur Opera), épinglez Précis, puis connectez-vous avec votre compte Précis.",
       "notes_title": "À savoir",
       "note_folder": "Gardez le dossier : s'il est supprimé ou déplacé, l'extension cesse de fonctionner.",
       "note_update": "Pas de mise à jour automatique. Pour une nouvelle version, téléchargez le ZIP, remplacez le contenu du dossier, puis cliquez sur « Actualiser » (flèche circulaire) sur la carte Précis. Cette page vous prévient quand une version plus récente existe.",
-      "note_alert": "Au démarrage, le navigateur peut signaler les extensions en mode développeur : fermez l'alerte sans les désactiver."
+      "note_alert": "Au démarrage, le navigateur peut signaler les extensions en mode développeur : fermez l'alerte sans les désactiver.",
+      "sub": "Version {{version}} · Chrome, Edge, Brave, Opera, Vivaldi",
+      "fact_store_v": "Téléchargement direct",
+      "fact_install_v": "Manuelle, 2 minutes",
+      "fact_updates_v": "Manuelles, cette page prévient",
+      "shot_alt": "Capture de {{browser}} : {{step}}"
     },
     "welcome": {
       "title": "L'extension est installée",
@@ -1024,6 +1102,7 @@
       "fact_video_v": "1 page par image de vidéo",
       "fact_fail": "En cas d'échec",
       "fact_fail_v": "Rien n'est débité",
+      "count_title": "Comment les pages se comptent",
       "plans_title": "Forfaits (mêmes pages que le site)",
       "pages_month_one": "{{count}} page / mois",
       "pages_month_other": "{{count}} pages / mois",
@@ -1053,7 +1132,7 @@
     "faq": {
       "title": "Questions fréquentes",
       "browsers_q": "Quels navigateurs sont pris en charge ?",
-      "browsers_a": "Google Chrome et Microsoft Edge sur ordinateur, en version 120 ou plus récente. Les navigateurs mobiles ne permettent pas d'installer d'extension.",
+      "browsers_a": "Google Chrome, Microsoft Edge, Brave, Opera et Vivaldi sur ordinateur, en version 120 ou plus récente. Les navigateurs mobiles ne permettent pas d'installer d'extension.",
       "account_q": "Faut-il un compte Précis ?",
       "account_a": "Oui. L'extension utilise les crédits de votre compte. Vous pouvez en créer un gratuitement sur le site.",
       "data_q": "Que deviennent mes données ?",
@@ -1066,6 +1145,263 @@
       "text": "Traduisez aussi les pages web en un clic avec l'extension Précis.",
       "link": "Découvrir l'extension",
       "close": "Fermer cette proposition"
+    }
+  },
+  "api_page": {
+    "doc_title": "API — Précis",
+    "title": "API Précis",
+    "status_badge": "En cours",
+    "status_title": "En cours de développement : l'API n'est pas encore disponible",
+    "status_text": "Cette page présente ce que l'API contiendra. Les détails peuvent encore évoluer d'ici son ouverture.",
+    "lead": "Intégrez la traduction Précis dans vos propres outils : plateformes de formation, sites, applications métier.",
+    "panel_title": "Ce que contiendra l'API",
+    "panel_sub": "Prévu pour la première version.",
+    "fact_status": "Statut",
+    "fact_status_v": "En cours de développement",
+    "fact_access": "Accès",
+    "fact_access_v": "Clé d'API personnelle",
+    "fact_billing": "Facturation",
+    "fact_billing_v": "Crédits de votre compte Précis",
+    "fact_format": "Format",
+    "fact_format_v": "HTTPS, JSON",
+    "features_title": "Fonctions prévues",
+    "f_text": "Traduire du texte en conservant sa mise en forme.",
+    "f_docs": "Traduire des documents (PDF et autres formats).",
+    "f_images": "Traduire le texte présent dans les images.",
+    "f_status": "Suivre l'avancement d'une traduction longue.",
+    "security_title": "Accès et sécurité",
+    "s_keys": "Clés créées et révoquées depuis votre compte.",
+    "s_https": "Échanges chiffrés de bout en bout (HTTPS).",
+    "s_limits": "Limites d'usage par clé.",
+    "docs_title": "Documentation",
+    "d_ref": "Référence de chaque point d'accès.",
+    "d_examples": "Exemples de requêtes prêts à copier.",
+    "d_errors": "Liste des codes d'erreur et conduite à tenir.",
+    "notice": "Cette page sera mise à jour à l'ouverture de l'API."
+  },
+  "nouveautes": {
+    "nav_label": "Nouveautés",
+    "footer_link": "Nouveautés",
+    "page_title": "Fonctionnalités · Précis",
+    "title": "Fonctionnalités",
+    "version": "Version {{version}}",
+    "lead": "Ce que fait Précis, ce qui a été amélioré et ce qui a été corrigé.",
+    "toc_label": "Sur cette page",
+    "loading": "Chargement des fonctionnalités…",
+    "error": {
+      "text": "Impossible de charger les fonctionnalités.",
+      "retry": "Réessayer"
+    },
+    "types": {
+      "nouveaute": {
+        "title": "Fonctionnalités",
+        "intro": "Ce que Précis sait faire."
+      },
+      "amelioration": {
+        "title": "Améliorations",
+        "intro": "Ce qui fonctionne mieux qu'avant."
+      },
+      "correctif": {
+        "title": "Correctifs",
+        "intro": "Ce qui a été réparé."
+      }
+    },
+    "domains": {
+      "documents": "Documents",
+      "visionneuse": "Visionneuse",
+      "extension": "Extension navigateur",
+      "compte": "Compte"
+    },
+    "subscribe": {
+      "label": "M'avertir par e-mail",
+      "hint": "Un e-mail par nouvelle version.",
+      "login": "Se connecter pour être averti par e-mail",
+      "error": "L'abonnement n'a pas pu être enregistré. Réessayez."
+    },
+    "panel": {
+      "title": "Nouveautés",
+      "count_one": "{{count}} élément",
+      "count_other": "{{count}} éléments",
+      "email": "E-mail"
+    },
+    "unsub": {
+      "loading": "Vérification du lien…",
+      "home": "Retour à l'accueil",
+      "see": "Voir les fonctionnalités",
+      "invalid": {
+        "title": "Lien invalide",
+        "text": "Ce lien de désabonnement n'est pas valide ou a expiré. Connecté, vous pouvez gérer votre abonnement depuis la page Fonctionnalités."
+      },
+      "subscribed": {
+        "title": "Se désabonner des nouveautés",
+        "text": "Vous recevez un e-mail à chaque nouvelle version de Précis. Confirmez pour ne plus en recevoir.",
+        "button": "Me désabonner"
+      },
+      "done": {
+        "title": "Désabonnement effectué",
+        "text": "Vous ne recevrez plus les e-mails de nouveautés de Précis. Vous pouvez vous réabonner à tout moment depuis la page Fonctionnalités."
+      },
+      "network": {
+        "title": "Connexion impossible",
+        "text": "Le serveur est injoignable. Vérifiez votre connexion puis réessayez.",
+        "retry": "Réessayer"
+      }
+    },
+    "visite": {
+      "role": "visite",
+      "close": "Fermer la visite",
+      "steps_label": "Étapes de la visite",
+      "prev": "Diapositive précédente",
+      "next": "Suivant",
+      "skip": "Passer la visite",
+      "soon": "Bientôt",
+      "all": "Découvrir toutes les fonctionnalités →",
+      "cta": {
+        "guest": "Créer mon compte gratuit",
+        "free": "Voir les forfaits",
+        "paid": "Terminé"
+      },
+      "etapes": {
+        "traduction": {
+          "kicker": "Traduction",
+          "court": "Traduction",
+          "titre": "Votre document traduit, dans sa mise en page d’origine.",
+          "lede": "Déposez un PDF, un Word, un PowerPoint ou un Excel : Précis le restitue dans l’une de 36 langues, polices, tableaux et images à leur place. Plus de remise en page, plus de copier-coller.",
+          "pts": {
+            "1": { "t": "Le sens avant le mot à mot", "d": "Chaque phrase est traduite avec le contexte du document entier." },
+            "2": { "t": "Une forme intacte", "d": "Colonnes, tableaux, gras et italique restent là où vous les aviez mis." },
+            "3": { "t": "Un terme, une seule traduction", "d": "Le même libellé est traduit de la même façon d’un bout à l’autre." }
+          }
+        },
+        "scans": {
+          "kicker": "Scans et images",
+          "court": "Scans",
+          "titre": "Scanné ou en image, il se traduit.",
+          "lede": "Contrats numérisés, schémas, captures d’écran : Précis lit le texte de l’image et écrit la traduction à sa place, sur le même fond.",
+          "pts": {
+            "1": { "t": "Documents scannés", "d": "Traduits comme un fichier natif." },
+            "2": { "t": "Schémas et graphiques", "d": "Légendes et étiquettes dans votre langue." },
+            "3": { "t": "Images traduites sur place", "d": "Le texte remplacé, l’image intacte." }
+          }
+        },
+        "extension": {
+          "kicker": "Extension navigateur",
+          "court": "Extension",
+          "titre": "Lisez tout le web dans votre langue.",
+          "lede": "Articles, fiches produits, documentations : l’extension traduit la page que vous lisez, sur place, texte des images compris. Sans changer d’onglet, sans copier-coller.",
+          "pts": {
+            "1": { "t": "Gratuite au quotidien", "d": "Jusqu’à 30 pages par jour, sans abonnement." },
+            "2": { "t": "Images comprises", "d": "Le texte des images de la page est traduit lui aussi." },
+            "3": { "t": "Dans vos navigateurs", "d": "Chrome, Edge, Brave, Opera et Vivaldi." }
+          }
+        },
+        "api": {
+          "kicker": "Intégration API",
+          "court": "API",
+          "titre": "Précis, directement dans vos outils.",
+          "lede": "Bientôt, une API pour confier vos documents à Précis depuis vos propres logiciels : même qualité, même mise en page, sans passer par le site.",
+          "pts": {
+            "1": { "t": "Des traductions qui partent seules", "d": "Automatisez les envois récurrents." },
+            "2": { "t": "Le même rendu que sur le site", "d": "Le même moteur, sans compromis." },
+            "3": { "t": "Là où vous travaillez", "d": "Intranet, gestion documentaire, applications métier." }
+          }
+        },
+        "visionneuse": {
+          "kicker": "Visionneuse",
+          "court": "Visionneuse",
+          "titre": "Vous vérifiez, vous décidez, vous téléchargez.",
+          "lede": "Chaque page s’affiche à côté de son original. Un logo, une signature ou une photo ne devait pas être traduit ? Un clic, et l’image d’origine revient.",
+          "pts": {
+            "1": { "t": "Côte à côte", "d": "L’original et la traduction, page par page, avec zoom." },
+            "2": { "t": "Remettre l’original", "d": "Image par image, et réversible à tout moment." },
+            "3": { "t": "Bientôt : le mode édition", "d": "Retouchez directement le texte traduit, pour tous vos documents." }
+          }
+        }
+      },
+      "legendes": {
+        "traduction": {
+          "1": "Vous déposez votre PDF",
+          "2": "Le document original, en français",
+          "3": "Précis le traduit en anglais",
+          "4": "Tableau, figure, mise en page : rien ne bouge",
+          "5": "En espagnol…",
+          "6": "… ou en allemand : 36 langues au choix"
+        },
+        "scans": {
+          "1": "Un schéma scanné, en français",
+          "2": "Précis repère le texte dans l’image",
+          "3": "Et écrit la traduction à sa place, sur le même fond",
+          "4": "En espagnol…",
+          "5": "… ou en allemand"
+        },
+        "extension": {
+          "1": "Vous lisez une page en anglais",
+          "2": "Un clic sur l’extension Précis",
+          "3": "La page passe en français, sur place",
+          "4": "Le texte de l’image aussi",
+          "5": "Gratuit : jusqu’à 30 pages par jour"
+        },
+        "api": {
+          "1": "Votre logiciel envoie le contrat",
+          "2": "Précis le traduit, mise en page comprise",
+          "3": "Il revient en allemand, prêt à l’emploi"
+        },
+        "visionneuse": {
+          "1": "L’original et sa traduction, côte à côte",
+          "2": "Ce logo n’aurait pas dû être traduit…",
+          "3": "Un clic : l’image d’origine revient",
+          "4": "Bientôt : retouchez le texte vous-même"
+        }
+      },
+      "scene": {
+        "keep": "✓ Mise en page intacte",
+        "found": "5 zones de texte repérées",
+        "popup_text": "Traduire cette page en",
+        "popup_lang": "Français ▾",
+        "popup_go": "Traduire",
+        "image_ok": "✓ Image traduite aussi",
+        "quota": "Gratuit · 30 pages par jour",
+        "app": "votre-application",
+        "soon": "Bientôt disponible",
+        "page": "Page 2 / 8",
+        "zoom": "Zoom 100 %",
+        "original": "ORIGINAL · FR",
+        "translation": "TRADUCTION · EN",
+        "restore": "↶ Remettre l’original",
+        "restored": "✓ Original rétabli",
+        "edit": "Bientôt · mode édition"
+      },
+      "fin": {
+        "kicker": "Dernière étape",
+        "titre": "Restez informé",
+        "texte": "À chaque nouvelle version, un court e-mail vous résume ce qui change. Désabonnement en un clic.",
+        "pts": {
+          "1": { "t": "Nouvelles fonctionnalités", "d": "Ce que vous pouvez désormais faire avec Précis." },
+          "2": { "t": "Améliorations", "d": "Traductions plus fidèles, mise en page mieux conservée." },
+          "3": { "t": "Correctifs", "d": "Les problèmes résolus depuis la version précédente." }
+        },
+        "question": "Souhaitez-vous les recevoir ?",
+        "non": "Non merci",
+        "oui": "Oui, m'avertir"
+      }
+    },
+    "depuis": {
+      "title": "Depuis votre dernière visite",
+      "close": "Fermer",
+      "sub_one": "{{count}} changement depuis le {{date}}.",
+      "sub_other": "{{count}} changements depuis le {{date}}.",
+      "tabs_label": "Types de changements",
+      "count_one": "{{count}} élément",
+      "count_other": "{{count}} éléments",
+      "tabs": {
+        "nouveaute": "Nouveautés",
+        "amelioration": "Améliorations",
+        "correctif": "Correctifs"
+      },
+      "optin": "Recevoir les nouveautés par e-mail",
+      "optin_hint": "Un e-mail à chaque nouvelle version",
+      "optin_done": "Vous recevrez les nouveautés",
+      "cta": "Voir toutes les fonctionnalités"
     }
   }
 }

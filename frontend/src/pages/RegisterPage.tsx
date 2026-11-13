@@ -113,7 +113,7 @@ export default function RegisterPage() {
           {t('auth.get_code')}
         </Button>
 
-        <p style={{ margin: 0, textAlign: 'center', fontSize: '0.8rem', lineHeight: 1.5, color: 'var(--gray-500)' }}>
+        <p className="auth-consent" style={{ margin: 0, textAlign: 'center', fontSize: '0.8rem', lineHeight: 1.5, color: 'var(--gray-500)' }}>
           <Trans
             i18nKey="auth.accept_terms"
             components={{

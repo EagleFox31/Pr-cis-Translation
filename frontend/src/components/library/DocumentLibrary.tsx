@@ -1,36 +1,36 @@
 /**
- * Barre latérale des documents : le compte, la liste, les actions groupées.
+ * Panneau « Mon compte » : l'identité et le solde, les nouveautés, la liste des
+ * documents (recherche, menus par ligne), puis le pied (inviter, aide, sortie).
  *
- * CE QUI A CHANGÉ, ET CE QUI N'A PAS CHANGÉ
- * -----------------------------------------
- * Le comportement est le MÊME : mêmes requêtes, mêmes droits, même modale de
- * paiement. Ce qui a bougé, c'est la répartition — ce fichier faisait 444
- * lignes et portait à la fois le panneau, le profil, chaque carte de document,
- * deux formateurs d'octets divergents et une cinquantaine de styles en ligne.
- *
- * Il ne garde que son rôle : ouvrir, lister, orchestrer.
- *   • le compte    -> `AccountPanel`
- *   • un document  -> `DocumentCard`
- *   • le tiroir    -> `ui/Drawer` (Échap, focus, défilement gelé)
+ * Le comportement est celui d'avant — mêmes requêtes, mêmes droits, même
+ * modale de paiement ; seule la mise en page suit la maquette
+ * `panneau-compte.html`. Ce fichier ne garde que son rôle : ouvrir, lister,
+ * orchestrer.
+ *   • le haut (identité, solde) -> `AccountPanel`
+ *   • une ligne                 -> `DocumentCard` (+ `RowMenu`)
+ *   • le tiroir                 -> `ui/Drawer` (Échap, focus, défilement gelé)
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { FolderOpen, LifeBuoy, UserPlus, X } from 'lucide-react';
+import { CheckSquare, Files, Info, LifeBuoy, LogOut, Search, Trash2, UserPlus, X } from 'lucide-react';
 
 import type { DocMeta } from '../../hooks/useDocumentLibrary';
 import type { StopMode } from '../../hooks/useStreamingTranslation';
 import { useAuth } from '../../contexts/AuthContext';
 import { isTrialFor } from '../../lib/plans';
+import Alert from '../ui/Alert';
 import Button from '../ui/Button';
 import Drawer from '../ui/Drawer';
 import EmptyState from '../ui/EmptyState';
-import IconButton from '../ui/IconButton';
-import PaymentModal from '../payment/PaymentModal';
+import Skeleton from '../ui/Skeleton';
+import PaymentModal from '../payment/LazyPaymentModal';
 import { openSupport } from '../support/supportBus';
 import { openInvite } from '../invite/inviteBus';
 import AccountPanel from './AccountPanel';
 import DocumentCard from './DocumentCard';
+import NouveautesLigne from './NouveautesLigne';
+import RowMenu from './RowMenu';
 
 interface DocumentLibraryProps {
   isOpen: boolean;
@@ -52,7 +52,7 @@ interface DocumentLibraryProps {
     enCours: boolean;
     source: Promise<Blob | undefined>;
   }) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => void | Promise<void>;
   onClearAll: () => void;
   getBlob: (id: string) => Promise<Blob | undefined>;
   getOriginalBlob: (id: string, asPdf?: boolean) => Promise<Blob | undefined>;
@@ -63,11 +63,18 @@ interface DocumentLibraryProps {
   onRetry?: (doc: DocMeta) => void;
   /** Pause / Annuler une traduction en cours. */
   onStop?: (doc: DocMeta, mode: StopMode) => Promise<void>;
+  /** La liste est en cours de lecture (premier chargement). */
+  loading?: boolean;
+  /** La lecture de la liste a échoué. */
+  erreur?: boolean;
+  /** Relit la liste (bouton « Réessayer »). */
+  onRefresh?: () => void;
 }
 
 export default function DocumentLibrary({
   isOpen, onClose, documents, onPreview, onDelete, onClearAll,
   getBlob, getOriginalBlob, onPaid, onRetry, onStop,
+  loading: enChargement = false, erreur: enErreur = false, onRefresh,
 }: DocumentLibraryProps) {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
@@ -79,9 +86,54 @@ export default function DocumentLibrary({
   const trial = isTrialFor(user);
 
   const [loadingId, setLoadingId] = useState<string | null>(null);
-  const [confirmClear, setConfirmClear] = useState(false);
+  const [requete, setRequete] = useState('');
   // Document dont on est en train de régler les pages (null = pas de paiement).
   const [payFor, setPayFor] = useState<DocMeta | null>(null);
+  // Archivé dont l'explication est dépliée sous la ligne (un seul à la fois).
+  const [archiveOuverte, setArchiveOuverte] = useState<string | null>(null);
+  // La bulle se retire seule après le temps de lecture ; survol ou focus la retiennent.
+  const [bulleRetenue, setBulleRetenue] = useState(false);
+  useEffect(() => {
+    if (!archiveOuverte || bulleRetenue) return;
+    const id = window.setTimeout(() => setArchiveOuverte(null), 9000);
+    return () => window.clearTimeout(id);
+  }, [archiveOuverte, bulleRetenue]);
+  // Sélection multiple : null = mode normal.
+  const [selection, setSelection] = useState<Set<string> | null>(null);
+  const [confirmerSel, setConfirmerSel] = useState(false);
+  const [suppression, setSuppression] = useState(false);
+
+  const quitterSelection = () => { setSelection(null); setConfirmerSel(false); };
+  const basculer = (id: string) => {
+    setConfirmerSel(false);
+    setSelection(prev => {
+      const s = new Set(prev ?? []);
+      if (s.has(id)) s.delete(id); else s.add(id);
+      return s;
+    });
+  };
+  const supprimerSelection = async () => {
+    if (!selection || selection.size === 0) return;
+    setSuppression(true);
+    try {
+      for (const id of selection) await onDelete(id);
+    } finally {
+      setSuppression(false);
+      quitterSelection();
+    }
+  };
+
+  // À la fermeture du tiroir, la recherche repart de zéro : rouvert, il ne doit
+  // pas montrer une liste filtrée par une requête oubliée. (La confirmation de
+  // « Tout effacer » vit dans le menu, qui disparaît avec le tiroir.)
+  useEffect(() => {
+    if (!isOpen) {
+      setRequete('');
+      setArchiveOuverte(null);
+      setSelection(null);
+      setConfirmerSel(false);
+    }
+  }, [isOpen]);
 
   // On n'ATTEND rien ici. L'aperçu rastérisé se calcule côté serveur en
   // quelques secondes ; le retenir jusqu'au bout laissait l'utilisateur devant
@@ -128,96 +180,188 @@ export default function DocumentLibrary({
     }
   }, [getBlob, trial]);
 
+  const versForfaits = () => {
+    onClose();
+    navigate('/home#pricing');
+  };
+
+  const q = requete.trim().toLowerCase();
+  const visibles = useMemo(
+    () => (q
+      ? documents.filter(d => `${d.originalName} ${d.filename}`.toLowerCase().includes(q))
+      : documents),
+    [documents, q]);
+  // Un visiteur n'a rien à charger ; une relecture ratée ne cache pas une liste déjà là.
+  const loading = enChargement && !!user;
+  const erreur = enErreur && !!user && documents.length === 0;
+  const listeVisible = !loading && !erreur && documents.length > 0;
+
   return (
     <>
-      <Drawer open={isOpen} onClose={onClose} label={t('library.title')}>
-        {user && <AccountPanel user={user}
-          refreshKey={documents.map(d => `${d.id}:${d.status}`).join('|')}
-          onLogout={async () => { onClose(); await logout(); }} />}
+      <Drawer open={isOpen} onClose={onClose} label={t('library.title')}
+        width="min(420px, 100vw)">
+        <div className="panneau">
+          {user && <AccountPanel user={user}
+            refreshKey={documents.map(d => `${d.id}:${d.status}`).join('|')}
+            onClose={onClose} />}
+          {user && <NouveautesLigne user={user} onClose={onClose} />}
 
-        <header className="biblio__tete">
-          <div>
-            <h2 className="biblio__titre">{t('library.title')}</h2>
-            <p className="biblio__compte">
-              {documents.length} {t('library.count_suffix')}
-            </p>
-          </div>
-
-          <div className="biblio__outils">
-            {documents.length > 0 && (
-              confirmClear ? (
-                <>
-                  <Button variant="danger" size="sm"
-                    onClick={() => { onClearAll(); setConfirmClear(false); }}>
-                    {t('library.confirm_clear')}
-                  </Button>
-                  <Button variant="ghost" size="sm"
-                    onClick={() => setConfirmClear(false)}>
-                    {t('library.cancel')}
-                  </Button>
-                </>
-              ) : (
-                <Button variant="ghost" size="sm"
-                  onClick={() => setConfirmClear(true)}>
-                  {t('library.clear_all')}
-                </Button>
-              )
-            )}
-            <IconButton label={t('library.cancel')} onClick={onClose}>
-              <X size={16} strokeWidth={2.2} />
-            </IconButton>
-          </div>
-        </header>
-
-        <div className="biblio__liste">
-          {documents.length === 0 ? (
-            <EmptyState
-              icon={<FolderOpen size={44} strokeWidth={1.4} />}
-              message={user ? t('library.empty') : t('library.empty_guest')}
-              action={!user && (
-                <Button variant="primary" size="md"
-                  onClick={() => { onClose(); navigate('/login'); }}>
-                  {t('nav.signIn')}
-                </Button>
+          <section className="docs" aria-labelledby="docs-t">
+            <div className="docs-head">
+              <h2 id="docs-t" tabIndex={-1}>{t('library.title')}</h2>
+              {listeVisible && <span className="n tab">{documents.length}</span>}
+              {listeVisible && !selection && (
+                <RowMenu label={t('library.list_options')}
+                  entries={[{
+                    key: 'select', label: t('library.select'),
+                    icon: <CheckSquare size={16} strokeWidth={2} className="ic" aria-hidden="true" />,
+                    onSelect: () => { setArchiveOuverte(null); setSelection(new Set()); },
+                  }, {
+                    key: 'clear', label: t('library.clear_all'), danger: true,
+                    icon: <Trash2 size={16} strokeWidth={2} className="ic" aria-hidden="true" />,
+                    onSelect: onClearAll,
+                    // La liste entière disparaît : le focus va au titre de la section.
+                    apres: 'ligne',
+                    confirmation: {
+                      question: t('library.clear_confirm_question'),
+                      confirmLabel: t('library.confirm_clear'),
+                      cancelLabel: t('library.cancel'),
+                    },
+                  }]} />
               )}
-            />
-          ) : (
-            documents.map((doc) => (
-              <DocumentCard
-                key={doc.id}
-                doc={doc}
-                trial={trial}
-                busy={loadingId === doc.id}
-                onPreview={handlePreview}
-                onDownload={handleDownload}
-                onDelete={onDelete}
-                onRetry={onRetry}
-                onStop={onStop}
-              />
-            ))
-          )}
-        </div>
+              {!user && (
+                <button type="button" className="iconbtn" aria-label={t('library.close')} onClick={onClose}>
+                  <X size={20} strokeWidth={2} aria-hidden="true" />
+                </button>
+              )}
+            </div>
 
-        {/* Pied de panneau : inviter et demander de l'aide. Il ne défile pas
-            avec la liste et reste visible quel que soit le nombre de documents. */}
-        {user && (
-          <footer className="biblio__pied">
-            {/* Inviter et Aide côte à côte, de même largeur. La déconnexion
-                est montée dans la carte du compte (étude, point 4). */}
-            <nav className="biblio__duo">
-              <button type="button" className="biblio__action"
-                onClick={() => { onClose(); openInvite(); }}>
-                <UserPlus size={16} strokeWidth={2} aria-hidden="true" />
-                {t('invite.open', 'Inviter des proches')}
+            {listeVisible && (
+              <div className="find">
+                <Search size={16} strokeWidth={2} className="ic" aria-hidden="true" />
+                <input type="search" value={requete}
+                  placeholder={t('library.search_placeholder')}
+                  aria-label={t('library.search_aria')}
+                  onChange={e => setRequete(e.target.value)}
+                  onKeyDown={e => {
+                    // Échap vide la recherche avant de fermer le panneau.
+                    if (e.key === 'Escape' && requete) {
+                      e.stopPropagation();
+                      setRequete('');
+                    }
+                  }} />
+              </div>
+            )}
+
+            {listeVisible && selection && (
+              <div className="sel-bar" role="toolbar" aria-label={t('library.select')}>
+                <span className="tab" aria-live="polite">{t('library.selected_count', { count: selection.size })}</span>
+                {confirmerSel ? (
+                  <button type="button" className="sel-del sel-del--sur" disabled={suppression}
+                    onClick={supprimerSelection}>
+                    <Trash2 size={14} strokeWidth={2} aria-hidden="true" />
+                    {t('library.confirm_delete_selection', { count: selection.size })}
+                  </button>
+                ) : (
+                  <button type="button" className="sel-del" disabled={selection.size === 0}
+                    onClick={() => setConfirmerSel(true)}>
+                    <Trash2 size={14} strokeWidth={2} aria-hidden="true" />
+                    {t('library.delete')}
+                  </button>
+                )}
+                <button type="button" className="sel-cancel" onClick={quitterSelection}>
+                  {t('library.cancel')}
+                </button>
+              </div>
+            )}
+
+            {loading ? (
+              <div className="list list--loading" aria-busy="true">
+                {[0, 1, 2].map(i => <Skeleton key={i} height="60px" borderRadius="var(--radius)" />)}
+              </div>
+            ) : erreur ? (
+              <div className="list-state">
+                <Alert tone="error">{t('library.load_error')}</Alert>
+                {onRefresh && (
+                  <Button variant="ghost" size="sm" onClick={onRefresh}>{t('library.retry')}</Button>
+                )}
+              </div>
+            ) : documents.length === 0 ? (
+              <EmptyState
+                icon={<Files size={44} strokeWidth={1.4} />}
+                title={user ? t('library.empty_title') : undefined}
+                message={user ? t('library.empty_message') : t('library.empty_guest')}
+                action={user ? (
+                  <small className="mono">{t('library.empty_formats')}</small>
+                ) : (
+                  <Button variant="primary" size="md"
+                    onClick={() => { onClose(); navigate('/login'); }}>
+                    {t('nav.signIn')}
+                  </Button>
+                )}
+              />
+            ) : visibles.length === 0 ? (
+              <p className="nomatch">{t('library.no_match')}</p>
+            ) : (
+              <ul className="list">
+                {visibles.map((doc) => (
+                  <DocumentCard
+                    key={doc.id}
+                    doc={doc}
+                    trial={trial}
+                    busy={loadingId === doc.id}
+                    onPreview={handlePreview}
+                    onDownload={handleDownload}
+                    onDelete={onDelete}
+                    onRetry={onRetry}
+                    onStop={onStop}
+                    selection={selection ? { cochee: selection.has(doc.id), onBasculer: () => basculer(doc.id) } : undefined}
+                    onArchive={() => setArchiveOuverte(o => (o === doc.id ? null : doc.id))}
+                    archiveActive={archiveOuverte === doc.id}
+                  />
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {/* Explication d'archive : bulle flottante au-dessus de la barre du bas, hors de la liste (rien ne bouge). */}
+          {archiveOuverte && !selection && (
+            <div className="archive-float" role="status"
+              onMouseEnter={() => setBulleRetenue(true)} onMouseLeave={() => setBulleRetenue(false)}
+              onFocus={() => setBulleRetenue(true)} onBlur={() => setBulleRetenue(false)}>
+              <Info size={15} strokeWidth={2} aria-hidden="true" />
+              <span>
+                {t('library.archive_note')}{' '}
+                <a href="/home#pricing" onClick={e => { e.preventDefault(); versForfaits(); }}>
+                  {t('library.archive_note_link')}
+                </a>
+              </span>
+              <button type="button" className="archive-float__x" aria-label={t('library.cancel')}
+                onClick={() => { setBulleRetenue(false); setArchiveOuverte(null); }}>
+                <X size={15} strokeWidth={2} aria-hidden="true" />
               </button>
-              <button type="button" className="biblio__action"
-                onClick={() => { onClose(); openSupport(); }}>
-                <LifeBuoy size={16} strokeWidth={2} aria-hidden="true" />
-                {t('support.open', 'Aide & support')}
+            </div>
+          )}
+
+          <footer className={user ? 'p-foot' : 'p-foot p-foot--solo'}>
+            {user && (
+              <button type="button" onClick={() => { onClose(); openInvite(); }}>
+                <UserPlus size={18} strokeWidth={2} aria-hidden="true" />
+                {t('invite.open')}
               </button>
-            </nav>
+            )}
+            <button type="button" onClick={() => { onClose(); openSupport(); }}>
+              <LifeBuoy size={18} strokeWidth={2} aria-hidden="true" />
+              {t('support.open')}
+            </button>
+            {user && (
+              <button type="button" onClick={async () => { onClose(); await logout(); }}>
+                <LogOut size={18} strokeWidth={2} aria-hidden="true" />
+                {t('account.logout')}
+              </button>
+            )}
           </footer>
-        )}
+        </div>
       </Drawer>
 
       <PaymentModal

@@ -1,4 +1,11 @@
+import { useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
+import { useTranslation } from 'react-i18next';
+import {
+  Home, Sparkles, Workflow, Tag, Info, ShieldCheck, Puzzle, Code2, Users, FileText,
+  LifeBuoy, ScrollText, FlaskConical, Scale, Lock, Cookie, ChevronRight, ArrowUpRight, Globe, LogIn, Megaphone, type LucideIcon,
+} from 'lucide-react';
 
 interface MobileMenuProps {
   isOpen: boolean;
@@ -8,7 +15,38 @@ interface MobileMenuProps {
   onClose: () => void;
 }
 
+/** Icône d'un lien d'après son identifiant (section de l'accueil ou chemin). */
+const ICONES: Array<[RegExp, LucideIcon]> = [
+  [/^hero$/, Home], [/^features$/, Sparkles], [/^story$/, Workflow], [/^pricing$/, Tag],
+  [/^about$/, Info], [/^admin$/, ShieldCheck], [/^integrations$/, Puzzle], [/^news$/, Megaphone], [/^login$/, LogIn], [/fonctionnalites/, Sparkles], [/extension/, Puzzle], [/api/, Code2],
+  [/users/, Users], [/documents/, FileText], [/support/, LifeBuoy], [/logs/, ScrollText],
+  [/beta/, FlaskConical], [/mentions|conditions/, Scale], [/confidentialite/, Lock], [/cookies/, Cookie],
+];
+const icone = (id: string): LucideIcon => ICONES.find(([re]) => re.test(id))?.[1] ?? FileText;
+
 export default function MobileMenu({ isOpen, links, activeSection, onNavClick, onClose }: MobileMenuProps) {
+  const { pathname } = useLocation();
+  const fermer = useRef(onClose);
+  fermer.current = onClose;
+
+  // Changement de page par un autre chemin que le menu (retour arrière, lien
+  // dans la page) : le menu ne reste pas ouvert par-dessus la nouvelle page.
+  useEffect(() => { fermer.current(); }, [pathname]);
+
+  // Échap ferme le menu et rend le focus au bouton ☰.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      fermer.current();
+      document.querySelector<HTMLElement>('.hamburger')?.focus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isOpen]);
+
+  const { t, i18n } = useTranslation();
+  const langue = i18n.language?.startsWith('en') ? 'en' : 'fr';
   return (
     <AnimatePresence>
       {isOpen && (
@@ -20,24 +58,39 @@ export default function MobileMenu({ isOpen, links, activeSection, onNavClick, o
           className="mobile-menu open"
           id="mobile-menu"
         >
-          {links.map((link) => {
-            const isActive = link.id === 'hero'
-              ? activeSection === 'hero'
-              : (activeSection === link.id || (link.id === 'features' && activeSection === 'comparison'));
-            return (
-              <a
-                key={link.id}
-                href={link.href ?? `#${link.id}`}
-                onClick={(e) => { e.preventDefault(); onNavClick(link.id); }}
-                style={{
-                  color: isActive ? '#1a4dc7' : undefined,
-                  fontWeight: isActive ? 700 : 500,
-                }}
-              >
-                {link.label}
-              </a>
-            );
-          })}
+          <nav className="mm-links">
+            {links.map((link, i) => {
+              const isActive = link.id === 'hero'
+                ? activeSection === 'hero'
+                : (activeSection === link.id || (link.id === 'features' && activeSection === 'comparison'));
+              const Icone = icone(link.id);
+              return (
+                <a
+                  key={link.id}
+                  href={link.href ?? `#${link.id}`}
+                  className={`mm-link${isActive ? ' active' : ''}${link.href && !links[i - 1]?.href ? ' mm-sep' : ''}`}
+                  aria-current={isActive ? 'page' : undefined}
+                  onClick={(e) => { e.preventDefault(); onNavClick(link.id); }}
+                >
+                  <span className="mm-ico"><Icone size={18} strokeWidth={2} aria-hidden="true" /></span>
+                  <span className="mm-label">{link.label}</span>
+                  {link.href
+                    ? <ArrowUpRight className="mm-chev" size={16} strokeWidth={2} aria-hidden="true" />
+                    : <ChevronRight className="mm-chev" size={16} strokeWidth={2} aria-hidden="true" />}
+                </a>
+              );
+            })}
+          </nav>
+          <div className="mm-lang">
+            <span className="mm-lang-title"><Globe size={16} strokeWidth={2} aria-hidden="true" />{t('nav.language')}</span>
+            <div className="mm-seg" role="group" aria-label={t('nav.language')}>
+              {(['fr', 'en'] as const).map((l) => (
+                <button key={l} className={langue === l ? 'active' : ''} aria-pressed={langue === l}
+                  aria-label={l === 'fr' ? 'Français' : 'English'}
+                  onClick={() => i18n.changeLanguage(l)}>{l.toUpperCase()}</button>
+              ))}
+            </div>
+          </div>
         </motion.div>
       )}
     </AnimatePresence>

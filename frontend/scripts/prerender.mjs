@@ -18,6 +18,8 @@ const DIST = resolve(ROOT, process.argv[2] ?? "dist");
 const site = JSON.parse(await readFile(join(ROOT, 'seo/site.json'), 'utf8'));
 const i18n = JSON.parse(await readFile(join(ROOT, 'src/locales/fr/translation.json'), 'utf8'));
 const legal = await importTs(join(ROOT, 'src/content/legal/fr.ts'));
+// Instantané du catalogue des fonctionnalités, écrit par backend/scripts/exporter_fonctionnalites.py.
+const fonctionnalites = JSON.parse(await readFile(join(ROOT, 'seo/fonctionnalites.json'), 'utf8'));
 const template = await readFile(join(DIST, 'index.html'), 'utf8');
 
 const MAIN_STYLE =
@@ -127,6 +129,37 @@ function describe(route) {
           })),
         },
       ],
+    };
+  }
+  if (route.source === 'fonctionnalites') {
+    const f = fonctionnalites;
+    const groups = [['nouveaute', 'Fonctionnalités'], ['amelioration', 'Améliorations'], ['correctif', 'Correctifs']];
+    const domains = [['documents', 'Documents'], ['visionneuse', 'Visionneuse'],
+      ['extension', 'Extension navigateur'], ['compte', 'Compte']];
+    const sections = groups
+      .map(([type, heading]) => {
+        const parts = domains
+          .map(([domain, name]) => {
+            const items = f.elements.filter((e) => e.type === type && e.domaine === domain);
+            if (!items.length) return '';
+            const lis = items
+              .map((e) => `<li><strong>${esc(e.titre)}</strong> — ${esc(e.resume)} ${esc(e.detail)}</li>`)
+              .join('');
+            return `<h3>${esc(name)}</h3><ul>${lis}</ul>`;
+          })
+          .join('');
+        return parts ? `<h2>${esc(heading)}</h2>${parts}` : '';
+      })
+      .join('');
+    return {
+      label: 'Fonctionnalités',
+      title: route.title,
+      description: route.description,
+      dateModified: f.date_version,
+      body:
+        `<h1>Fonctionnalités de Précis</h1><p>Version ${esc(f.version)} · ${esc(frenchDate(f.date_version))}</p>` +
+        `<p>Tout ce que Précis sait faire aujourd’hui, classé par type puis par domaine : ` +
+        `traduction de documents, visionneuse, extension navigateur et compte.</p>${sections}`,
     };
   }
   if (route.source === 'legal') {

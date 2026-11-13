@@ -12,10 +12,10 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
   const { t } = useTranslation();
 
   useEffect(() => {
-    // Wait for 3 seconds (or you can click to skip)
+    // Affichage bref (≤ 1 s fondu compris) : première visite seulement, cf. lib/splash.
     const timer = setTimeout(() => {
       onComplete();
-    }, 3000);
+    }, 700);
 
     return () => clearTimeout(timer);
   }, [onComplete]);
@@ -24,7 +24,7 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
     <motion.div
       initial={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 1, ease: "easeInOut" }}
+      transition={{ duration: 0.3, ease: "easeInOut" }}
       className="fixed inset-0 z-[9999] flex flex-col items-center justify-center font-['DM_Sans']"
       style={{ background: '#FFFFFF' }} // White Background
     >
@@ -51,7 +51,7 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
         <motion.div 
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 1, ease: "easeOut" }}
+          transition={{ duration: 0.4, ease: "easeOut" }}
           className="bg-white rounded-[24px] py-14 px-6 sm:p-10 md:p-[60px_40px] border border-black/5 shadow-[0_20px_40px_rgba(13,27,62,0.06)] w-[85%] sm:w-full flex flex-col items-center justify-center gap-[30px] min-h-[180px] sm:min-h-0"
         >
           {/* Horizontal Layout (Always) */}
@@ -93,7 +93,7 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
       <motion.div 
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.5 }}
+        transition={{ delay: 0.2 }}
         className="absolute bottom-6 sm:bottom-12 flex justify-center"
       >
         <div className="flex items-center gap-2 text-slate-500">

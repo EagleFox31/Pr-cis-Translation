@@ -2,12 +2,12 @@
    Une page admin = en-tête, tuiles facultatives, barre d'outils, liste. */
 
 .admin-page { min-height: 100vh; background: var(--gray-50, #f9fafb); }
-.admin-main { padding: calc(var(--nav-h) + 28px) 0 56px; }
+.admin-main { padding: calc(var(--nav-total) + 28px) 0 56px; }
 .admin-frame { max-width: var(--frame-max, 1240px); margin: 0 auto; padding: 0 var(--frame-pad, 24px); }
 
 /* En-tête */
 .admin-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 20px; }
-.admin-head--sticky { position: sticky; top: var(--nav-h); z-index: 5; margin: -12px 0 8px; padding: 12px 0; background: var(--gray-50, #f9fafb); }
+.admin-head--sticky { position: sticky; top: var(--nav-total); z-index: 5; margin: -12px 0 8px; padding: 12px 0; background: var(--gray-50, #f9fafb); }
 .admin-head h1 { font-size: 20px; font-weight: 700; color: var(--navy, #0d1b3e); margin: 0; }
 .admin-head__count { font-size: 13px; color: var(--gray-500, #6b7280); }
 .admin-head__actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
@@ -35,7 +35,7 @@
 .admin-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--blue); }
 
 /* Liste : une carte, une ligne par élément */
-.admin-list { background: #fff; border: 1px solid var(--gray-200); border-radius: 12px; overflow: hidden; }
+.admin-list { background: #fff; border: 1px solid var(--gray-200); border-radius: 0; overflow: hidden; }
 .admin-row { display: flex; align-items: center; gap: 16px; padding: 14px 18px; }
 .admin-row + .admin-row, .admin-item + .admin-item { border-top: 1px solid var(--gray-100); }
 .admin-row__main { flex: 1; min-width: 0; }
@@ -86,7 +86,7 @@
 .admin-main:has(.admin-duo) > .admin-frame { flex: 1; min-height: 0; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
 .admin-duo { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 20px; }
 .admin-duo > .admin-list { overflow-y: auto; }
-.admin-duo__card { min-height: 0; display: flex; flex-direction: column; scroll-margin-top: calc(var(--nav-h) + 16px); }
+.admin-duo__card { min-height: 0; display: flex; flex-direction: column; scroll-margin-top: calc(var(--nav-total) + 16px); }
 .admin-duo__card > * { flex: 1; min-height: 0; }
 .admin-duo__row { gap: 12px; }
 .admin-duo__row[aria-current='true'] { background: var(--blue-light); box-shadow: inset 3px 0 var(--navy); }
@@ -236,7 +236,7 @@ fieldset.admin-form { border: 0; padding: 0; margin: 0; min-width: 0; }
   .admin-columns { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 720px) {
-  .admin-main { padding-top: calc(var(--nav-h) + 16px); }
+  .admin-main { padding-top: calc(var(--nav-total) + 16px); }
   .admin-head h1 { font-size: 18px; }
   .admin-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-search { flex-basis: 100%; }
@@ -264,8 +264,6 @@ fieldset.admin-form { border: 0; padding: 0; margin: 0; min-width: 0; }
 
 
 /* Sortie de l'administration (barre) — icône seule quand la place manque. */
-.admin-exit { flex-shrink: 0; margin-left: auto; }
-@media (max-width: 600px) { .admin-exit span { display: none; } }
 
 /* Type de document devant le nom (Documents). */
 .admin-doc-icon { display: inline-block; vertical-align: -3px; margin-right: 8px; color: var(--gray-500, #64748b); }
@@ -279,7 +277,6 @@ fieldset.admin-form { border: 0; padding: 0; margin: 0; min-width: 0; }
 .admin-row__side--log .admin-tag:nth-child(1) { min-width: 64px; justify-content: center; text-align: center; }
 .admin-row__side--log .admin-tag:nth-child(2) { min-width: 36px; justify-content: center; text-align: center; }
 .admin-row__side--log .admin-tag:nth-child(3) { min-width: 78px; justify-content: center; text-align: center; }
-.nav-inner .admin-exit + .lang-toggle { margin-left: 0; }
 
 /* Bêta : quotas sur une ligne, un champ par plafond (icône + format + unité) */
 .beta-quota-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 12px; }

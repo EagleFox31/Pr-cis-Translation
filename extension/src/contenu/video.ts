@@ -60,7 +60,7 @@ function afficherBouton(video: HTMLVideoElement): void {
         bouton.textContent = "Image refusée";
         return;
       }
-      afficherErreur(obtenirBandeau(), rep.erreur);
+      afficherErreur(obtenirBandeau(), rep.erreur, rep.offre);
       bouton.textContent = "Traduire cette image";
       bouton.disabled = false;
       return;

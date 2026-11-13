@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquettes tarifs et navigation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,400&family=DM+Mono:wght@400&family=DM+Sans:wght@400;500;600;700&family=Pinyon+Script&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../nouveautes/commun.css">
+<style>
+body { background: var(--gray-50); }
+.wrap { max-width: 760px; margin: 0 auto; padding: 48px 24px 72px; }
+h1 { font-family: var(--font-display); font-size: 36px; font-weight: 600; color: var(--navy); margin: 0 0 8px; }
+h2 { font-size: 17px; color: var(--navy); margin: 28px 0 8px; }
+p, li { color: var(--gray-700); font-size: 14.5px; }
+.cards { display: grid; gap: 12px; margin-top: 20px; }
+.cards a { display: block; background: #fff; border: 1px solid var(--gray-200); border-radius: 12px; padding: 16px 20px; text-decoration: none; }
+.cards a:hover { border-color: var(--blue); }
+.cards b { color: var(--navy); font-size: 16px; }
+.cards span { display: block; color: var(--gray-500); font-size: 13.5px; margin-top: 2px; }
+table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--gray-200); border-radius: 12px; overflow: hidden; font-size: 13.5px; }
+th, td { text-align: left; padding: 9px 12px; border-top: 1px solid var(--gray-100); vertical-align: top; }
+th { background: var(--gray-50); color: var(--gray-500); font-weight: 600; border-top: 0; }
+</style>
+</head>
+<body>
+<main class="wrap">
+<h1>Tarifs et navigation</h1>
+<p>Maquettes cliquables. En haut de chaque page : choix de la piste (★ = recommandée), vue Bureau / Mobile, et pour la navigation Invité / Admin. Cliquez dans les fausses pages pour voir le menu réagir.</p>
+
+<div class="cards">
+  <a href="tarifs.html"><b>Grille de prix avec la bêta</b><span>Actuel + 4 pistes : bandeau au-dessus ★, bandeau dessous, ruban sur Gratuit, onglets, à côté de « Sans abonnement ».</span></a>
+  <a href="navigation.html"><b>Navigation du site</b><span>Actuel + 4 pistes : fil d’Ariane, menu fixe + sous-menu ★, menus déroulants, un seul bouton Menu.</span></a>
+</div>
+
+<h2>Constat sur la navigation actuelle</h2>
+<table>
+  <tr><th>Page</th><th>Ce que montre la barre du haut</th></tr>
+  <tr><td>Accueil</td><td>Accueil · Fonctionnalités · Fonctionnement · Tarifs · À propos (+ Administration) · bouton Extension</td></tr>
+  <tr><td>Extension, API</td><td>Extension · API · « Retour à l’accueil »</td></tr>
+  <tr><td>Pages légales</td><td>Mentions · Conditions · Confidentialité · Cookies · « Retour à l’accueil »</td></tr>
+  <tr><td>Administration</td><td>Comptes · Documents · Assistance · Journal · Bêta · « Retour à l’accueil »</td></tr>
+  <tr><td>Nouveautés, désabonnement</td><td>Rien d’autre que « Retour à l’accueil »</td></tr>
+  <tr><td>Bêta, connexion</td><td>Pas de barre</td></tr>
+</table>
+<ul>
+  <li><b>Oui, le menu qui change est un problème :</b> dès qu’on quitte l’accueil, les entrées principales disparaissent et sont remplacées par celles de la rubrique. On perd ses repères et l’accès direct à Tarifs, À propos…</li>
+  <li>Bonne pratique : un <b>menu principal identique partout</b>, la rubrique en cours mise en évidence, et ses pages en <b>sous-menu</b> (2ᵉ rangée ou déroulant).</li>
+  <li>Extension et API → sous-menu « Intégrations ». Administration → sous-menu, visible des admins seulement. Pages légales → pied de page (c’est l’usage), avec un sous-menu une fois dedans.</li>
+  <li>« Accueil » fait double emploi avec le logo ; la page Nouveautés porte le même nom que la section « Fonctionnalités » → renommée « Nouveautés ».</li>
+</ul>
+</main>
+</body>
+</html>

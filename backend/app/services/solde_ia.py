@@ -74,8 +74,7 @@ class Surveillance:
                     f"Solde DeepSeek bas : {solde:.2f} $",
                     f"Le solde DeepSeek est de {solde:.2f} $, sous le seuil "
                     f"d'alerte de {self.seuil_solde:.2f} $. À zéro, plus "
-                    f"aucune traduction ne passe : recharger le compte sur "
-                    f"https://platform.deepseek.com/top_up"))
+                    f"aucune traduction ne passe : recharger le compte DeepSeek."))
         else:
             self._solde_bas_signale = False     # rechargé : alerte réarmée
 
@@ -121,7 +120,11 @@ def lire_solde() -> float | None:
         return None
 
 
-async def _alerter(sujet: str, corps: str) -> None:
+RECHARGE_URL = "https://platform.deepseek.com/top_up"
+USAGE_URL = "https://platform.deepseek.com/usage"
+
+
+async def _alerter(sujet: str, corps: str, niveau: str = "avertissement") -> None:
     from app.core.database import async_session
     from app.core.email import send_plain
     from app.models import User
@@ -137,7 +140,11 @@ async def _alerter(sujet: str, corps: str) -> None:
         emails = []
     if not emails and ADMIN_ALERT_EMAIL:
         emails = [ADMIN_ALERT_EMAIL]
-    await send_plain(emails, f"[Précis] {sujet}", corps)
+    bouton = (("Recharger le compte DeepSeek", RECHARGE_URL)
+              if sujet.startswith("Solde") else
+              ("Voir la consommation DeepSeek", USAGE_URL))
+    await send_plain(emails, f"[Précis] {sujet}", corps, titre=sujet,
+                     niveau=niveau, bandeau="Solde IA", bouton=bouton)
 
 
 async def verifier() -> float | None:
@@ -180,8 +187,8 @@ def signaler_solde_epuise() -> None:
         await _alerter(
             "Solde DeepSeek épuisé : traductions bloquées",
             "DeepSeek refuse les requêtes pour solde insuffisant (402). "
-            "Aucune traduction ne peut aboutir avant la recharge du compte : "
-            "https://platform.deepseek.com/top_up")
+            "Aucune traduction ne peut aboutir avant la recharge du compte.",
+            niveau="critique")
     _depuis_un_thread(_envoyer)
 
 

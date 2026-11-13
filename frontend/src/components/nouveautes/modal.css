@@ -1,0 +1,90 @@
+/* Fenêtres « Nouveautés » : voile commun et fenêtre « depuis votre dernière visite ». */
+.nv-veil { position: fixed; inset: 0; background: var(--veil); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); z-index: var(--z-veil); }
+@media (max-width: 900px) {
+  /* La visite occupe tout l'écran : voile plein, sans flou. */
+  .nv-veil--plein { background: #fff; backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
+/* Visite ouverte : barre du haut au-dessus du voile ; seul le choix FR/EN reste actif,
+   le reste est grisé. Le fond de la barre reste cliquable pour ne pas fermer la visite. */
+.vst-ouverte .navbar { z-index: calc(var(--z-dialog) + 1); background: #fff; }
+.vst-ouverte .navbar * { pointer-events: none; }
+.vst-ouverte .navbar .lang-toggle, .vst-ouverte .navbar .lang-toggle * { pointer-events: auto; }
+.vst-ouverte .nav-inner > :not(.nav-logo):not(.lang-toggle),
+.vst-ouverte .nav-sub { opacity: .35; }
+/* Barre repliée : FR/EN passe d'ordinaire dans le menu ; on l'affiche dans la barre le temps de la visite. */
+.vst-ouverte .navbar.r2 .nav-inner .lang-toggle { display: flex; }
+.vst-ouverte .vst { top: calc(50% + var(--nav-total) / 2); height: min(620px, calc(100dvh - var(--nav-total) - 48px)); }
+@media (max-width: 900px) {
+  .vst-ouverte .vst { top: var(--nav-total); height: calc(100dvh - var(--nav-total)); }
+}
+
+.nvd { position: fixed; z-index: var(--z-dialog); left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto;
+  background: #fff; border-radius: var(--radius-dialog); box-shadow: var(--shadow-dialog); padding: 26px 24px;
+  font-family: var(--font-body); color: var(--gray-900); }
+.nvd button { font-family: inherit; }
+.nvd__x { position: absolute; top: 8px; right: 8px; width: 40px; height: 40px; display: grid; place-items: center; border: 0; background: none; color: var(--gray-500); border-radius: 9px; cursor: pointer; }
+.nvd__x:hover { background: var(--gray-100); color: var(--gray-700); }
+.nvd__head { display: flex; align-items: center; gap: 10px; color: var(--blue); padding-right: 32px; }
+.nvd__head h2 { margin: 0; font: 700 18px/1.3 var(--font-body); color: var(--navy); }
+.nvd__sub { margin: 6px 0 18px; font-size: 13px; color: var(--gray-500); font-variant-numeric: tabular-nums; }
+.nvd:focus { outline: none; }
+.nvd :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.nvd__x:focus-visible { outline-offset: -2px; }
+
+.nvd-seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; padding: 4px; background: var(--gray-100); border-radius: 12px; }
+.nvd-seg [role=tab] { min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 0 8px; border: 0; border-radius: 9px; background: none; cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--gray-700); white-space: nowrap; }
+.nvd-seg [role=tab]:hover { color: var(--navy); }
+.nvd-seg [role=tab][aria-selected=true] { background: #fff; color: var(--navy); box-shadow: 0 1px 3px rgba(13,27,62,.12); }
+.nvd-seg [role=tab]:focus-visible { outline-offset: 1px; }
+
+.nvd-badge { display: inline-flex; align-items: center; gap: 5px; border-radius: 100px; padding: 3px 10px; font-size: 11px; font-weight: 600; letter-spacing: .02em; border: 1px solid; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.nvd-badge--nouveaute { background: var(--blue-light); color: var(--blue); border-color: var(--blue-200); }
+.nvd-badge--amelioration { background: var(--green-50); color: var(--green-700); border-color: var(--green-200); }
+.nvd-badge--correctif { background: var(--gray-100); color: var(--gray-500); border-color: var(--gray-300); }
+
+.nvd-panes { height: 300px; margin: 14px 0 0; border: 1px solid var(--gray-200); border-radius: 12px; overflow: hidden; }
+.nvd-panes [role=tabpanel] { height: 100%; overflow-y: auto; padding: 4px 16px 8px; overscroll-behavior: contain; }
+.nvd-panes [role=tabpanel]:focus-visible { outline-offset: -2px; }
+.nvd-panes [hidden] { display: none; }
+.nvd-dom { display: flex; align-items: center; gap: 7px; margin: 12px 0 2px; font-size: 12px; font-weight: 700; color: var(--navy); }
+.nvd-dom svg { color: var(--blue); flex: none; }
+.nvd-panes ul { list-style: none; margin: 0; padding: 0; }
+.nvd-panes li { display: grid; grid-template-columns: 1fr auto; column-gap: 12px; padding: 9px 0 9px 23px; border-bottom: 1px solid var(--gray-100); }
+.nvd-panes ul:last-child li:last-child { border-bottom: 0; }
+.nvd-panes li b { font-size: 14px; color: var(--gray-900); line-height: 1.35; }
+.nvd-panes li time { grid-column: 2; grid-row: 1; font-size: 12px; color: var(--gray-500); white-space: nowrap; align-self: baseline; font-variant-numeric: tabular-nums; }
+.nvd-panes li span { grid-column: 1 / -1; font-size: 13px; color: var(--gray-500); line-height: 1.45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.nvd-optin { height: 60px; margin: 14px 0 0; border-top: 1px solid var(--gray-200); }
+.nvd-optin__row { width: 100%; height: 100%; display: flex; align-items: center; gap: 12px; padding: 0 4px; background: none; border: 0; border-radius: 10px; cursor: pointer; text-align: left; }
+.nvd-optin__row:hover { background: var(--gray-50); }
+.nvd-optin__row > svg { color: var(--blue); flex: none; }
+.nvd-optin__txt { flex: 1; min-width: 0; }
+.nvd-optin__row b { display: block; font-size: 14px; color: var(--gray-900); line-height: 1.35; }
+.nvd-optin__row small { display: block; font-size: 12.5px; color: var(--gray-500); line-height: 1.4; }
+.nvd-optin__row[aria-checked="true"] .ui-switch { background: var(--blue); }
+.nvd-optin__row[aria-checked="true"] .ui-switch::after { transform: translateX(16px); }
+.nvd-optin__done { height: 100%; margin: 0; display: flex; align-items: center; gap: 10px; padding: 0 4px; font-size: 14px; font-weight: 600; color: var(--navy); }
+.nvd-optin__done svg { color: var(--blue); flex: none; }
+
+.nvd-cta { width: 100%; padding: 12px; border: 0; border-radius: 10px; background: var(--blue); color: #fff; font-size: 14.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; transition: background var(--transition); text-decoration: none; margin-top: 16px; }
+.nvd-cta:hover { background: var(--blue-bright); }
+
+@media (max-width: 520px) {
+  .nvd__x { width: 44px; height: 44px; top: 6px; right: 6px; }
+  .nvd-seg [role=tab] { flex-direction: column; gap: 3px; min-height: 52px; font-size: 12.5px; padding: 4px; }
+  .nvd-seg .nvd-badge { padding: 0 7px; line-height: 16px; }
+  .nvd-panes { height: clamp(170px, calc(100dvh - 470px), 300px); }
+  .nvd-optin { height: auto; min-height: 58px; margin-top: 10px; }
+  .nvd-optin__row, .nvd-optin__done { min-height: 58px; padding: 6px 0; }
+  .nvd-optin__row { gap: 9px; padding: 0; }
+  .nvd-optin__row b { font-size: 13.5px; }
+  .nvd-optin__row small { font-size: 12px; }
+  .nvd-cta { margin-top: 12px; }
+  .nvd-panes [role=tabpanel] { padding: 2px 14px 8px; }
+  .nvd-panes li { padding-left: 0; }
+  .nvd-panes li span { white-space: normal; }
+}
+@media (prefers-reduced-motion: reduce) { .nvd * { transition: none !important; } }

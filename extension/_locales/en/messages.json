@@ -1,0 +1,5 @@
+{
+  "nom": { "message": "Précis Translator" },
+  "description": { "message": "Translates the text and images of a web page with Précis." },
+  "titre_bouton": { "message": "Précis — translate the page" }
+}

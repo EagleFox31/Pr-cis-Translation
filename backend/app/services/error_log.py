@@ -133,12 +133,20 @@ async def maybe_alert_admins(db) -> bool:
         if not emails:
             return False
 
-        from app.core.email import send_plain
+        from app.core.email import FRONTEND_URL, send_plain
         await send_plain(
             emails,
             f"[Précis] {count} erreurs à traiter",
             f"{count} erreurs non traitées se sont accumulées dans le journal.\n"
             f"Ouvre /admin/logs pour les consigner puis les vider.",
+            titre=f"{count} erreurs à traiter",
+            resume=("Des erreurs non traitées se sont accumulées dans le "
+                    "journal. Consigne-les puis vide le journal pour réarmer "
+                    "l'alerte."),
+            niveau="avertissement", bandeau="Journal",
+            details=[("Erreurs non traitées", str(count)),
+                     ("Seuil d'alerte", str(ERROR_LOG_ALERT_THRESHOLD))],
+            bouton=("Ouvrir le journal", f"{FRONTEND_URL}/admin/logs"),
         )
         return True
     except Exception:

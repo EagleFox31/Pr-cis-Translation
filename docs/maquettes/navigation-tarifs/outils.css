@@ -1,0 +1,16 @@
+/* Barre d'outils des maquettes : choix de la piste + vue bureau / mobile. */
+body { background: var(--gray-50); }
+.mq-bar { position: sticky; top: 0; z-index: 100; background: var(--navy); color: #fff; padding: 10px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; font-size: 13px; }
+.mq-bar a.mq-home { color: var(--gold-light); text-decoration: none; font-weight: 600; }
+.mq-group { display: flex; flex-wrap: wrap; gap: 4px; background: rgba(255,255,255,.08); padding: 3px; border-radius: 10px; }
+.mq-group button { border: 0; background: transparent; color: rgba(255,255,255,.75); padding: 7px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; min-height: 36px; }
+.mq-group button[aria-pressed="true"] { background: #fff; color: var(--navy); }
+.mq-group button .rec { color: var(--gold); margin-left: 4px; }
+.mq-group button[aria-pressed="true"] .rec { color: #a17c1f; }
+.mq-note { max-width: 1240px; margin: 16px auto; padding: 14px 18px; background: #fff; border: 1px solid var(--gray-200); border-radius: 12px; font-size: 14px; color: var(--gray-700); }
+.mq-note h2 { margin: 0 0 6px; font-size: 16px; color: var(--navy); }
+.mq-note ul { margin: 6px 0 0; padding-left: 18px; }
+.mq-note .plus { color: #15803d; } .mq-note .moins { color: #b45309; }
+.mq-stage { container-type: inline-size; margin: 0 auto 48px; background: #fff; border: 1px solid var(--gray-200); border-radius: 12px; overflow: hidden; max-width: 1280px; transition: max-width .3s; }
+body.mobile .mq-stage { max-width: 390px; }
+@media (max-width: 1320px) { .mq-stage { margin-left: 16px; margin-right: 16px; } body.mobile .mq-stage { margin-left: auto; margin-right: auto; } .mq-note { margin-left: 16px; margin-right: 16px; } }

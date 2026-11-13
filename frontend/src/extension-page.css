@@ -7,8 +7,8 @@
 .ext-welcome ol { margin: 0; padding-left: 22px; }
 .ext-welcome li { margin: 0 0 6px; font-size: 15.5px; line-height: 1.6; }
 
-.ext-hero { margin: 0 0 44px; padding: 28px 24px; border: 1px solid var(--gray-200); border-radius: var(--radius-lg); background: var(--white); box-shadow: var(--shadow-sm); }
-.ext-hero__lead { margin: 0 0 22px; font-family: var(--font-display); font-size: 24px; line-height: 1.35; font-weight: 600; color: var(--navy); }
+.ext-hero { margin: 0 0 28px; padding: 22px 24px; border: 1px solid var(--gray-200); border-radius: var(--radius-lg); background: var(--white); box-shadow: var(--shadow-sm); }
+.ext-hero__lead { margin: 0 0 14px; font-family: var(--font-display); font-size: 24px; line-height: 1.35; font-weight: 600; color: var(--navy); }
 
 .ext-cta { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 .ext-cta__row { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -62,6 +62,8 @@
 .ext-notes { margin-top: 20px; padding: 18px 20px; border: 1px solid var(--gray-200); border-left: 3px solid var(--blue); border-radius: var(--radius); background: var(--white); }
 .ext-notes h3 { margin: 0 0 10px; font-size: 16px; font-weight: 600; color: var(--navy); }
 .ext-notes .ext-list { margin: 0; }
+.ext-shot { margin: 12px 0 0; border: 1px solid var(--gray-200); border-radius: var(--radius); overflow: hidden; background: var(--gray-100); }
+.ext-shot img { display: block; width: 100%; height: auto; }
 
 @media (max-width: 600px) {
   .ext-hero { padding: 20px 16px; }
@@ -73,20 +75,27 @@
 }
 
 /* Cartes navigateur : un logo reconnaissable, un bouton boutique. */
-.ext-browsers { width: 100%; display: flex; flex-direction: column; gap: 12px; }
-.ext-browsers__title { margin: 0; font-size: 15px; font-weight: 600; color: var(--navy); }
-.ext-browsers__grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
-.ext-browser { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 30px 10px 16px; border: 1px solid var(--gray-200); border-radius: var(--radius); background: var(--white); text-align: center; font: inherit; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+/* Dans la carte d'accroche, sous un filet : une seule carte pour l'accroche et le choix. */
+.ext-browsers { width: 100%; display: flex; flex-direction: column; gap: 10px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--gray-100); }
+.ext-browsers__title { margin: 0; font-size: 14px; font-weight: 600; color: var(--navy); }
+.ext-browsers__hint { margin: 0; font-size: 13px; color: var(--gray-500); }
+.ext-browsers__grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; padding-top: 8px; }
+.ext-browser { position: relative; display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 56px; padding: 10px 12px; border: 1px solid var(--gray-200); border-radius: var(--radius); background: var(--white); font: inherit; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
 .ext-browser:hover { border-color: var(--blue); }
+.ext-browser:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .ext-browser--current { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-light); }
-.ext-browser__badge { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); white-space: nowrap; padding: 2px 10px; border-radius: 999px; background: var(--blue-light); color: var(--blue); font-size: 12px; font-weight: 600; }
-.ext-browser__name { font-size: 15px; font-weight: 600; color: var(--navy); }
+.ext-browser__badge { position: absolute; top: 0; left: 50%; transform: translate(-50%, -50%); white-space: nowrap; padding: 1px 8px; border-radius: 999px; background: var(--blue-light); color: var(--blue); font-size: 11.5px; font-weight: 600; }
+.ext-browser__name { font-size: 14px; font-weight: 600; color: var(--navy); white-space: nowrap; }
 .ext-browser__sub { font-size: 13.5px; color: var(--gray-500); margin-bottom: 8px; }
-.ext-browser__logo { width: 48px; height: 48px; object-fit: contain; }
+.ext-browser__logo { width: 28px; height: 28px; flex: none; object-fit: contain; }
+@media (prefers-reduced-motion: reduce) { .ext-browser { transition: none; } }
+/* Entre tablette et petit bureau, le nom ne tient plus à côté du logo : on empile. */
+@media (max-width: 1180px) {
+  .ext-browser { flex-direction: column; gap: 6px; padding: 14px 8px 10px; }
+}
 
 /* Rubriques à gauche (liste), fiche à droite : même gabarit que la gestion des utilisateurs. */
 .ext-page .legal-head__inner, .ext-page .ext-body { max-width: var(--frame-max); }
-.ext-pick { margin: 0 0 32px; }
 .ext-layout { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: 20px; align-items: start; }
 .ext-menu { position: sticky; top: 0; display: flex; flex-direction: column; }
 .ext-menu__row { padding: 16px 18px; border-bottom: 1px solid var(--gray-100); }
@@ -100,6 +109,22 @@
 .ext-panel .admin-panel__head h2 { margin: 2px 0 0; font-family: var(--font-display); font-size: 22px; font-weight: 600; }
 .ext-panel__sub { margin-top: 4px; font-size: 14px; }
 .ext-panel .admin-panel__body { padding: 4px 24px 24px; overflow: visible; }
+/* Écran large : menu et fiche de même hauteur fixe ; seul le corps de la fiche défile. */
+@media (min-width: 1024px) {
+  .ext-layout, .ext-panel { --ext-row-h: 76px; } .ext-layout { align-items: stretch; height: max(440px, calc(100dvh - var(--nav-total) - 150px)); }
+  .ext-menu { position: static; overflow-y: auto; }
+  .ext-content { display: flex; flex-direction: column; min-height: 0; }
+  .ext-content > .ext-panel { flex: 1; min-height: 0; }
+  /* Défilement interne d'abord, puis la page prend le relais en butée. */
+  .ext-panel .admin-panel__body { overflow-y: auto; overscroll-behavior: auto; }
+  /* En-tête de la fiche = hauteur exacte d'une ligne du menu ; texte sur une ligne chacun. */
+  .ext-menu__row { box-sizing: border-box; height: var(--ext-row-h); flex: none; }
+  .ext-panel .admin-panel__head { box-sizing: border-box; height: var(--ext-row-h); padding: 0 20px 0 24px; flex: none; }
+  .ext-panel .admin-panel__head h2 { margin: 0; font-size: 19px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ext-panel__sub { margin-top: 2px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ext-panel .admin-panel__head-actions .ext-btn { padding-block: 9px; }
+  .ext-panel .admin-panel__body { padding-top: 20px; }
+}
 .ext-panel .admin-panel__block-head h3 { font-size: 14px; }
 .ext-panel .admin-panel__facts dd { font-size: 15px; }
 .ext-panel .ext-section { margin: 0; }
@@ -108,13 +133,13 @@
 .ext-steps li > div { min-width: 0; }
 
 @media (min-width: 1024px) {
-  .ext-hero { padding: 32px 36px; }
-  .ext-hero__lead { font-size: 26px; max-width: 760px; }
+  .ext-hero { padding: 24px 28px; }
+  .ext-hero__lead { font-size: 22px; max-width: 760px; }
   .ext-hero__lead:last-child { margin-bottom: 0; }
 }
 @media (max-width: 1023px) {
   .ext-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-  .ext-menu { position: static; display: grid; grid-template-columns: repeat(4, minmax(max-content, 1fr)); overflow-x: auto; }
+  .ext-menu { position: static; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(max-content, 1fr); overflow-x: auto; }
   .ext-menu .ext-menu__row { width: auto; padding: 12px 14px; border-bottom: 0; border-right: 1px solid var(--gray-100); }
   .ext-menu__row:last-child { border-right: 0; }
   .ext-menu__row .admin-row__meta { display: none; }
@@ -133,8 +158,45 @@
 .ext-plans li:last-child { border-bottom: 0; }
 .ext-plans strong { color: var(--navy); }
 .ext-plans__price { font-weight: 600; color: var(--navy); white-space: nowrap; }
-.ext-docs { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px 24px; }
+/* Fiche : intro, tuiles de comptage, liste à coches, pied fixe pour les liens. */
+.ext-lead { margin: 0 0 4px; font-size: 15px; line-height: 1.6; color: var(--gray-700); }
+.ext-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.ext-tiles > div { padding: 12px 14px; border: 1px solid var(--gray-100); border-radius: 8px; background: var(--gray-50, #f8fafc); }
+.ext-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.ext-checks li { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; line-height: 1.55; color: var(--gray-700); }
+.ext-checks svg { flex: none; margin-top: 4px; color: var(--blue); }
+.ext-plans li { grid-template-columns: 130px minmax(0, 1fr) auto; }
+.ext-panel__foot { flex: none; border-top: 1px solid var(--gray-200); padding: 12px 24px; background: var(--white); }
+.ext-docs { display: flex; align-items: center; gap: 20px; white-space: nowrap; overflow-x: auto; font-size: 14px; }
+.ext-docs > span { color: var(--gray-500); font-size: 13px; }
+@media (max-width: 700px) { .ext-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ext-docs { flex-wrap: wrap; white-space: normal; gap: 8px 16px; } }
 @media (max-width: 600px) { .ext-plans li { grid-template-columns: minmax(0, 1fr) auto; } .ext-plans li > span:not(.ext-plans__price) { grid-column: 1 / -1; grid-row: 2; font-size: 14px; } }
 .ext-plans li > span { text-align: left; }
 .ext-plans li > .ext-plans__price { text-align: right; }
 .ext-panel .admin-panel__head-actions .ext-btn { white-space: nowrap; }
+
+/* Menu des intégrations : entrée annoncée, pas encore de page. */
+.ext-nav-lien { display: inline-flex; align-items: center; gap: 6px; }
+.ext-nav-badge { font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 999px; background: #fef3c7; color: #92400e; }
+
+/* Page API : chantier en cours, annoncé en tête et bien visible. */
+.api-chantier { display: flex; gap: 14px; align-items: flex-start; padding: 16px 18px; margin-bottom: 20px; border: 1px solid #f59e0b; border-left-width: 5px; border-radius: 12px; background: #fffbeb; color: #78350f; }
+.api-chantier svg { flex-shrink: 0; color: #d97706; margin-top: 2px; }
+.api-chantier strong { display: block; font-size: 16px; margin-bottom: 4px; color: #92400e; }
+.api-chantier p { margin: 0; font-size: 14px; line-height: 1.5; }
+.api-statut { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; background: #fef3c7; color: #92400e; vertical-align: middle; }
+.api-grille { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 18px 0 0; }
+.api-bloc { padding: 18px 20px; border: 1px solid var(--gray-200); border-radius: var(--radius); background: var(--white); }
+.api-bloc h3 { margin: 0 0 12px; font-size: 15px; font-weight: 600; color: var(--navy); }
+.api-bloc .ext-checks li { font-size: 14.5px; }
+.api-hero { text-align: center; }
+.api-hero .ext-hero__lead { margin-inline: auto; }
+.api-statut { font-family: var(--font-body, inherit); }
+/* Téléphone : onglets à parts égales, icône au-dessus du libellé qui passe à la ligne. */
+@media (max-width: 480px) {
+  .ext-menu { grid-auto-columns: minmax(0, 1fr); overflow-x: visible; }
+  .ext-menu .ext-menu__row { flex-direction: column; align-items: center; justify-content: flex-start; gap: 6px; padding: 10px 6px; text-align: center; }
+  .ext-menu__icon { width: 28px; height: 28px; border-radius: 8px; }
+  .ext-menu__row .admin-row__main { min-width: 0; }
+  .ext-menu__row .admin-row__title { font-size: 13px; line-height: 1.25; white-space: normal; overflow-wrap: anywhere; hyphens: auto; }
+}

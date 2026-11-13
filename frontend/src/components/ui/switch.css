@@ -1,0 +1,17 @@
+/* Interrupteur : cible tactile élargie par pseudo-élément (>= 44px) */
+.ui-switch { position: relative; width: 40px; height: 24px; border-radius: 24px; background: var(--gray-300); border: 0; padding: 0; cursor: pointer; transition: background var(--transition); flex: none; }
+.ui-switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: var(--shadow-sm); transition: transform var(--transition); }
+.ui-switch::before { content: ''; position: absolute; inset: -10px -2px; }
+.ui-switch[aria-checked="true"] { background: var(--blue); }
+.ui-switch[aria-checked="true"]::after { transform: translateX(16px); }
+.ui-switch:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.ui-switch:disabled { opacity: .55; cursor: not-allowed; }
+
+.ui-switch--sm { width: 32px; height: 20px; border-radius: 20px; }
+.ui-switch--sm::after { width: 14px; height: 14px; }
+.ui-switch--sm::before { inset: -12px -6px; }
+.ui-switch--sm[aria-checked="true"]::after { transform: translateX(12px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-switch, .ui-switch::after { transition: none; }
+}

@@ -1,6 +1,6 @@
 import type { LegalDoc } from './types';
 
-export const LEGAL_UPDATED = '6 novembre 2026';
+export const LEGAL_UPDATED = '11 novembre 2026';
 
 export const LEGAL_FR: LegalDoc[] = [
   {
@@ -12,8 +12,8 @@ export const LEGAL_FR: LegalDoc[] = [
       {
         heading: 'Éditeur',
         paragraphs: [
-          'Le site et le service Précis sont édités par Trigenys Group, un collectif de professionnels indépendants du numérique basé à Douala, au Cameroun. Trigenys Group n\'est pas une société immatriculée : les services sont fournis par les membres du collectif, qui agissent ensemble sous ce nom.',
-          'Contact : contact@trigenys.com.',
+          'Le site et le service Précis sont édités par Trigenys Group, un collectif de professionnels indépendants du numérique. Trigenys Group n\'est pas une société immatriculée : les services sont fournis par les membres du collectif, qui agissent ensemble sous ce nom.',
+          'Contact : support.precis@trigenys.com.',
         ],
       },
       {
@@ -40,7 +40,7 @@ export const LEGAL_FR: LegalDoc[] = [
       {
         heading: 'Signaler un contenu ou un problème',
         paragraphs: [
-          'Pour signaler un contenu, une erreur ou un dysfonctionnement, écrivez à contact@trigenys.com en décrivant la page concernée. Nous répondons dans les meilleurs délais.',
+          'Pour signaler un contenu, une erreur ou un dysfonctionnement, écrivez à support.precis@trigenys.com en décrivant la page concernée. Nous répondons dans les meilleurs délais.',
         ],
       },
     ],
@@ -61,7 +61,7 @@ export const LEGAL_FR: LegalDoc[] = [
         heading: 'Le service',
         paragraphs: [
           'Précis traduit des documents aux formats txt, pdf, docx, pptx et xlsx, dans la limite de 100 Mo par document, en s\'attachant à restituer fidèlement le sens et la mise en page d\'origine. Certains documents complexes (tableaux imbriqués, mises en page atypiques) peuvent présenter de légers écarts de présentation.',
-          'La traduction repose sur un traitement automatisé que nous améliorons en continu. Comme toute traduction, elle peut ponctuellement comporter des imprécisions : si vous en constatez une, signalez-la à contact@trigenys.com afin que nous puissions la corriger et améliorer le service. Pour un usage officiel, juridique, médical ou contractuel, nous vous recommandons de faire relire le résultat avant de l\'utiliser.',
+          'La traduction repose sur un traitement automatisé que nous améliorons en continu. Comme toute traduction, elle peut ponctuellement comporter des imprécisions : si vous en constatez une, signalez-la à support.precis@trigenys.com afin que nous puissions la corriger et améliorer le service. Pour un usage officiel, juridique, médical ou contractuel, nous vous recommandons de faire relire le résultat avant de l\'utiliser.',
         ],
       },
       {
@@ -100,7 +100,7 @@ export const LEGAL_FR: LegalDoc[] = [
       {
         heading: 'Remboursements',
         paragraphs: [
-          'Les pages consommées ne sont pas remboursables. En revanche, si vous avez été débité deux fois, ou si un paiement n\'a pas été appliqué à votre compte, il est remboursé sur demande adressée à contact@trigenys.com.',
+          'Les pages consommées ne sont pas remboursables. En revanche, si vous avez été débité deux fois, ou si un paiement n\'a pas été appliqué à votre compte, il est remboursé sur demande adressée à support.precis@trigenys.com.',
           'Le remboursement est effectué par le moyen de paiement d\'origine lorsque le prestataire de paiement le permet.',
         ],
       },
@@ -153,12 +153,12 @@ export const LEGAL_FR: LegalDoc[] = [
       {
         heading: 'Droit applicable',
         paragraphs: [
-          'Les présentes conditions sont soumises au droit camerounais. En cas de litige, nous recherchons d\'abord une solution amiable en échangeant par e-mail à contact@trigenys.com. À défaut, le litige relève des tribunaux de Douala.',
+          'Les présentes conditions sont soumises au droit du pays d\'établissement de l\'éditeur. En cas de litige, nous recherchons d\'abord une solution amiable en échangeant par e-mail à support.precis@trigenys.com. À défaut, le litige relève des tribunaux compétents de ce pays.',
         ],
       },
       {
         heading: 'Contact',
-        paragraphs: ['Pour toute question sur ces conditions : contact@trigenys.com.'],
+        paragraphs: ['Pour toute question sur ces conditions : support.precis@trigenys.com.'],
       },
     ],
   },
@@ -171,7 +171,7 @@ export const LEGAL_FR: LegalDoc[] = [
       {
         heading: 'Responsable du traitement',
         paragraphs: [
-          'Le responsable du traitement de vos données est Trigenys Group, basé à Douala (Cameroun). Contact : contact@trigenys.com.',
+          'Le responsable du traitement de vos données est Trigenys Group. Contact : support.precis@trigenys.com.',
         ],
       },
       {
@@ -214,7 +214,7 @@ export const LEGAL_FR: LegalDoc[] = [
       {
         heading: 'Transferts de données',
         paragraphs: [
-          'Certains de ces prestataires peuvent traiter vos données en dehors du Cameroun.',
+          'Certains de ces prestataires peuvent traiter vos données en dehors de votre pays.',
         ],
       },
       {
@@ -252,10 +252,21 @@ export const LEGAL_FR: LegalDoc[] = [
         ],
       },
       {
+        heading: 'E-mails « Nouveautés »',
+        paragraphs: [
+          'Recevoir par e-mail les nouveautés de Précis est facultatif : rien n\'est envoyé sans votre accord, et le service fonctionne de la même façon sans.',
+        ],
+        list: [
+          'Données utilisées : votre adresse e-mail, votre choix d\'abonnement et la date de votre dernière consultation des nouveautés, pour ne vous montrer que ce qui est nouveau.',
+          'Conservation : tant que le compte est actif ; la date de consultation est simplement remplacée à chaque visite.',
+          'Désinscription : par le lien présent dans chaque e-mail, ou par l\'interrupteur « E-mail » de la ligne « Nouveautés » de votre panneau de compte, à tout moment.',
+        ],
+      },
+      {
         heading: 'Vos droits',
         paragraphs: [
-          'Conformément à la loi n° 2024/017 du 23 décembre 2024 relative à la protection des données à caractère personnel au Cameroun, vous pouvez demander l\'accès à vos données, leur rectification, leur suppression et vous opposer à certains traitements. La suppression de votre compte s\'obtient sur demande par e-mail.',
-          'Écrivez à contact@trigenys.com : nous vous répondons dans un délai raisonnable.',
+          'Conformément à la réglementation applicable à la protection des données à caractère personnel, vous pouvez demander l\'accès à vos données, leur rectification, leur suppression et vous opposer à certains traitements. La suppression de votre compte s\'obtient sur demande par e-mail.',
+          'Écrivez à support.precis@trigenys.com : nous vous répondons dans un délai raisonnable.',
         ],
       },
       {
@@ -272,7 +283,7 @@ export const LEGAL_FR: LegalDoc[] = [
       },
       {
         heading: 'Contact',
-        paragraphs: ['Pour toute question sur vos données : contact@trigenys.com.'],
+        paragraphs: ['Pour toute question sur vos données : support.precis@trigenys.com.'],
       },
     ],
   },
@@ -324,7 +335,7 @@ export const LEGAL_FR: LegalDoc[] = [
       },
       {
         heading: 'Contact',
-        paragraphs: ['Pour toute question : contact@trigenys.com.'],
+        paragraphs: ['Pour toute question : support.precis@trigenys.com.'],
       },
     ],
   },

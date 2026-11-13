@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { motion, useScroll, useTransform } from 'motion/react';
+import { motion, useTransform } from 'motion/react';
+import { useScrollProgress } from '../../lib/useScrollProgress';
 import { ArrowRight, LayoutTemplate, FileType2, Languages } from 'lucide-react';
 import DocumentDemo from './DocumentDemo';
 import LanguageMarquee from './LanguageMarquee';
@@ -171,10 +172,7 @@ export default function HeroSection() {
   // n'ont ni la même longueur ni le même nombre de mots.
   useJustifiedLines(titleRef, [i18n.language]);
 
-  const { scrollYProgress } = useScroll({
-    target: heroRef,
-    offset: ['start start', 'end start'],
-  });
+  const scrollYProgress = useScrollProgress(heroRef, 'hero');
   // La grille de fond défile plus lentement que le contenu (profondeur), et le
   // hero s'estompe en sortant — la transition vers la section suivante est
   // continue au lieu d'être une coupure.
