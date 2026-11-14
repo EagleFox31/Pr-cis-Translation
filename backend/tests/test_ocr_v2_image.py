@@ -123,6 +123,16 @@ def cas_blocs():
     assert len(blocs([("a b", (10, 10, 90, 24)), ("c d", (10, 30, 80, 24))])) == 1
     # Titre et texte (hauteurs 82 et 64, essai Edge) : deux blocs.
     assert len(blocs([("冷却水ポンプ", (45, 40, 390, 82)), ("毎日点検", (45, 130, 390, 64))])) == 2
+    # Tableau (b3374) : une valeur annotée « 6.0 (estimated) » en face suffit
+    # à faire une rangée ; deux lignes qui ne sont pas une grille restent liées.
+    grille = [("Zinc", (455, 1491, 68, 40)), ("42", (1345, 1497, 39, 40)),
+              ("Manganese", (458, 1576, 160, 39)), ("2.6", (1360, 1576, 47, 41)),
+              ("Copper", (457, 1652, 104, 40)), ("8.3", (1360, 1653, 48, 42)),
+              ("Calcium", (456, 1694, 105, 38)), ("6.0 (estimated)", (1362, 1695, 198, 39))]
+    assert "Copper" in [b.texte for b in blocs(grille)], [b.texte for b in blocs(grille)]
+    deux = [("Copper", (457, 1652, 104, 40)), ("Calcium", (456, 1694, 105, 38)),
+            ("6.0 (estimated)", (1362, 1695, 198, 39))]
+    assert "Copper Calcium" in [b.texte for b in blocs(deux)], [b.texte for b in blocs(deux)]
     # Une puce ouvre un bloc, même à hauteur égale.
     liste = [("1. 電源を切る", (40, 10, 300, 36)), ("2. 弁を閉じる", (40, 50, 300, 39)),
              ("・圧力を確認", (40, 92, 300, 39))]

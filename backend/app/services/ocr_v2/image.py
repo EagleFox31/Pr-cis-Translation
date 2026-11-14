@@ -35,7 +35,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 from engines.pdf import polices
 from .detect import LectureEchouee
 from .erase import T_TEX, effacer, indicateurs, zones_par_boite
-from .mask import masque_couleur
+from .mask import DILATATION, _longs, masque_couleur
 from .render import longueur_trait
 
 OCTETS_MAX = 10 * 1024 * 1024
@@ -251,6 +251,90 @@ LISTE_MOTS = 4           # mots au plus par élément de liste
 LISTE_PAS = 0.25         # × hauteur de ligne : écart toléré entre deux pas de la liste
 
 
+MARGE_TRAITS = 40  # fenêtre où un trait de tableau se reconnaît à sa longueur
+
+
+def _proteger(mask, bgr, intactes, effacees):
+    """Une ligne laissée intacte n'est pas entamée par l'effacement d'une
+    voisine dont la boîte la chevauche (« OE » posé juste au-dessus de
+    « Control », 4e98). L'encre des deux lignes, lue sur leurs boîtes
+    entières, se répartit par tache : chacune va à la ligne dont le milieu
+    est le plus proche, si bien que le jambage d'une lettre effacée qui
+    descend dans la boîte voisine s'efface aussi, et que le haut des
+    chiffres d'en dessous reste (d24b). Une tache qui couvre les deux
+    milieux se coupe à mi-chemin.
+
+    Renvoie l'encre gardée près des lignes effacées : elle ne doit pas
+    servir de modèle au remplissage, sinon un voile gris s'y étale
+    (sous « New York », d24b)."""
+    H, W = mask.shape
+    noyau = np.ones((3, 3), np.uint8)
+    encre_gardee = np.zeros((H, W), bool)
+    for x, y, w, h in intactes:
+        x0, y0, x1, y1 = max(x, 0), max(y, 0), min(x + w, W), min(y + h, H)
+        if x1 <= x0 or y1 <= y0:
+            continue
+        garde = np.ones((y1 - y0, x1 - x0), bool)
+        ci = y + h / 2
+        for e in effacees:
+            ex, ey, ew, eh = e
+            if min(x + w, ex + ew) <= max(x, ex) or min(y + h, ey + eh) <= max(y, ey):
+                continue
+            ce = ey + eh / 2
+            mi = (ci + ce) / 2
+            bx0, by0 = max(min(x, ex), 0), max(min(y, ey), 0)
+            bx1, by1 = min(max(x + w, ex + ew), W), min(max(y + h, ey + eh), H)
+            encre = masque_couleur(bgr, [(x, y, w, h), e], halo=False, dilatation=0)[by0:by1, bx0:bx1]
+            n, lab, st, cen = cv2.connectedComponentsWithStats(encre, connectivity=8)
+            lignes = np.arange(by0, by1)[:, None]
+            a_elle = np.zeros(encre.shape, bool)
+            for i in range(1, n):
+                haut, bas = st[i][1] + by0, st[i][1] + st[i][3] + by0
+                if haut <= min(ci, ce) and bas >= max(ci, ce):
+                    a_elle |= (lab == i) & ((lignes < mi) if ce > ci else (lignes >= mi))
+                elif abs(cen[i][1] + by0 - ci) <= abs(cen[i][1] + by0 - ce):
+                    a_elle |= lab == i
+            a_elle = cv2.dilate(a_elle.astype(np.uint8), noyau, iterations=DILATATION).astype(bool)
+            # Modèle interdit au remplissage : l'encre gardée et son liseré, sauf
+            # un trait de tableau (repéré sur une fenêtre élargie, où il est long) :
+            # il reste une source, sinon il bave.
+            gx0, gy0 = max(bx0 - MARGE_TRAITS, 0), max(by0 - MARGE_TRAITS, 0)
+            gx1, gy1 = min(bx1 + MARGE_TRAITS, W), min(by1 + MARGE_TRAITS, H)
+            gris = cv2.cvtColor(bgr[gy0:gy1, gx0:gx1], cv2.COLOR_BGR2GRAY).astype(np.int16)
+            fonce = np.abs(gris - np.median(gris)) > 40
+            traits = cv2.dilate(_longs(fonce, max(ew, eh)).astype(np.uint8), noyau, iterations=DILATATION)
+            encre_gardee[by0:by1, bx0:bx1] |= a_elle & ~traits[by0 - gy0:by1 - gy0, bx0 - gx0:bx1 - gx0].astype(bool)
+            # zone commune : seule l'encre de la ligne intacte (et son liseré) est gardée
+            cx0, cy0 = max(x0, ex), max(y0, ey)
+            cx1, cy1 = min(x1, ex + ew), min(y1, ey + eh)
+            commun = np.zeros(garde.shape, bool)
+            commun[cy0 - y0:cy1 - y0, cx0 - x0:cx1 - x0] = True
+            garde &= ~commun | a_elle[y0 - by0:y1 - by0, x0 - bx0:x1 - bx0]
+        mask[y0:y1, x0:x1][garde] = 0
+    return encre_gardee
+
+
+def _en_face(b, lignes_lues):
+    """Valeur d'en face : la plus proche ligne lue à droite de `b` qui
+    commence par un nombre, dont le milieu tombe dans la hauteur de `b`
+    (même rangée)."""
+    x, y, w, h = b
+    face = [(lx, t, (lx, ly, lw, lh)) for t, (lx, ly, lw, lh) in lignes_lues
+            if lx >= x + w - 0.2 * h and y <= ly + lh / 2 <= y + h and _VALEUR.match(t)]
+    return min(face)[1:] if face else None
+
+
+_VALEUR = re.compile(r"^[\s$€£¥+\-–(#]*\d")   # commence par un nombre
+GRILLE = 3               # rangées au même bord gauche pour reconnaître un tableau
+
+
+def _suite(gauche, face):
+    """Vrai si `face` prolonge la ligne de gauche (texte qui court d'une
+    colonne à l'autre) : écart entre les deux plus étroit qu'un espace."""
+    (_, (x, _, w, h)), (_, (lx, _, _, _)) = gauche, face
+    return lx - (x + w) < 0.3 * h
+
+
 def _liste(lignes_lues):
     """Boîtes des éléments d'une liste verticale (marques, noms) : au moins
     `LISTE_MIN` lignes latines courtes, chacune commençant par une majuscule,
@@ -315,6 +399,17 @@ def blocs(lignes_lues, couleurs=None, puces=(), bgr=None):
               if any(_NOMBRE.match(t) and lx >= b[0] + b[2] - 0.2 * b[3]
                      and b[1] <= ly + lh / 2 <= b[1] + b[3]
                      for t, (lx, ly, lw, lh) in lignes_lues)}
+    # Valeur annotée en face (« 6.0 (estimated) ») : rangée aussi, si la
+    # grille en compte au moins 3 au même bord gauche, valeurs en colonne.
+    chiffree = {}
+    for t, b in lignes_lues:
+        f = _en_face(tuple(b), lignes_lues)
+        if f and not _suite((t, b), f):
+            chiffree[tuple(b)] = f[1]
+    for b, f in chiffree.items():
+        if sum(abs(c[0] - b[0]) <= 0.3 * b[3] and abs(g[0] - f[0]) <= 0.5 * b[3]
+               for c, g in chiffree.items()) >= GRILLE:
+            rangee.add(b)
     # Interligne sous chaque ligne : écart avec la plus proche ligne lue
     # en dessous, de même largeur et de même corps.
     dessous = {}
@@ -1208,6 +1303,8 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
     if places:
         boites = [zones[l] for b, _ in places for l in b.lignes]
         mask = masque_couleur(bgr, boites)
+        effacees = {l for b, _ in places for l in b.lignes}
+        gardee = _proteger(mask, bgr, [l for _, l in lus if l not in effacees], boites)
         # Couleur et contour se mesurent sur le cœur des lettres : le halo
         # (bord adouci, pour l'effacement) tirerait la teinte vers le fond.
         coeur = masque_couleur(bgr, boites, halo=False)
@@ -1216,7 +1313,8 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
                    b.boite not in unies and _contour(bgr, coeur, b.boite)) for b, _ in places]
         t = time.monotonic()
         reste = max(fin - t, 1.0)
-        efface, choix = effacer(bgr, boites, budget_s=reste, mask=mask, limite_s=reste)
+        efface, choix = effacer(bgr, boites, budget_s=reste, mask=mask, limite_s=reste,
+                                gardee=gardee)
         complet = "telea (délai)" not in choix
         d["effacement"] = time.monotonic() - t
         dessin = Image.fromarray(cv2.cvtColor(efface, cv2.COLOR_BGR2RGB))
