@@ -17,7 +17,8 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from app.services.ocr_v2 import image as module
 from app.services.ocr_v2.detect import Mot
-from app.services.ocr_v2.image import ImageRefusee, blocs, lignes, placer, traduire_image, verifier
+from app.services.ocr_v2.image import (ImageRefusee, blocs, couper_colonnes, lignes, placer,
+                                       traduire_image, verifier)
 
 POLICE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fonts",
                       "montserrat-Regular.ttf")
@@ -133,6 +134,21 @@ def cas_blocs():
     deux = [("Copper", (457, 1652, 104, 40)), ("Calcium", (456, 1694, 105, 38)),
             ("6.0 (estimated)", (1362, 1695, 198, 39))]
     assert "Copper Calcium" in [b.texte for b in blocs(deux)], [b.texte for b in blocs(deux)]
+    # T1/T2 (b3374) : deux cases lues d'un seul tenant, séparées par un vrai
+    # blanc, sont coupées au bord de colonne ; une phrase (espaces étroits) non.
+    tab = [("Zinc", (10, 0, 60, 40)), ("Zinc Sulfate", (200, 0, 150, 40)),
+           ("ManganeseManganese Gluconate", (10, 60, 450, 40)),
+           ("Copper", (10, 120, 80, 40)), ("Copper Gluconate", (200, 120, 180, 40)),
+           ("Calcium", (10, 180, 90, 40)), ("CCM", (200, 180, 50, 40))]
+    page = np.full((240, 500, 3), 255, np.uint8)
+    page[65:95, 10:140] = page[65:95, 200:460] = 0
+    coupe = couper_colonnes(tab, page)
+    assert ("Manganese", (10, 60, 130, 40)) in coupe, coupe
+    assert ("Manganese Gluconate", (200, 60, 260, 40)) in coupe, coupe
+    page[65:95, 10:460] = 0
+    page[65:95, 50:460:50] = 255  # espaces de 1 px entre les mots : une phrase
+    assert couper_colonnes(tab, page) == tab
+    assert couper_colonnes(tab) == tab  # sans image, rien n'est coupé
     # Une puce ouvre un bloc, même à hauteur égale.
     liste = [("1. 電源を切る", (40, 10, 300, 36)), ("2. 弁を閉じる", (40, 50, 300, 39)),
              ("・圧力を確認", (40, 92, 300, 39))]

@@ -38,11 +38,13 @@ Clore T3 (rangée de tableau) et `_proteger` (effacement qui n'entame plus une l
        vu avec scratchpad 64aa…/fsr.py). Défaut de choix de méthode, préexistant : choix A (14/11), classé niveau 2
        (« tache fsr entre deux traits »). Tests ocr_v2 (5 scripts) OK. Rejeu public → 64aa…/protD(.txt),
        banc interne → 64aa…/protI : FAIT. Interne identique ; public 26 cas changent, tous en gain sauf tache a2a3 (classée).
-       Registre à jour. PROCHAIN : accord utilisateur pour commit (T3 + _proteger + _fond_sous + test), puis T1/T2.
+       Registre à jour. COMMITÉ (8408549).
+   [~] T1/T2 : `couper_colonnes` (image.py, avant `blocs`, appelé avant `_symboles`) + test. 98 cas : 4 changent, tous
+       en gain (3faab, b3374, c0ed, fd411) ; interne identique ; tests ocr_v2 OK. PROCHAIN : accord commit, puis T4.
    Traits de tableau troués à l'effacement (a2a3) : cause B, garder sa place dans l'ordre prévu (décidé 14/11).
    Après chaque traitement : sur chaque image concernée, lister TOUS les défauts visibles (même hors sujet),
    en précisant pour chacun s'il est déjà dans la liste (où) ou nouveau.
-   [ ] T1/T2 → T4 → fiche F1/F2/F4 → colonne G1+F3+G2 → G3–G5 (docs/etude-defauts-colonnes.md).
+   [ ] T4 → fiche F1/F2/F4 → colonne G1+F3+G2 → G3–G5 (docs/etude-defauts-colonnes.md).
    Ensuite niveau 1 suite (2bis ancrage, D chevauchements/nombres coupés, B bandeaux, ligne effacée vide),
    niveau 2 aspect, niveau 3 finition.
 5. [ ] Rejeu complet + banc interne + tests.

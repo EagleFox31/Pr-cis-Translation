@@ -383,6 +383,103 @@ def _liste(lignes_lues):
     return pris
 
 
+COUPE_PRES = 1.5         # × hauteur : écart toléré entre la coupure estimée et le bord de colonne
+BLANC_CASE = 0.5         # × hauteur : blanc minimal entre deux cases lues d'un seul tenant
+_COUPURE = re.compile(r" (?=\S)|(?<=[a-z])(?=[A-Z])")   # espace, ou minuscule→Majuscule
+
+
+def _bords(lignes_lues):
+    """T1 — bords de colonne : bord gauche partagé par au moins `GRILLE`
+    lignes de rangées différentes. Renvoie {bord: [boîtes]}."""
+    bords = {}
+    for _, b in sorted(lignes_lues, key=lambda l: l[1][0]):
+        for x in bords:
+            if abs(b[0] - x) <= 0.3 * b[3]:
+                bords[x].append(tuple(b))
+                break
+        else:
+            bords[b[0]] = [tuple(b)]
+    return {x: bs for x, bs in bords.items() if len(bs) >= GRILLE}
+
+
+def _meme_rangee(a, b):
+    return min(a[1] + a[3], b[1] + b[3]) - max(a[1], b[1]) > 0.5 * min(a[3], b[3])
+
+
+def _blancs(gris, boite):
+    """Colonnes sans encre (Otsu) à l'intérieur de la boîte : [(début, fin)]."""
+    x, y, w, h = boite
+    z = gris[y:y + h, x:x + w]
+    if z.size == 0:
+        return []
+    _, bw = cv2.threshold(z, 0, 1, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    encre = bw.sum(0) > 0
+    out, i = [], 0
+    while i < len(encre):
+        j = i
+        while j < len(encre) and not encre[j]:
+            j += 1
+        if j > i and i > 0 and j < len(encre):
+            out.append((x + i, x + j))
+        i = j + 1 if j == i else j
+    return out
+
+
+def couper_colonnes(lignes_lues, bgr=None):
+    """T2 — une ligne lue qui franchit un bord de colonne de tableau est coupée
+    à ce bord (« ManganeseManganese Gluconate » → « Manganese » |
+    « Manganese Gluconate »). Le tableau est confirmé : la ligne part d'un bord
+    A, le bord franchi E et A ont au moins `GRILLE` rangées en commun, la ligne
+    a le corps de la colonne A et touche la grille (à 2 hauteurs près). Il faut
+    un blanc d'au moins `BLANC_CASE` hauteur dans l'image, à moins de
+    `COUPE_PRES` hauteurs avant E (un espace entre deux mots d'une phrase est
+    bien plus étroit), et une coupure du texte (espace ou minuscule→Majuscule)
+    estimée au prorata des caractères à moins de `COUPE_PRES` hauteurs de ce
+    blanc ; les deux morceaux s'arrêtent au blanc. Sans image, rien n'est coupé."""
+    out = [(t, tuple(b)) for t, b in lignes_lues]
+    if bgr is None:
+        return out
+    gris = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY) if bgr.ndim == 3 else bgr
+    for _ in range(len(out)):
+        bords = _bords(out)
+        for n, (t, (x, y, w, h)) in enumerate(out):
+            a = next((bx for bx in bords if (x, y, w, h) in bords[bx]), None)
+            if a is None:
+                continue
+            coupe = None
+            for e in sorted(bords):
+                if not x + h < e < x + w - h:
+                    continue
+                col_a = [c for c in bords[a] if c != (x, y, w, h)]
+                communs = [c for c in col_a if any(_meme_rangee(c, d) for d in bords[e])]
+                if len(communs) < GRILLE:
+                    continue
+                if abs(h - np.median([c[3] for c in communs])) > MEME_HAUTEUR * h:
+                    continue
+                haut, bas = min(c[1] for c in communs), max(c[1] + c[3] for c in communs)
+                if y + h < haut - 2 * h or y > bas + 2 * h:
+                    continue
+                blancs = [(g1 - g0, g0, g1) for g0, g1 in _blancs(gris, (x, y, w, h))
+                          if g1 - g0 >= BLANC_CASE * h and e - COUPE_PRES * h <= g1 and g0 <= e + 0.5 * h]
+                if not blancs:
+                    continue
+                _, g0, g1 = max(blancs)
+                cands = [(abs(x + w * i / len(t) - (g0 + g1) / 2), i) for i in
+                         (m.start() if m.group() == "" else m.start() + 1 for m in _COUPURE.finditer(t))]
+                cands = [(d, i) for d, i in cands if d <= COUPE_PRES * h and 0 < i < len(t)]
+                if cands:
+                    coupe = (g0, g1, min(cands)[1])
+                    break
+            if coupe:
+                g0, g1, i = coupe
+                gauche, droite = t[:i].rstrip(), t[i:].lstrip()
+                out[n:n + 1] = [(gauche, (x, y, g0 - x, h)), (droite, (g1, y, x + w - g1, h))]
+                break
+        else:
+            return out
+    return out
+
+
 def blocs(lignes_lues, couleurs=None, puces=(), bgr=None):
     """Regroupe les lignes voisines (même hauteur et couleur, empilées,
     recouvrement) ; une ligne qui commence par une puce, lue ou dessinée
@@ -1240,6 +1337,7 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
             t = time.monotonic()
             lus = lignes(_lire(lecteur, bgr, max(fin - t, 1.0)))
             d["lecture"] = time.monotonic() - t
+    lus = couper_colonnes(lus, bgr)
     puces = _symboles(lus, bgr)
     zones = {b: _elargie(b, bgr) for _, b in lus}
     for b, bord in puces.items():  # le symbole dessiné n'est pas effacé
