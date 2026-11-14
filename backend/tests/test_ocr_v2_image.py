@@ -149,6 +149,19 @@ def cas_blocs():
     page[65:95, 50:460:50] = 255  # espaces de 1 px entre les mots : une phrase
     assert couper_colonnes(tab, page) == tab
     assert couper_colonnes(tab) == tab  # sans image, rien n'est coupé
+    # T4 (b3374) : l'en-tête, sur une rangée de cases sans valeur, ne se fond
+    # pas dans la 1re case chiffrée en dessous ; sans rangée d'en-tête, si.
+    tete = [("Ingredient.", (450, 1414, 150, 46)), ("CCM Plus Trace Minerais", (660, 1414, 342, 46)),
+            ("Current Products", (1049, 1414, 230, 46)), ("Zinc Sulfate", (656, 1460, 163, 46)),
+            ("42", (1345, 1462, 39, 40))]
+    rangs = [("Manganese Gluconate", (654, 1576, 295, 39)), ("2.6", (1360, 1576, 47, 41)),
+             ("Copper Gluconate", (656, 1654, 241, 40)), ("8.3", (1360, 1653, 48, 42))]
+    textes = [b.texte for b in blocs(tete + rangs)]
+    assert "CCM Plus Trace Minerais" in textes and "Zinc Sulfate" in textes, textes
+    # Une seule rangée sous l'en-tête (en-tête sur deux lignes « DATE OF / INVOICE ») : liés.
+    assert "CCM Plus Trace Minerais Zinc Sulfate" in [b.texte for b in blocs(tete)]
+    seul = [tete[1], tete[3], tete[4]] + rangs
+    assert "CCM Plus Trace Minerais Zinc Sulfate" in [b.texte for b in blocs(seul)]
     # Une puce ouvre un bloc, même à hauteur égale.
     liste = [("1. 電源を切る", (40, 10, 300, 36)), ("2. 弁を閉じる", (40, 50, 300, 39)),
              ("・圧力を確認", (40, 92, 300, 39))]

@@ -507,6 +507,12 @@ def blocs(lignes_lues, couleurs=None, puces=(), bgr=None):
         if sum(abs(c[0] - b[0]) <= 0.3 * b[3] and abs(g[0] - f[0]) <= 0.5 * b[3]
                for c, g in chiffree.items()) >= GRILLE:
             rangee.add(b)
+    # T4 — rangée d'en-tête : ligne sans valeur en face, posée sur une rangée
+    # d'au moins `GRILLE` cases (lignes côte à côte, disjointes). Au-dessus
+    # d'une colonne de rangées chiffrées (même bord gauche), elle reste à part.
+    entete = {tuple(b) for _, b in lignes_lues if tuple(b) not in rangee
+              and sum(_meme_rangee(b, l) and (l[0] >= b[0] + b[2] or l[0] + l[2] <= b[0])
+                      for _, l in lignes_lues) >= GRILLE - 1}
     # Interligne sous chaque ligne : écart avec la plus proche ligne lue
     # en dessous, de même largeur et de même corps.
     dessous = {}
@@ -534,6 +540,9 @@ def blocs(lignes_lues, couleurs=None, puces=(), bgr=None):
                 continue
             if tuple(b) in rangee and tuple(bl.lignes[-1]) in rangee:
                 continue  # deux rangées d'un tableau, chacune avec sa valeur
+            if (tuple(b) in rangee and tuple(bl.lignes[-1]) in entete
+                    and sum(abs(r[0] - x) <= 0.3 * h for r in rangee) >= GRILLE):
+                continue  # en-tête au-dessus d'une colonne d'au moins 3 rangées
             if not _CJK.search(texte + avant) and not avant.rstrip().endswith(("-", "‐")):
                 # Retour à la ligne : le 1er mot de la ligne n'aurait pas tenu au bout
                 # de la précédente, dans la largeur du bloc. S'il y tenait, ce sont
