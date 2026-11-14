@@ -41,12 +41,13 @@ Clore T3 (rangée de tableau) et `_proteger` (effacement qui n'entame plus une l
        Registre à jour. COMMITÉ (8408549).
    [~] T1/T2 : `couper_colonnes` (image.py, avant `blocs`, appelé avant `_symboles`) + test. 98 cas : 4 changent, tous
        en gain (3faab, b3374, c0ed, fd411) ; interne identique ; tests ocr_v2 OK. COMMITÉ (33fde87).
-   [~] T4 : ensemble `entete` dans `blocs()` + test. Seul b3374 change (gain) ; interne identique ; tests OK.
-       PROCHAIN : accord commit, puis fiche F1/F2/F4.
+   [x] T4 : ensemble `entete` dans `blocs()` + test. Seul b3374 change (gain). COMMITÉ (919361b).
+   [x] F1/F2 : `haut` et `champ` dans `blocs()` + test. 848b et 70ced changent (gains) ; interne identique. COMMITÉ.
+       PROCHAIN : F4 (vérifier si `_proteger` le couvre déjà), puis colonne G1+F3+G2.
    Traits de tableau troués à l'effacement (a2a3) : cause B, garder sa place dans l'ordre prévu (décidé 14/11).
    Après chaque traitement : sur chaque image concernée, lister TOUS les défauts visibles (même hors sujet),
    en précisant pour chacun s'il est déjà dans la liste (où) ou nouveau.
-   [ ] fiche F1/F2/F4 → colonne G1+F3+G2 → G3–G5 (docs/etude-defauts-colonnes.md).
+   [ ] F4 → colonne G1+F3+G2 → G3–G5 (docs/etude-defauts-colonnes.md).
    Ensuite niveau 1 suite (2bis ancrage, D chevauchements/nombres coupés, B bandeaux, ligne effacée vide),
    niveau 2 aspect, niveau 3 finition.
 5. [ ] Rejeu complet + banc interne + tests.

@@ -162,6 +162,21 @@ def cas_blocs():
     assert "CCM Plus Trace Minerais Zinc Sulfate" in [b.texte for b in blocs(tete)]
     seul = [tete[1], tete[3], tete[4]] + rangs
     assert "CCM Plus Trace Minerais Zinc Sulfate" in [b.texte for b in blocs(seul)]
+    # F1 : libellé sur deux lignes, un seul bloc ; F2 : l'adresse en face garde ses sauts.
+    fiche = [("CASE TYPE:", (116, 323, 70, 15)), ("Asbestos", (244, 323, 44, 15)),
+             ("PLAINTIFF'S", (116, 350, 73, 15)), ("COUNSEL:", (116, 364, 61, 14)),
+             ("Wartnick, Chaber, Harowitz, Smith & Tigerman", (244, 363, 241, 16)),
+             ("Stephen M. Tigerman", (243, 378, 104, 13)),
+             ("101 California Street, Suite 2200", (243, 391, 161, 13)),
+             ("San Francisco, California 94111", (241, 403, 164, 17))]
+    textes = [b.texte for b in blocs(fiche)]
+    assert textes == ["CASE TYPE:", "Asbestos", "PLAINTIFF'S COUNSEL:",
+                      "Wartnick, Chaber, Harowitz, Smith & Tigerman", "Stephen M. Tigerman",
+                      "101 California Street, Suite 2200", "San Francisco, California 94111"], textes
+    # Valeur sur deux lignes dont la seconde poursuit la phrase : un seul bloc.
+    suite = [("NOTE:", (116, 323, 40, 15)), ("Filed with the court and", (244, 323, 150, 15)),
+             ("served on all parties", (244, 340, 130, 15))]
+    assert [b.texte for b in blocs(suite)][-1] == "Filed with the court and served on all parties"
     # Une puce ouvre un bloc, même à hauteur égale.
     liste = [("1. 電源を切る", (40, 10, 300, 36)), ("2. 弁を閉じる", (40, 50, 300, 39)),
              ("・圧力を確認", (40, 92, 300, 39))]

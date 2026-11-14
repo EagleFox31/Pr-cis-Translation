@@ -523,14 +523,46 @@ def blocs(lignes_lues, couleurs=None, puces=(), bgr=None):
         if e:
             dessous[(x, y, w, h)] = min(e)
     liste = _liste(lignes_lues)
+    # Valeur d'un champ : un libellé « To: » la précède sur la même rangée.
+    valeurs = {tuple(b) for _, b in lignes_lues
+               if any(_LIBELLE.match(t) and lx + lw <= b[0] + 0.2 * b[3]
+                      and min(ly + lh, b[1] + b[3]) - max(ly, b[1]) > 0.5 * min(lh, b[3])
+                      for t, (lx, ly, lw, lh) in lignes_lues)}
+    # F2 — une valeur et les lignes empilées dessous au même bord gauche
+    # (adresse : nom, cabinet, rue, ville) gardent chacune leur saut de ligne.
+    champ = set()
+    for _, b in sorted(lignes_lues, key=lambda l: l[1][1]):
+        x, y, w, h = b
+        if tuple(b) in valeurs or any(
+                abs(x - c[0]) <= MEME_BORD * h and -0.3 * h < y - c[1] - c[3] < 0.8 * h
+                and abs(h - c[3]) <= 2 * MEME_HAUTEUR * max(h, c[3]) for c in champ):
+            champ.add(tuple(b))
+    # F1 — libellé sur deux lignes (« PLAINTIFF'S » / « COUNSEL: ») : la ligne
+    # du dessus, courte, sans « : » ni rien en face, au même bord gauche et à
+    # interligne serré, forme avec lui un seul libellé.
+    haut = {}
+    for t, b in lignes_lues:
+        if not _LIBELLE.match(t):
+            continue
+        for ta, a in lignes_lues:
+            if (not _LIBELLE.match(ta) and not _NOMBRE.match(ta) and len(ta.split()) <= 3
+                    and abs(a[0] - b[0]) <= MEME_BORD * b[3]
+                    and -0.3 * b[3] < b[1] - a[1] - a[3] < 0.3 * b[3]
+                    and abs(a[3] - b[3]) <= 2 * MEME_HAUTEUR * max(a[3], b[3])
+                    and not any(_meme_rangee(a, l) and l[0] >= a[0] + a[2] for _, l in lignes_lues)):
+                haut[tuple(b)] = tuple(a)
     for n, (texte, b) in enumerate(lignes_lues):
         x, y, w, h = b
         lu[tuple(b)] = texte
         c = np.array(couleurs[n], float) if couleurs else None
-        # Valeur d'un champ : un libellé « To: » la précède sur la même rangée.
-        valeur = any(_LIBELLE.match(t) and lx + lw <= x + 0.2 * h
-                     and min(ly + lh, y + h) - max(ly, y) > 0.5 * min(lh, h)
-                     for t, (lx, ly, lw, lh) in lignes_lues)
+        dessus = next((bl for bl in out if len(bl.lignes) == 1
+                       and tuple(bl.lignes[0]) == haut.get(tuple(b))), None)
+        if dessus is not None:
+            dessus.lignes.append(b)
+            dessus.texte = _joindre([dessus.texte, texte])
+            dessus.boite = _union(dessus.lignes)
+            continue
+        valeur = tuple(b) in valeurs
         seule = (_PUCE.match(texte) or b in puces or _LIBELLE.match(texte)
                  or _NOMBRE.match(texte) or valeur or tuple(b) in liste)
         for bl, tb in zip([] if seule else out, teintes):
@@ -543,6 +575,10 @@ def blocs(lignes_lues, couleurs=None, puces=(), bgr=None):
             if (tuple(b) in rangee and tuple(bl.lignes[-1]) in entete
                     and sum(abs(r[0] - x) <= 0.3 * h for r in rangee) >= GRILLE):
                 continue  # en-tête au-dessus d'une colonne d'au moins 3 rangées
+            if (tuple(b) in champ and tuple(bl.lignes[-1]) in champ
+                    and not _CJK.search(texte + avant) and not texte.lstrip()[:1].islower()
+                    and not avant.rstrip().endswith(("-", "‐"))):
+                continue  # ligne d'adresse : une suite de phrase commencerait en minuscule
             if not _CJK.search(texte + avant) and not avant.rstrip().endswith(("-", "‐")):
                 # Retour à la ligne : le 1er mot de la ligne n'aurait pas tenu au bout
                 # de la précédente, dans la largeur du bloc. S'il y tenait, ce sont
