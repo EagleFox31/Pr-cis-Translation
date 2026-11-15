@@ -175,3 +175,9 @@ Mission F terminée (PR #75). En attente de fusion par l'utilisateur : #70, puis
 - Prod : `current -> app-9ffd5b41154b`, API `version 1.8.0`, migration `0024_nouveautes`, db non recréée, `/health` `/tarifs` `/sitemap.xml` 200.
 - `shared/backend.env` : ajout de `SMTP_FROM` et `SMTP_REPLY_TO` (fournies par Ibrahim, pas des secrets) ; sauvegarde `backend.env.bak-20261115-2126` ; sauvegarde DB `backups/pre-release-20261115-2047.dump`.
 - Restant : disque VPS à 83 % (images inutilisées ~10 Go à revoir) ; garder une copie chiffrée de `shared/backend.env` hors VPS ; EC2 i-0ce97ff971dd343b2 à arrêter ; Ibrahim doit `git pull` avant de repousser.
+
+## 2026-11-15 22:44 — Garde-fou disque et faux retour arrière du déploiement VPS
+- `deploy/vps/remote-deploy.sh` : refus avant toute écriture sous `PRECIS_MIN_FREE_GB` Go libres (défaut 5, chemins `PRECIS_DISK_PATHS`, défaut `$BASE /var/lib/docker`), code 73, propose `docker builder prune` sans le lancer.
+- Échec de build : lien `current` restauré, santé vérifiée, plus de `up --build` de l'ancienne version (cause du faux « intervention requise » de la 1.8.0). Retour arrière complet seulement après échec de `up`/santé.
+- Test : `bash scripts/ci/test-vps-remote-deploy.sh` (doublures, sans Docker), branché dans le job CI `production-deploy`.
+- Restant : VPS non touché. Après fusion, réinstaller à la main `bin/deploy.sh` depuis `deploy/vps/remote-deploy.sh` (hors du flux de déploiement, voir 2026-11 ci-dessus), sinon le garde-fou n'est pas actif. Pour changer le seuil : `environment="PRECIS_MIN_FREE_GB=…"` dans `authorized_keys` (exige `PermitUserEnvironment`) ou wrapper `bin/deploy.sh`.
