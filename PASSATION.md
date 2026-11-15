@@ -167,3 +167,11 @@ Mission F terminée (PR #75). En attente de fusion par l'utilisateur : #70, puis
 - Résolution poussée sur `integration/main-1.7` (55779b5) puis `feat/connexion-extension-site` (c6d7e10) : état d'Ibrahim (sections 1 à 5) + journal daté complet. #70 et #71 : MERGEABLE.
 - Leçon ajoutée dans `docs/engineering/lessons-learned.md`.
 - Restant : CI de #70/#71 à surveiller ; relecture puis fusion de #70 ; EC2 i-0ce97ff971dd343b2 à arrêter après stabilité.
+
+## 2026-11-15 22:30 — Release 1.8.0 livrée sur le VPS
+- Fusionnées (merge commits) : #70 eac8aba, #71 407acac, #75 8f264a8, #76 dfe86e5. Puis #78 (Release Please monte aussi `VERSION` de `nouveautes.py` et `frontend/seo/fonctionnalites.json`) et #77 (release 1.8.0, tag v1.8.0).
+- PR de release : ouverte à la main (Actions ne peut pas créer de PR) ; le push du bot ne déclenche pas la CI, lancer `gh workflow run ci.yml --ref release-please--branches--main--components--precis-translator`.
+- Premier déploiement en échec : disque du VPS plein (399 Mo libres). Prod restée sur 865e40a, intacte. Libéré avec accord : `docker builder prune`, images orphelines (~4 Go). Relance du job : succès.
+- Prod : `current -> app-9ffd5b41154b`, API `version 1.8.0`, migration `0024_nouveautes`, db non recréée, `/health` `/tarifs` `/sitemap.xml` 200.
+- `shared/backend.env` : ajout de `SMTP_FROM` et `SMTP_REPLY_TO` (fournies par Ibrahim, pas des secrets) ; sauvegarde `backend.env.bak-20261115-2126` ; sauvegarde DB `backups/pre-release-20261115-2047.dump`.
+- Restant : disque VPS à 83 % (images inutilisées ~10 Go à revoir) ; garder une copie chiffrée de `shared/backend.env` hors VPS ; EC2 i-0ce97ff971dd343b2 à arrêter ; Ibrahim doit `git pull` avant de repousser.

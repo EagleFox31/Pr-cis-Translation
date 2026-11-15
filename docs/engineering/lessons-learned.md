@@ -63,3 +63,11 @@ Mémoire des incidents et quasi-incidents. Consulter avant de toucher une zone c
 - **Résolution** : broker appfactory #153 (délégation du workflow de `main`), #72 (sync sautée hors `main`), rejeu du run 42788870679 vert ; conflit résolu en gardant l'état d'Ibrahim (sections 1 à 5) puis le journal daté complet de `main`, sur `integration/main-1.7` et `feat/connexion-extension-site`.
 - **Prévention vérifiable** : les PR ciblent `main` (sinon ni sync Project ni CI complète) ; une PR qui retire des entrées datées de `PASSATION.md` est refusée en relecture (`git diff main -- PASSATION.md` ne doit montrer que des ajouts sous les sections d'état).
 - **Leçon** : un fichier « en ajout seulement » partagé entre branches ne se réécrit pas en entier ; on met à jour l'état en tête, on n'efface jamais le journal.
+
+## 2026-11-15 — Release 1.8.0 : version codée en dur, puis disque VPS plein
+- **Contexte** : la PR de release 1.8.0 échouait sur `test_version_alignee` ; une fois corrigée, le premier déploiement VPS échouait en `npm ci` / extraction de couche.
+- **Cause racine** : (1) `VERSION` et l'instantané SEO recopiaient la version de `package.json` sans être déclarés à Release Please ; (2) disque partagé à 99 %, cache de build Docker jamais purgé (~4 Go).
+- **Classification** : configuration de release incomplète ; capacité d'hôte non surveillée.
+- **Résolution** : `extra-files` dans `release-please-config.json` (#78) ; purge du cache de build et des images orphelines, relance du job.
+- **Prévention vérifiable** : `test_version_suivie_par_release_please` ; avant un déploiement VPS, vérifier `df -h /` (≥ 5 Go libres) — à automatiser dans `remote-deploy.sh` (refus explicite plutôt qu'échec en plein build).
+- **Leçon** : toute copie d'une donnée versionnée doit être soit dérivée au build, soit déclarée à l'outil de release ; un hôte partagé a besoin d'un garde-fou de capacité avant chaque build.
