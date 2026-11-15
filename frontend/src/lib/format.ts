@@ -41,6 +41,33 @@ export function formatDate(iso: string, locale: string): string {
   });
 }
 
+/**
+ * Date courte pour une ligne de liste : relative sous 24 h (« il y a 2 h »),
+ * puis « 3 nov. », puis « 3 nov. 2025 » hors de l'année en cours.
+ * `now` est le libellé de « à l'instant » (traduit par l'appelant) ; la date
+ * complète reste disponible via `formatDate` pour l'infobulle.
+ *
+ * Les durées sont tronquées (jamais arrondies à l'unité supérieure) : 23 h 40
+ * donne « il y a 23 heures », pas « il y a 24 heures » juste avant de basculer
+ * sur la date.
+ */
+export function formatRelative(iso: string, locale: string, now: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const ecart = Date.now() - d.getTime();
+  if (ecart < 24 * 3600 * 1000) {
+    const minutes = Math.floor(ecart / 60000);
+    if (minutes < 1) return now;
+    const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+    if (minutes < 60) return rtf.format(-minutes, 'minute');
+    return rtf.format(-Math.floor(minutes / 60), 'hour');
+  }
+  const memeAnnee = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString(locale, memeAnnee
+    ? { day: 'numeric', month: 'short' }
+    : { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
 /** Pourcentage borné à [0, 100] — jamais une barre qui déborde. */
 export function percent(part: number, total: number): number {
   if (!total || total <= 0) return 0;

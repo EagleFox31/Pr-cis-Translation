@@ -11,9 +11,35 @@ import os
 import re
 import shutil
 import threading
+from datetime import datetime, timedelta, timezone
 
 from app.config import TRANSLATIONS_DIR, logger
 from app.core.files import pages_token
+from app.models.plans import get_plan_storage
+
+# Sans stockage inclus, un document reste accessible ce temps après sa
+# traduction ; ensuite il est ARCHIVÉ : listé, grisé, jamais effacé, et rouvert
+# dès que le compte passe à un forfait avec stockage (étude Nouveautés §11).
+ACCES_SANS_STOCKAGE = timedelta(days=30)
+
+
+def acces_jusqu_au(user, doc) -> datetime | None:
+    """Fin de l'accès à CE document, ou `None` si l'accès est illimité."""
+    if get_plan_storage(user.plan) > 0 or doc.created_at is None:
+        return None
+    debut = doc.created_at
+    if debut.tzinfo is None:                 # SQLite rend des dates naïves
+        debut = debut.replace(tzinfo=timezone.utc)
+    return debut + ACCES_SANS_STOCKAGE
+
+
+def acces_archive(user, doc, maintenant: datetime | None = None) -> bool:
+    """Le document est-il archivé (listé mais plus ouvrable) pour ce compte ?
+    Une traduction en cours ne l'est jamais."""
+    if doc.status == "translating":
+        return False
+    fin = acces_jusqu_au(user, doc)
+    return fin is not None and (maintenant or datetime.now(timezone.utc)) >= fin
 
 WORDS_PER_PAGE = 500
 

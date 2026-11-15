@@ -35,7 +35,7 @@ export default function BibliothequeHote({ isOpen, onClose }: { isOpen: boolean;
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { refreshUser } = useAuth();
-  const { documents, refresh, getBlob, getOriginalBlob, deleteDocument, clearAll } = useDocumentLibrary();
+  const { documents, charge, erreur, refresh, getBlob, getOriginalBlob, deleteDocument, clearAll } = useDocumentLibrary();
 
   const versAccueil = useCallback((action: 'apercu' | 'relance', docId: string) => {
     const state: DemandeBibliotheque = { bibliotheque: { action, docId } };
@@ -58,6 +58,9 @@ export default function BibliothequeHote({ isOpen, onClose }: { isOpen: boolean;
       isOpen={isOpen}
       onClose={onClose}
       documents={documents}
+      loading={!charge}
+      erreur={erreur}
+      onRefresh={refresh}
       onPreview={(req) => {
         sourceEnAttente = { docId: req.docId, source: req.source };
         versAccueil('apercu', req.docId);

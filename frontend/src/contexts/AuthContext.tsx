@@ -16,6 +16,10 @@ export interface AuthUser {
   plan_expires_at?: string | null;
   storage_used: number;
   storage_limit: number;
+  /** Abonnement aux e-mails de nouveautés. */
+  abonne_nouveautes?: boolean;
+  /** Dernier passage sur les nouveautés (ISO) ; null = jamais. */
+  nouveautes_vues_le?: string | null;
 }
 
 interface AuthState {

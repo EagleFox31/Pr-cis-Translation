@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import time
+import unicodedata
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import Response
@@ -23,6 +25,7 @@ from app.services.beta_meter import BetaCost
 from app.models.plans import get_plan_priority
 from app.services.scheduler import scheduler_scans
 from app.services.documents import copie_du_document as _copie_du_document, copie_prevue as _copie_prevue
+from app.services.documents import acces_archive, acces_jusqu_au
 from app.services.documents import (chemin_traduction_du_document, pages_selectionnees,
                                     reglages_de, traduction_partielle_du_document)
 from app.services.jobs import STATUTS_ARRET, STATUTS_REPRENABLES, jobs
@@ -32,6 +35,18 @@ from app.core.database import get_db
 from app.models import User, Document, is_paid_plan
 from app.core.security import require_auth
 from app.services.trial_preview import rasterize_for_trial
+
+
+def _piece_jointe(nom: str) -> str:
+    """En-tête Content-Disposition sûr pour tout nom de fichier.
+
+    Un en-tête HTTP est encodé en latin-1 : un nom avec « — », de l'arabe ou du
+    chinois y faisait échouer le téléchargement (500). Le nom exact passe par
+    `filename*` (RFC 6266) ; `filename` garde un repli ASCII sans guillemets.
+    """
+    repli = unicodedata.normalize("NFKD", nom).encode("ascii", "ignore").decode()
+    repli = repli.replace('"', "").replace("\\", "").strip() or "document"
+    return f"attachment; filename=\"{repli}\"; filename*=UTF-8''{quote(nom, safe='')}"
 
 router = APIRouter(prefix="/api/documents", tags=["Documents"])
 
@@ -245,6 +260,13 @@ async def _traduction(db: AsyncSession, doc: Document) -> tuple[str | None, set[
     return partielle or (None, None)
 
 
+def _exiger_acces(user: User, doc: Document) -> None:
+    """403 `stockage_requis` sur un document archivé (forfait sans stockage,
+    plus de 30 jours) : il reste listé et supprimable, plus ouvrable."""
+    if acces_archive(user, doc):
+        raise HTTPException(status_code=403, detail="stockage_requis")
+
+
 def _may_read_clear(user: User, doc: Document) -> bool:
     """A-t-on le droit de voir CE document en clair (et de le télécharger) ?
 
@@ -284,7 +306,8 @@ def _suivi_scan(doc: Document) -> dict:
             "pages_relues": len(en_cours)}
 
 
-def _doc_response(doc: Document) -> dict:
+def _doc_response(doc: Document, user: User) -> dict:
+    fin = acces_jusqu_au(user, doc)
     return {
         **_suivi_scan(doc),
         "id": doc.id,
@@ -302,6 +325,8 @@ def _doc_response(doc: Document) -> dict:
         "job_id": jobs.id_for_document(doc.id) if doc.status == "translating" else None,
         "created_at": doc.created_at.isoformat() if doc.created_at else None,
         "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
+        "archive": acces_archive(user, doc),
+        "acces_jusqu_au": fin.isoformat() if fin else None,
     }
 
 
@@ -321,7 +346,7 @@ async def list_documents(
     result = await db.execute(stmt)
     docs = result.scalars().all()
     # Lit les pages illisibles sur disque : hors de la boucle.
-    return await run_in_threadpool(lambda: [_doc_response(d) for d in docs])
+    return await run_in_threadpool(lambda: [_doc_response(d, user) for d in docs])
 
 
 # ── GET /documents/{id} ─────────────────────────────────────────────────────
@@ -336,7 +361,7 @@ async def get_document(
     doc = await db.get(Document, doc_id)
     if doc is None or doc.user_id != user.id:
         raise HTTPException(status_code=404, detail="Document introuvable.")
-    return _doc_response(doc)
+    return _doc_response(doc, user)
 
 
 # ── GET /documents/{id}/download ─────────────────────────────────────────────
@@ -361,6 +386,7 @@ async def download_document(
     doc = await db.get(Document, doc_id)
     if doc is None or doc.user_id != user.id:
         raise HTTPException(status_code=404, detail="Document introuvable.")
+    _exiger_acces(user, doc)
 
     trad, livrables = await _traduction(db, doc)
     # Liste d'AUTORISATION : un plan inconnu est traité comme non payant.
@@ -379,7 +405,7 @@ async def download_document(
             raise HTTPException(status_code=404, detail="Le fichier n'est plus disponible. Réessayez ou rechargez la page.")
         data = await run_in_threadpool(_lire, doc.original_path)
         return Response(content=data, media_type="application/octet-stream",
-                        headers={"Content-Disposition": f'attachment; filename="{doc.original_name}"'})
+                        headers={"Content-Disposition": _piece_jointe(doc.original_name)})
 
     # `translated_path` désigne la TRADUCTION stockée (JSON), pas un rendu.
     #
@@ -421,7 +447,7 @@ async def download_document(
     dl_name = f"{base}_TRADUIT{'_PARTIEL' if livrables is not None else ''}.{ext}"
     media = "application/pdf" if ext == "pdf" else "application/octet-stream"
     return Response(content=data, media_type=media,
-                    headers={"Content-Disposition": f'attachment; filename="{dl_name}"'})
+                    headers={"Content-Disposition": _piece_jointe(dl_name)})
 
 
 # ── GET /documents/{id}/original ─────────────────────────────────────────────
@@ -460,6 +486,7 @@ async def original_document(
     doc = await db.get(Document, doc_id)
     if doc is None or doc.user_id != user.id:
         raise HTTPException(status_code=404, detail="Document introuvable.")
+    _exiger_acces(user, doc)
     if not doc.original_path or not os.path.isfile(doc.original_path):
         raise HTTPException(status_code=404, detail="Le fichier n'est plus disponible. Réessayez ou rechargez la page.")
     # Response explicite plutôt que FileResponse : évite les Range/206 qui
@@ -518,6 +545,7 @@ async def preview_document(
     doc = await db.get(Document, doc_id)
     if doc is None or doc.user_id != user.id:
         raise HTTPException(status_code=404, detail="Document introuvable.")
+    _exiger_acces(user, doc)
 
     ext = os.path.splitext(doc.original_name)[1].lstrip(".").lower()
 
@@ -677,6 +705,7 @@ async def _doc_traduit(db: AsyncSession, user: User, doc_id: str) -> Document:
     doc = await db.get(Document, doc_id)
     if doc is None or doc.user_id != user.id:
         raise HTTPException(status_code=404, detail="Document introuvable.")
+    _exiger_acces(user, doc)
     if not doc.translated_path or not os.path.isfile(doc.translated_path):
         raise HTTPException(status_code=404, detail="Ce document n'a pas de traduction disponible.")
     return doc

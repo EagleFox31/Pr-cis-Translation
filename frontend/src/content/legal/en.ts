@@ -1,6 +1,6 @@
 import type { LegalDoc } from './types';
 
-export const LEGAL_UPDATED = 'November 6, 2026';
+export const LEGAL_UPDATED = 'November 11, 2026';
 
 export const LEGAL_EN: LegalDoc[] = [
   {
@@ -247,6 +247,17 @@ export const LEGAL_EN: LegalDoc[] = [
           '"Active tab" and "script injection" permissions: read and replace the content of the active tab, only after you click the icon.',
           'Site access: requested for the site you are on only, the first time you click “Translate”; you can remove it at any time in the extension settings.',
           'Access to the Précis website: communicate with your account and our translation servers.',
+        ],
+      },
+      {
+        heading: '“What\'s new” emails',
+        paragraphs: [
+          'Receiving Précis news by email is optional: nothing is sent without your consent, and the service works the same way without it.',
+        ],
+        list: [
+          'Data used: your email address, your subscription choice and the date you last viewed the news, so that only what is new is shown to you.',
+          'Retention: as long as the account is active; the viewing date is simply replaced on each visit.',
+          'Unsubscribing: through the link included in every email, or with the “Email” switch on the “What\'s new” row of your account panel, at any time.',
         ],
       },
       {

@@ -1,7 +1,8 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
-import Navbar from '../components/navbar/Navbar';
+import { ArrowUp } from 'lucide-react';
+import AppBar from '../components/navbar/AppBar';
 import { prendreSource, type DemandeBibliotheque } from '../components/library/BibliothequeHote';
 import HeroSection from '../components/hero/HeroSection';
 import LanguageMarquee from '../components/hero/LanguageMarquee';
@@ -23,12 +24,15 @@ import {
 } from '../hooks/useStreamingTranslation';
 import { isTrialFor } from '../lib/plans';
 import { subscribeSection } from '../lib/sectionBus';
+import { splashTermine, surFinSplash } from '../lib/splash';
+import { openNouveautes } from '../components/nouveautes/nouveautesBus';
+import { useNouveautes } from '../hooks/useNouveautes';
 import { creerGesteMolette } from '../lib/molette';
 import type { TranslateConfig } from '../components/upload/TranslationSection';
 
 
 export default function Home() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [isAnnual, setIsAnnual] = useState(true);
   const [activeSection, setActiveSection] = useState('hero');
   const [showPreview, setShowPreview] = useState(false);
@@ -115,11 +119,11 @@ export default function Home() {
   } | null>(null);
 
   // ---- Traduction PROGRESSIVE (page par page) ----
-  const { user, refreshUser } = useAuth();
+  const { user, loading: authLoading, refreshUser } = useAuth();
   const stream = useStreamingTranslation(user?.plan === 'free');
 
   // ---- Document library ----
-  const { documents, charge: bibliothequeChargee, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal, getIllegiblePages, setIllegiblePages } = useDocumentLibrary();
+  const { documents, charge: bibliothequeChargee, erreur: bibliothequeErreur, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal, getIllegiblePages, setIllegiblePages } = useDocumentLibrary();
 
   // Les droits du document viennent du serveur ; une mise à jour de la
   // bibliothèque après paiement doit aussi débloquer l'aperçu déjà ouvert.
@@ -569,6 +573,15 @@ export default function Home() {
     document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth' });
   }, [showPreview, handleBack]);
 
+  // Section demandée depuis une autre page (menu commun) : on y défile à
+  // l'arrivée, puis l'état est effacé (un retour arrière ne la rejoue pas).
+  const sectionVisee = (location.state as { section?: string } | null)?.section;
+  useEffect(() => {
+    if (!sectionVisee) return;
+    navigate(location.pathname, { replace: true, state: null });
+    requestAnimationFrame(() => handleNavClick(sectionVisee));
+  }, [sectionVisee, navigate, location.pathname, handleNavClick]);
+
   // Même règle pour TOUT ce qui mène à une section, pas seulement la barre :
   // boutons « voir les forfaits » (`goToSection`) et liens `#section` de la
   // page. Un lien dont le composant gère déjà le clic (preventDefault) est
@@ -586,6 +599,84 @@ export default function Home() {
     document.addEventListener('click', onLink);
     return () => { off(); document.removeEventListener('click', onLink); };
   }, [showPreview, handleNavClick]);
+
+  // ---- Nouveautés : ouverture automatique, une fois par session ----
+  // Après l'écran de démarrage, sans traduction en cours ni autre fenêtre ouverte.
+  const { chargerAVoir, marquerVu } = useNouveautes();
+  const occupe = stream.isTranslating || !!suiviBiblio;
+  const occupeRef = useRef(occupe);
+  occupeRef.current = occupe;
+  const userId = user?.id ?? null;
+  const dejaVues = user?.nouveautes_vues_le ?? null;
+  const langue = i18n.language?.startsWith('en') ? 'en' : 'fr';
+  useEffect(() => {
+    if (authLoading) return;
+    // Une tentative par session ET par identité : ouvrir l'app sans compte ne
+    // doit pas empêcher la visite de s'ouvrir à la connexion qui suit.
+    const CLE_SESSION = `precis.nouveautes_session:${userId ?? 'invite'}`;
+    let annule = false;
+    let minuteur: number | undefined;
+    let offSplash: (() => void) | undefined;
+
+    const dejaFait = () => {
+      try { return !!sessionStorage.getItem(CLE_SESSION); } catch { return true; }
+    };
+    const marquer = () => {
+      try { sessionStorage.setItem(CLE_SESSION, '1'); } catch { /* sans stockage : une seule tentative par chargement */ }
+    };
+    const autreFenetre = () => !!document.querySelector('[role="dialog"][aria-modal="true"]');
+    const surPageExtension = () => window.location.pathname.startsWith('/extension');
+    if (dejaFait() || surPageExtension()) return;
+
+    const tenter = async () => {
+      if (annule || dejaFait()) return;
+      // Occupé ou autre fenêtre ouverte : on réessaie un peu plus tard.
+      if (occupeRef.current || autreFenetre()) {
+        minuteur = window.setTimeout(tenter, 1500);
+        return;
+      }
+      if (!userId) {
+        let vue = false;
+        try { vue = !!localStorage.getItem('precis.visite_vue'); } catch { vue = true; }
+        if (!vue) { marquer(); openNouveautes('accueil'); }
+        else marquer();
+        return;
+      }
+      // Le navigateur et le compte se transmettent la visite dans les deux
+      // sens : déjà vue sur l'un, elle n'est jamais rejouée sur l'autre.
+      if (!dejaVues) {
+        marquer();
+        let vueSurNavigateur = false;
+        try {
+          vueSurNavigateur = !!localStorage.getItem('precis.visite_vue')
+            || !!sessionStorage.getItem('precis.visite_vue_session');
+        } catch { /* rien */ }
+        if (vueSurNavigateur) void marquerVu();
+        else openNouveautes('accueil');
+        return;
+      }
+      try { localStorage.setItem('precis.visite_vue', '1'); } catch { /* stockage indisponible */ }
+      const donnees = await chargerAVoir(langue);
+      if (annule || dejaFait()) return;
+      if (!donnees || !donnees.elements?.length) { marquer(); return; }
+      if (occupeRef.current || autreFenetre()) {
+        minuteur = window.setTimeout(tenter, 1500);
+        return;
+      }
+      marquer();
+      openNouveautes('depuis', donnees);
+    };
+
+    const demarrer = () => { minuteur = window.setTimeout(tenter, 600); };
+    if (splashTermine()) demarrer();
+    else offSplash = surFinSplash(demarrer);
+
+    return () => {
+      annule = true;
+      if (minuteur !== undefined) window.clearTimeout(minuteur);
+      offSplash?.();
+    };
+  }, [authLoading, userId, dejaVues, langue, chargerAVoir, marquerVu]);
 
   // ---- Original : le fichier tel qu'il a été déposé ----
   // Document de la bibliothèque : le serveur le renvoie au format NATIF (le
@@ -700,11 +791,22 @@ export default function Home() {
         }}
       />
 
-      <Navbar
-        activeSection={activeSection}
-        onNavClick={handleNavClick}
-        onLibraryOpen={() => setShowLibrary(true)}
+      <AppBar
+        section={{ active: activeSection, onClick: handleNavClick }}
+        onAccount={() => setShowLibrary(true)}
       />
+
+      {/* Retour au formulaire du haut depuis n'importe quelle section (la barre
+          n'a pas de lien « Accueil » : le logo seul y ramène). */}
+      <button
+        type="button"
+        className={`retour-haut${activeSection !== 'hero' && !showPreview ? ' retour-haut--visible' : ''}`}
+        onClick={() => handleNavClick('hero')}
+        aria-label={t('nav.backToTop')} title={t('nav.backToTop')}
+        tabIndex={activeSection !== 'hero' && !showPreview ? 0 : -1}
+      >
+        <ArrowUp size={22} strokeWidth={2.2} aria-hidden="true" />
+      </button>
 
       <LanguageMarquee />
 
@@ -712,6 +814,9 @@ export default function Home() {
         isOpen={showLibrary}
         onClose={() => setShowLibrary(false)}
         documents={documents}
+        loading={!bibliothequeChargee}
+        erreur={bibliothequeErreur}
+        onRefresh={refresh}
         onPreview={handleLibraryPreview}
         onDelete={deleteDocument}
         onClearAll={clearAll}

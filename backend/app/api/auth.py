@@ -152,6 +152,9 @@ def _user_response(user: User) -> dict:
         # autorise 2 Go — la barre de quota mentait, dans le sens qui frustre.
         # On dérive donc du plan, comme l'enforcement.
         "storage_limit": get_plan_storage(user.plan),
+        "abonne_nouveautes": user.abonne_nouveautes,
+        "nouveautes_vues_le": (user.nouveautes_vues_le.isoformat()
+                               if user.nouveautes_vues_le else None),
         "created_at": user.created_at.isoformat() if user.created_at else None,
     }
 
