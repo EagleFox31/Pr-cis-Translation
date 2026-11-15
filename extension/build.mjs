@@ -29,6 +29,8 @@ if (PROD) {
   manifest.host_permissions = manifest.host_permissions.filter((h) => !h.includes("localhost"));
   manifest.externally_connectable = { matches: [`${SITE}/*`] };
 }
+// Le site publie /extension/version.json (vérification de mise à jour).
+if (!manifest.host_permissions.includes(`${SITE}/*`)) manifest.host_permissions.push(`${SITE}/*`);
 writeFileSync("dist/manifest.json", JSON.stringify(manifest, null, 2) + "\n");
 cpSync("assets/icones", "dist/icones", { recursive: true });
 cpSync("src/popup.html", "dist/popup.html");

@@ -12,6 +12,7 @@ import os
 import time
 
 import racine  # noqa: F401
+import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from app.services.ocr_v2 import image as module
@@ -130,6 +131,14 @@ def cas_blocs():
     deux = [("a b", (10, 10, 90, 24)), ("c d", (10, 38, 80, 24))]
     assert len(blocs(deux, [ROUGE, (20, 20, 20)])) == 2
     assert len(blocs(deux, [(20, 20, 20), (30, 25, 25)])) == 1
+    # Fin de phrase reportée seule, boîte plus haute (cas réel) : rattachée,
+    # même avec une ligne d'une autre colonne lue entre les deux.
+    suite = [("イントをおさえた正しい点検がで", (1118, 823, 687, 48)),
+             ("的を絞った点検をする。", (363, 849, 485, 52)), ("きる。", (1116, 874, 105, 59))]
+    assert [b.texte for b in blocs(suite)][0].endswith("できる。"), [b.texte for b in blocs(suite)]
+    # Après une ponctuation finale, la même ligne courte reste un bloc à part.
+    fini = [("点検をする。", (1118, 823, 687, 48)), ("注意", (1116, 874, 105, 59))]
+    assert len(blocs(fini)) == 2
     print("  blocs : lignes empilées réunies, confiance < 70 ignorée, japonais sans espace, "
           "hauteur, puce et couleur séparent")
 
@@ -336,8 +345,127 @@ def _png(data):
     return chemin
 
 
+def cas_ponctuation():
+    p = module._ponctuation_latine
+    assert p("Freins・Pneus") == "Freins • Pneus", p("Freins・Pneus")
+    assert p("Contrôle、puis essai。") == "Contrôle, puis essai.", p("Contrôle、puis essai。")
+    assert p("「Résultat」（étape１）") == "“Résultat” (étape1)", p("「Résultat」（étape１）")
+    assert p("冷却水・ポンプ") == "冷却水・ポンプ"  # cible CJK : intacte
+    assert module._couvre(module._ROBOTO[False], p("A・B"))
+
+
+def cas_mots_entiers():
+    police = ImageFont.truetype(POLICE, 40)
+    assert module._couper("Débutant", police, 60) == ["Débutant"]  # jamais « Déb/utant »
+    assert len(module._couper("Débutant", police, 60, casser=True)) > 1
+    assert len(module._couper("冷却水ポンプ", police, 60)) > 1
+    b = blocs([("Base", (10, 10, 40, 20))])[0]
+    b.traduction = "Fondamentaux"
+    p = placer(b, 400, POLICE, cadre=(10, 60, False))
+    assert p is None or p["lignes"] == ["Fondamentaux"] or p["taille"] <= module.PLANCHER_PX + 1, p
+
+
+def cas_symboles():
+    """Puce dessinée non lue à gauche d'une ligne : repérée, laissée en place,
+    la ligne ouvre un bloc et sa traduction part du texte d'origine."""
+    im = Image.fromarray(fond())
+    d = ImageDraw.Draw(im)
+    for y in (120, 220):
+        d.polygon([(40, y), (60, y - 20), (80, y), (60, y + 20)], fill=(20, 20, 20))  # ◆
+    d.text((100, 100), "Result", fill=(20, 20, 20), font=ImageFont.truetype(POLICE, 36))
+    d.text((100, 200), "Brakes", fill=(20, 20, 20), font=ImageFont.truetype(POLICE, 36))
+    d.text((100, 300), "Tires", fill=(20, 20, 20), font=ImageFont.truetype(POLICE, 36))
+    bgr = np.asarray(im.convert("RGB"))[:, :, ::-1]
+    lus = [("Result", (100, 100, 110, 40)), ("Brakes", (100, 145, 120, 40)),
+           ("Tires", (100, 300, 120, 40)), ("・Oil", (100, 380, 120, 40))]
+    puces = module._symboles(lus, bgr)
+    assert set(puces) == {lus[0][1]} and 78 <= puces[lus[0][1]] <= 82, puces
+    # Deux lignes empilées : la puce dessinée sépare les blocs.
+    assert len(blocs(lus[:2], puces={lus[1][1]})) == 2
+    assert len(blocs(lus[:2])) == 1
+
+    # Numéro suivi d'un tiret : ouvre un bloc ; « 3-days » reste un mot.
+    for t in ("1 - Oil", "1- Oil", "2 – Tires", "１－点検", "3ー原因", "— Oil", "－点検"):
+        assert module._PUCE.match(t), t
+    for t in ("3-days", "1-day Before", "2024", "Oil - 5"):
+        assert not module._PUCE.match(t), t
+    assert len(blocs([("Brakes", (100, 100, 120, 40)), ("1 - Oil", (100, 145, 120, 40))])) == 2
+
+    # Tiret dessiné non lu à gauche d'une ligne : repéré comme une puce.
+    im3 = Image.fromarray(fond())
+    d3 = ImageDraw.Draw(im3)
+    d3.rectangle((60, 118, 82, 122), fill=(20, 20, 20))  # –
+    d3.text((100, 100), "Result", fill=(20, 20, 20), font=ImageFont.truetype(POLICE, 36))
+    bgr3 = np.asarray(im3.convert("RGB"))[:, :, ::-1]
+    p3 = module._symboles([("Result", (100, 100, 110, 40))], bgr3)
+    assert list(p3.values()) and 81 <= list(p3.values())[0] <= 85, p3
+
+    # Bout en bout : le losange reste, la traduction ne déborde pas à gauche.
+    buf = io.BytesIO()
+    im.save(buf, "PNG")
+    lus2 = [("Result", (100, 100, 110, 40))]
+    r = module.traduire_image(buf.getvalue(), lambda ts: ["Résultat obtenu"] * len(ts), lus=lus2)
+    out = np.asarray(Image.open(io.BytesIO(r.data)).convert("RGB"))
+    assert (out[115:126, 55:66] < 80).all(), "losange effacé"
+    assert (out[100:140, 84:98] > 200).all(), "traduction posée sur la puce"
+
+
+def cas_cases_et_encre():
+    """Règles du 09/11 (organigramme b76a516aca) : case close, encre pâle,
+    frères à même hauteur de lettres."""
+    # Case close des 4 côtés, texte décalé de 20 px (5 %) : axe de la case.
+    # Dans le vide, la même étiquette garde son propre centre.
+    for close in (True, False):
+        bgr = np.full((200, 600, 3), 255, np.uint8)
+        if close:
+            cv2.rectangle(bgr, (100, 50), (500, 150), (120, 120, 120), 2)
+        cv2.putText(bgr, "Hello", (275, 112), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2, cv2.LINE_AA)
+        ys, xs = np.nonzero((bgr[60:140, 110:490] < 128).any(2))
+        b = (110 + int(xs.min()), 60 + int(ys.min()), int(np.ptp(xs)) + 1, int(np.ptp(ys)) + 1)
+        bloc = module.Bloc("Hello", b, [b])
+        r = module._case(bgr, bloc, module._elargie(b, bgr))
+        cx = (r[0][0] + r[0][1]) / 2
+        if close:
+            assert abs(cx - 300) <= 2, r
+        else:
+            assert abs(cx - (b[0] + b[2] / 2)) <= 2, r
+
+    # Texte pâle (gris 207) : la zone d'effacement va jusqu'au bout de son
+    # bord adouci, même si la boîte lue s'arrête à SEUIL_ENCRE.
+    bgr = np.full((80, 400, 3), 255, np.uint8)
+    cv2.putText(bgr, "ECU", (40, 55), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (207, 207, 207), 2, cv2.LINE_AA)
+    ecart = 255 - bgr.min(2).astype(int)
+    fort, tout = np.flatnonzero((ecart > 40).any(0)), np.flatnonzero((ecart > 12).any(0))
+    ys = np.flatnonzero((ecart > 40).any(1))
+    b = (int(fort[0]), int(ys[0]), int(fort[-1] - fort[0] + 1), int(ys[-1] - ys[0] + 1))
+    x, _, w, _ = module._elargie(b, bgr)
+    assert x <= tout[0] and x + w > tout[-1], (b, (x, w), (tout[0], tout[-1]))
+
+    # Hauteur des lettres : médiane des lignes, sans la boîte lue gonflée.
+    m = np.zeros((100, 200), np.uint8)
+    m[30:72, 10:60] = 255
+    m[28:70, 110:160] = 255
+    assert module._hauteur_encre(m, [(0, 10, 100, 80), (100, 0, 100, 100)]) == 42
+
+    # Frères : boîtes lues de 42 et 59 px (écart 29 %), lettres de 42 et 43 px :
+    # même famille, une seule taille ; sans les hauteurs de lettres, deux tailles.
+    f = module._fichier_police()
+    blocs = [module.Bloc("Contrôle", (100, 100, 400, 42), [(100, 100, 400, 42)]),
+             module.Bloc("Entretien client", (650, 300, 400, 59), [(650, 300, 400, 59)])]
+    blocs[0].traduction, blocs[1].traduction = "Contrôle", "Entretien client"
+    places = [(b, module.placer(b, 1200, f), None, None) for b in blocs]
+    for encres, une in ((None, False), ([42.0, 43.0], True)):
+        out = module._freres(places, 1200, [(0, 0, 0)] * 2, encres)
+        tailles = {p["taille"] for _, p in out}
+        assert (len(tailles) == 1) == une, (encres, tailles)
+
+
 def main():
     debut = time.monotonic()
+    cas_symboles()
+    cas_cases_et_encre()
+    cas_ponctuation()
+    cas_mots_entiers()
     cas_controles()
     cas_blocs()
     cas_placer()

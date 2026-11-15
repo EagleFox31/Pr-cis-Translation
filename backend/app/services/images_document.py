@@ -451,7 +451,7 @@ def _ecrire_cache(dossier: str, sha: str, remplacee: bool, mime: str, octets: by
 
 def traduire_images(data: bytes, ext: str, traduire, dossier: str, budget: int | None,
                     analyse: Analyse | None = None,
-                    arret=None) -> tuple[dict[str, bytes], dict]:
+                    arret=None, langue: str | None = None) -> tuple[dict[str, bytes], dict]:
     """Traduit les images à texte du document ; renvoie `(table, rapport)`.
 
     `table` : {clé d'image: octets traduits}, pour les seules images remplacées.
@@ -460,6 +460,7 @@ def traduire_images(data: bytes, ext: str, traduire, dossier: str, budget: int |
     traduction échoue reste en original (`echecs`) : jamais d'échec du document.
     Cache disque par empreinte des octets source, dans `dossier`.
     `arret` : rappel appelé pendant l'attente du guichet OCR (peut lever l'arrêt).
+    `langue` : langue cible, pour les césures dans les images.
     """
     a_texte = (analyse or analyser(data, ext)).a_texte
     table: dict[str, bytes] = {}
@@ -476,7 +477,8 @@ def traduire_images(data: bytes, ext: str, traduire, dossier: str, budget: int |
             trouve = _lire_cache(dossier, sha)
             if trouve is None:
                 rendu = ocr_image.traduire_image(
-                    img.octets, traduire, tour=lambda: ocr_file.tour(arret=arret))
+                    img.octets, traduire, tour=lambda: ocr_file.tour(arret=arret),
+                    langue=langue)
                 trouve = (rendu.remplacee, rendu.mime, rendu.data)
                 _ecrire_cache(dossier, sha, *trouve)
         except Exception as e:

@@ -5,6 +5,7 @@ import { Check, Minus, X } from 'lucide-react';
 import TranslationSection from '../upload/TranslationSection';
 import type { TranslateConfig } from '../upload/TranslationSection';
 import ViewerToolbar from '../preview/ViewerToolbar';
+import type { Ajustement } from '../preview/ViewerToolbar';
 import DocumentPreview from '../preview/DocumentPreview';
 import type { PageStatus, StopMode } from '../../hooks/useStreamingTranslation';
 import { baseCode } from '../../lib/languages';
@@ -26,6 +27,13 @@ interface StorySectionProps {
   currentPage: number;
   numPages: number;
   zoom: number;
+  /** Ajustement du zoom (`null` = manuel) et rideau de comparaison. */
+  ajustement?: Ajustement;
+  onAjustementChange?: (mode: Ajustement) => void;
+  /** Reçoit le zoom calculé par la visionneuse (sans quitter l'ajustement). */
+  onZoomAjuste?: (z: number) => void;
+  rideau?: boolean;
+  onRideauChange?: (actif: boolean) => void;
   isTrialMode: boolean;
   targetLang?: string;
   isTranslating: boolean;
@@ -91,6 +99,11 @@ export default function StorySection({
   currentPage,
   numPages,
   zoom,
+  ajustement = null,
+  onAjustementChange,
+  onZoomAjuste,
+  rideau = false,
+  onRideauChange,
   isTrialMode,
   targetLang,
   isTranslating,
@@ -129,6 +142,22 @@ export default function StorySection({
     (s) => s === 'done' || s === 'copied',
   ).length;
   const { t } = useTranslation();
+  // La page courante est-elle traduite ET téléchargée ? Pilote le panneau
+  // traduit et le rideau de comparaison.
+  const pageTraduitePrete =
+    // `previewRendering` PRIME sur tout le reste. Pendant le rendu d'une page
+    // (bibliothèque), le blob affiché est encore celui de la page PRÉCÉDENTE —
+    // laisser le canevas visible montrait la page recopiée de l'original, donc
+    // en langue source : en tournant les pages, on ne voyait QUE de l'anglais,
+    // alors que le français arrivait 10 s plus tard. Un spinner honnête vaut
+    // mieux qu'une page fausse.
+    !previewRendering && (
+      (!isTranslating && Object.keys(pageStatuses).length === 0)
+      // Le STATUT ne suffit pas : `done` arrive avant que le nouveau partiel
+      // soit téléchargé, et le partiel PPTX montre l'original à la place des
+      // pages non greffées. Seul `readyPages` dit ce que le fichier affiché contient.
+      || !!readyPages[currentPage]
+    );
   const storyRef = useRef<HTMLElement>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
 
@@ -544,6 +573,11 @@ export default function StorySection({
                     doneCount={doneCount}
                     focus={focus}
                     onZoomChange={onZoomChange}
+                    ajustement={ajustement}
+                    onAjustementChange={onAjustementChange}
+                    rideau={rideau}
+                    rideauDispo={pageTraduitePrete}
+                    onRideauChange={onRideauChange}
                     onPageChange={onPageChange}
                     onBack={onBack}
                     onDownload={onDownload}
@@ -573,30 +607,16 @@ export default function StorySection({
                       }
                       currentPage={currentPage}
                       zoom={zoom}
+                      ajustement={ajustement}
+                      onZoomAjuste={onZoomAjuste}
+                      rideau={rideau}
                       isTrialMode={isTrialMode}
                       previewLoading={previewRendering}
                       fileMissing={fileMissing}
                       // Présentation : cadres 16:9 avant même le premier PDF.
                       formatHint={['pptx', 'ppt', 'odp', 'key'].includes(previewExt) ? 'landscape' : 'portrait'}
                       onPagesLoaded={onPagesLoaded}
-                      translatedPageReady={
-                        // `previewRendering` PRIME sur tout le reste. Pendant
-                        // le rendu d'une page (bibliothèque), le blob affiché
-                        // est encore celui de la page PRÉCÉDENTE — laisser le
-                        // canevas visible montrait la page recopiée de
-                        // l'original, donc en langue source : en tournant les
-                        // pages, on ne voyait QUE de l'anglais, alors que le
-                        // français arrivait 10 s plus tard. Un spinner honnête
-                        // vaut mieux qu'une page fausse.
-                        !previewRendering && (
-                          (!isTranslating && Object.keys(pageStatuses).length === 0)
-                          // Le STATUT ne suffit pas : `done` arrive avant que le
-                          // nouveau partiel soit téléchargé, et le partiel PPTX
-                          // montre l'original à la place des pages non greffées.
-                          // Seul `readyPages` dit ce que le fichier affiché contient.
-                          || !!readyPages[currentPage]
-                        )
-                      }
+                      translatedPageReady={pageTraduitePrete}
                       // Arrêtée, une page « en attente » ne tourne plus : sablier, pas spinner.
                       translatedPageStatus={previewRendering ? 'rendering'
                         : !isTranslating && pageStatuses[currentPage] === 'waiting' ? undefined

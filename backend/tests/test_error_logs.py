@@ -152,7 +152,7 @@ async def main() -> None:
     import app.core.email as email_mod
     orig_send = email_mod.send_plain
 
-    async def fake_send(to, subject, body):   # noqa: ANN001
+    async def fake_send(to, subject, body, **_):   # noqa: ANN001
         sent.append(subject)
 
     email_mod.send_plain = fake_send

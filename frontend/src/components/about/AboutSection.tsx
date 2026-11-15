@@ -8,7 +8,7 @@ import { Check, Mail, MessageCircle, Phone, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { openSupport } from '../support/supportBus';
 
-const CONTACT_EMAIL = 'contact@trigenys.com';
+const CONTACT_EMAIL = 'support.precis@trigenys.com';
 const LINKEDIN_URL = 'https://www.linkedin.com/company/trigenys-group';
 const INSIGHT_URL = 'https://insight.trigenys.com/fr';
 const FACEBOOK_URL = 'https://www.facebook.com/p/Trigenys-Group-61594499048324/';

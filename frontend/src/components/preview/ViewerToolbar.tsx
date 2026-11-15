@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
   Download, Loader2, CheckCircle2, ArrowRight, Lock,
   Maximize2, Minimize2, Flag, FileDown, Pause, X,
+  RectangleVertical, MoveHorizontal, SquareSplitHorizontal,
 } from 'lucide-react';
 
 import type { StopMode } from '../../hooks/useStreamingTranslation';
@@ -17,8 +18,19 @@ import { goToSection } from '../../lib/sectionBus';
 // dix entrées, à tenir à jour à chaque langue ajoutée, et un doublon de ce que
 // `baseCode` fait déjà (et que `DocumentCard` utilise). « en-US » -> « EN ».
 
+/** Mode d'ajustement du zoom : `null` = zoom manuel. */
+export type Ajustement = 'page' | 'largeur' | null;
+
 interface ViewerToolbarProps {
   zoom: number;
+  /** Ajustement actif (le zoom est alors recalculé par la visionneuse). */
+  ajustement?: Ajustement;
+  onAjustementChange?: (mode: Ajustement) => void;
+  /** Rideau de comparaison actif ? */
+  rideau?: boolean;
+  /** La traduction de la page est-elle prête (sinon rien à comparer) ? */
+  rideauDispo?: boolean;
+  onRideauChange?: (actif: boolean) => void;
   currentPage: number;
   numPages: number;
   isTrialMode: boolean;
@@ -45,6 +57,11 @@ interface ViewerToolbarProps {
 
 export default function ViewerToolbar({
   zoom,
+  ajustement = null,
+  onAjustementChange,
+  rideau = false,
+  rideauDispo = true,
+  onRideauChange,
   currentPage,
   numPages,
   isTrialMode,
@@ -124,6 +141,47 @@ export default function ViewerToolbar({
         >
           <ZoomIn size={15} strokeWidth={2.2} />
         </button>
+        {/* Ajustement : un clic active le mode (le zoom suit la fenêtre), un
+            second clic le quitte et rend la main au zoom manuel. */}
+        {onAjustementChange && (['page', 'largeur'] as const).map((mode) => {
+          const libelle = mode === 'page' ? t('viewer.fit_page', 'Pleine page') : t('viewer.fit_width', 'Largeur');
+          return (
+            <button
+              key={mode}
+              onClick={() => onAjustementChange(ajustement === mode ? null : mode)}
+              className="tb-btn ghost"
+              aria-pressed={ajustement === mode}
+              aria-label={libelle}
+              title={libelle}
+              style={{ display: 'flex', alignItems: 'center', padding: '6px' }}
+            >
+              {mode === 'page'
+                ? <RectangleVertical size={15} strokeWidth={2.2} />
+                : <MoveHorizontal size={15} strokeWidth={2.2} />}
+            </button>
+          );
+        })}
+        {/* Rideau : la traduction par-dessus l'original, découpée par une poignée. */}
+        {onRideauChange && (
+          <button
+            onClick={() => onRideauChange(!rideau)}
+            className="tb-btn ghost"
+            aria-pressed={rideau}
+            disabled={!rideau && !rideauDispo}
+            aria-label={t('viewer.compare', 'Comparer')}
+            title={!rideau && !rideauDispo
+              ? t('viewer.compare_wait', 'Disponible quand la traduction de la page est prête')
+              : t('viewer.compare', 'Comparer')}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px', padding: '0 8px', marginLeft: '2px',
+              opacity: !rideau && !rideauDispo ? 0.45 : 1,
+              cursor: !rideau && !rideauDispo ? 'not-allowed' : 'pointer',
+            }}
+          >
+            <SquareSplitHorizontal size={15} strokeWidth={2.2} />
+            <span>{t('viewer.compare', 'Comparer')}</span>
+          </button>
+        )}
       </div>
 
       {/* Fil du document : source → traduction */}
@@ -317,6 +375,19 @@ function PageNav({ className, currentPage, numPages, onPageChange }: {
   onPageChange: (page: number) => void;
 }) {
   const { t } = useTranslation();
+  // Saisie directe : un clic sur « n / N » ouvre un champ numérique.
+  // Entrée valide (hors bornes ou illisible : ignoré), Échap ou perte de focus annule.
+  const [saisie, setSaisie] = useState<string | null>(null);
+  const champ = useRef<HTMLInputElement>(null);
+  const edition = saisie !== null;
+  useEffect(() => {
+    if (edition) champ.current?.select();
+  }, [edition]);
+  const valider = () => {
+    const n = Number(saisie);
+    if (saisie && Number.isInteger(n) && n >= 1 && n <= numPages) onPageChange(n);
+    setSaisie(null);
+  };
   return (
     <div className={className}>
       <button
@@ -327,9 +398,41 @@ function PageNav({ className, currentPage, numPages, onPageChange }: {
       >
         <ChevronLeft size={14} strokeWidth={2.4} />
       </button>
-      <span className="pg-num" style={{ fontVariantNumeric: 'tabular-nums' }}>
-        {currentPage} / {numPages}
-      </span>
+      {saisie === null ? (
+        <button
+          type="button"
+          className="pg-num pg-num-champ"
+          style={{ fontVariantNumeric: 'tabular-nums', height: '26px' }}
+          onClick={() => setSaisie(String(currentPage))}
+          aria-label={`${t('viewer.go_to_page', 'Aller à la page')} (${currentPage} / ${numPages})`}
+          title={t('viewer.go_to_page', 'Aller à la page')}
+        >
+          {currentPage} / {numPages}
+        </button>
+      ) : (
+        <input
+          ref={champ}
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={numPages}
+          value={saisie}
+          className="pg-num pg-num-champ"
+          // Même encombrement que « n / N » : largeur calée sur ses chiffres.
+          style={{
+            fontVariantNumeric: 'tabular-nums', height: '26px', boxSizing: 'border-box',
+            width: `${String(currentPage).length + String(numPages).length + 3}ch`,
+            minWidth: '36px',
+          }}
+          aria-label={t('viewer.go_to_page', 'Aller à la page')}
+          onChange={(e) => setSaisie(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); valider(); }
+            else if (e.key === 'Escape') { e.preventDefault(); setSaisie(null); }
+          }}
+          onBlur={() => setSaisie(null)}
+        />
+      )}
       <button
         className="pg-arrow"
         onClick={() => onPageChange(Math.min(numPages, currentPage + 1))}

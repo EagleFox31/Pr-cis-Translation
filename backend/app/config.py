@@ -179,6 +179,9 @@ OCR_FILE_ANTI_FAMINE_S = max(1, int(os.getenv("OCR_FILE_ANTI_FAMINE_S", "300")))
 # Attente maximale au guichet pour une image de l'extension (au-delà : 503,
 # le client réessaie).
 OCR_DELAI_EXTENSION_S = max(5, int(os.getenv("OCR_DELAI_EXTENSION_S", "120")))
+# Offre payante de l'extension (Starter, Pro) mise en avant quand la limite
+# d'une page est atteinte : fermée pendant la bêta ("1" pour l'ouvrir).
+EXTENSION_OFFRE = os.getenv("EXTENSION_OFFRE", "0") == "1"
 
 # ── Modèles de traduction ────────────────────────────────────────────────────
 # Deux modes, choisis par requête via le paramètre `quality` :

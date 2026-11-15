@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Précis",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Traduit le texte et les images d'une page web avec Précis.",
   "minimum_chrome_version": "120",
   "icons": {
@@ -25,8 +25,16 @@
   "permissions": [
     "storage",
     "activeTab",
-    "scripting"
+    "scripting",
+    "alarms",
+    "contextMenus"
   ],
+  "commands": {
+    "basculer": {
+      "suggested_key": { "default": "Alt+Shift+T" },
+      "description": "Traduire la page ou rétablir l'original"
+    }
+  },
   "host_permissions": [
     "http://localhost:8000/*",
     "https://precis-translator.com/*"
