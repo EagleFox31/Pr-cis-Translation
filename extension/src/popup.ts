@@ -3,23 +3,16 @@ import { originalOnglet, traduireOnglet } from "./lib/onglet.ts";
 import { cleAccordImages, ecrireRegle, LANGUES, langueParDefaut, lireRegle, origineDe } from "./lib/suivi.ts";
 import { SITE } from "./config.ts";
 import { versBackground } from "./pont.ts";
-import type { ErreurConnexion } from "./types.ts";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-const vueConnexion = $<HTMLFormElement>("vue-connexion");
+const vueConnexion = $<HTMLDivElement>("vue-connexion");
 const vueConnecte = $<HTMLDivElement>("vue-connecte");
 const message = $<HTMLParagraphElement>("message");
 const selectLangue = $<HTMLSelectElement>("langue");
 const btnTraduire = $<HTMLButtonElement>("btn-traduire");
 const caseToujours = $<HTMLInputElement>("toujours");
 const caseImages = $<HTMLInputElement>("images-toujours");
-
-const MESSAGES_CONNEXION: Record<ErreurConnexion, string> = {
-  identifiants: "Adresse e-mail ou mot de passe incorrect.",
-  non_verifie: "Adresse e-mail non vérifiée : confirmez-la depuis le message reçu.",
-  indisponible: "Service momentanément indisponible. Réessayez dans un instant.",
-};
 
 // Onglet actif lu à l'ouverture : la demande de permission doit partir directement du clic.
 let onglet: chrome.tabs.Tab | undefined;
@@ -76,25 +69,12 @@ $("btn-memoire").addEventListener("click", async (e) => {
   }
 });
 
-vueConnexion.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const bouton = $<HTMLButtonElement>("btn-connexion");
-  bouton.disabled = true;
-  afficher("Connexion…");
-  const rep = await versBackground({
-    type: "connexion",
-    email: $<HTMLInputElement>("email").value.trim(),
-    motDePasse: $<HTMLInputElement>("mdp").value,
-  });
-  bouton.disabled = false;
-  if (rep.ok) {
-    $<HTMLInputElement>("mdp").value = "";
-    afficher("");
-    await afficherVue();
-  } else {
-    afficher(MESSAGES_CONNEXION[rep.erreur], true);
-  }
+// Le site s'ouvre dans un onglet : le popup se ferme, la connexion se termine en arrière-plan.
+$("btn-connexion").addEventListener("click", async () => {
+  await versBackground({ type: "connexion-site" });
+  window.close();
 });
+$<HTMLAnchorElement>("lien-inscription").href = `${SITE}/register`;
 
 $("btn-deconnexion").addEventListener("click", async () => {
   await versBackground({ type: "deconnexion" });
@@ -213,6 +193,13 @@ async function afficherMaj(): Promise<void> {
   $("maj-version").textContent = version ?? "";
   $("maj").hidden = version === null;
 }
+
+// Connexion terminée (ou déconnexion) pendant que le popup est ouvert : la vue suit.
+chrome.storage.onChanged.addListener((changes, zone) => {
+  // Connexion ou déconnexion seulement : le renouvellement du jeton en cours de traduction ne redessine pas.
+  const jeton = zone === "local" ? changes.refresh_token : undefined;
+  if (jeton && !jeton.oldValue !== !jeton.newValue) void afficherVue();
+});
 
 void (async () => {
   $("version").textContent = `v${chrome.runtime.getManifest().version}`;

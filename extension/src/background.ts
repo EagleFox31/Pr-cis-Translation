@@ -1,4 +1,5 @@
 import { API_BASE, SITE, SITE_BIENVENUE } from "./config.ts";
+import { challengeDe, genererState, genererVerifier, lireRetour, urlAutorisation } from "./connexionSite.ts";
 import { decouperEnLots } from "./lib/lots.ts";
 import { aEnvoyer, cleImage, empreinteCompte, Memoire } from "./lib/memoire.ts";
 import { MagasinIndexedDB } from "./lib/memoire-idb.ts";
@@ -19,7 +20,6 @@ import {
 } from "./lib/suivi.ts";
 import type {
   MsgAppliquer,
-  ReponseConnexion,
   ReponseDe,
   ReponseEtat,
   ReponseImage,
@@ -127,29 +127,73 @@ async function appelAvecReprises(
 
 // --- Connexion
 
-async function connexion(email: string, motDePasse: string): Promise<ReponseConnexion> {
+// Connexion par le site : un onglet s'ouvre sur la page d'accord, le site renvoie un code
+// à usage unique dans le fragment de l'adresse, échangé ici contre les jetons (PKCE).
+
+interface AuthAttente {
+  verifier: string;
+  state: string;
+  tabId: number;
+}
+
+const DELAI_FERMETURE_ONGLET_MS = 1500;
+// Onglets dont le retour est déjà en cours d'échange : l'onglet signale plusieurs mises à jour pour la même adresse.
+const echangesEnCours = new Set<number>();
+
+async function connexionSite(): Promise<{ ok: true }> {
+  const verifier = genererVerifier();
+  const state = genererState();
+  const onglet = await chrome.tabs.create({ url: urlAutorisation(SITE, await challengeDe(verifier), state) });
+  if (onglet.id !== undefined) {
+    const demande: AuthAttente = { verifier, state, tabId: onglet.id };
+    await chrome.storage.session.set({ auth_attente: demande });
+  }
+  return { ok: true };
+}
+
+async function terminerConnexionSite(tabId: number, url: string | undefined): Promise<void> {
+  const retour = lireRetour(url, SITE);
+  if (!retour || (!retour.code && !retour.erreur) || echangesEnCours.has(tabId)) return;
+  // Pris avant tout `await` : deux mises à jour rapprochées du même onglet ne passent pas toutes les deux.
+  echangesEnCours.add(tabId);
   try {
-    const rep = await fetch(`${API_BASE}/api/auth/login-password`, {
+    const { auth_attente } = await chrome.storage.session.get("auth_attente");
+    const demande = auth_attente as AuthAttente | undefined;
+    // Retour étranger (autre onglet, state différent) : ignoré, la demande en cours reste valable.
+    if (!demande || demande.tabId !== tabId || retour.state !== demande.state) return;
+    // Retour authentique : la demande ne sert qu'une fois.
+    await chrome.storage.session.remove("auth_attente");
+    if (!retour.code) return; // Refus : l'onglet reste ouvert sur le message du site.
+    const rep = await fetch(`${API_BASE}/api/extension/auth/token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password: motDePasse }),
+      body: JSON.stringify({ code: retour.code, code_verifier: demande.verifier }),
     });
-    if (rep.status === 401) return { ok: false, erreur: "identifiants" };
-    if (rep.status === 403) return { ok: false, erreur: "non_verifie" };
-    if (!rep.ok) return { ok: false, erreur: "indisponible" };
+    if (!rep.ok) return;
     const jetons = (await rep.json()) as ReponseJetons;
-    const adresse = jetons.user?.email ?? email;
     await enregistrerJetons(jetons.access_token, jetons.refresh_token);
-    await chrome.storage.local.set({ email: adresse, plan: jetons.user?.plan ?? null });
-    return { ok: true, email: adresse };
-  } catch {
-    return { ok: false, erreur: "indisponible" };
+    await chrome.storage.local.set({ email: jetons.user?.email ?? "", plan: jetons.user?.plan ?? null });
+    await attente(DELAI_FERMETURE_ONGLET_MS);
+    await chrome.tabs.remove(tabId).catch(() => {}); // Onglet déjà fermé par l'utilisateur.
+  } finally {
+    echangesEnCours.delete(tabId);
   }
 }
 
+chrome.tabs.onUpdated.addListener((tabId, _info, onglet) => {
+  void terminerConnexionSite(tabId, onglet.url).catch(() => {}); // Site injoignable : l'utilisateur peut recommencer.
+});
+
 async function deconnexion(): Promise<{ ok: true }> {
   try {
-    await appelApi("/api/auth/logout", { method: "POST" });
+    const { refresh_token } = await chrome.storage.local.get("refresh_token");
+    if (refresh_token) {
+      await fetch(`${API_BASE}/api/extension/auth/deconnexion`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token }),
+      });
+    }
   } catch {
     // Déconnexion locale quoi qu'il arrive.
   }
@@ -417,8 +461,8 @@ async function verifierMaj(): Promise<ReponseMaj> {
 
 function traiter(msg: VersBackground): Promise<ReponseDe<VersBackground>> {
   switch (msg.type) {
-    case "connexion":
-      return connexion(msg.email, msg.motDePasse);
+    case "connexion-site":
+      return connexionSite();
     case "deconnexion":
       return deconnexion();
     case "etat":

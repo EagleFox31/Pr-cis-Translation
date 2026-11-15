@@ -14,19 +14,24 @@ from __future__ import annotations
 import re
 import base64
 import hashlib
+import hmac
+import secrets
 import time
 from collections import OrderedDict
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import EXTENSION_OFFRE, OCR_DELAI_EXTENSION_S, logger
 from app.core.database import get_db
-from app.core.security import require_auth
-from app.models import User, get_plan_priority
+from app.api.auth import _aware, _issue
+from app.core.security import hash_token, require_auth, revoke_refresh_token
+from app.models import ExtensionAuthCode, User, get_plan_priority
 from app.rate_limit import rate_limit_decorator
 from app.services import extension as ext
 from app.services import cache_images, limites_page, ocr_file
@@ -347,3 +352,92 @@ def _reponse(rendu: dict, limite: str | None = None) -> dict:
     if limite:
         corps["limite"] = limite
     return corps
+
+
+# ── Connexion de l'extension par le site (étude connexion-extension §4) ──────
+#
+# L'extension ne voit jamais le mot de passe : elle ouvre le site, l'utilisateur
+# y autorise le compte, le site délivre un code de 60 s lié au `challenge` (PKCE
+# S256) que seule l'extension peut racheter avec son `verifier`.
+
+CODE_VALIDITE_S = 60
+_CHALLENGE = re.compile(r"^[A-Za-z0-9_-]{43}$")
+_VERIFIER = re.compile(r"^[A-Za-z0-9_-]{43,128}$")
+
+
+class DemandeCode(BaseModel):
+    code_challenge: str
+
+
+class EchangeCode(BaseModel):
+    code: str
+    code_verifier: str
+
+
+class Deconnexion(BaseModel):
+    refresh_token: str
+
+
+def _challenge_de(verifier: str) -> str:
+    """base64url sans remplissage de SHA-256(verifier) (RFC 7636, méthode S256)."""
+    return base64.urlsafe_b64encode(
+        hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+
+
+@router.post("/auth/code")
+@rate_limit_decorator("10/minute")
+async def creer_code(request: Request, corps: DemandeCode,
+                     current_user: User = Depends(require_auth),
+                     db: AsyncSession = Depends(get_db)):
+    """Code à usage unique, après l'accord de l'utilisateur sur le site."""
+    if not _CHALLENGE.match(corps.code_challenge):
+        raise HTTPException(status_code=400, detail="Requête invalide.")
+    if not current_user.email_verified:
+        raise HTTPException(status_code=403,
+                            detail="Email non vérifié. Vérifiez votre boîte de réception.")
+    maintenant = datetime.now(timezone.utc)
+    # Les codes périmés ne servent plus à rien : purge au passage.
+    await db.execute(delete(ExtensionAuthCode)
+                     .where(ExtensionAuthCode.expires_at < maintenant))
+    code = secrets.token_urlsafe(32)
+    db.add(ExtensionAuthCode(
+        code_hash=hash_token(code), user_id=current_user.id,
+        code_challenge=corps.code_challenge,
+        expires_at=maintenant + timedelta(seconds=CODE_VALIDITE_S)))
+    await db.commit()
+    return {"code": code, "expires_in": CODE_VALIDITE_S}
+
+
+@router.post("/auth/token")
+@rate_limit_decorator("10/minute")
+async def echanger_code(request: Request, corps: EchangeCode,
+                        db: AsyncSession = Depends(get_db)):
+    """Session de l'extension contre un code et le secret qui l'a engendré."""
+    refus = HTTPException(status_code=400, detail="Code invalide ou expiré.")
+    if not _VERIFIER.match(corps.code_verifier) or not corps.code or len(corps.code) > 128:
+        raise refus
+    ligne = (await db.execute(select(ExtensionAuthCode).where(
+        ExtensionAuthCode.code_hash == hash_token(corps.code)))).scalar_one_or_none()
+    if ligne is None:
+        raise refus
+    # Usage unique : le code disparaît dès sa première présentation, valide ou non.
+    user_id, challenge, echeance = ligne.user_id, ligne.code_challenge, ligne.expires_at
+    await db.delete(ligne)
+    await db.commit()
+    if (_aware(echeance) < datetime.now(timezone.utc)
+            or not hmac.compare_digest(_challenge_de(corps.code_verifier), challenge)):
+        raise refus
+    user = await db.get(User, user_id)
+    # L'état du compte a pu changer pendant les 60 s du code.
+    if user is None or not user.email_verified:
+        raise refus
+    return await _issue(db, user, "extension")
+
+
+@router.post("/auth/deconnexion")
+@rate_limit_decorator("20/minute")
+async def deconnecter(request: Request, corps: Deconnexion,
+                      db: AsyncSession = Depends(get_db)):
+    """Ferme la seule session de l'extension ; la réponse ne dit rien du jeton."""
+    await revoke_refresh_token(db, corps.refresh_token)
+    return {"ok": True}

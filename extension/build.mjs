@@ -10,8 +10,8 @@ mkdirSync("dist");
 
 // `--prod` : adresses publiques et manifest sans localhost, prêt pour les boutiques.
 const PROD = process.argv.includes("--prod");
-const API = PROD ? "https://precis-translator.com" : "http://localhost:8000";
-const SITE = PROD ? "https://precis-translator.com" : "http://localhost:3000";
+const API = PROD ? "https://precis-translator.trigenys.com" : "http://localhost:8000";
+const SITE = PROD ? "https://precis-translator.trigenys.com" : "http://localhost:3000";
 
 const commun = {
   bundle: true,
@@ -35,6 +35,7 @@ writeFileSync("dist/manifest.json", JSON.stringify(manifest, null, 2) + "\n");
 cpSync("assets/icones", "dist/icones", { recursive: true });
 cpSync("src/popup.html", "dist/popup.html");
 cpSync("assets/logo.png", "dist/logo.png");
+cpSync("_locales", "dist/_locales", { recursive: true });
 
 // Polices de la fenêtre, embarquées : aucune requête vers un service tiers.
 mkdirSync("dist/polices");

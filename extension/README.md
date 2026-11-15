@@ -23,18 +23,19 @@ Sans compilation : télécharger le ZIP depuis la page `/extension` du site (bou
 
 ## Basculer entre local et production
 
-`npm run build` vise le poste local (API `localhost:8000`, site `localhost:3000`). `npm run build -- --prod` injecte `https://precis-translator.com` et retire `localhost` du manifest ; rien à modifier à la main.
+`npm run build` vise le poste local (API `localhost:8000`, site `localhost:3000`). `npm run build -- --prod` injecte `https://precis-translator.trigenys.com` et retire `localhost` du manifest ; rien à modifier à la main.
 
 ## Commandes
 
 - `npm run typecheck` : vérification des types.
 - `npm test` : tests de la logique pure (`src/lib`), Node 22.
 - `npm run build` : génère `dist/` (local).
-- `npm run package` : build de production + `precis-extension-<version>.zip`, l'archive à envoyer aux boutiques (voir `docs/fiches-boutiques-extension.md`). Monter `version` dans `manifest.json` avant chaque envoi. L'archive est aussi copiée vers `frontend/public/extension/precis-extension.zip` (gitignoré), servie par le site pour l'installation manuelle ; relancer `npm run package` avant de construire le site.
+- `npm run package` : build de production + `precis-translator-<version>.zip`, l'archive à envoyer aux boutiques (voir `docs/fiches-boutiques-extension.md`). Monter `version` dans `manifest.json` avant chaque envoi. L'archive est aussi copiée vers `frontend/public/extension/precis-extension.zip` (gitignoré), servie par le site pour l'installation manuelle ; relancer `npm run package` avant de construire le site.
 
 ## Lien avec le site
 
 - À l'installation, l'extension ouvre `/extension?bienvenue=1` sur le site.
+- Connexion par le site uniquement (`src/connexionSite.ts`) : onglet `/extension/autoriser` + code à usage unique de 60 s + PKCE S256 + `state` ; l'extension lit le fragment de `/extension/connecte` et reçoit sa propre session (déconnexion indépendante du site). Voir `docs/etude-connexion-extension.md`.
 - Le site demande si l'extension est présente (`externally_connectable`, message `precis-ping`) ; seule l'origine du site est admise.
 
 ## Couvert et limites

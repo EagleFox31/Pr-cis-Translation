@@ -439,6 +439,20 @@
     "enterprise": "Enterprise",
     "admin": "Admin"
   },
+  "extension_auth": {
+    "title": "Authorize the Précis Translator extension?",
+    "account": "Account: {{email}}",
+    "body": "The extension will be able to translate pages using this account's credits. You can sign it out at any time from the extension.",
+    "allow": "Authorize",
+    "cancel": "Cancel",
+    "invalid": "Invalid link: restart the sign-in from the extension.",
+    "error": "Authorization failed. Try again from the extension.",
+    "unverified": "Verify your email address first, then restart the sign-in from the extension.",
+    "done_title": "Access granted",
+    "done": "The extension is finishing the sign-in and this tab will close. If it stays open, open the extension: if it is not signed in, click “Se connecter avec Précis” again.",
+    "refused_title": "Sign-in cancelled",
+    "refused": "Sign-in cancelled. You can close this tab."
+  },
   "auth": {
     "sign_in": "Sign in",
     "create_account": "Create an account",

@@ -439,6 +439,20 @@
     "enterprise": "Enterprise",
     "admin": "Admin"
   },
+  "extension_auth": {
+    "title": "Autoriser l'extension Précis Translator ?",
+    "account": "Compte : {{email}}",
+    "body": "L'extension pourra traduire des pages avec les crédits de ce compte. Vous pourrez la déconnecter à tout moment depuis l'extension.",
+    "allow": "Autoriser",
+    "cancel": "Annuler",
+    "invalid": "Lien invalide : relancez la connexion depuis l'extension.",
+    "error": "L'autorisation a échoué. Réessayez depuis l'extension.",
+    "unverified": "Vérifiez d'abord votre adresse e-mail, puis relancez la connexion depuis l'extension.",
+    "done_title": "Autorisation accordée",
+    "done": "L'extension termine la connexion et cet onglet va se fermer. S'il reste ouvert, ouvrez l'extension : si elle n'est pas connectée, cliquez à nouveau sur « Se connecter avec Précis ».",
+    "refused_title": "Connexion annulée",
+    "refused": "Connexion annulée. Vous pouvez fermer cet onglet."
+  },
   "auth": {
     "sign_in": "Se connecter",
     "create_account": "Créer un compte",
