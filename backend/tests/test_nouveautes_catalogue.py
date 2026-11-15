@@ -109,3 +109,15 @@ if __name__ == "__main__":
                 echecs += 1
                 print(f"  ECHEC  {nom} : {exc!r}")
     sys.exit(1 if echecs else 0)
+
+
+def test_version_suivie_par_release_please():
+    """La release monte package.json : VERSION et l'instantané SEO doivent
+    suivre dans la même PR, sinon test_version_alignee casse la release."""
+    conf = json.loads((RACINE / "release-please-config.json").read_text(encoding="utf-8"))
+    extra = {f["path"]: f for f in conf["packages"]["."].get("extra-files", [])}
+    assert extra["backend/app/content/nouveautes.py"]["type"] == "generic"
+    assert extra["frontend/seo/fonctionnalites.json"]["jsonpath"] == "$.version"
+    source = (RACINE / "backend/app/content/nouveautes.py").read_text(encoding="utf-8")
+    assert any(l.startswith("VERSION = ") and "x-release-please-version" in l
+               for l in source.splitlines())

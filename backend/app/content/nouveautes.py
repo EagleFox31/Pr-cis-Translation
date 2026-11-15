@@ -22,7 +22,7 @@ VERSION doit rester égale au champ "version" du package.json racine
 (vérifié par le test du catalogue).
 """
 
-VERSION = "1.7.0"
+VERSION = "1.7.0"  # x-release-please-version
 DATE_VERSION = "2026-11-09"
 
 TYPES = ("nouveaute", "amelioration", "correctif")
