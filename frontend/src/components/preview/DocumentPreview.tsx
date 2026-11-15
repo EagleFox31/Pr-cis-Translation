@@ -1,10 +1,12 @@
+import { lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
 import { Loader2, AlertTriangle } from 'lucide-react';
-import PdfViewer from './PdfViewer';
 import type { Ajustement } from './ViewerToolbar';
 import { usePdfPreview } from '../../hooks/usePdfPreview';
 import type { PagesIllisiblesVue } from '../../hooks/usePagesIllisibles';
+
+const PdfViewer = lazy(() => import('./PdfViewer'));
 
 interface DocumentPreviewProps {
   sourceFile?: File | null;
@@ -144,7 +146,15 @@ export default function DocumentPreview({
     );
   }
 
+  // Visionneuse (et pdf.js) chargée à la 1re ouverture d'un aperçu seulement.
+  const attente = (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '300px', width: '100%', color: 'var(--color-text-secondary)' }}>
+      <Loader2 size={28} strokeWidth={2.2} className="animate-spin" aria-label={t('preview.loading')} />
+    </div>
+  );
+
   return (
+    <Suspense fallback={attente}>
     <PdfViewer
       sourceFile={sourcePdf}
       translatedBlob={translatedPdf}
@@ -172,5 +182,6 @@ export default function DocumentPreview({
       onUnlock={onUnlock}
       scanPages={scanPages}
     />
+    </Suspense>
   );
 }

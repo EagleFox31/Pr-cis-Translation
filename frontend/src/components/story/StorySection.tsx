@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
-import { motion, useScroll, useTransform } from 'motion/react';
+import { motion, useTransform } from 'motion/react';
+import { useScrollProgress } from '../../lib/useScrollProgress';
 import { useEffect, useRef } from 'react';
 import { Check, Minus, X } from 'lucide-react';
 import TranslationSection from '../upload/TranslationSection';
@@ -184,10 +185,7 @@ export default function StorySection({
     'pdf'
   ).toLowerCase();
 
-  const { scrollYProgress: storyScrollProgress } = useScroll({
-    target: storyRef,
-    offset: ['start end', 'end start'],
-  });
+  const storyScrollProgress = useScrollProgress(storyRef, 'cross');
   const storyVisualY = useTransform(storyScrollProgress, [0, 1], [40, -40]);
 
   return (
@@ -320,22 +318,9 @@ export default function StorySection({
               className="story-visual"
               style={{ height: '100%', y: storyVisualY }}
             >
-              <div
-                style={{
-                  backgroundColor: 'white',
-                  padding: '26px 30px',
-                  borderRadius: '16px',
-                  boxShadow: 'var(--shadow-lg)',
-                  border: '1px solid var(--gray-100)',
-                  height: '100%',
-                  // Plancher : la carte ne rétrécit plus sous les états courts
-                  // (aucun fichier choisi), donc l'en-tête et la zone de dépôt
-                  // gardent la même position d'un état à l'autre.
-                  minHeight: '580px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                }}
-              >
+              {/* Carte sur grand écran ; à plat, pleine largeur sur mobile
+                  (`.story-form-card`, index.css) pour rendre la place au formulaire. */}
+              <div className="story-form-card">
                 <TranslationSection onStartTranslate={onStartTranslate} isTranslating={isTranslating} onLibraryOpen={onLibraryOpen} />
               </div>
             </motion.div>

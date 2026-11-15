@@ -12,7 +12,7 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'Publisher',
         paragraphs: [
-          'The Précis website and service are published by Trigenys Group, a collective of independent digital professionals based in Douala, Cameroon. Trigenys Group is not a registered company: the services are provided by the members of the collective, who act together under this name.',
+          'The Précis website and service are published by Trigenys Group, a collective of independent digital professionals. Trigenys Group is not a registered company: the services are provided by the members of the collective, who act together under this name.',
           'Contact: support.precis@trigenys.com.',
         ],
       },
@@ -153,7 +153,7 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'Governing law',
         paragraphs: [
-          'These terms are governed by Cameroonian law. In case of a dispute, we first look for an amicable solution by e-mail at support.precis@trigenys.com. Failing that, the dispute falls under the jurisdiction of the courts of Douala.',
+          'These terms are governed by the law of the country where the publisher is established. In case of a dispute, we first look for an amicable solution by e-mail at support.precis@trigenys.com. Failing that, the dispute falls under the jurisdiction of the competent courts of that country.',
         ],
       },
       {
@@ -171,7 +171,7 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'Data controller',
         paragraphs: [
-          'The controller of your data is Trigenys Group, based in Douala (Cameroon). Contact: support.precis@trigenys.com.',
+          'The controller of your data is Trigenys Group. Contact: support.precis@trigenys.com.',
         ],
       },
       {
@@ -212,7 +212,7 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'Data transfers',
         paragraphs: [
-          'Some of these providers may process your data outside Cameroon.',
+          'Some of these providers may process your data outside your country.',
         ],
       },
       {
@@ -252,7 +252,7 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'Your rights',
         paragraphs: [
-          'Under Law No. 2024/017 of 23 December 2024 on the protection of personal data in Cameroon, you may request access to your data, its correction or its deletion, and object to certain processing. Your account can be deleted on request by e-mail.',
+          'Under the applicable personal data protection rules, you may request access to your data, its correction or its deletion, and object to certain processing. Your account can be deleted on request by e-mail.',
           'Write to support.precis@trigenys.com: we reply within a reasonable time.',
         ],
       },

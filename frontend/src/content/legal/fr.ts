@@ -12,7 +12,7 @@ export const LEGAL_FR: LegalDoc[] = [
       {
         heading: 'Éditeur',
         paragraphs: [
-          'Le site et le service Précis sont édités par Trigenys Group, un collectif de professionnels indépendants du numérique basé à Douala, au Cameroun. Trigenys Group n\'est pas une société immatriculée : les services sont fournis par les membres du collectif, qui agissent ensemble sous ce nom.',
+          'Le site et le service Précis sont édités par Trigenys Group, un collectif de professionnels indépendants du numérique. Trigenys Group n\'est pas une société immatriculée : les services sont fournis par les membres du collectif, qui agissent ensemble sous ce nom.',
           'Contact : support.precis@trigenys.com.',
         ],
       },
@@ -153,7 +153,7 @@ export const LEGAL_FR: LegalDoc[] = [
       {
         heading: 'Droit applicable',
         paragraphs: [
-          'Les présentes conditions sont soumises au droit camerounais. En cas de litige, nous recherchons d\'abord une solution amiable en échangeant par e-mail à support.precis@trigenys.com. À défaut, le litige relève des tribunaux de Douala.',
+          'Les présentes conditions sont soumises au droit du pays d\'établissement de l\'éditeur. En cas de litige, nous recherchons d\'abord une solution amiable en échangeant par e-mail à support.precis@trigenys.com. À défaut, le litige relève des tribunaux compétents de ce pays.',
         ],
       },
       {
@@ -171,7 +171,7 @@ export const LEGAL_FR: LegalDoc[] = [
       {
         heading: 'Responsable du traitement',
         paragraphs: [
-          'Le responsable du traitement de vos données est Trigenys Group, basé à Douala (Cameroun). Contact : support.precis@trigenys.com.',
+          'Le responsable du traitement de vos données est Trigenys Group. Contact : support.precis@trigenys.com.',
         ],
       },
       {
@@ -214,7 +214,7 @@ export const LEGAL_FR: LegalDoc[] = [
       {
         heading: 'Transferts de données',
         paragraphs: [
-          'Certains de ces prestataires peuvent traiter vos données en dehors du Cameroun.',
+          'Certains de ces prestataires peuvent traiter vos données en dehors de votre pays.',
         ],
       },
       {
@@ -254,7 +254,7 @@ export const LEGAL_FR: LegalDoc[] = [
       {
         heading: 'Vos droits',
         paragraphs: [
-          'Conformément à la loi n° 2024/017 du 23 décembre 2024 relative à la protection des données à caractère personnel au Cameroun, vous pouvez demander l\'accès à vos données, leur rectification, leur suppression et vous opposer à certains traitements. La suppression de votre compte s\'obtient sur demande par e-mail.',
+          'Conformément à la réglementation applicable à la protection des données à caractère personnel, vous pouvez demander l\'accès à vos données, leur rectification, leur suppression et vous opposer à certains traitements. La suppression de votre compte s\'obtient sur demande par e-mail.',
           'Écrivez à support.precis@trigenys.com : nous vous répondons dans un délai raisonnable.',
         ],
       },

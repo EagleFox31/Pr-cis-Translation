@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Check, CreditCard, Download, HelpCircle, Monitor, ShieldCheck } from 'lucide-react';
+import { Check, CreditCard, Download, HelpCircle, Monitor, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { usePricing, formatMoney } from '../hooks/usePricing';
 import { goToSection } from '../lib/sectionBus';
@@ -79,6 +79,7 @@ export default function ExtensionPage() {
   };
   const [params] = useSearchParams();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const corpsRef = useRef<HTMLDivElement>(null);
   const [copie, setCopie] = useState<Copie>('idle');
   const [copieAdresse, setCopieAdresse] = useState<Copie>('idle');
 
@@ -105,7 +106,8 @@ export default function ExtensionPage() {
   const choisirRubrique = (r: Rubrique) => {
     setRubrique(r);
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${r}`);
-    scrollRef.current?.scrollTo(0, 0);
+    // La page garde sa position ; seul le corps de la fiche revient en haut.
+    corpsRef.current?.scrollTo(0, 0);
   };
 
   const choisirNavigateur = (id: NavId) => {
@@ -257,17 +259,17 @@ export default function ExtensionPage() {
   ) : telecharger(t('extension_page.download_for', { browser: nomChoix }));
 
   // Fiche de droite, sur le modèle de la fiche utilisateur de l'administration.
-  const fiche = (titre: string, corps: ReactNode, action?: ReactNode, sous?: string) => (
+  const fiche = (titre: string, corps: ReactNode, action?: ReactNode, sous?: string, pied?: ReactNode) => (
     <section className="admin-panel ext-panel" aria-labelledby="ext-panel-title">
       <header className="admin-panel__head">
         <div>
-          <span className="admin-panel__eyebrow">{t('extension_page.panel_eyebrow')}</span>
           <h2 id="ext-panel-title">{titre}</h2>
-          {sous && <p className="admin-panel__muted ext-panel__sub">{sous}</p>}
+          {sous && <p className="admin-panel__muted ext-panel__sub" title={sous}>{sous}</p>}
         </div>
         {action && <div className="admin-panel__head-actions">{action}</div>}
       </header>
-      <div className="admin-panel__body">{corps}</div>
+      <div className="admin-panel__body" ref={corpsRef}>{corps}</div>
+      {pied && <footer className="ext-panel__foot">{pied}</footer>}
     </section>
   );
 
@@ -280,12 +282,16 @@ export default function ExtensionPage() {
       case 'price':
         return fiche(t('extension_page.price.title'), (
           <>
-            <dl className="admin-panel__facts">
-              {fait('price.fact_text', t('extension_page.price.fact_text_v'))}
-              {fait('price.fact_image', t('extension_page.price.fact_image_v'))}
-              {fait('price.fact_video', t('extension_page.price.fact_video_v'))}
-              {fait('price.fact_fail', t('extension_page.price.fact_fail_v'))}
-            </dl>
+            <p className="ext-lead">{t('extension_page.price.text')}</p>
+            <section className="admin-panel__block ext-section">
+              <div className="admin-panel__block-head"><h3>{t('extension_page.price.count_title')}</h3></div>
+              <dl className="admin-panel__facts ext-tiles">
+                {fait('price.fact_text', t('extension_page.price.fact_text_v'))}
+                {fait('price.fact_image', t('extension_page.price.fact_image_v'))}
+                {fait('price.fact_video', t('extension_page.price.fact_video_v'))}
+                {fait('price.fact_fail', t('extension_page.price.fact_fail_v'))}
+              </dl>
+            </section>
             <section className="admin-panel__block ext-section">
               <div className="admin-panel__block-head"><h3>{t('extension_page.price.plans_title')}</h3></div>
               {pricing ? (
@@ -308,21 +314,13 @@ export default function ExtensionPage() {
                     <span className="ext-plans__price">{formatMoney(pricing.page_price, pricing.currency, pricing.decimals, i18n.language)}{t('extension_page.price.per_page')}</span>
                   </li>
                 </ul>
-              ) : <p>{t('extension_page.price.text')}</p>}
+              ) : null}
             </section>
             <section className="admin-panel__block ext-section">
               <div className="admin-panel__block-head"><h3>{t('extension_page.price.know_title')}</h3></div>
-              <ul className="ext-list">
+              <ul className="ext-checks">
                 {(['know_credits', 'know_order', 'know_carry', 'know_limits'] as const).map((k) => (
-                  <li key={k}>{t(`extension_page.price.${k}`)}</li>
-                ))}
-              </ul>
-            </section>
-            <section className="admin-panel__block ext-section">
-              <div className="admin-panel__block-head"><h3>{t('extension_page.price.docs_title')}</h3></div>
-              <ul className="ext-docs">
-                {DOCUMENTS.map(([to, cle]) => (
-                  <li key={to}><Link className="ext-link" to={to}>{t(cle)}</Link></li>
+                  <li key={k}><Check size={16} strokeWidth={2.4} aria-hidden="true" />{t(`extension_page.price.${k}`)}</li>
                 ))}
               </ul>
             </section>
@@ -331,7 +329,12 @@ export default function ExtensionPage() {
           <button type="button" className="ext-btn ext-btn--primary" onClick={voirTarifs}>
             {t('extension_page.price.link')}
           </button>
-        ), t('extension_page.price.text'));
+        ), undefined, (
+          <nav className="ext-docs" aria-label={t('extension_page.price.docs_title')}>
+            <span>{t('extension_page.price.docs_title')}</span>
+            {DOCUMENTS.map(([to, cle]) => <Link key={to} className="ext-link" to={to}>{t(cle)}</Link>)}
+          </nav>
+        ));
       case 'perms':
         return fiche(t('extension_page.permissions.title'), (
           <section className="admin-panel__block ext-section">
@@ -396,9 +399,6 @@ export default function ExtensionPage() {
       <main className="legal-main">
         <div className="legal-head">
           <div className="legal-head__inner">
-            <Link to="/" className="tb-btn ghost admin-btn legal-back">
-              <ArrowLeft size={15} strokeWidth={2.2} /> <span>{t('extension_page.back')}</span>
-            </Link>
             <h1>{t('extension_page.title')}</h1>
           </div>
         </div>

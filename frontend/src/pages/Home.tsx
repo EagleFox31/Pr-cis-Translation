@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useLocation, useNavigate } from 'react-router-dom';
 import Navbar from '../components/navbar/Navbar';
+import { prendreSource, type DemandeBibliotheque } from '../components/library/BibliothequeHote';
 import HeroSection from '../components/hero/HeroSection';
 import LanguageMarquee from '../components/hero/LanguageMarquee';
 import FeaturesGrid from '../components/features/FeaturesGrid';
@@ -9,9 +11,7 @@ import type { Ajustement } from '../components/preview/ViewerToolbar';
 import PricingSection from '../components/pricing/PricingSection';
 import AboutSection from '../components/about/AboutSection';
 import { showToast } from '../components/ui/Toast';
-import SupportModal from '../components/support/SupportModal';
-import InviteModal from '../components/invite/InviteModal';
-import PaymentModal from '../components/payment/PaymentModal';
+import PaymentModal from '../components/payment/LazyPaymentModal';
 import DocumentLibrary from '../components/library/DocumentLibrary';
 import { useAuth } from '../contexts/AuthContext';
 import { useDocumentLibrary, STATUTS_REPRENABLES, type DocMeta } from '../hooks/useDocumentLibrary';
@@ -25,6 +25,7 @@ import { isTrialFor } from '../lib/plans';
 import { subscribeSection } from '../lib/sectionBus';
 import { creerGesteMolette } from '../lib/molette';
 import type { TranslateConfig } from '../components/upload/TranslationSection';
+
 
 export default function Home() {
   const { t } = useTranslation();
@@ -118,7 +119,7 @@ export default function Home() {
   const stream = useStreamingTranslation(user?.plan === 'free');
 
   // ---- Document library ----
-  const { documents, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal, getIllegiblePages, setIllegiblePages } = useDocumentLibrary();
+  const { documents, charge: bibliothequeChargee, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal, getIllegiblePages, setIllegiblePages } = useDocumentLibrary();
 
   // Les droits du document viennent du serveur ; une mise à jour de la
   // bibliothèque après paiement doit aussi débloquer l'aperçu déjà ouvert.
@@ -354,6 +355,35 @@ export default function Home() {
     },
     [getOriginalBlob, deleteDocument, handleStartTranslate, t],
   );
+
+  // ---- Demande venue du tiroir d'une autre page (admin, intégrations) -------
+  // L'aperçu et la relance vivent ici : le tiroir des autres pages y renvoie
+  // avec la demande dans l'état de navigation, exécutée une fois le document
+  // connu, puis effacée (un retour arrière ne la rejoue pas).
+  const location = useLocation();
+  const navigate = useNavigate();
+  const demande = (location.state as DemandeBibliotheque | null)?.bibliotheque;
+  useEffect(() => {
+    if (!demande) return;
+    const doc = documents.find((d) => d.id === demande.docId);
+    if (!doc && !bibliothequeChargee) return;   // liste pas encore arrivée
+    navigate(location.pathname, { replace: true, state: null });
+    if (!doc) {
+      // Supprimé entre-temps : on le dit, et la demande ne reste pas armée.
+      prendreSource(demande.docId);
+      showToast('error', t('story.request_missing_title'), t('story.request_missing_hint'));
+      return;
+    }
+    if (demande.action === 'relance') {
+      handleRetry(doc);
+    } else {
+      handleLibraryPreview({
+        docId: doc.id, paid: doc.paid, filename: doc.filename, ext: doc.ext,
+        enCours: doc.status === 'translating',
+        source: prendreSource(doc.id) ?? getOriginalBlob(doc.id, true),
+      });
+    }
+  }, [demande, documents, bibliothequeChargee, navigate, location.pathname, handleRetry, handleLibraryPreview, getOriginalBlob, t]);
 
   // ---- Aperçu bibliothèque : réseau seulement quand on ne SAIT pas ---------
   //
@@ -655,8 +685,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-white text-gray-900 font-body">
-      <SupportModal />
-      <InviteModal />
 
       {/* Paiement à la page : achat des crédits nécessaires à la traduction
           courante (402). Une fois payé, on REJOUE la traduction telle quelle. */}

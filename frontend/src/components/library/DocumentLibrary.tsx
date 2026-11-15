@@ -26,7 +26,7 @@ import Button from '../ui/Button';
 import Drawer from '../ui/Drawer';
 import EmptyState from '../ui/EmptyState';
 import IconButton from '../ui/IconButton';
-import PaymentModal from '../payment/PaymentModal';
+import PaymentModal from '../payment/LazyPaymentModal';
 import { openSupport } from '../support/supportBus';
 import { openInvite } from '../invite/inviteBus';
 import AccountPanel from './AccountPanel';

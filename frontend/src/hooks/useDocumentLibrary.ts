@@ -129,6 +129,8 @@ export function useDocumentLibrary() {
   const { user, refreshUser } = useAuth();
   const [documents, setDocuments] = useState<DocMeta[]>([]);
   const [loading, setLoading] = useState(false);
+  /** La liste du serveur a été lue au moins une fois (distingue « vide » de « pas encore là »). */
+  const [charge, setCharge] = useState(false);
 
   // Nettoyer les anciennes données localStorage au montage
   useEffect(() => {
@@ -140,8 +142,12 @@ export function useDocumentLibrary() {
    *  document que l'utilisateur vient de régler. */
   const refresh = useCallback(async () => {
     if (!user) return;
-    const res = await api.get('/api/documents');
-    if (res.ok) setDocuments((res.data as any[]).map(toMeta));
+    try {
+      const res = await api.get('/api/documents');
+      if (res.ok) setDocuments((res.data as any[]).map(toMeta));
+    } finally {
+      setCharge(true);
+    }
   }, [user]);
 
   // Connecté → charger depuis l'API
@@ -353,7 +359,7 @@ export function useDocumentLibrary() {
     return { ok: false, message: res.status === 402 || res.status === 409 ? message : null };
   }, [user, refresh]);
 
-  return { documents, loading, refresh, saveDocument, getBlob, getPreviewBlob,
+  return { documents, loading, charge, refresh, saveDocument, getBlob, getPreviewBlob,
            getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal,
            getIllegiblePages, setIllegiblePages };
 }

@@ -349,7 +349,7 @@ class FapshiClient:
             # rien que le client puisse corriger, mais l'exploitant doit le lire.
             logger.error("Fapshi refuse l'accès (403) : identifiants ou IP non autorisée")
         elif res.status_code == 400 and "phone" in detail.lower():
-            user_message = "Numéro invalide : seuls les numéros MTN et Orange du Cameroun sont acceptés."
+            user_message = "Numéro invalide : seuls les numéros MTN et Orange Money (+237) sont acceptés."
         return FapshiError(f"{what} refusé ({res.status_code}) : {detail}", user_message)
 
     @_as_fapshi_error
