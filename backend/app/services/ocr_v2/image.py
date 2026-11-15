@@ -851,16 +851,25 @@ def conteneur(bgr, efface, lignes_bloc, autres=()):
 
 GROUPE_ECART = 2         # × hauteur de ligne : écart vertical au plus entre deux blocs d'un groupe
 GROUPE_CORPS = 1.5        # rapport de hauteurs de ligne au plus entre deux blocs d'un groupe
+COLONNE_MIN = 3           # blocs d'une ligne au bord commun, au moins, pour faire une colonne
+COLONNE_LARGE = 40        # × hauteur : au-delà, une ligne est un morceau de paragraphe, pas un libellé
 
 
-def _axes(tous, bgr=None):
+def _axes(tous, bgr=None, colonnes=None):
     """Alignement commun `{id(bloc): "gauche" | "centre" | "droite"}` des blocs
     empilés dans une même colonne (en-tête officiel centré, liste) : leurs
     lignes, de longueurs différentes, gardent le même bord gauche, le même
     milieu ou le même bord droit. Le cadre est la colonne, pas la page : deux
     en-têtes côte à côte forment deux groupes. Trois bords alignés seulement
     si au moins deux longueurs diffèrent ; sinon rien n'est décidé. Un trait
-    dessiné entre deux blocs (`bgr` fourni) les met dans deux groupes."""
+    dessiné entre deux blocs (`bgr` fourni) les met dans deux groupes.
+
+    Une colonne se reconnaît aussi à un bord commun, pas seulement à la
+    proximité : au moins `COLONNE_MIN` blocs d'une ligne, de même corps, au
+    même bord (gauche, droit ou axe) sans autre texte entre eux, forment un
+    groupe quel que soit l'écart (libellés d'axe d'un graphique). `colonnes`,
+    s'il est donné, reçoit les blocs d'une telle colonne alignée à gauche ou
+    à droite : leur bord ne cède jamais (`traduire_image`)."""
     def ecarts(ls):
         return [np.ptp([l[0] for l in ls]), np.ptp([l[0] + l[2] / 2 for l in ls]),
                 np.ptp([l[0] + l[2] for l in ls])]
@@ -890,13 +899,88 @@ def _axes(tous, bgr=None):
         else:
             groupes.append([b])
     axes = {}
-    for g in groupes:
+    colonnes = set() if colonnes is None else colonnes
+
+    def decider(g, k=None):
         ls = [l for o in g for l in o.lignes]
         hl = float(np.median([l[3] for l in ls]))
-        if len(g) > 1 and np.ptp([l[2] for l in ls]) >= 0.5 * hl:
-            sens = ("gauche", "centre", "droite")[int(np.argmin(ecarts(ls)))]
-            axes.update((id(o), sens) for o in g)
+        if len(g) < 2 or np.ptp([l[2] for l in ls]) < 0.5 * hl:
+            return False
+        i = int(np.argmin(ecarts(ls)))
+        if k is not None and i != k:
+            return False
+        sens = ("gauche", "centre", "droite")[i]
+        axes.update((id(o), sens) for o in g)
+        if (sens != "centre" and len(g) >= COLONNE_MIN
+                and max(l[2] for l in ls) <= COLONNE_LARGE * hl):
+            colonnes.update(id(o) for o in g)
+        return True
+
+    for g in groupes:
+        decider(g)
+
+    def entre(a, b):  # autre texte dans la bande qui sépare a (au-dessus) et b
+        x0 = min(a.boite[0], b.boite[0])
+        x1 = max(a.boite[0] + a.boite[2], b.boite[0] + b.boite[2])
+        y0, y1 = a.boite[1] + a.boite[3], b.boite[1]
+        return (y1 - y0 < -0.3 * a.boite[3]
+                or any(o is not a and o is not b and o.boite[1] < y1 and o.boite[1] + o.boite[3] > y0
+                       and o.boite[0] < x1 and o.boite[0] + o.boite[2] > x0 for o in tous)
+                or (bgr is not None and _trait(bgr, a.lignes[-1], b.lignes[0])))
+
+    bords = (lambda o: o.boite[0], lambda o: o.boite[0] + o.boite[2] / 2,
+             lambda o: o.boite[0] + o.boite[2])
+    seuls = sorted((b for b in tous if id(b) not in axes and len(b.lignes) == 1), key=lambda b: b.boite[1])
+    for b in seuls:
+        if id(b) in axes:
+            continue
+        hb = b.lignes[0][3]
+        for k, bord in enumerate(bords):
+            membres = [o for o in seuls if id(o) not in axes
+                       and abs(bord(o) - bord(b)) <= MEME_BORD * hb
+                       and max(hb, o.lignes[0][3]) <= GROUPE_CORPS * min(hb, o.lignes[0][3])]
+            # Suite ininterrompue (rien entre deux voisins) qui contient b.
+            suite = []
+            for o in membres:
+                if suite and entre(suite[-1], o):
+                    if b in suite:
+                        break
+                    suite = []
+                suite.append(o)
+            if len(suite) >= COLONNE_MIN and decider(suite, k):
+                break
     return axes
+
+
+APLAT_PAS = 1.5          # × hauteur du bloc : distance au plus entre le bord du fond et l'aplat voisin
+APLAT_ECART = 150        # somme des écarts BGR : couleur nettement autre que le fond (pas un fond pâle)
+APLAT_BRUIT = 15         # écart-type BGR au plus d'un aplat (pas du texte)
+
+
+def _aplat(bgr, x, y0, y1, sens):
+    """Vrai si, à partir de `x` vers `sens` (±1), le fond du bloc s'arrête
+    sur un aplat d'une autre couleur (barre, bandeau), pas sur du texte."""
+    H, W = bgr.shape[:2]
+    y0, y1 = max(int(y0), 0), min(int(y1), H)
+    x = int(round(x))
+    if y1 - y0 < 2 or not 0 <= x < W:
+        return False
+    fond = np.median(bgr[y0:y1, x].reshape(-1, 3), axis=0)
+    for k in range(1, int(APLAT_PAS * (y1 - y0)) + 1):
+        xs = x + sens * k
+        if not 0 <= xs < W:
+            return False
+        col = bgr[y0:y1, xs].reshape(-1, 3).astype(float)
+        m = np.median(col, axis=0)
+        if np.abs(m - fond).sum() > APLAT_ECART:
+            # un pixel de lissage au bord, puis l'aplat
+            lo, hi = sorted((xs + sens, xs + sens * 5))
+            if lo < 0 or hi >= W:
+                return False
+            z = bgr[y0:y1, lo:hi + 1].reshape(-1, 3).astype(float)
+            return bool(z.std(axis=0).max() <= APLAT_BRUIT
+                        and np.abs(np.median(z, axis=0) - fond).sum() > APLAT_ECART)
+    return False
 
 
 def _case(bgr, bloc, efface, autres=(), groupe=None):
@@ -997,7 +1081,10 @@ def cadre(bgr, bloc, tous, groupe=None):
     if groupe:
         aligne = groupe == "gauche"
     if aligne:
-        x1 = droite - g if droite is not None else W - x
+        # marge droite = marge gauche ; pour un groupe, celle de la page
+        # (bord gauche le plus à gauche), pas celle du bloc décalé en colonne
+        m = min([x] + [o.boite[0] for o in tous]) if groupe else x
+        x1 = droite - g if droite is not None else W - m
         return x, max(min(x1, W), x + w), False
     cx = x + w / 2
     demi = min(cx - (gauche + g if gauche is not None else 0),
@@ -1399,7 +1486,8 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
         d["traduction"] = time.monotonic() - t
 
     places, poses, unies, encres = [], [], set(), []
-    axes = _axes(tous, bgr)
+    colonne = set()
+    axes = _axes(tous, bgr, colonne)
     for b in tous:
         x, y, w, h = b.boite
         # Déjà dans la langue cible (le traducteur l'a rendu tel quel) : laissé intact.
@@ -1418,7 +1506,20 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
             # Case dessinée autour du texte : sa place et son alignement ; sinon
             # l'encre voisine et le vide autour du bloc.
             case = _case(bgr, b, efface, [l for _, l in lus if l not in b.lignes], groupe)
-            cb = case[0] if case else cadre(bgr, b, tous, groupe)
+            if case and groupe and id(b) in colonne and not case[0][2]:
+                # Fond uni ouvert serré sur le texte : une colonne grandit du
+                # côté libre jusqu'à l'encre voisine (`cadre`), pas dans ce
+                # fond. Une case close (dessinée) reste sa place, et un bord
+                # du fond qui est un aplat d'une autre couleur (barre d'un
+                # graphique) reste une limite.
+                c0, c1 = case[0][0], case[0][1]
+                cb = cadre(bgr, b, tous, groupe)
+                g0 = c0 if _aplat(bgr, c0, y, y + h, -1) else -np.inf
+                g1 = c1 if _aplat(bgr, c1, y, y + h, 1) else np.inf
+                case = None
+                cb = (max(cb[0], g0), max(min(cb[1], g1), max(cb[0], g0) + 1), cb[2])
+            else:
+                cb = case[0] if case else cadre(bgr, b, tous, groupe)
             if b.lignes[0] in puces:  # après la puce dessinée, aligné à gauche, sans la couvrir
                 x0 = max(x, b.lignes[0][0])
                 cb = (x0, max(cb[1], x0 + w), False)
@@ -1427,13 +1528,18 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
             return case, cb, libre, p
 
         case, cb, libre, p = poser(axes.get(id(b)))
-        if axes.get(id(b)):
-            # L'alignement du groupe cède s'il rapetisse le bloc (un corps plus
-            # petit se propagerait à tous ses frères, `_freres()`) ou s'il le
-            # coupe sur plus de lignes.
+        en_col = id(b) in colonne
+        if axes.get(id(b)) and (not en_col or p is None or len(p["lignes"]) > len(b.lignes)):
+            # L'alignement du groupe cède s'il rapetisse le bloc (un corps
+            # plus petit se propagerait à tous ses frères, `_freres()`) ou
+            # s'il le coupe sur plus de lignes. Une colonne (libellés) garde
+            # son bord même rapetissée (la série reste d'un corps) ; elle ne
+            # cède que si elle coupe le bloc sur plus de lignes que l'original.
             seul = poser(None)
-            if seul[3] is not None and (p is None or p["taille"] < seul[3]["taille"]
-                                        or len(p["lignes"]) > len(seul[3]["lignes"])):
+            n = len(b.lignes) if en_col and p is not None else None
+            if seul[3] is not None and (p is None or (n is None and p["taille"] < seul[3]["taille"])
+                                        or len(p["lignes"]) > len(seul[3]["lignes"])
+                                        and (n is None or len(seul[3]["lignes"]) <= n)):
                 case, cb, libre, p = seul
         if case and case[2] >= CASE_UNIE:
             unies.add(b.boite)

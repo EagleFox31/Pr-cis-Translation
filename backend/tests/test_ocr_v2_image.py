@@ -572,6 +572,16 @@ def cas_axes():
     # Longueurs égales : centré ou à gauche, impossible à dire, rien n'est décidé.
     egales = [bloc(40, 10, 200), bloc(40, 50, 200)]
     assert module._axes(egales) == {}
+    # Colonne par bord commun (libellés d'axe d'un graphique) : 3 étiquettes
+    # collées à droite (x 328), espacées de 3,5 lignes, forment une colonne
+    # dont le bord ne cède pas.
+    col = set()
+    axe = [bloc(30, 10, 298, 12), bloc(118, 52, 210, 12), bloc(221, 94, 107, 12)]
+    axes = module._axes(axe, colonnes=col)
+    assert all(axes.get(id(b)) == "droite" for b in axe) and col == {id(b) for b in axe}, axes
+    # Un texte entre deux d'entre elles coupe la suite : plus de colonne.
+    coupe = axe + [bloc(150, 70, 100, 12)]
+    assert not any(module._axes(coupe).get(id(b)) for b in axe)
     # Trop éloignés, ou sans axe commun : rien.
     loin = [bloc(150, 10, 100), bloc(100, 300, 200)]
     epars = [bloc(10, 10, 100), bloc(300, 50, 150)]
@@ -584,6 +594,22 @@ def cas_axes():
     print("  axes : en-tête centré par colonne, liste à gauche, longueurs égales sans décision")
 
 
+def cas_aplat():
+    # Fond blanc, barre bleue unie à droite (x ≥ 60), texte noir à gauche (x < 20).
+    img = np.full((40, 120, 3), 255, np.uint8)
+    img[:, 60:] = (200, 120, 30)
+    img[:, 59] = (228, 188, 143)          # pixel de lissage au bord de la barre
+    for x in range(5, 20, 3):
+        img[10:30:2, x] = 0               # traits de texte : pas un aplat
+    assert module._aplat(img, 50, 10, 30, 1), "barre à droite = limite"
+    assert not module._aplat(img, 25, 10, 30, -1), "texte à gauche ≠ aplat"
+    # Fond pâle voisin (carte claire) : couleur trop proche du blanc, pas une limite.
+    pale = np.full((40, 120, 3), 255, np.uint8)
+    pale[:, 60:] = (219, 237, 241)
+    assert not module._aplat(pale, 50, 10, 30, 1)
+    print("  aplat : barre unie = limite, texte et fond pâle non")
+
+
 def main():
     debut = time.monotonic()
     cas_symboles()
@@ -593,6 +619,7 @@ def main():
     cas_controles()
     cas_blocs()
     cas_axes()
+    cas_aplat()
     cas_placer()
     cas_rendu()
     cas_bords()
