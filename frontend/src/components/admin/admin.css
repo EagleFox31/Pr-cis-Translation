@@ -162,12 +162,12 @@
 /* Documents : colonnes fixes, le nom prend la place disponible */
 .admin-table--docs { table-layout: fixed; }
 .admin-table--docs th:nth-child(1) { width: auto; }
-.admin-table--docs th:nth-child(2) { width: 22%; }
-.admin-table--docs th:nth-child(3) { width: 130px; }
+.admin-table--docs th:nth-child(2) { width: 20%; }
+.admin-table--docs th:nth-child(3) { width: 90px; }
 .admin-table--docs th:nth-child(4) { width: 110px; }
 .admin-table--docs th:nth-child(5) { width: 70px; }
 .admin-table--docs th:nth-child(6) { width: 110px; }
-.admin-table--docs th:nth-child(7) { width: 250px; }
+.admin-table--docs th:nth-child(7) { width: 330px; }
 .admin-table--docs td { white-space: nowrap; }
 .admin-table--docs .admin-cell-actions { flex-wrap: nowrap; }
 .admin-cell-unit { color: var(--gray-500); }
@@ -257,6 +257,7 @@ fieldset.admin-form { border: 0; padding: 0; margin: 0; min-width: 0; }
   .admin-table .admin-cell-clip { max-width: none; }
   .admin-table--docs td.admin-cell-meta { display: inline-block; width: auto; margin-right: 12px; font-size: 12px; color: var(--gray-500); }
   .admin-table--docs td:first-child { margin-bottom: 2px; }
+  .admin-table--docs .admin-cell-actions { flex-wrap: wrap; margin-top: 4px; }
 }
 @media (max-width: 420px) {
   .admin-form > label, .admin-form > .admin-field--wide { grid-column: 1 / -1; }

@@ -20,6 +20,19 @@ export interface DemandeBibliotheque {
   bibliotheque: { action: 'apercu' | 'relance'; docId: string };
 }
 
+/** Admin : ouvrir dans l'aperçu de l'accueil le document d'un autre compte
+ *  (lecture seule, par les routes `/api/admin/documents/{id}/…`). */
+export interface DemandeApercuAdmin {
+  apercuAdmin: {
+    docId: string;
+    nom: string;
+    /** Document d'un autre compte, pas encore une copie : « Créer ma copie ». */
+    copiable: boolean;
+    /** Page où ramène le bouton Retour (console admin, recherche comprise). */
+    retour: string;
+  };
+}
+
 // Le fichier d'origine demandé par le tiroir pour l'aperçu : l'accueil le
 // reprend au lieu de le télécharger une seconde fois (une promesse ne passe
 // pas par l'état de navigation).

@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowUp } from 'lucide-react';
 import AppBar from '../components/navbar/AppBar';
-import { prendreSource, type DemandeBibliotheque } from '../components/library/BibliothequeHote';
+import { prendreSource, type DemandeBibliotheque, type DemandeApercuAdmin } from '../components/library/BibliothequeHote';
+import { createAdminCopy, downloadAdminDocument, fetchAdminPdf } from '../hooks/useAdminDocuments';
 import HeroSection from '../components/hero/HeroSection';
 import LanguageMarquee from '../components/hero/LanguageMarquee';
 import FeaturesGrid from '../components/features/FeaturesGrid';
@@ -33,7 +34,7 @@ import type { TranslateConfig } from '../components/upload/TranslationSection';
 
 export default function Home() {
   const { t, i18n } = useTranslation();
-  const [isAnnual, setIsAnnual] = useState(true);
+  const [isAnnual, setIsAnnual] = useState(false);
   const [activeSection, setActiveSection] = useState('hero');
   const [showPreview, setShowPreview] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -117,6 +118,11 @@ export default function Home() {
   const [suiviBiblio, setSuiviBiblio] = useState<{
     pretes: Record<number, true>; etats: Record<number, PageStatus>;
   } | null>(null);
+  // Admin regardant le document d'un AUTRE compte : tout passe par les routes
+  // admin (lecture seule), rien n'est retraduit ni débité, et Retour ramène à
+  // la console. `null` = aperçu ordinaire.
+  const [adminDoc, setAdminDoc] = useState<DemandeApercuAdmin['apercuAdmin'] | null>(null);
+  const [copieEnCours, setCopieEnCours] = useState(false);
 
   // ---- Traduction PROGRESSIVE (page par page) ----
   const { user, loading: authLoading, refreshUser } = useAuth();
@@ -149,7 +155,8 @@ export default function Home() {
 
   // Pages illisibles d'un scan : document de la bibliothèque, ou celui que la
   // traduction en direct vient d'enregistrer (la décision se prend sur la page).
-  const docIdPages = showPreview ? (libraryDocId ?? stream.documentId) : null;
+  // Document d'un autre compte (admin) : ses réglages ne se touchent pas d'ici.
+  const docIdPages = showPreview && !adminDoc ? (libraryDocId ?? stream.documentId) : null;
   const pagesIllisibles = usePagesIllisibles({
     docId: docIdPages,
     load: getIllegiblePages,
@@ -232,6 +239,7 @@ export default function Home() {
       // continuerait de réclamer les pages du document précédent et les
       // poserait par-dessus celles qui arrivent.
       setLibraryDocId(null);
+      setAdminDoc(null);
       setSuiviBiblio(null);
       setPreviewLoading(false);
       setTranslatedBlob(null);
@@ -295,6 +303,7 @@ export default function Home() {
       enSuivi.current = false;
       echecsSuivi.current = 0;
       setLibraryDocId(req.docId);
+      setAdminDoc(null);
       setTraductionManquante(false);
       setSourceManquante(false);
       setLibraryCanReadClear(req.paid);
@@ -389,6 +398,37 @@ export default function Home() {
     }
   }, [demande, documents, bibliothequeChargee, navigate, location.pathname, handleRetry, handleLibraryPreview, getOriginalBlob, t]);
 
+  // Demande de la console admin : le document d'un autre compte, ouvert dans
+  // CET aperçu par les routes admin (l'état est effacé : pas de rejeu).
+  const demandeAdmin = (location.state as DemandeApercuAdmin | null)?.apercuAdmin;
+  useEffect(() => {
+    if (!demandeAdmin) return;
+    navigate(location.pathname, { replace: true, state: null });
+    handleLibraryPreview({
+      docId: demandeAdmin.docId, filename: demandeAdmin.nom, ext: 'pdf',
+      paid: true, enCours: false,
+      source: fetchAdminPdf(demandeAdmin.docId, 'source').catch(() => undefined),
+    });
+    setAdminDoc(demandeAdmin);
+  }, [demandeAdmin, navigate, location.pathname, handleLibraryPreview]);
+
+  const handleAdminCopy = useCallback(async () => {
+    if (!adminDoc || copieEnCours) return;
+    setCopieEnCours(true);
+    try {
+      const res = await createAdminCopy(adminDoc.docId);
+      showToast('success', res.cree
+        ? t('admin_docs.copy_created', 'Copie créée : elle est dans votre bibliothèque.')
+        : t('admin_docs.copy_exists', 'Vous avez déjà une copie de ce document.'));
+      refresh();
+    } catch (err) {
+      showToast('error', t('admin_docs.copy_error', 'La copie n’a pas pu être créée.'),
+        err instanceof Error ? err.message : undefined);
+    } finally {
+      setCopieEnCours(false);
+    }
+  }, [adminDoc, copieEnCours, refresh, t]);
+
   // ---- Aperçu bibliothèque : réseau seulement quand on ne SAIT pas ---------
   //
   // Trois niveaux, du plus rapide au plus lent, et on s'arrête au premier :
@@ -405,6 +445,23 @@ export default function Home() {
       return;
     }
     if (fullDocFor.current === libraryDocId) return;          // niveau 1
+
+    if (adminDoc?.docId === libraryDocId) {
+      // Document d'un autre compte : la route admin rend la traduction
+      // ENTIÈRE en une fois, la navigation est ensuite locale.
+      const token = ++pageToken.current;
+      setPreviewLoading(true);
+      fetchAdminPdf(libraryDocId, 'apercu')
+        .then((blob) => {
+          if (pageToken.current !== token) return;
+          fullDocFor.current = libraryDocId;
+          setTranslatedBlob(blob);
+          setTranslatedIsPdf(true);
+        })
+        .catch(() => { if (pageToken.current === token) setTraductionManquante(true); })
+        .finally(() => { if (pageToken.current === token) setPreviewLoading(false); });
+      return;
+    }
     const key = `${libraryDocId}:${currentPage}`;
     const hit = pageBlobCache.current.get(key);
     if (hit) {                                                    // niveau 2
@@ -471,10 +528,15 @@ export default function Home() {
       .catch(() => { echec(); /* le lecteur garde son écran d'attente */ })
       .finally(() => { if (pageToken.current === token) setPreviewLoading(false); });
     return () => { if (relance) clearTimeout(relance); };
-  }, [libraryDocId, currentPage, showPreview, getPreviewBlob, previewPoll]);
+  }, [libraryDocId, adminDoc, currentPage, showPreview, getPreviewBlob, previewPoll]);
 
   // ---- Download (le résultat complet, une fois la traduction terminée) ----
   const handleDownload = useCallback(async () => {
+    if (adminDoc) {
+      const { ok } = await downloadAdminDocument(adminDoc.docId, 'translated', translatedFilename || adminDoc.nom).catch(() => ({ ok: false }));
+      if (!ok) showToast('error', t('admin_docs.download_error', 'Téléchargement impossible'));
+      return;
+    }
     // Le document est en bibliothèque : on redemande le rendu au serveur. Le
     // blob reçu en fin de traduction ignore les choix faits ensuite sur les
     // pages illisibles (garder, laisser vide, traduire quand même).
@@ -491,7 +553,7 @@ export default function Home() {
       URL.revokeObjectURL(url);
       document.body.removeChild(a);
     }
-  }, [libraryDocId, stream.documentId, stream.result, translatedBlob, translatedFilename, getBlob]);
+  }, [adminDoc, libraryDocId, stream.documentId, stream.result, translatedBlob, translatedFilename, getBlob, t]);
 
   // ---- Pause / Annuler ----
   // Traduction lancée ici : le flux connaît le job. Document rouvert depuis la
@@ -534,7 +596,13 @@ export default function Home() {
     setPreviewFocus(false);         // on quitte aussi le mode agrandi
     setLibraryDocId(null);          // plus d'aperçu ouvert : plus rien à charger
     setPreviewLoading(false);
-  }, [stream]);
+    if (adminDoc) {
+      // Ouvert depuis la console admin : c'est là qu'on revient.
+      // Sauf après une déconnexion : la console admin n'est plus accessible.
+      setAdminDoc(null);
+      if (user) navigate(adminDoc.retour);
+    }
+  }, [stream, adminDoc, navigate, user]);
 
   // Déconnexion (ou session expirée) : l'aperçu et le document courant
   // appartiennent au compte qui vient de partir, on les ferme.
@@ -683,6 +751,11 @@ export default function Home() {
   // panneau gauche n'en a qu'une conversion PDF). Traduction en direct : c'est
   // le fichier local, déjà en main.
   const handleDownloadOriginal = useCallback(async () => {
+    if (adminDoc) {
+      const { ok } = await downloadAdminDocument(adminDoc.docId, 'original', adminDoc.nom).catch(() => ({ ok: false }));
+      if (!ok) showToast('error', t('admin_docs.download_error', 'Téléchargement impossible'));
+      return;
+    }
     let blob: Blob | undefined;
     let name = selectedFile?.name ?? 'document';
     if (libraryDocId) {
@@ -700,7 +773,7 @@ export default function Home() {
     a.click();
     URL.revokeObjectURL(url);
     document.body.removeChild(a);
-  }, [libraryDocId, selectedFile, documents, getOriginalBlob]);
+  }, [adminDoc, libraryDocId, selectedFile, documents, getOriginalBlob, t]);
 
   // Aperçu du panneau « traduit » : blob final si dispo, sinon PDF partiel
   // (pages déjà prêtes), mis à jour au fil de l'eau pendant le streaming.
@@ -873,6 +946,8 @@ export default function Home() {
           onUnlock={handleUnlock}
           onToggleFocus={toggleFocus}
           onStop={stream.isTranslating || (suiviBiblio && libraryJobId) ? handleStop : undefined}
+          onCopy={adminDoc?.copiable ? handleAdminCopy : undefined}
+          copyBusy={copieEnCours}
           onZoomChange={changerZoom}
           ajustement={ajustement}
           onAjustementChange={setAjustement}
@@ -894,7 +969,7 @@ export default function Home() {
                 provisoire={pagesIllisibles.provisoire}
                 onPageChange={setCurrentPage}
               />
-              {libraryDocId && !suiviBiblio ? (
+              {libraryDocId && !suiviBiblio && !adminDoc ? (
                 <DocumentImagesPanel
                   docId={libraryDocId}
                   load={getDocumentImages}

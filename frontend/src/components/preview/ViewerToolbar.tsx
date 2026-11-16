@@ -4,7 +4,7 @@ import {
   ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
   Download, Loader2, CheckCircle2, ArrowRight, Lock,
   Maximize2, Minimize2, Flag, FileDown, Pause, X,
-  RectangleVertical, MoveHorizontal, SquareSplitHorizontal,
+  RectangleVertical, MoveHorizontal, SquareSplitHorizontal, CopyPlus,
 } from 'lucide-react';
 
 import type { StopMode } from '../../hooks/useStreamingTranslation';
@@ -53,6 +53,9 @@ interface ViewerToolbarProps {
   onToggleFocus?: () => void;
   /** Pause / Annuler la traduction en cours. Absent : pas de job à arrêter. */
   onStop?: (mode: StopMode) => Promise<void>;
+  /** Admin regardant le document d'un client : en garder une copie à son nom. */
+  onCopy?: () => void;
+  copyBusy?: boolean;
 }
 
 export default function ViewerToolbar({
@@ -79,6 +82,8 @@ export default function ViewerToolbar({
   onUnlock,
   onToggleFocus,
   onStop,
+  onCopy,
+  copyBusy = false,
 }: ViewerToolbarProps) {
   const { t } = useTranslation();
   // Arrêt demandé : le serveur finit d'abord la page en cours, ce qui peut
@@ -105,7 +110,7 @@ export default function ViewerToolbar({
         style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
       >
         <ArrowLeft size={15} strokeWidth={2.2} />
-        <span>{t('viewer.back', 'Retour')}</span>
+        <span className="docbar-libelle">{t('viewer.back', 'Retour')}</span>
       </button>
 
       {/* Zoom */}
@@ -179,7 +184,7 @@ export default function ViewerToolbar({
             }}
           >
             <SquareSplitHorizontal size={15} strokeWidth={2.2} />
-            <span>{t('viewer.compare', 'Comparer')}</span>
+            <span className="docbar-libelle">{t('viewer.compare', 'Comparer')}</span>
           </button>
         )}
       </div>
@@ -317,6 +322,19 @@ export default function ViewerToolbar({
       >
         <Flag size={15} strokeWidth={2.2} />
       </button>
+
+      {onCopy && (
+        <button
+          onClick={onCopy}
+          disabled={copyBusy}
+          className="tb-btn ghost"
+          aria-label={t('admin_docs.create_copy', 'Créer ma copie')}
+          title={t('admin_docs.create_copy', 'Créer ma copie')}
+        >
+          {copyBusy ? <Loader2 size={15} strokeWidth={2.2} className="ui-spin" /> : <CopyPlus size={15} strokeWidth={2.2} />}
+          <span className="docbar-libelle">{t('admin_docs.create_copy', 'Créer ma copie')}</span>
+        </button>
+      )}
 
       {/* Original — toujours disponible : c'est le fichier de l'utilisateur,
           ni l'essai ni une traduction en cours ne le retiennent. */}

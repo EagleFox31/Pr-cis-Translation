@@ -1,8 +1,8 @@
 /**
  * Données de la console d'administration des documents (`/admin/documents`).
  *
- * Lecture seule : l'admin retrouve le document d'un utilisateur et en télécharge
- * l'original comme la traduction pour reproduire un rendu cassé. La recherche
+ * L'admin retrouve le document d'un utilisateur, en télécharge l'original comme
+ * la traduction pour reproduire un rendu cassé, ou l'ouvre dans l'aperçu de l'accueil. La recherche
  * (e-mail du propriétaire ou nom de fichier) est différée de 300 ms pour ne pas
  * interroger le serveur à chaque frappe.
  */
@@ -22,6 +22,8 @@ export interface AdminDocument {
   created_at: string | null;
   has_original: boolean;
   has_translation: boolean;
+  /** Identifiant du document client dont celui-ci est une copie d'admin. */
+  copie_de: string | null;
 }
 
 export type AdminDocKind = 'original' | 'translated';
@@ -41,20 +43,51 @@ function filenameFrom(res: Response, fallback: string): string {
 /** Télécharge l'original ou la traduction d'un document (fetch authentifié
  *  puis lien `a.download`). Renvoie le statut HTTP pour le message d'erreur. */
 export async function downloadAdminDocument(
-  doc: AdminDocument, kind: AdminDocKind,
+  id: string, kind: AdminDocKind, fallbackName: string,
 ): Promise<{ ok: boolean; status: number }> {
-  const res = await authFetch(`/api/admin/documents/${encodeURIComponent(doc.id)}/${kind}`);
+  const res = await authFetch(`/api/admin/documents/${encodeURIComponent(id)}/${kind}`);
   if (!res.ok) return { ok: false, status: res.status };
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = filenameFrom(res, doc.original_name);
+  a.download = filenameFrom(res, fallbackName);
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
   return { ok: true, status: res.status };
+}
+
+/** Message d'erreur du serveur (`detail`), sinon le code HTTP. */
+async function detailOf(res: Response): Promise<string> {
+  try {
+    const body = await res.json();
+    if (body && typeof body.detail === 'string') return body.detail;
+  } catch { /* corps absent ou illisible */ }
+  return String(res.status);
+}
+
+/** PDF de l'original (`source`) ou de la traduction rendue (`apercu`), pour
+ *  l'aperçu de l'accueil. Lève une `Error` portant le message du serveur. */
+export async function fetchAdminPdf(
+  id: string, kind: 'source' | 'apercu',
+): Promise<Blob> {
+  const route = kind === 'source' ? 'source-pdf' : 'apercu';
+  const res = await authFetch(`/api/admin/documents/${encodeURIComponent(id)}/${route}`);
+  if (!res.ok) throw new Error(await detailOf(res));
+  return res.blob();
+}
+
+/** Crée, au nom de l'admin, une copie du document d'un client (photo de sa
+ *  traduction). `cree: false` = la copie existait déjà. */
+export async function createAdminCopy(
+  id: string,
+): Promise<{ id: string; cree: boolean }> {
+  const res = await authFetch(
+    `/api/admin/documents/${encodeURIComponent(id)}/copie`, { method: 'POST' });
+  if (!res.ok) throw new Error(await detailOf(res));
+  return res.json();
 }
 
 /** La recherche `q` est fournie par la page (elle vit dans l'adresse). */
@@ -87,5 +120,9 @@ export function useAdminDocuments(q: string) {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  return { items, total, loading, error, refresh, download: downloadAdminDocument };
+  return {
+    items, total, loading, error, refresh,
+    download: (doc: AdminDocument, kind: AdminDocKind) =>
+      downloadAdminDocument(doc.id, kind, doc.original_name),
+  };
 }
