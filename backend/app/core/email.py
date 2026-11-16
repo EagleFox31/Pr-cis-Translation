@@ -445,12 +445,58 @@ def _message_alerte(destinataires: list[str], subject: str, body: str, *,
     return msg
 
 
+# ── Envoi avec reprise ────────────────────────────────────────────────────────
+# Un serveur SMTP a des ratés passagers (connexion coupée, délai dépassé, « 421
+# réessayez plus tard »). Un seul essai, c'était un code de connexion ou une
+# alerte support perdus pour une seconde de panne. On réessaie donc deux fois,
+# après une courte attente, mais SEULEMENT si l'erreur est passagère : un refus
+# définitif (adresse inconnue, identifiants faux, codes 5xx) ne change pas en
+# réessayant. L'échec final est laissé à l'appelant, qui le note en
+# `logger.error` — donc dans le journal d'erreurs de l'admin.
+_REPRISES = (2, 5)   # secondes d'attente avant chaque nouvel essai
+_DELAI_SMTP = 20     # secondes au plus par essai (60 par défaut chez aiosmtplib)
+
+
+def _passagere(exc: Exception) -> bool:
+    """Vrai si un nouvel essai a une chance d'aboutir."""
+    import aiosmtplib
+    if isinstance(exc, aiosmtplib.SMTPRecipientsRefused):
+        return all(400 <= r.code < 500 for r in exc.recipients)
+    if isinstance(exc, aiosmtplib.SMTPResponseException):
+        return 400 <= exc.code < 500
+    return True   # réseau : connexion refusée ou coupée, délai dépassé
+
+
+async def _envoyer(msg) -> None:
+    """Envoie `msg` par SMTP ; réessaie les échecs passagers, lève le dernier."""
+    import asyncio
+
+    import aiosmtplib
+
+    for essai in range(len(_REPRISES) + 1):
+        try:
+            await aiosmtplib.send(
+                msg, hostname=SMTP_HOST, port=SMTP_PORT,
+                sender=SMTP_FROM or None, username=SMTP_USER or None,
+                password=SMTP_PASSWORD or None,
+                start_tls=(SMTP_PORT != 465), use_tls=(SMTP_PORT == 465),
+                timeout=_DELAI_SMTP,
+            )
+            return
+        except Exception as exc:
+            if essai == len(_REPRISES) or not _passagere(exc):
+                raise
+            logger.warning("Envoi à %s : essai %d échoué (%s), nouvel essai dans %d s",
+                           msg["To"], essai + 1, exc, _REPRISES[essai])
+            await asyncio.sleep(_REPRISES[essai])
+
+
 async def send_plain(to: list[str] | str, subject: str, body: str, *,
                      titre: str | None = None, resume: str | None = None,
                      niveau: str = "info", bandeau: str = "Alerte",
                      details: list[tuple[str, str]] | None = None,
                      citation: tuple[str, str] | None = None,
-                     bouton: tuple[str, str] | None = None) -> None:
+                     bouton: tuple[str, str] | None = None) -> bool:
     """Alerte interne (support, solde IA, journal d'erreurs).
 
     `body` est la version TEXTE ; la version HTML reprend la carte Précis
@@ -468,22 +514,21 @@ async def send_plain(to: list[str] | str, subject: str, body: str, *,
         logger.info("[DEV] Alerte → %s | %s", ", ".join(destinataires), subject)
         return
 
-    import aiosmtplib
 
     msg = _message_alerte(destinataires, subject, body, titre=titre,
                           resume=resume, niveau=niveau, bandeau=bandeau,
                           details=details, citation=citation, bouton=bouton)
     try:
-        await aiosmtplib.send(
-            msg, hostname=SMTP_HOST, port=SMTP_PORT,
-            sender=SMTP_FROM or None, username=SMTP_USER or None, password=SMTP_PASSWORD or None,
-            start_tls=(SMTP_PORT != 465), use_tls=(SMTP_PORT == 465),
-        )
+        await _envoyer(msg)
         logger.info("Alerte envoyée à %s", ", ".join(destinataires))
+        return True
     except Exception as exc:
         # Une alerte qui échoue ne doit jamais casser l'appelant (souvent un
-        # thread de traitement) : on la note et on passe.
-        logger.warning("Alerte e-mail non envoyée : %s", exc)
+        # thread de traitement). Mais elle ne passe plus inaperçue : en
+        # `error`, elle atterrit dans le journal d'erreurs de l'admin.
+        logger.error("Alerte e-mail non envoyée à %s (%s) : %s",
+                     ", ".join(destinataires), subject, exc)
+        return False
 
 
 async def send_verification_email(email: str, code: str, token: str,
@@ -502,18 +547,9 @@ async def send_verification_email(email: str, code: str, token: str,
                     email, langue, code, token)
         return
 
-    import aiosmtplib
 
     try:
-        await aiosmtplib.send(
-            msg,
-            hostname=SMTP_HOST,
-            port=SMTP_PORT,
-            sender=SMTP_FROM or None, username=SMTP_USER or None,
-            password=SMTP_PASSWORD or None,
-            start_tls=(SMTP_PORT != 465),
-            use_tls=(SMTP_PORT == 465),
-        )
+        await _envoyer(msg)
         logger.info("Vérification envoyée à %s (%s)", email, langue)
     except Exception as exc:
         # Le serveur SMTP est injoignable, ou refuse. L'exception BRUTE
@@ -547,14 +583,9 @@ async def send_invitation_email(destinataire: str, inviteur: str,
                     destinataire, inviteur_email, langue)
         return
 
-    import aiosmtplib
 
     try:
-        await aiosmtplib.send(
-            msg, hostname=SMTP_HOST, port=SMTP_PORT,
-            sender=SMTP_FROM or None, username=SMTP_USER or None, password=SMTP_PASSWORD or None,
-            start_tls=(SMTP_PORT != 465), use_tls=(SMTP_PORT == 465),
-        )
+        await _envoyer(msg)
         logger.info("Invitation envoyée à %s (%s)", destinataire, langue)
     except Exception as exc:
         logger.error("Échec invitation à %s : %s", destinataire, exc)
@@ -577,14 +608,9 @@ async def send_nouveautes_email(destinataire: str, langue: str,
                     version, destinataire, langue)
         return
 
-    import aiosmtplib
 
     try:
-        await aiosmtplib.send(
-            msg, hostname=SMTP_HOST, port=SMTP_PORT,
-            sender=SMTP_FROM or None, username=SMTP_USER or None, password=SMTP_PASSWORD or None,
-            start_tls=(SMTP_PORT != 465), use_tls=(SMTP_PORT == 465),
-        )
+        await _envoyer(msg)
         logger.info("Nouveautés %s envoyées à %s (%s)", version, destinataire, langue)
     except Exception as exc:
         logger.error("Échec nouveautés à %s : %s", destinataire, exc)
