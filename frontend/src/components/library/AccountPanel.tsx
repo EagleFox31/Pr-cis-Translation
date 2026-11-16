@@ -2,18 +2,23 @@
  * Haut du panneau de compte : qui je suis, ce qu'il me reste.
  *
  * Deux blocs de la maquette : l'identité (`.p-head`, avec la sortie du panneau)
- * et le solde (`.bal`) : une ligne repliée (forfait + pages disponibles) qui
- * se déplie sur la barre, le détail des pages et les dates.
- * La déconnexion vit en pied de panneau, là où elle ne défile jamais ; le
- * stockage et le renouvellement ne sont plus affichés ici.
+ * et le solde (`.bal`). Replié : le solde débité en premier (nom, disponible /
+ * total, barre, date). Déplié : une ligne par solde (Bêta, forfait, pages
+ * achetées), où se choisit celui qui passe en premier.
+ * La déconnexion vit en pied de panneau, là où elle ne défile jamais.
  */
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
 import { ChevronDown, X } from 'lucide-react';
 
 import { useAuth, type AuthUser } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import { percent } from '../../lib/format';
+import { useBeta } from '../../hooks/useBeta';
+import { useBetaProgram } from '../../hooks/useBetaProgram';
+import { useBetaPreference } from '../../hooks/useBetaPreference';
+import BetaAllowances from './BetaAllowances';
 
 interface AccountPanelProps {
   user: AuthUser;
@@ -57,12 +62,16 @@ export default function AccountPanel({ user, refreshKey, onClose }: AccountPanel
   const illimite = !!usage && usage.kind === 'plan' && usage.monthly_pages == null;
   const restantes = usage?.pages_remaining ?? 0;
   const total = usage?.monthly_pages ?? 0;
-  // La barre montre ce qui RESTE : elle se vide à mesure qu'on traduit.
-  const reste = percent(restantes, total);
-  const libelleBarre = usage?.kind === 'free' ? t('account.pages_free_left', { count: restantes })
-    : t('account.pages_left');
-  // Ce qu'on peut encore traduire : quota du mois + pages achetées.
-  const disponibles = restantes + (usage?.page_credits ?? 0);
+  const credits = usage?.page_credits ?? 0;
+
+  // Bêta d'abord (elle expire avant le forfait), sauf si le client a choisi son
+  // forfait : même préférence que la case de la zone de traduction.
+  const enrollment = useBeta(refreshKey).data?.enrollment ?? null;
+  const betaActive = enrollment?.state === 'active';
+  const [betaFirst, setBetaFirst] = useBetaPreference();
+  const surBeta = betaActive && betaFirst;
+  const candidatures = useBetaProgram().program?.applications_open === true;
+
   const [ouvert, setOuvert] = useState(false);
   const balRef = useRef<HTMLDivElement>(null);
   // Se replie dès qu'on quitte le bloc : focus parti (onBlur) ou clic ailleurs —
@@ -75,11 +84,60 @@ export default function AccountPanel({ user, refreshKey, onClose }: AccountPanel
     document.addEventListener('pointerdown', ailleurs);
     return () => document.removeEventListener('pointerdown', ailleurs);
   }, [ouvert]);
-  const jour = (iso: string) => {
-    const d = new Date(iso);
-    return Number.isNaN(d.getTime()) ? '—'
-      : d.toLocaleDateString(i18n.language, { day: 'numeric', month: 'long', year: 'numeric' });
+  const jour = (iso?: string | null) => {
+    const d = iso ? new Date(iso) : null;
+    return !d || Number.isNaN(d.getTime()) ? '—'
+      : d.toLocaleDateString(i18n.language, { day: 'numeric', month: 'short', year: 'numeric' });
   };
+
+  // Une seule date au replié : renouvellement (gratuit) ou expiration.
+  const nomForfait = t(`plans.${user.plan}`, user.plan);
+  const expireForfait = user.plan !== 'free' && user.plan_expires_at
+    ? t('account.expires_on', { date: jour(user.plan_expires_at) }) : '';
+  const dateForfait = expireForfait
+    || (usage && !illimite ? t('account.renews_on', { date: jour(usage.resets_at) }) : '');
+  const expireBeta = enrollment?.expires_at ? t('account.expires_on', { date: jour(enrollment.expires_at) }) : '';
+
+  // Solde replié : celui qui sera débité en premier pour un document courant.
+  // Côté Bêta : le format principal, sinon le premier qui a encore du solde.
+  const fmtBeta = enrollment && (enrollment.formats[enrollment.primary_format]?.remaining > 0
+    ? enrollment.primary_format
+    : (Object.keys(enrollment.formats) as (keyof typeof enrollment.formats)[])
+        .find((f) => enrollment.formats[f].remaining > 0) ?? enrollment.primary_format);
+  const qBeta = enrollment && fmtBeta ? enrollment.formats[fmtBeta] : null;
+  const actif = surBeta && enrollment && qBeta
+    ? { nom: `${t('account.beta_name')} · ${t(`beta.formats.${fmtBeta}`)}`,
+        dispo: qBeta.remaining, total: qBeta.limit, illimite: false, date: expireBeta }
+    : { nom: nomForfait, dispo: restantes, total, illimite, date: dateForfait };
+  const pret = surBeta ? !!qBeta : !!usage;
+
+  const ligneBeta = enrollment && (
+    <li key="beta" className={betaActive ? undefined : 'off'}>
+      <label>
+        <input type="radio" name="bal-src" checked={surBeta} disabled={!betaActive}
+          onChange={() => setBetaFirst(true)} />
+        <b>{t('account.beta_name')}</b>
+        <span className="meta">{betaActive ? expireBeta : t(`beta.states.${enrollment.state}`)}</span>
+      </label>
+      {betaActive && <BetaAllowances enrollment={enrollment} compact />}
+    </li>
+  );
+  const ligneForfait = (
+    <li key="plan">
+      <label>
+        {betaActive && <input type="radio" name="bal-src" checked={!surBeta}
+          onChange={() => setBetaFirst(false)} />}
+        <b>{nomForfait}</b>
+        <span className="meta tab">{illimite ? t('account.unlimited') : usage ? `${restantes} / ${total}` : ''}</span>
+      </label>
+      {usage && (
+        <small>
+          {[!illimite && t('account.renews_on', { date: jour(usage.resets_at) }), expireForfait]
+            .filter(Boolean).join(' · ')}
+        </small>
+      )}
+    </li>
+  );
 
   return (
     <>
@@ -104,52 +162,41 @@ export default function AccountPanel({ user, refreshKey, onClose }: AccountPanel
         <button type="button" className="bal-row" aria-expanded={ouvert}
           aria-controls={ouvert ? 'bal-detail' : undefined}
           onClick={() => setOuvert(o => !o)}>
-          <span className="plan">{t(`plans.${user.plan}`, user.plan)}</span>
-          {usage && (
-            <span className="sum">
-              {illimite ? t('account.unlimited')
-                : <><b className="tab">{disponibles}</b> {t('account.pages_available', { count: disponibles })}</>}
+          <span className="plan">{actif.nom}</span>
+          {pret && (
+            <span className="sum tab">
+              {actif.illimite ? t('account.unlimited') : <><b>{actif.dispo}</b> / {actif.total}</>}
             </span>
           )}
           <ChevronDown className="chev" size={18} strokeWidth={2} aria-hidden="true" />
         </button>
+        {pret && (
+          <div className="bal-active">
+            {!actif.illimite && actif.total > 0 && (
+              <div className="bar" role="progressbar" aria-label={actif.nom}
+                aria-valuenow={actif.dispo} aria-valuemin={0} aria-valuemax={actif.total}>
+                <i className={actif.dispo <= actif.total * 0.1 ? 'low' : undefined}
+                  style={{ width: `${percent(actif.dispo, actif.total)}%` }} />
+              </div>
+            )}
+            {actif.date && <small>{actif.date}</small>}
+          </div>
+        )}
 
         {ouvert && (
           <div className="bal-detail" id="bal-detail">
-            {usage && !illimite && total > 0 && (
-              <div className="bar" role="progressbar" aria-label={libelleBarre}
-                aria-valuenow={restantes} aria-valuemin={0} aria-valuemax={total}>
-                <i className={restantes <= total * 0.1 ? 'low' : undefined} style={{ width: `${reste}%` }} />
-              </div>
-            )}
-            {usage && (
-              <dl>
-                {!illimite && (
-                  <div>
-                    <dt>{usage.kind === 'free' ? t('account.detail_free') : t('account.detail_plan')}</dt>
-                    <dd className="tab">{restantes} / {total}</dd>
-                  </div>
-                )}
-                {usage.page_credits > 0 && (
-                  <div>
-                    <dt>{t('account.detail_credits')}</dt>
-                    <dd className="tab">{usage.page_credits}</dd>
-                  </div>
-                )}
-                {!illimite && (
-                  <div>
-                    <dt>{usage.kind === 'free' ? t('account.detail_free_resets') : t('account.detail_plan_resets')}</dt>
-                    <dd>{jour(usage.resets_at)}</dd>
-                  </div>
-                )}
-                {user.plan !== 'free' && user.plan_expires_at && (
-                  <div>
-                    <dt>{t('account.detail_expires')}</dt>
-                    <dd>{jour(user.plan_expires_at)}</dd>
-                  </div>
-                )}
-              </dl>
-            )}
+            <ul className="bal-lines" aria-label={t('account.use_first')}>
+              {surBeta ? [ligneBeta, ligneForfait] : [ligneForfait, ligneBeta]}
+              {credits > 0 && (
+                <li key="credits">
+                  <label><b>{t('account.detail_credits')}</b><span className="meta tab">{credits}</span></label>
+                  <small>{t('account.credits_after')}</small>
+                </li>
+              )}
+              {!enrollment && candidatures && (
+                <li key="apply"><Link to="/beta" className="bal-apply">{t('account.beta_apply')}</Link></li>
+              )}
+            </ul>
           </div>
         )}
       </div>
