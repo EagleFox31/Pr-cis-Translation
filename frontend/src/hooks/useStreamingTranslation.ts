@@ -41,6 +41,8 @@ export type PageStatus =
 export interface StreamingState {
   /** Droit de CE document, confirmé par le serveur après réservation. */
   canReadClear: boolean;
+  /** Pages traduites en aperçu sans être payées (mode libre). */
+  pagesLibres: number;
   /** Document enregistré pour cette traduction (réponse de `/api/translate`) :
    *  permet d'agir sur ses pages illisibles avant même la fin. */
   documentId: string | null;
@@ -82,6 +84,7 @@ export interface StreamingState {
 
 const EMPTY: StreamingState = {
   canReadClear: false,
+  pagesLibres: 0,
   documentId: null,
   ocrPages: 0,
   isTranslating: false,
@@ -282,10 +285,14 @@ export function useStreamingTranslation(deviceSignals = true) {
             }));
             throw new Error(detail);
           }
-          const { job_id, document_id, ocr_pages, can_download, images: imagesAcceptees } = await startRes.json();
+          const { job_id, document_id, ocr_pages, can_download, read_clear, pages_libres,
+            images: imagesAcceptees } = await startRes.json();
           setState((s) => ({
             ...s,
-            canReadClear: can_download === true,
+            // Pages payées en clair, même s'il reste des pages libres : le
+            // serveur filigrane celles-ci page par page.
+            canReadClear: (read_clear ?? can_download) === true,
+            pagesLibres: typeof pages_libres === 'number' ? pages_libres : 0,
             documentId: typeof document_id === 'string' ? document_id : null,
             ocrPages: typeof ocr_pages === 'number' ? ocr_pages : 0,
           }));

@@ -261,12 +261,13 @@ class Choix(unittest.TestCase):
         self.executer(soumis, LecturePage("ok", None, page_lue("Second reading text")))
         self.assertEqual(suivi(), {"pages_a_decider": 0, "pages_relues": 0})
 
-    def test_essai_sur_pages_offertes_reste_en_apercu(self):
+    def test_relecture_sur_pages_offertes_devient_telechargeable(self):
+        """Règle (a) : une page couverte par les pages offertes se lit en clair."""
         doc, _ = self.scan()
         _, soumis = self.choisir(doc, [3], "traduire")
         self.executer(soumis, LecturePage("ok", None, page_lue("Second reading text")))
         self.assertEqual(self.debits(doc), (1, 0))
-        self.assertFalse(self.doc(doc).paid)
+        self.assertTrue(self.doc(doc).paid)
 
     def test_essai_paye_en_credits_devient_telechargeable(self):
         """Même règle qu'au lancement : une page achetée rend le document téléchargeable."""

@@ -31,6 +31,7 @@ import AccountPanel from './AccountPanel';
 import DocumentCard from './DocumentCard';
 import NouveautesLigne from './NouveautesLigne';
 import RowMenu from './RowMenu';
+import { useTelechargementLibres } from './TelechargementLibres';
 
 interface DocumentLibraryProps {
   isOpen: boolean;
@@ -153,7 +154,16 @@ export default function DocumentLibrary({
     });
   }, [getOriginalBlob, onPreview]);
 
+  const { telecharger: telechargerLibres, fenetre: fenetreLibres } = useTelechargementLibres(onPaid);
+
   const handleDownload = useCallback(async (doc: DocMeta) => {
+    // Pages libres : le solde paie d'office ce qu'il peut, puis une fenêtre
+    // propose d'acheter le reste ou de continuer avec les pages payées.
+    if (doc.pagesLibres > 0) {
+      setLoadingId(doc.id);
+      try { await telechargerLibres(doc.id, doc.filename); } finally { setLoadingId(null); }
+      return;
+    }
     // Un compte gratuit dont le document est payé télécharge ; sinon on lui
     // propose de le régler — sur place, pour ce document précis. L'ancienne
     // version le renvoyait vers la grille de tarifs : la seule issue offerte
@@ -178,7 +188,7 @@ export default function DocumentLibrary({
     } finally {
       setLoadingId(null);
     }
-  }, [getBlob, trial]);
+  }, [getBlob, trial, telechargerLibres]);
 
   const versForfaits = () => {
     onClose();
@@ -364,6 +374,7 @@ export default function DocumentLibrary({
         </div>
       </Drawer>
 
+      {fenetreLibres}
       <PaymentModal
         open={!!payFor}
         onClose={() => setPayFor(null)}

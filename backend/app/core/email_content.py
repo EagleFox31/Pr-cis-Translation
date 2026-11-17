@@ -211,3 +211,62 @@ def textes(langue: str) -> dict[str, str]:
 def textes_invitation(langue: str) -> dict[str, str]:
     """Les textes de l'invitation dans une langue, français par défaut."""
     return TEXTES_INVITATION.get(langue, TEXTES_INVITATION[LANGUE_DEFAUT])
+
+
+# Rappel avant la suppression des traductions en aperçu dont aucune page n'a
+# été payée (docs/etude-traduction-libre.md, étape 5.5).
+TEXTES_RAPPEL_LIBRES: dict[str, dict[str, str]] = {
+    "fr": {
+        "sujet": "Vos traductions en aperçu seront bientôt supprimées",
+        "bandeau": "Rappel",
+        "titre": "Vos traductions en aperçu seront bientôt supprimées",
+        "sous_titre": "Ces documents ont été traduits en aperçu et aucune de "
+                      "leurs pages n'a été payée. Ils seront supprimés à la "
+                      "date indiquée.",
+        "colonne": "Supprimé le {date}",
+        "bouton": "Voir mes documents",
+        "note": "Pour garder un document, ouvrez-le et choisissez « Acheter » "
+                "sous l'aperçu.",
+        "pied": "Vous recevez cet e-mail parce que des documents de votre "
+                "compte Précis vont être supprimés. Si vous ne souhaitez pas "
+                "les garder, vous n'avez rien à faire.",
+        "texte_brut": (
+            "Vos traductions en aperçu seront bientôt supprimées.\n\n"
+            "Ces documents ont été traduits en aperçu et aucune de leurs pages "
+            "n'a été payée. Ils seront supprimés à la date indiquée :\n"
+            "{liste}\n\n"
+            "Pour garder un document, ouvrez-le et choisissez « Acheter » sous "
+            "l'aperçu : {url}\n\n"
+            "Si vous ne souhaitez pas les garder, vous n'avez rien à faire."
+        ),
+    },
+    "en": {
+        "sujet": "Your preview translations will be deleted soon",
+        "bandeau": "Reminder",
+        "titre": "Your preview translations will be deleted soon",
+        "sous_titre": "These documents were translated in preview and none of "
+                      "their pages has been paid for. They will be deleted on "
+                      "the date shown.",
+        "colonne": "Deleted on {date}",
+        "bouton": "See my documents",
+        "note": "To keep a document, open it and choose “Buy” below the "
+                "preview.",
+        "pied": "You're receiving this email because documents in your "
+                "Précis account are about to be deleted. If you don't want "
+                "to keep them, there's nothing to do.",
+        "texte_brut": (
+            "Your preview translations will be deleted soon.\n\n"
+            "These documents were translated in preview and none of their "
+            "pages has been paid for. They will be deleted on the date shown:\n"
+            "{liste}\n\n"
+            "To keep a document, open it and choose “Buy” below the preview: "
+            "{url}\n\n"
+            "If you don't want to keep them, there's nothing to do."
+        ),
+    },
+}
+
+
+def textes_rappel_libres(langue: str) -> dict[str, str]:
+    """Les textes du rappel avant suppression, français par défaut."""
+    return TEXTES_RAPPEL_LIBRES.get(langue, TEXTES_RAPPEL_LIBRES[LANGUE_DEFAUT])
