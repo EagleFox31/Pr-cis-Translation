@@ -181,3 +181,16 @@ Mission F terminée (PR #75). En attente de fusion par l'utilisateur : #70, puis
 - Échec de build : lien `current` restauré, santé vérifiée, plus de `up --build` de l'ancienne version (cause du faux « intervention requise » de la 1.8.0). Retour arrière complet seulement après échec de `up`/santé.
 - Test : `bash scripts/ci/test-vps-remote-deploy.sh` (doublures, sans Docker), branché dans le job CI `production-deploy`.
 - Restant : VPS non touché. Après fusion, réinstaller à la main `bin/deploy.sh` depuis `deploy/vps/remote-deploy.sh` (hors du flux de déploiement, voir 2026-11 ci-dessus), sinon le garde-fou n'est pas actif. Pour changer le seuil : `environment="PRECIS_MIN_FREE_GB=…"` dans `authorized_keys` (exige `PermitUserEnvironment`) ou wrapper `bin/deploy.sh`.
+
+## 2026-11-18 12:30 — Envoi des mails via Spacemail, release 1.9.0 livrée sur le VPS
+- Mails en spam : expéditeur `@trigenys.com` envoyé par le SMTP Gmail, donc SPF/DKIM non alignés et DMARC en échec. `shared/backend.env` passe au SMTP Spacemail (`mail.spacemail.com:587`, DKIM `spacemail._domainkey`). Sauvegarde `backend.env.bak-20261116-0801`. Mot de passe écrit sans guillemets (avec guillemets : échec AUTH). Réception réelle à confirmer par Ibrahim.
+- Fusionnées (squash) : #80 bbcd8e7, #81 4f1a4a2, #82 69f9745, #84 27e945c, #83 8b80d03. #85 visait `feat/retours-clients` (empilée sur #83) : sa fusion n'a pas touché `main`. Portée par #86 (2e58586, conflit `Home.tsx` résolu côté #85).
+- Release 1.9.0 : Actions ne peut pas créer la PR, ouverte à la main (#87, label `autorelease: pending`, corps au format Release Please), CI lancée à la main, fusion a639837, tag v1.9.0.
+- Prod : `current -> app-a63983796251`, API `version 1.9.0`, migrations jusqu'à `0027_traduction_libre`, db non recréée, `/health` `/tarifs` `/sitemap.xml` et le ZIP de l'extension en 200. Disque 71 %. Sauvegarde DB `backups/pre-release-1.9.0-20261118-1102.dump`.
+- Annonce envoyée à la main au groupe WhatsApp TRIGENYS GROUP (WAHA `trigenys-test`). #88 automatise l'envoi après chaque déploiement : poser `NOTIFY_API_KEY` et les variables `NOTIFY_*` avant de fusionner.
+- Issues #60 à #64 (lancement) assignées : #63 à Ibrahim et au propriétaire, les autres au propriétaire.
+- Restant : réinstaller `bin/deploy.sh` sur le VPS (garde-fou disque de #80) ; vérifier la cible de base des PR empilées avant fusion ; EC2 i-0ce97ff971dd343b2 à arrêter ; copie chiffrée de `shared/backend.env` hors VPS.
+
+## 2026-11-18 12:32 — Garde-fou disque actif sur le VPS
+- `bin/deploy.sh` réinstallé depuis `current/deploy/vps/remote-deploy.sh` (sha256 a1ad52b7…, identique à `main`). Sauvegarde `bin/deploy.sh.bak-20261118-1131`.
+- Preuves : redéployer `a63983796251` est un no-op (« déjà en service », `current` inchangé). Dans une base temporaire avec `PRECIS_MIN_FREE_GB=999` : refus, code 73, sans aucune modification. Prod toujours en 1.9.0.
