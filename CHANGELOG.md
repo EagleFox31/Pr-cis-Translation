@@ -8,6 +8,22 @@ leurs propres numéros internes.
 
 Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 
+## [1.9.0](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.8.0...v1.9.0) (2026-11-18)
+
+
+### Features
+
+* customer feedback — admin preview, pricing, account panel, home credibility, sub-menu ([#83](https://github.com/EagleFox31/Pr-cis-Translation/issues/83)) ([8b80d03](https://github.com/EagleFox31/Pr-cis-Translation/commit/8b80d03bee29d33be963c04b275a0ddef86c0284))
+* **translate:** free translation mode with preview of unpaid pages ([#85](https://github.com/EagleFox31/Pr-cis-Translation/issues/85), [#86](https://github.com/EagleFox31/Pr-cis-Translation/issues/86)) ([2e58586](https://github.com/EagleFox31/Pr-cis-Translation/commit/2e58586ccfa8eb20778ee6c6211b0aaae2a92f3a))
+
+
+### Bug Fixes
+
+* **deploy:** refuse VPS deploy on low disk, stop false rollback alarm ([#80](https://github.com/EagleFox31/Pr-cis-Translation/issues/80)) ([bbcd8e7](https://github.com/EagleFox31/Pr-cis-Translation/commit/bbcd8e7275a4558afb529d3998a70e2cf287e386))
+* **email:** retry transient SMTP failures and surface failed alerts ([#82](https://github.com/EagleFox31/Pr-cis-Translation/issues/82)) ([69f9745](https://github.com/EagleFox31/Pr-cis-Translation/commit/69f97459ef464acc66e7142f57557b9a3a79872b))
+* **frontend:** build the extension ZIP into the image so /extension/precis-extension.zip is served in production ([#84](https://github.com/EagleFox31/Pr-cis-Translation/issues/84)) ([27e945c](https://github.com/EagleFox31/Pr-cis-Translation/commit/27e945c082536e78b6ae14ca8f195e5c64bc8906))
+* **invitations:** allow resending an invitation with per-sender and per-address caps ([#81](https://github.com/EagleFox31/Pr-cis-Translation/issues/81)) ([4f1a4a2](https://github.com/EagleFox31/Pr-cis-Translation/commit/4f1a4a26dbfda877faa77dcb5a395d52d31df2c3))
+
 ## [1.8.0](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.7.0...v1.8.0) (2026-11-15)
 
 
