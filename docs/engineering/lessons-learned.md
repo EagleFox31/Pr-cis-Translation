@@ -97,3 +97,12 @@ Mémoire des incidents et quasi-incidents. Consulter avant de toucher une zone c
 - **Near miss associé** : `test_nouveautes_api.py` codait en dur 19 éléments et comptait l'entrée admin parmi les nouveautés d'un client ; seul `test_nouveautes_catalogue.py` avait été lancé en local, la CI « Suites backend » l'a vu. Attentes désormais dérivées du catalogue ; avant de pousser une modification du catalogue, `grep -rn nouveautes backend/tests` pour lister toutes les suites concernées.
 - **Near miss associé (2)** : le garde-fou a bloqué la PR de release 1.10.0, dont la seule « Feature » était de l'outillage (`release:` annonce WhatsApp, #88) et dont la date égalait celle de 1.9.0. Cause : règle écrite pour le cas observé sans cas limites. Prévention : logique isolée dans `ecart_catalogue()`, testée sur des CHANGELOG synthétiques (outillage seul, release le même jour, non-régression 1.9.0) ; portées internes listées dans `PORTEES_INTERNES`. Leçon : un garde-fou se teste aussi sur ce qu'il doit laisser passer.
 - **Leçon** : une étape manuelle répétée à chaque release doit être reliée à un artefact que la release produit (ici le CHANGELOG) et vérifiée par un test, pas par une case à cocher.
+
+## 2026-11-18 — « Suites backend » bloquée 20 min sur l'apt de LibreOffice
+
+- **Contexte** : CI de #88 puis de la PR de release #94 ; deux relances, la release a pris ~1 h de plus.
+- **Cause racine** : l'étape « LibreOffice et polices » retéléchargeait ~120 Mo à chaque run ; le miroir Ubuntu a servi ~100 ko/s (« Fetched 120 MB in 20min 7s », job 134808707042). Dépendance réseau non mise en cache.
+- **Classification** : fragilité CI, dépendance externe.
+- **Résolution** : cache `actions/cache` des .deb (`Dir::Cache::Archives`), clé hebdomadaire avec `restore-keys`, `autoclean` des versions remplacées ; `apt-get install` inchangé (scripts post-installation exécutés). `awalsh128/cache-apt-pkgs-action` écarté : il restaure des fichiers sans post-installation.
+- **Prévention** : log « Paquets en cache : N » dans l'étape ; second run de la PR mesuré (téléchargement évité).
+- **Leçon** : avant de relancer un job lent, lire son log (une ligne « Fetched … in 20min » suffit au diagnostic) ; tout téléchargement volumineux et stable en CI se met en cache.
