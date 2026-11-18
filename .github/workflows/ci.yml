@@ -56,6 +56,8 @@ jobs:
         run: |
           python3 -m py_compile scripts/staging/import-env-to-ssm.py
           python3 -m unittest discover -s scripts/ci -p test_env_import.py
+      - name: Release WhatsApp announcement (format, idempotence, no secret in logs)
+        run: python3 -m unittest discover -s scripts/ci -p test_release_announcement.py
       - name: Verify production metadata and reviewed OIDC migration
         run: |
           python3 -m pip install PyYAML==6.0.2

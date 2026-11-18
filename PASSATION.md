@@ -218,3 +218,10 @@ Mission F terminée (PR #75). En attente de fusion par l'utilisateur : #70, puis
 
 - Captures 1280×800, comptes éditeur et envoi : Ibrahim (consignes en commentaire sur #63). PR #90 (vignettes, fiche) ouverte, à fusionner.
 - Prochaines étapes côté session : catalogue des nouveautés 1.9.0 + release 1.9.1 ; #64/#62/#60/#61 après #59 en prod.
+
+## 2026-11-18 12:24 — Annonce WhatsApp automatique des releases
+
+- Branche `feat/release-whatsapp-notify` : job `announce-release` dans `release.yml` (après `deploy-vps` ou `deploy-production` réussi), script `scripts/ci/release_announcement.py` + émetteur générique `scripts/ci/waha_notify.py`, tests `scripts/ci/test_release_announcement.py` (branchés dans `ci.yml`).
+- Idempotence : statut de commit `release/whatsapp-announcement` sur le SHA de release.
+- À poser avant la prochaine release : variables `NOTIFY_SESSION`, `NOTIFY_CHAT_ID`, secret `NOTIFY_API_KEY` (cf. `docs/deploiement.md`). Sans elles : no-op.
+- Piste : extraire `waha_notify.py` en action réutilisable dans appfactory-project-automation quand un 2e dépôt en aura besoin.
