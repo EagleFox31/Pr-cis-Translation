@@ -44,6 +44,7 @@ from .support_ticket import (SupportTicket, CATEGORIES,
 from .invitation import Invitation
 from .anti_abus import DeviceLink, FreeGrant, LibreGrant
 from .nouveautes_envoi import NouveauteEnvoi
+from .admin_recap import AdminRecap
 from .plan_event import (PlanEvent, EVENT_ADMIN, EVENT_EXPIRY, EVENT_RENEWAL,
                          EVENT_SUBSCRIPTION)
 
@@ -54,7 +55,7 @@ __all__ = [
     "KIND_CREDITS", "KIND_FREE_OFFER", "KIND_LEGACY", "KIND_PLAN", "RefreshToken", "VerificationCode", "ExtensionAuthCode",
     "ErrorLog", "LEVELS", "SOURCES", "STATUS_HANDLED", "STATUS_NEW",
     "SupportTicket", "CATEGORIES", "STATUS_OPEN", "TICKET_HANDLED",
-    "Invitation", "DeviceLink", "FreeGrant", "LibreGrant", "NouveauteEnvoi",
+    "Invitation", "DeviceLink", "FreeGrant", "LibreGrant", "NouveauteEnvoi", "AdminRecap",
     "PlanEvent", "EVENT_ADMIN", "EVENT_EXPIRY", "EVENT_RENEWAL", "EVENT_SUBSCRIPTION",
     "ASSIGNABLE_PLANS", "FREE_PLAN", "PLAN_LABELS", "PLAN_MONTHLY_PAGES",
     "PLAN_PAGE_LIMIT", "PLAN_PRIORITY", "PLAN_STORAGE",

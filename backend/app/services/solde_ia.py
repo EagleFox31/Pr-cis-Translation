@@ -26,7 +26,6 @@ import time
 from collections import deque
 
 import httpx
-from sqlalchemy import select
 
 from app.config import ADMIN_ALERT_EMAIL, logger
 
@@ -127,19 +126,16 @@ USAGE_URL = "https://platform.deepseek.com/usage"
 async def _alerter(sujet: str, corps: str, niveau: str = "avertissement") -> None:
     from app.core.database import async_session
     from app.core.email import send_plain
-    from app.models import User
     from app.services.error_log import log_error
 
     await log_error("deepseek_solde", f"{sujet} — {corps}", level="warning",
                     trigger_alert=False)
+    from app.services.alertes_admin import destinataires
     try:
         async with async_session() as db:
-            rows = await db.execute(select(User.email).where(User.plan == "admin"))
-            emails = [e for (e,) in rows.all() if e]
+            emails = await destinataires(db)
     except Exception:
-        emails = []
-    if not emails and ADMIN_ALERT_EMAIL:
-        emails = [ADMIN_ALERT_EMAIL]
+        emails = [ADMIN_ALERT_EMAIL] if ADMIN_ALERT_EMAIL else []
     bouton = (("Recharger le compte DeepSeek", RECHARGE_URL)
               if sujet.startswith("Solde") else
               ("Voir la consommation DeepSeek", USAGE_URL))

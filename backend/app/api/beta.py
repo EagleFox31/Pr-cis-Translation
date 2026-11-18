@@ -11,7 +11,7 @@ from app.core.security import require_admin, require_auth
 from app.models import User
 from app.models.beta import BetaApplication, BetaCampaign, BetaEnrollment
 from app.rate_limit import rate_limit_decorator
-from app.services import anti_abus, beta, beta_applications, beta_abuse
+from app.services import alertes_admin, anti_abus, beta, beta_applications, beta_abuse
 from app.services.usage import add_months
 
 router = APIRouter(tags=["Bêta"])
@@ -110,6 +110,7 @@ async def apply(body: ApplicationSubmission, request: Request, response: Respons
     device, signals = await _signals(db, request)
     row = await beta_applications.submit(db, user, signals=signals, **body.model_dump())
     await db.commit()
+    await alertes_admin.candidature_beta(db, row, user.name)
     anti_abus.set_cookie(response, device)
     return beta_applications.serialize(row)
 

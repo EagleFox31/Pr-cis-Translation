@@ -12,14 +12,9 @@ import asyncio
 import hashlib
 import logging
 import threading
-import time
 
-from sqlalchemy import func, select
-
-from app.config import (ADMIN_ALERT_EMAIL, ERROR_LOG_ALERT_COOLDOWN,
-                        ERROR_LOG_ALERT_THRESHOLD)
 from app.core.database import async_session
-from app.models import ErrorLog, STATUS_NEW, User
+from app.models import ErrorLog, STATUS_NEW
 
 # Bornes : un message ou une pile démesurés ne doivent ni saturer la base ni
 # ralentir l'affichage. On tronque à l'écriture — la queue de trace suffit
@@ -77,7 +72,8 @@ async def log_error(
             ))
             await db.commit()
             if trigger_alert:
-                await maybe_alert_admins(db)
+                from app.services.alertes_admin import apres_erreur
+                await apres_erreur(db, source, level, message, location, fp)
     except Exception as exc:   # noqa: BLE001 — un journal ne casse rien
         # Dernier recours : la console. Surtout PAS le logger applicatif si le
         # handler DB est branché dessus (récursion).
@@ -101,56 +97,6 @@ def log_error_threadsafe(source: str, message: str, **kw) -> None:
             asyncio.run(log_error(source, message, **kw))
     except Exception:
         pass
-
-
-# ── Alerte admin au seuil ─────────────────────────────────────────────────────
-
-_last_alert_at = 0.0
-_alert_lock = threading.Lock()
-
-
-async def maybe_alert_admins(db) -> bool:
-    """Si les logs NON traités franchissent le seuil, prévient l'admin — au plus
-    une fois par cooldown. Retourne True si un e-mail a été (tenté d')envoyé."""
-    global _last_alert_at
-    try:
-        count = await db.scalar(
-            select(func.count()).select_from(ErrorLog).where(ErrorLog.status == STATUS_NEW)
-        )
-        if not count or count < ERROR_LOG_ALERT_THRESHOLD:
-            return False
-
-        now = time.time()
-        with _alert_lock:
-            if now - _last_alert_at < ERROR_LOG_ALERT_COOLDOWN:
-                return False
-            _last_alert_at = now
-
-        rows = await db.execute(select(User.email).where(User.plan == "admin"))
-        emails = [e for (e,) in rows.all() if e]
-        if not emails and ADMIN_ALERT_EMAIL:
-            emails = [ADMIN_ALERT_EMAIL]
-        if not emails:
-            return False
-
-        from app.core.email import FRONTEND_URL, send_plain
-        await send_plain(
-            emails,
-            f"[Précis] {count} erreurs à traiter",
-            f"{count} erreurs non traitées se sont accumulées dans le journal.\n"
-            f"Ouvre /admin/logs pour les consigner puis les vider.",
-            titre=f"{count} erreurs à traiter",
-            resume=("Des erreurs non traitées se sont accumulées dans le "
-                    "journal. Consigne-les puis vide le journal pour réarmer "
-                    "l'alerte."),
-            niveau="avertissement", bandeau="Journal",
-            details=[("Erreurs non traitées", str(count)),
-                     ("Seuil d'alerte", str(ERROR_LOG_ALERT_THRESHOLD))],
-            bouton=("Ouvrir le journal", f"{FRONTEND_URL}/admin/logs"),
-        )
-        return True
-    except Exception:
-        return False
 
 
 # ── Catch-all : tout logger.error/exception atterrit aussi dans le journal ─────
