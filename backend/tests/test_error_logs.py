@@ -15,6 +15,7 @@ Requiert PostgreSQL et la migration 0005.
 from __future__ import annotations
 import asyncio
 import sys
+import time
 import uuid
 
 import racine  # noqa: F401  -- met backend/ sur le chemin
@@ -168,6 +169,18 @@ async def main() -> None:
             second = await svc.maybe_alert_admins(db)
         check(first is True and len(sent) == 1, "alerte envoyée au franchissement du seuil")
         check(second is False and len(sent) == 1, "alerte throttlée ensuite (pas de spam)")
+
+        # Envoi raté : nouvel essai après `_REESSAI_ALERTE`, pas après tout le délai.
+        async def send_rate(to, subject, body, **_):   # noqa: ANN001
+            return False
+
+        email_mod.send_plain = send_rate
+        svc._last_alert_at = 0.0
+        async with async_session() as db:
+            await svc.maybe_alert_admins(db)
+        reste = svc._last_alert_at + svc.ERROR_LOG_ALERT_COOLDOWN - time.time()
+        check(abs(reste - min(svc._REESSAI_ALERTE, svc.ERROR_LOG_ALERT_COOLDOWN)) < 5,
+              f"alerte ratée : nouvel essai dans ~{svc._REESSAI_ALERTE} s (vu {reste:.0f})")
     finally:
         svc.ERROR_LOG_ALERT_THRESHOLD = orig_threshold
         email_mod.send_plain = orig_send
