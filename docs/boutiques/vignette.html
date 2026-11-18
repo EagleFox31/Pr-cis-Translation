@@ -1,0 +1,38 @@
+<!doctype html>
+<!-- Vignette promotionnelle des boutiques (440×280).
+     Régénérer : npx playwright screenshot --viewport-size=440,280 \
+       "file://$PWD/docs/boutiques/vignette.html?lang=fr" docs/boutiques/vignette-440x280-fr.png -->
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=DM+Sans:wght@400;500&display=block" rel="stylesheet">
+<style>
+  :root { --navy: #0d1b3e; --navy-mid: #162248; --gold: #c9a84c; --gold-light: #f0d98a; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 440px; height: 280px; overflow: hidden; }
+  body {
+    background: radial-gradient(120% 140% at 0% 0%, var(--navy-mid) 0%, var(--navy) 60%);
+    color: #fff; font-family: 'DM Sans', system-ui, sans-serif;
+    display: flex; flex-direction: column; justify-content: center; padding: 0 34px;
+  }
+  .marque { display: flex; align-items: center; gap: 14px; }
+  .marque img { width: 58px; height: 58px; }
+  .marque span { font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 600; font-size: 44px; letter-spacing: .01em; }
+  .filet { width: 56px; height: 2px; background: var(--gold); margin: 18px 0 14px; }
+  .accroche { font-size: 21px; line-height: 1.3; font-weight: 500; max-width: 360px; }
+  .accroche em { font-style: normal; color: var(--gold-light); }
+</style>
+</head>
+<body>
+  <div class="marque"><img src="../../extension/assets/logo-boutique-300.png" alt=""><span>Précis</span></div>
+  <div class="filet"></div>
+  <p class="accroche" data-fr="Traduisez une page web, <em>mise en page conservée</em>."
+     data-en="Translate any web page, <em>layout preserved</em>."></p>
+  <script>
+    const lang = new URLSearchParams(location.search).get('lang') === 'en' ? 'en' : 'fr';
+    document.documentElement.lang = lang;
+    const p = document.querySelector('.accroche');
+    p.innerHTML = p.dataset[lang];
+  </script>
+</body>
+</html>
