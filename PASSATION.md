@@ -189,3 +189,8 @@ Mission F terminée (PR #75). En attente de fusion par l'utilisateur : #70, puis
 - Issues de lancement : #63 stores, #64 article, #62 AlternativeTo, #60 annuaires, #61 Product Hunt (en dernier). Toutes sauf #63 attendent #59 en prod.
 - #63 : textes, permissions et déclarations déjà prêts dans `docs/fiches-boutiques-extension.md`. Ajouté sur la branche `docs/extension-store-assets` : vignettes 440×280 FR/EN (`docs/boutiques/`, PNG RGB 24 bits) et leur source HTML. Archive vérifiée : `npm run package` → `precis-translator-1.0.0.zip`, aucun `localhost`.
 - Reste #63 : captures 1280×800 (besoin d'un compte connecté dans l'extension), comptes éditeur Chrome (5 $, à payer par le propriétaire) et Edge (gratuit), envoi, puis variables `VITE_EXTENSION_*` et liens `/extension` + JSON-LD.
+
+## 2026-11-18 12:44 — #63 confiée à Ibrahim
+
+- Captures 1280×800, comptes éditeur et envoi : Ibrahim (consignes en commentaire sur #63). PR #90 (vignettes, fiche) ouverte, à fusionner.
+- Prochaines étapes côté session : catalogue des nouveautés 1.9.0 + release 1.9.1 ; #64/#62/#60/#61 après #59 en prod.
