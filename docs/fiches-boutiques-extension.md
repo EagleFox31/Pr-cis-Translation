@@ -2,7 +2,7 @@
 
 Date : 06/11/2026. Textes prêts à recopier pour le Chrome Web Store et Edge
 Add-ons. Contexte et décisions : `docs/etude-distribution-extension.md`.
-Archive à envoyer : `npm run package` dans `extension/` (`precis-translator-<version>.zip`, version 0.1.0).
+Archive à envoyer : `npm run package` dans `extension/` (`precis-translator-<version>.zip`, version 1.0.0 au 18/11/2026).
 
 ## 1. Identité
 
@@ -160,7 +160,7 @@ l'adresse de la fiche dans `VITE_EXTENSION_ID_*` et `VITE_EXTENSION_URL_*`.
 | Visuel | Taille | Remarques |
 |---|---|---|
 | Captures d'écran (1 à 5, viser 4) | 1280×800, PNG ou JPEG 24 bits sans transparence | 1. Page étrangère avant traduction. 2. Même page traduite, mise en page conservée. 3. Fenêtre de l'extension, connexion. 4. Une image dont le texte est traduit. 5. (option) Épinglage de l'icône |
-| Vignette promotionnelle | 440×280 | Obligatoire sur Chrome ; logo et accroche courte |
+| Vignette promotionnelle | 440×280 | Obligatoire sur Chrome. Prête : `docs/boutiques/vignette-440x280-fr.png` et `-en.png` (PNG 24 bits sans transparence), source `docs/boutiques/vignette.html` |
 | Grande vignette promotionnelle | 1400×560 | Facultative |
 | Icône | 128×128 | Déjà dans l'archive (`icones/icone-128.png`) |
 

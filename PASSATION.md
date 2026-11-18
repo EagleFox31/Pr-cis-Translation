@@ -205,3 +205,16 @@ Mission F terminée (PR #75). En attente de fusion par l'utilisateur : #70, puis
 - #92 fusionnée : mentions légales, politique de confidentialité et pages SEO indiquent OVHcloud (OVH Hosting Inc., Beauharnois, Canada) au lieu d'AWS. Entité et adresse à confirmer sur la facture OVHcloud. Kit Product Hunt : `docs/lancement-product-hunt.md` (date et compte qui publie : au propriétaire).
 - #91 : première CI rouge, `test_nouveautes_api.py` codait en dur 19 éléments. Attentes dérivées du catalogue (9408b45), CI relancée.
 - Suite : fusionner #91 (vérifier `baseRefName`), ouvrir la PR Release Please 1.9.1 à la main (label `autorelease: pending`, CI via `gh workflow run ci.yml --ref <branche>`), fusionner, suivre deploy-vps, vérifier en prod la date du 18 novembre, la page /confidentialite-documents et les mentions légales.
+
+## 2026-11-18 12:42 — Lancement : fiches boutiques de l'extension (#63)
+
+- PR #89 (passation 1.9.0, leçon PR empilée, garde-fou disque) fusionnée : main = 6aa3a60.
+- Date « 9 novembre » affichée dans l'app : `DATE_VERSION` de `backend/app/content/nouveautes.py` = date de la nouveauté la plus récente (test du catalogue). Les fonctions 1.8.0 et 1.9.0 (traduction libre #85, aperçu des pages non payées) n'ont jamais été ajoutées au catalogue. À faire : entrées FR/EN datées 2026-11-18, `frontend/seo/fonctionnalites.json`, contrôle « feat sans entrée au catalogue », leçon, release 1.9.1. Reporté par l'utilisateur (« D'abord les issues »).
+- Issues de lancement : #63 stores, #64 article, #62 AlternativeTo, #60 annuaires, #61 Product Hunt (en dernier). Toutes sauf #63 attendent #59 en prod.
+- #63 : textes, permissions et déclarations déjà prêts dans `docs/fiches-boutiques-extension.md`. Ajouté sur la branche `docs/extension-store-assets` : vignettes 440×280 FR/EN (`docs/boutiques/`, PNG RGB 24 bits) et leur source HTML. Archive vérifiée : `npm run package` → `precis-translator-1.0.0.zip`, aucun `localhost`.
+- Reste #63 : captures 1280×800 (besoin d'un compte connecté dans l'extension), comptes éditeur Chrome (5 $, à payer par le propriétaire) et Edge (gratuit), envoi, puis variables `VITE_EXTENSION_*` et liens `/extension` + JSON-LD.
+
+## 2026-11-18 12:44 — #63 confiée à Ibrahim
+
+- Captures 1280×800, comptes éditeur et envoi : Ibrahim (consignes en commentaire sur #63). PR #90 (vignettes, fiche) ouverte, à fusionner.
+- Prochaines étapes côté session : catalogue des nouveautés 1.9.0 + release 1.9.1 ; #64/#62/#60/#61 après #59 en prod.
