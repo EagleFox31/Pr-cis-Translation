@@ -14,6 +14,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { findLang, isLangAvailable } from '../../lib/languages';
 import { Link } from 'react-router-dom';
 import { useBeta, type BetaFormat } from '../../hooks/useBeta';
+import { useBetaPreference } from '../../hooks/useBetaPreference';
 import { BETA_FORMATS } from '../library/BetaAllowances';
 import { useAnalyseImages, formatAvecImages } from '../../hooks/useAnalyseImages';
 import ExtensionBanner from './ExtensionBanner';
@@ -84,7 +85,7 @@ export default function TranslationSection({
   const [structureMode, setStructureMode] = useState(false);
   const { user } = useAuth();
   const betaAccess = useBeta(file?.name);
-  const [useBetaCredits, setUseBetaCredits] = useState(true);
+  const [useBetaCredits, setUseBetaCredits] = useBetaPreference();
   // La case ne sert que pour un accès actif et un format couvert par la bêta.
   const betaUsable = betaAccess.data?.enrollment?.state === 'active'
     && BETA_FORMATS.includes(file?.name.split('.').pop()?.toLowerCase() as BetaFormat);

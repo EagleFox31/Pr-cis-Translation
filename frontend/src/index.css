@@ -921,6 +921,20 @@ button { font-family: inherit; cursor: pointer; border: none; }
   transition: color .2s, border-color .2s;
 }
 .btn-ghost:hover { color: #fff; border-color: #fff; }
+/* Badge « Bêta ouverte » : n'apparaît que si les candidatures sont ouvertes. */
+.btn-ghost__badge {
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  margin-left: 4px; padding: 2px 8px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 700; letter-spacing: .01em;
+  color: #fde68a; background: rgba(245, 158, 11, .16); border: 1px solid rgba(245, 158, 11, .45);
+}
+.btn-ghost__pulse { position: relative; width: 6px; height: 6px; border-radius: 50%; background: #f59e0b; }
+.btn-ghost__pulse::after {
+  content: ''; position: absolute; inset: 0; border-radius: 50%; background: #f59e0b;
+  animation: btn-ghost-pulse 1.8s ease-out infinite;
+}
+@keyframes btn-ghost-pulse { from { transform: scale(1); opacity: .7; } to { transform: scale(2.8); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .btn-ghost__pulse::after { animation: none; } }
 
 @media (max-width: 900px) {
   .hd-float--tl { top: -16px; left: -10px; }
@@ -1605,9 +1619,17 @@ html:has(.about-section) { background: var(--navy); }
 
 /* Modale de paiement : quantité de pages d'un achat d'avance. */
 .pay-breakdown { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin: 0 0 8px;
-  padding-top: 8px; border-top: 1px solid var(--gray-200); font-size: 13px; color: var(--gray-600); }
-.pay-breakdown span:nth-child(even) { text-align: right; white-space: nowrap; }
+  padding-top: 8px; border-top: 1px solid var(--gray-200); font-size: min(13px, 3.4vw); color: var(--gray-600); }
+.pay-breakdown span { white-space: nowrap; }
+.pay-breakdown span:nth-child(even) { text-align: right; }
 .pay-qty { display: flex; flex-direction: column; gap: 6px; }
+/* Abonnement : bascule mensuel / annuel et économie de l'annuel. */
+.pay-cycle { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--gray-200); }
+.pay-cycle button { border: 0; background: transparent; padding: 4px 10px; border-radius: 6px;
+  font: inherit; font-size: 12.5px; font-weight: 500; color: var(--gray-500); cursor: pointer; }
+.pay-cycle button[aria-pressed="true"] { background: var(--white); color: var(--navy); font-weight: 600;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .08); }
+.pay-save { margin: 0 0 8px; font-size: min(12.5px, 3.4vw); color: #047857; white-space: nowrap; }
 .pay-qty__label { font-size: 12px; font-weight: 600; color: var(--gray-500); }
 .pay-qty__field {
   display: inline-flex; align-items: baseline; gap: 8px;
@@ -2322,6 +2344,15 @@ footer {
 .comp-mobile-col-val { font-size: 12.5px; line-height: 1.4; }
 .comp-mobile-col-val.p { color: var(--blue); font-weight: 600; }
 .comp-mobile-col-val.o { color: var(--gray-500); }
+/* Comparatif à trois outils : textes plus longs, alignés à gauche ; mobile empilé. */
+.comp-box--3 .comp-table td { vertical-align: top; line-height: 1.45; }
+.comp-box--3 .comp-table td.td-precis, .comp-box--3 .comp-table td.td-other,
+.comp-box--3 .comp-table thead th.th-precis, .comp-box--3 .comp-table thead th.th-other { text-align: left; }
+.comp-box--3 .comp-val { align-items: flex-start; justify-content: flex-start; }
+.comp-box--3 .comp-chk { flex: none; margin-top: 1px; }
+.comp-box--3 .comp-mobile-cols { grid-template-columns: 1fr; gap: 6px; }
+.comp-box--3 .comp-mobile-criterion { display: flex; align-items: center; gap: 8px; }
+@media (max-width: 768px) { .comp-box--3 .comp-box-header h3 { display: block; text-align: center; } }
 
 /* Responsive */
 @media (max-width: 1100px) {
@@ -3008,6 +3039,23 @@ html.preview-active .scroll {
 .panneau .bal-detail dt { color: var(--gray-500); }
 .panneau .bal-detail dd { margin: 0; font-weight: 600; color: var(--gray-900); text-align: right; }
 @media (prefers-reduced-motion: reduce) { .panneau .bal-row .chev { transition: none; } }
+/* Solde actif toujours visible ; une ligne par solde une fois déplié. */
+.panneau .bal-active { padding: 0 8px 8px; }
+.panneau .bal-active .bar { margin: 0 0 6px; }
+.panneau .bal-active small { font-size: 12px; color: var(--gray-500); }
+.panneau .bal-row .sum { white-space: nowrap; color: var(--gray-500); }
+.panneau .bal-row .plan { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panneau .bal-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.panneau .bal-lines > li { padding: 8px; border-radius: var(--radius-sm); background: var(--gray-50); }
+.panneau .bal-lines > li.off { opacity: .55; }
+.panneau .bal-lines label { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.panneau .bal-lines label b { font-weight: 700; color: var(--navy); white-space: nowrap; }
+.panneau .bal-lines .meta { margin-left: auto; white-space: nowrap; font-weight: 600; color: var(--gray-700); }
+.panneau .bal-lines input[type="radio"] { margin: 0; accent-color: var(--navy); flex: none; }
+.panneau .bal-lines small { display: block; margin-top: 4px; font-size: 12px; color: var(--gray-500); }
+.panneau .bal-lines .beta-allowances--compact { margin-top: 6px; }
+.panneau .bal-apply { display: block; font-weight: 600; color: var(--navy); text-decoration: none; }
+.panneau .bal-apply:hover { text-decoration: underline; }
 .panneau .docs-head { position: relative; }
 .panneau .docs-head .menu { top: calc(100% - 8px); right: 12px; }
 .panneau .open[aria-disabled="true"] { cursor: default; }
@@ -3461,6 +3509,10 @@ html.preview-active .scroll {
   html.preview-active .scroll { padding: 12px; align-items: flex-start; }
   .docbar { padding: 0 6px; gap: 4px; }
   .docbar-pages, .docbar-fil, .docbar-agrandir { display: none !important; }
+  /* Libellés masqués (icône seule) ; si la place manque encore, la barre passe
+     sur deux lignes plutôt que de cacher les téléchargements hors de l'écran. */
+  .docbar { height: auto; min-height: 44px; flex-wrap: wrap; row-gap: 2px; padding: 4px 6px; }
+  .docbar-libelle { display: none; }
   .cv-bascule button { min-height: 32px; padding: 4px 14px; white-space: nowrap; }
 }
 

@@ -301,6 +301,7 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
       onClose={() => setPayOpen(false)}
       pages={0}
       plan={buying ?? undefined}
+      onPlanAnnualChange={(annual) => setBuying((b) => (b ? { ...b, annual } : b))}
       label={buying ? t('payment.plan_label', { plan: buying.label }) : ''}
       onPaid={() => { void refreshUser(); }}
     />

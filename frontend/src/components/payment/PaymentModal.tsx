@@ -22,6 +22,8 @@ interface PaymentModalProps {
   plan?: PlanChoice;
   /** Achat de pages d'avance : le client choisit lui-même la quantité. */
   onPagesChange?: (pages: number) => void;
+  /** Abonnement : bascule mensuel / annuel depuis la fenêtre de paiement. */
+  onPlanAnnualChange?: (annual: boolean) => void;
   onPaid: () => void;
 }
 
@@ -46,10 +48,15 @@ const input: React.CSSProperties = {
 };
 
 export default function PaymentModal({
-  open, onClose, pages, documentId, label, plan, onPagesChange, onPaid,
+  open, onClose, pages, documentId, label, plan, onPagesChange, onPlanAnnualChange, onPaid,
 }: PaymentModalProps) {
   const { t } = useTranslation();
   const { pricing } = usePricing();
+  // Économie mensuelle de l'annuel sur le mensuel (prix nets de la grille).
+  const planRow = plan ? pricing?.plans.find((p) => p.key === plan.key) : undefined;
+  // Bascule seulement si le forfait a bien les deux formules.
+  const canCycle = !!onPlanAnnualChange && planRow?.monthly != null && planRow.annual != null;
+  const saving = canCycle ? planRow!.monthly! - planRow!.annual! : 0;
   const {
     phase, quote: baseQuote, methods, ussdCode, operator, checkoutUrl, error,
     getQuote, getPlanQuote, getMethods, pay, payPlan, reset,
@@ -343,6 +350,16 @@ export default function PaymentModal({
                           <span aria-hidden="true">page{draftN > 1 ? 's' : ''}</span>
                         </span>
                       </label>
+                    ) : plan && onPlanAnnualChange && canCycle ? (
+                      <span className="pay-cycle" role="group"
+                            aria-label={`${t('pricing.monthly')} / ${t('pricing.annual')}`}>
+                        {[false, true].map((a) => (
+                          <button key={String(a)} type="button" aria-pressed={plan.annual === a}
+                                  onClick={() => onPlanAnnualChange(a)}>
+                            {t(a ? 'pricing.annual' : 'pricing.monthly')}
+                          </button>
+                        ))}
+                      </span>
                     ) : (
                     <span>
                       {plan ? t('payment.plan_months', { count: quote?.months ?? (plan.annual ? 12 : 1) })
@@ -356,6 +373,12 @@ export default function PaymentModal({
                       </span>
                     )}
                   </div>
+                  {plan && saving > 0 && pricing && (
+                    <p className="pay-save">
+                      {t(plan.annual ? 'payment.annual_saved' : 'payment.annual_save', {
+                        amount: formatMoney(saving, pricing.currency, pricing.decimals, 'fr') })}
+                    </p>
+                  )}
                   {onPagesChange && !plan && !draftOk && (
                     <p role="alert" style={{ fontSize: '12px', color: '#b91c1c', margin: '-2px 0 10px' }}>
                       {t('payment.pages_range', { max: MAX_PAGES })}

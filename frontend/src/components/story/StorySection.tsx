@@ -77,6 +77,9 @@ interface StorySectionProps {
   onToggleFocus?: () => void;
   /** Pause / Annuler la traduction affichée (barre d'aperçu). */
   onStop?: (mode: StopMode) => Promise<void>;
+  /** Admin regardant le document d'un client : « Créer ma copie ». */
+  onCopy?: () => void;
+  copyBusy?: boolean;
   onZoomChange: (z: number) => void;
   onPageChange: (p: number) => void;
   onDownload: () => void;
@@ -129,6 +132,8 @@ export default function StorySection({
   onUnlock,
   onToggleFocus,
   onStop,
+  onCopy,
+  copyBusy,
   onZoomChange,
   onPageChange,
   onDownload,
@@ -570,6 +575,8 @@ export default function StorySection({
                     onUnlock={onUnlock}
                     onToggleFocus={onToggleFocus}
                     onStop={onStop}
+                    onCopy={onCopy}
+                    copyBusy={copyBusy}
                   />
                   {imagesPanel}
 

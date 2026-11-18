@@ -523,6 +523,28 @@ def _entetes_pages(job: dict | None) -> dict[str, str]:
     }
 
 
+def _rendu_pdf_complet(doc: Document, ext: str, trad: str) -> bytes:
+    """Rendu INTÉGRAL, en PDF, CONSERVÉ. Un seul à la fois par document.
+
+    Le verrou n'est pas une précaution de style : sans lui, deux requêtes
+    d'aperçu simultanées construisaient le même rendu en parallèle — deux
+    réinjections PPTX dans deux moteurs, deux conversions LibreOffice, pour
+    un seul résultat. Le second entrant retrouve ici le cache déjà écrit.
+    Un partiel, lui, n'est ni lu ni écrit dans le cache (voir `_traduction`).
+    """
+    with render_cache.build_lock(trad):
+        cached = render_cache.cache_valid(trad)
+        if cached:
+            with open(cached, "rb") as f:
+                return f.read()
+        marque, avant = render_cache.marque_polices(), render_cache.mtime_de(trad)
+        data = _render_or_404(doc, ext, only_pages=None, trad=trad)
+        if ext != "pdf":
+            data = convert_to_pdf_bytes(data, ext)
+        render_cache.store_render(data, trad, marque, avant)
+        return data
+
+
 @router.get("/{doc_id}/preview")
 async def preview_document(
     doc_id: str,
@@ -638,28 +660,11 @@ async def preview_document(
                                      "X-Render": "full"})
 
     def _build_complet() -> bytes:
-        """Rendu INTÉGRAL, en PDF, CONSERVÉ. Un seul à la fois par document.
-
-        Le verrou n'est pas une précaution de style : sans lui, deux requêtes
-        d'aperçu simultanées construisaient le même rendu en parallèle — deux
-        réinjections PPTX dans deux moteurs, deux conversions LibreOffice, pour
-        un seul résultat. Le second entrant retrouve ici le cache déjà écrit.
-        Un partiel, lui, n'est ni lu ni écrit dans le cache (voir `_traduction`).
-        """
+        """Rendu INTÉGRAL, en PDF. Partiel : jamais conservé (voir `_traduction`)."""
         if livrables is not None:
             data = _render_or_404(doc, ext, only_pages=livrables, trad=trad)
             return convert_to_pdf_bytes(data, ext) if ext != "pdf" else data
-        with render_cache.build_lock(trad):
-            cached = render_cache.cache_valid(trad)
-            if cached:
-                with open(cached, "rb") as f:
-                    return f.read()
-            marque, avant = render_cache.marque_polices(), render_cache.mtime_de(trad)
-            data = _render_or_404(doc, ext, only_pages=None, trad=trad)
-            if ext != "pdf":
-                data = convert_to_pdf_bytes(data, ext)
-            render_cache.store_render(data, trad, marque, avant)
-            return data
+        return _rendu_pdf_complet(doc, ext, trad)
 
     if fenetre is None:
         data = await run_in_threadpool(_build_complet)

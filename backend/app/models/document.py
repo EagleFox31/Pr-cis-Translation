@@ -50,6 +50,11 @@ class Document(Base):
     # relance avec EUX : relancée sur le document entier en rapide, la
     # traduction ne retrouvait pas les pages déjà faites (clé de cache autre).
     reglages:        Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Identifiant du document client dont celui-ci est une copie d'admin (photo
+    # de sa traduction, faite depuis l'aperçu admin). Pas de clé étrangère :
+    # la copie doit survivre à la suppression du document client.
+    copie_de:        Mapped[str | None] = mapped_column(String(32), nullable=True,
+                                                        index=True)
     created_at:      Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at:      Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow,
