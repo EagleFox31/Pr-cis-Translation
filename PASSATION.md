@@ -200,3 +200,8 @@ Mission F terminée (PR #75). En attente de fusion par l'utilisateur : #70, puis
 - Branche `fix/catalogue-nouveautes-1-9` : 9 entrées FR/EN (dont « Aperçu des documents clients », admin), `DATE_VERSION` 2026-11-18, `frontend/seo/fonctionnalites.json` régénéré.
 - Garde-fou : `test_version_avec_fonctionnalites_publiee_au_catalogue` (CHANGELOG « Features » ⇒ élément public plus récent que la version précédente). Leçon ajoutée dans `docs/engineering/lessons-learned.md`.
 - Suite : release 1.9.1 (commit `fix:`), déploiement VPS, vérifier la date du 18 novembre dans l'app. E-mail aux abonnés : seulement via `backend/scripts/envoyer_nouveautes.py`, à la main, non lancé.
+
+## 2026-11-18 13:18 — Hébergeur corrigé (#92), catalogue en CI (#91), Product Hunt prêt
+- #92 fusionnée : mentions légales, politique de confidentialité et pages SEO indiquent OVHcloud (OVH Hosting Inc., Beauharnois, Canada) au lieu d'AWS. Entité et adresse à confirmer sur la facture OVHcloud. Kit Product Hunt : `docs/lancement-product-hunt.md` (date et compte qui publie : au propriétaire).
+- #91 : première CI rouge, `test_nouveautes_api.py` codait en dur 19 éléments. Attentes dérivées du catalogue (9408b45), CI relancée.
+- Suite : fusionner #91 (vérifier `baseRefName`), ouvrir la PR Release Please 1.9.1 à la main (label `autorelease: pending`, CI via `gh workflow run ci.yml --ref <branche>`), fusionner, suivre deploy-vps, vérifier en prod la date du 18 novembre, la page /confidentialite-documents et les mentions légales.
