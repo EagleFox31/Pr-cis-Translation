@@ -71,3 +71,11 @@ Mémoire des incidents et quasi-incidents. Consulter avant de toucher une zone c
 - **Résolution** : `extra-files` dans `release-please-config.json` (#78) ; purge du cache de build et des images orphelines, relance du job.
 - **Prévention vérifiable** : `test_version_suivie_par_release_please` ; avant un déploiement VPS, vérifier `df -h /` (≥ 5 Go libres) — à automatiser dans `remote-deploy.sh` (refus explicite plutôt qu'échec en plein build).
 - **Leçon** : toute copie d'une donnée versionnée doit être soit dérivée au build, soit déclarée à l'outil de release ; un hôte partagé a besoin d'un garde-fou de capacité avant chaque build.
+
+## 2026-11-15 — Faux « retour arrière en échec » après un build VPS raté
+- **Contexte** : lors du déploiement 1.8.0 (disque plein), `remote-deploy.sh` a affiché « retour arrière en échec : intervention requise » alors que la prod tournait toujours sur 865e40a.
+- **Cause racine** : le lien `current` était basculé avant le build ; sur tout échec, le script restaurait le lien puis lançait `compose up -d --build`, qui reconstruisait l'ancienne version sur le même disque plein et échouait à nouveau. Les conteneurs, eux, n'avaient jamais été recréés (l'échec précédait `up`).
+- **Classification** : near miss — diagnostic trompeur pouvant pousser à une intervention inutile sur une prod saine.
+- **Résolution** : garde-fou de capacité avant toute écriture (`PRECIS_MIN_FREE_GB`, défaut 5 Go, refus code 73 avec `docker builder prune` proposé, non lancé) ; échec de build traité à part (lien restauré, santé vérifiée, ni `up` ni rebuild) ; le retour arrière avec rebuild est réservé aux échecs après `up`. No-op d'une version déjà saine : plus aucune écriture.
+- **Prévention vérifiable** : `scripts/ci/test-vps-remote-deploy.sh` (job CI `production-deploy`) couvre disque bas, seuil configurable, no-op, build en échec avec prod saine ou KO, échec après `up`, succès.
+- **Leçon** : un message de retour arrière doit refléter l'état réellement touché ; distinguer les phases sans effet sur la prod (build) de celles qui la modifient (`up`).
