@@ -169,7 +169,7 @@
     "privacy": {
       "heading": "Et la confidentialité ?",
       "paragraphs": [
-        "Les échanges sont chiffrés par HTTPS. Le texte du document est transmis au prestataire de traduction DeepSeek ; l'hébergement est assuré par Amazon Web Services. Les fichiers temporaires de traduction sont gardés 7 jours au plus.",
+        "Les échanges sont chiffrés par HTTPS. Le texte du document est transmis au prestataire de traduction DeepSeek ; l'hébergement est assuré par OVHcloud, au Canada. Les fichiers temporaires de traduction sont gardés 7 jours au plus.",
         "Le détail est expliqué sur la page Confidentialité des documents."
       ],
       "links": [
