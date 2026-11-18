@@ -1,7 +1,79 @@
 {
-  "version": "1.8.0",
-  "date_version": "2026-11-09",
+  "version": "1.9.0",
+  "date_version": "2026-11-18",
   "elements": [
+    {
+      "id": "traduction-libre",
+      "date": "2026-11-18",
+      "type": "nouveaute",
+      "domaine": "documents",
+      "titre": "Traduire au-delà de votre solde",
+      "resume": "Lancez la traduction complète : les pages non payées restent visibles en aperçu, avec un filigrane.",
+      "detail": "Le téléchargement comprend les pages payées, débitées automatiquement. Achetez depuis l'aperçu pour obtenir le reste : votre solde est utilisé en premier. Un aperçu sans aucune page payée est supprimé après 30 jours, avec un e-mail de rappel 5 jours avant."
+    },
+    {
+      "id": "solde-par-forfait",
+      "date": "2026-11-18",
+      "type": "amelioration",
+      "domaine": "compte",
+      "titre": "Un solde par forfait",
+      "resume": "Le panneau de compte affiche le solde de chaque forfait et vous laisse choisir celui utilisé en premier.",
+      "detail": "Ce choix est mémorisé pour votre compte et repris au moment de lancer une traduction."
+    },
+    {
+      "id": "paiement-mensuel-ou-annuel",
+      "date": "2026-11-18",
+      "type": "amelioration",
+      "domaine": "compte",
+      "titre": "Mensuel ou annuel, au choix",
+      "resume": "Le paiement propose le mensuel par défaut, avec un sélecteur mensuel / annuel.",
+      "detail": "Le sélecteur affiche l'économie réalisée avec la formule annuelle."
+    },
+    {
+      "id": "renvoyer-invitation",
+      "date": "2026-11-18",
+      "type": "correctif",
+      "domaine": "compte",
+      "titre": "Renvoyer une invitation",
+      "resume": "Une invitation peut être renvoyée à une adresse déjà invitée, dans une limite raisonnable.",
+      "detail": "Le nombre de renvois est plafonné par expéditeur et par adresse."
+    },
+    {
+      "id": "images-des-documents",
+      "date": "2026-11-15",
+      "type": "nouveaute",
+      "domaine": "documents",
+      "titre": "Le texte des images traduit",
+      "resume": "Les libellés des figures et des schémas sont traduits dans l'image, pour les PDF et les fichiers Office.",
+      "detail": "Le texte d'origine est effacé puis redessiné dans la langue cible, à la même place et à une taille proche."
+    },
+    {
+      "id": "extension-connexion-par-le-site",
+      "date": "2026-11-15",
+      "type": "amelioration",
+      "domaine": "extension",
+      "titre": "Connexion à l'extension par le site",
+      "resume": "Plus de mot de passe dans l'extension : elle ouvre le site Précis, où vous vous connectez.",
+      "detail": "L'extension reçoit ensuite un accès à usage unique. Se déconnecter de l'extension ne ferme pas vos autres sessions."
+    },
+    {
+      "id": "documents-toujours-listes",
+      "date": "2026-11-15",
+      "type": "amelioration",
+      "domaine": "compte",
+      "titre": "Documents toujours listés",
+      "resume": "Sans stockage dans votre forfait, vos documents restent dans la liste.",
+      "detail": "Ils ne s'ouvrent plus 30 jours après la traduction : téléchargement et aperçu demandent alors un forfait avec stockage."
+    },
+    {
+      "id": "suppression-multiple",
+      "date": "2026-11-15",
+      "type": "amelioration",
+      "domaine": "documents",
+      "titre": "Supprimer plusieurs documents",
+      "resume": "Sélectionnez plusieurs documents et supprimez-les en une fois.",
+      "detail": "Le mode sélection s'active depuis la liste « Mes documents »."
+    },
     {
       "id": "extension-navigateur",
       "date": "2026-11-09",

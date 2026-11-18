@@ -1,6 +1,6 @@
 import type { LegalDoc } from './types';
 
-export const LEGAL_UPDATED = 'November 11, 2026';
+export const LEGAL_UPDATED = 'November 18, 2026';
 
 export const LEGAL_EN: LegalDoc[] = [
   {
@@ -23,7 +23,7 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'Hosting',
         paragraphs: [
-          'The service is hosted by Amazon Web Services, Inc., 410 Terry Avenue North, Seattle, WA 98109, United States. Précis servers run on Amazon EC2.',
+          'The service is hosted by OVH Hosting Inc. (OVHcloud), 800-1801 McGill College, Montréal (Québec) H3A 2N4, Canada. Précis servers are located in the OVHcloud data centre in Beauharnois (Québec, Canada).',
         ],
       },
       {
@@ -202,7 +202,7 @@ export const LEGAL_EN: LegalDoc[] = [
         paragraphs: ['To run Précis, we rely on the following service providers.'],
         list: [
           'DeepSeek: receives the text of your documents in order to translate it;',
-          'Amazon Web Services: hosting;',
+          'OVHcloud: hosting, in Canada;',
           'Campay, Fapshi and Paddle: payments;',
           'Cloudflare Turnstile: anti-bot check;',
           'Google: sign-in with Google, if you choose it;',

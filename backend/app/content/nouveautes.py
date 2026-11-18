@@ -22,8 +22,8 @@ VERSION doit rester égale au champ "version" du package.json racine
 (vérifié par le test du catalogue).
 """
 
-VERSION = "1.8.0"  # x-release-please-version
-DATE_VERSION = "2026-11-09"
+VERSION = "1.9.0"  # x-release-please-version
+DATE_VERSION = "2026-11-18"
 
 TYPES = ("nouveaute", "amelioration", "correctif")
 DOMAINES = ("documents", "visionneuse", "extension", "compte")
@@ -32,6 +32,170 @@ AUDIENCES = ("tous", "admin")
 
 FONCTIONNALITES: list[dict] = [
     # ── Fonctionnalités ─────────────────────────────────────────────────
+    {
+        "id": "traduction-libre",
+        "date": "2026-11-18",
+        "type": "nouveaute",
+        "domaine": "documents",
+        "importance": 1,
+        "phare": False,
+        "fr": {
+            "titre": "Traduire au-delà de votre solde",
+            "resume": "Lancez la traduction complète : les pages non payées restent visibles en aperçu, avec un filigrane.",
+            "detail": "Le téléchargement comprend les pages payées, débitées automatiquement. Achetez depuis l'aperçu pour obtenir le reste : votre solde est utilisé en premier. Un aperçu sans aucune page payée est supprimé après 30 jours, avec un e-mail de rappel 5 jours avant.",
+        },
+        "en": {
+            "titre": "Translate beyond your balance",
+            "resume": "Start the full translation: unpaid pages stay visible in the preview, with a watermark.",
+            "detail": "The download includes the paid pages, debited automatically. Buy from the preview to get the rest: your balance is used first. A preview with no paid page is deleted after 30 days, with a reminder e-mail 5 days before.",
+        },
+    },
+    {
+        "id": "solde-par-forfait",
+        "date": "2026-11-18",
+        "type": "amelioration",
+        "domaine": "compte",
+        "importance": 2,
+        "phare": False,
+        "fr": {
+            "titre": "Un solde par forfait",
+            "resume": "Le panneau de compte affiche le solde de chaque forfait et vous laisse choisir celui utilisé en premier.",
+            "detail": "Ce choix est mémorisé pour votre compte et repris au moment de lancer une traduction.",
+        },
+        "en": {
+            "titre": "One balance per plan",
+            "resume": "The account panel shows each plan's balance and lets you choose which one is used first.",
+            "detail": "This choice is saved to your account and applied when you start a translation.",
+        },
+    },
+    {
+        "id": "paiement-mensuel-ou-annuel",
+        "date": "2026-11-18",
+        "type": "amelioration",
+        "domaine": "compte",
+        "importance": 3,
+        "phare": False,
+        "fr": {
+            "titre": "Mensuel ou annuel, au choix",
+            "resume": "Le paiement propose le mensuel par défaut, avec un sélecteur mensuel / annuel.",
+            "detail": "Le sélecteur affiche l'économie réalisée avec la formule annuelle.",
+        },
+        "en": {
+            "titre": "Monthly or yearly, your choice",
+            "resume": "Checkout offers monthly billing by default, with a monthly / yearly switch.",
+            "detail": "The switch shows the saving made with the yearly option.",
+        },
+    },
+    {
+        "id": "apercu-documents-clients",
+        "date": "2026-11-18",
+        "type": "nouveaute",
+        "domaine": "documents",
+        "importance": 3,
+        "phare": False,
+        "audience": "admin",
+        "fr": {
+            "titre": "Aperçu des documents clients",
+            "resume": "Ouvrez le document d'un client dans la visionneuse, en lecture seule.",
+            "detail": "Sans retraduction ni débit. « Créer ma copie » ajoute la traduction à votre propre bibliothèque.",
+        },
+        "en": {
+            "titre": "Client document preview",
+            "resume": "Open a client's document in the viewer, read-only.",
+            "detail": "No retranslation and no charge. \"Create my copy\" adds the translation to your own library.",
+        },
+    },
+    {
+        "id": "renvoyer-invitation",
+        "date": "2026-11-18",
+        "type": "correctif",
+        "domaine": "compte",
+        "importance": 3,
+        "phare": False,
+        "fr": {
+            "titre": "Renvoyer une invitation",
+            "resume": "Une invitation peut être renvoyée à une adresse déjà invitée, dans une limite raisonnable.",
+            "detail": "Le nombre de renvois est plafonné par expéditeur et par adresse.",
+        },
+        "en": {
+            "titre": "Resend an invitation",
+            "resume": "An invitation can be resent to an address already invited, within a reasonable limit.",
+            "detail": "Resends are capped per sender and per address.",
+        },
+    },
+    {
+        "id": "images-des-documents",
+        "date": "2026-11-15",
+        "type": "nouveaute",
+        "domaine": "documents",
+        "importance": 1,
+        "phare": False,
+        "fr": {
+            "titre": "Le texte des images traduit",
+            "resume": "Les libellés des figures et des schémas sont traduits dans l'image, pour les PDF et les fichiers Office.",
+            "detail": "Le texte d'origine est effacé puis redessiné dans la langue cible, à la même place et à une taille proche.",
+        },
+        "en": {
+            "titre": "Text in images translated",
+            "resume": "Labels in figures and diagrams are translated inside the image, for PDF and Office files.",
+            "detail": "The original text is erased and redrawn in the target language, in the same place and at a similar size.",
+        },
+    },
+    {
+        "id": "extension-connexion-par-le-site",
+        "date": "2026-11-15",
+        "type": "amelioration",
+        "domaine": "extension",
+        "importance": 2,
+        "phare": False,
+        "lien": "/extension",
+        "fr": {
+            "titre": "Connexion à l'extension par le site",
+            "resume": "Plus de mot de passe dans l'extension : elle ouvre le site Précis, où vous vous connectez.",
+            "detail": "L'extension reçoit ensuite un accès à usage unique. Se déconnecter de l'extension ne ferme pas vos autres sessions.",
+        },
+        "en": {
+            "titre": "Extension sign-in through the website",
+            "resume": "No password in the extension: it opens the Précis website, where you sign in.",
+            "detail": "The extension then receives a one-time access. Signing out of the extension leaves your other sessions open.",
+        },
+    },
+    {
+        "id": "documents-toujours-listes",
+        "date": "2026-11-15",
+        "type": "amelioration",
+        "domaine": "compte",
+        "importance": 2,
+        "phare": False,
+        "fr": {
+            "titre": "Documents toujours listés",
+            "resume": "Sans stockage dans votre forfait, vos documents restent dans la liste.",
+            "detail": "Ils ne s'ouvrent plus 30 jours après la traduction : téléchargement et aperçu demandent alors un forfait avec stockage.",
+        },
+        "en": {
+            "titre": "Documents always listed",
+            "resume": "Without storage in your plan, your documents stay in the list.",
+            "detail": "They can no longer be opened 30 days after translation: download and preview then require a plan with storage.",
+        },
+    },
+    {
+        "id": "suppression-multiple",
+        "date": "2026-11-15",
+        "type": "amelioration",
+        "domaine": "documents",
+        "importance": 3,
+        "phare": False,
+        "fr": {
+            "titre": "Supprimer plusieurs documents",
+            "resume": "Sélectionnez plusieurs documents et supprimez-les en une fois.",
+            "detail": "Le mode sélection s'active depuis la liste « Mes documents ».",
+        },
+        "en": {
+            "titre": "Delete several documents",
+            "resume": "Select several documents and delete them at once.",
+            "detail": "Selection mode is available from the \"My documents\" list.",
+        },
+    },
     {
         "id": "excel-traduit-en-entier",
         "date": "2026-10-09",
