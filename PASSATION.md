@@ -225,3 +225,11 @@ Mission F terminée (PR #75). En attente de fusion par l'utilisateur : #70, puis
 - Idempotence : statut de commit `release/whatsapp-announcement` sur le SHA de release.
 - À poser avant la prochaine release : variables `NOTIFY_SESSION`, `NOTIFY_CHAT_ID`, secret `NOTIFY_API_KEY` (cf. `docs/deploiement.md`). Sans elles : no-op.
 - Piste : extraire `waha_notify.py` en action réutilisable dans appfactory-project-automation quand un 2e dépôt en aura besoin.
+
+## 2026-11-18 14:16 — PR #90, #88, #91 fusionnées ; garde-fou catalogue corrigé avant la release 1.10.0
+
+- Fusionnées en squash : #91 (catalogue 1.8/1.9, b04c0d4), #90 (vignettes boutiques, 6e956f5), #88 (annonce WhatsApp, ee5aa87). Conflits uniquement dans PASSATION.md : entrées des branches ajoutées en fin.
+- CI #88 : « Suites backend » bloquée 20 min sur l'apt LibreOffice (runner) ; annulée puis relancée, verte.
+- Release Please propose **1.10.0** (feat #88), pas 1.9.1. Le garde-fou du catalogue la bloquait (feature d'outillage seule, même date que 1.9.0) : corrigé sur `fix/garde-fou-catalogue-interne` (`ecart_catalogue()` + cas limites, `PORTEES_INTERNES`).
+- Config NOTIFY présente : variables `NOTIFY_SESSION`, `NOTIFY_CHAT_ID`, secret `NOTIFY_API_KEY` ; l'annonce WhatsApp partira à la release 1.10.0.
+- Suite : fusionner ce correctif, ouvrir la PR Release Please 1.10.0 à la main (label `autorelease: pending`), CI, fusion, vérifier déploiement VPS + prod (nouveautés au 18 novembre, pages légales OVHcloud, API 1.10.0) et l'annonce WhatsApp.
