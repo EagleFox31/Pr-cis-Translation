@@ -55,3 +55,25 @@ class FreeGrant(Base):
         Index("ix_free_grants_mailbox_recent", "mailbox_key", "created_at"),
         Index("ix_free_grants_created_at", "created_at"),
     )
+
+
+class LibreGrant(Base):
+    """Pages traduites en aperçu (mode libre), sans solde pour les couvrir.
+
+    Sert uniquement au plafond par compte et par appareil sur 24 h ; purgée
+    après 2 jours (`app.services.anti_abus.purge`)."""
+    __tablename__ = "libre_grants"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_uuid)
+    user_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True,
+    )
+    machine_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    pages: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow,
+                                                 nullable=False)
+
+    __table_args__ = (
+        Index("ix_libre_grants_machine_recent", "machine_id", "created_at"),
+        Index("ix_libre_grants_user_recent", "user_id", "created_at"),
+    )

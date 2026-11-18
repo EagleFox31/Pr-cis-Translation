@@ -46,6 +46,11 @@ class Document(Base):
     # a exactement ce qu'il a payé, ni plus, ni moins.
     paid:            Mapped[bool] = mapped_column(Boolean, default=False,
                                                   nullable=False)
+    # Pages traduites en aperçu (mode libre), sans solde pour les couvrir : tant
+    # qu'il en reste, aucun téléchargement ni lecture en clair, même sur un
+    # forfait payant (docs/etude-traduction-libre.md).
+    pages_libres:    Mapped[int] = mapped_column(Integer, default=0, server_default="0",
+                                                 nullable=False)
     # Réglages d'origine (JSON : pages traduites, précis, bêta). « Reprendre »
     # relance avec EUX : relancée sur le document entier en rapide, la
     # traduction ne retrouvait pas les pages déjà faites (clé de cache autre).

@@ -161,6 +161,11 @@ async def _importer(uid: str, data: bytes, nom="doc.pdf", pages="",
 
 async def run():
     checks = []
+    # Ces contrôles portent sur le refus 402 d'avant le mode libre : plafond
+    # libre à 0, un PDF non couvert retombe donc sur need_credits (voir
+    # test_traduction_libre pour le mode libre lui-même).
+    from app.services import anti_abus
+    anti_abus.LIBRE_MAX_PAGES = 0
 
     def ok(nom, cond, detail=""):
         checks.append((nom, bool(cond), detail))
@@ -188,8 +193,8 @@ async def run():
         r = await _importer(uid, _pdf(7), covered_only="1")
         ok("GRATUIT-ESSAI  choix « couvertes » : pages 1 à 5 traduites",
            r["statut"] == 200 and r["soumis"] == {1, 2, 3, 4, 5}, f"{r['statut']} {r['soumis']}")
-        ok("GRATUIT-ESSAI  offre consommée, aperçu seul (non téléchargeable)",
-           r["registre"] == [(KIND_FREE_OFFER, 5)] and r["doc"].paid is False,
+        ok("GRATUIT-ESSAI  offre consommée, téléchargeable (règle a)",
+           r["registre"] == [(KIND_FREE_OFFER, 5)] and r["doc"].paid is True,
            f"{r['registre']} paid={r['doc'] and r['doc'].paid}")
 
         # ── Gratuit, document d'une page, offre libre : passe sans question ─
@@ -219,7 +224,7 @@ async def run():
         r = await _importer(uid, _pdf(3))
         ok("GRATUIT-SOLDE  offre disponible : utilisée avant les crédits achetés",
            r["statut"] == 200 and r["soumis"] is None and r["solde"] == 5
-           and r["registre"] == [(KIND_FREE_OFFER, 3)] and r["doc"].paid is False,
+           and r["registre"] == [(KIND_FREE_OFFER, 3)] and r["doc"].paid is True,
            f"{r['statut']} {r['soumis']} solde={r['solde']} {r['registre']}")
 
         # ── Solde modifié entre l'authentification et le verrou ────────────
@@ -237,13 +242,13 @@ async def run():
         # ── Gratuit, autres formats : les pages achetées y donnent droit ───
         uid = await compte("free", 0)
         r = await _importer(uid, _docx(), nom="d.docx")
-        ok("GRATUIT-DOCX  sans solde : couvert par l'offre, aperçu seul",
-           r["statut"] == 200 and r["registre"] == [(KIND_FREE_OFFER, 1)] and r["doc"].paid is False, f"{r['statut']} {r['corps']}")
+        ok("GRATUIT-DOCX  sans solde : couvert par l'offre, téléchargeable",
+           r["statut"] == 200 and r["registre"] == [(KIND_FREE_OFFER, 1)] and r["doc"].paid is True, f"{r['statut']} {r['corps']}")
         uid = await compte("free", 4)
         r = await _importer(uid, _docx(), nom="d.docx")
         ok("GRATUIT-DOCX  offre disponible : crédits achetés conservés",
            r["statut"] == 200 and r["registre"] == [(KIND_FREE_OFFER, 1)]
-           and r["solde"] == 4 and r["doc"].paid is False,
+           and r["solde"] == 4 and r["doc"].paid is True,
            f"{r['statut']} {r['corps'] if r['statut'] != 200 else ''} "
            f"solde={r['solde']} {r['registre']}")
 

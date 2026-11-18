@@ -8,7 +8,7 @@ import type { PageStatus } from './useStreamingTranslation';
 /** Le serveur refuse l'accès à un document archivé (plus de 30 jours, compte
  *  sans stockage) par un 403 `stockage_requis`. On le dit à l'utilisateur au
  *  lieu de laisser l'action sans effet. Retourne vrai si la réponse était ce refus. */
-async function signalerStockageRequis(res: Response): Promise<boolean> {
+export async function signalerStockageRequis(res: Response): Promise<boolean> {
   if (res.status !== 403) return false;
   try {
     const corps = await res.clone().json();
@@ -79,6 +79,9 @@ export interface DocMeta {
   /** Ce document est-il PAYÉ ? C'est lui, et non le plan, qui ouvre le
    *  téléchargement et l'aperçu en clair (miroir de `_may_read_clear`). */
   paid: boolean;
+  /** Pages traduites mais non payées (mode libre) : visibles en aperçu
+   *  filigrané, absentes du fichier tant qu'elles ne sont pas achetées. */
+  pagesLibres: number;
   /** Nombre de pages — sert à calculer ce que coûtera son déblocage. */
   pageCount: number;
   /** `translating` · `done` · `error` · `interrupted` (serveur arrêté en
@@ -127,6 +130,7 @@ function toMeta(d: any): DocMeta {
     sizeByes: d.size_bytes,
     ext: d.original_name.split('.').pop()?.toLowerCase() ?? 'pdf',
     paid: !!d.paid,
+    pagesLibres: d.pages_libres ?? 0,
     pageCount: d.page_count ?? 1,
     status: d.status ?? 'done',
     pagesDone: d.pages_done ?? 0,
@@ -224,7 +228,7 @@ export function useDocumentLibrary() {
     // (rien n'est persisté, donc rien n'est payé).
     meta: Omit<DocMeta,
       'id' | 'date' | 'sizeByes' | 'filename' | '_blob'
-      | 'paid' | 'pageCount' | 'status' | 'pagesDone'
+      | 'paid' | 'pagesLibres' | 'pageCount' | 'status' | 'pagesDone'
       | 'sourceLang' | 'archive' | 'accesJusquAu'> & { sourceLang?: string },
   ): Promise<string> => {
     const id = crypto.randomUUID();
@@ -233,6 +237,7 @@ export function useDocumentLibrary() {
       date: new Date().toISOString(),
       sizeByes: blob.size,
       paid: false,
+      pagesLibres: 0,
       pageCount: 1,
       status: 'done',
       pagesDone: 1,

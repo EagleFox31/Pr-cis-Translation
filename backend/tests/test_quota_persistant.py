@@ -95,7 +95,9 @@ async def run():
         deposes.append(data)
         return client.post("/api/translate", headers=entetes(u),
                            files={"file": ("doc.pdf", data, "application/pdf")},
-                           data={"target_lang": "en"})
+                           # Pages couvertes seules : sans solde, refus (402)
+                           # plutôt que le mode libre (testé à part).
+                           data={"target_lang": "en", "covered_only": "1"})
 
     def reste(client, u):
         return client.get("/api/auth/me/usage", headers=entetes(u)).json()

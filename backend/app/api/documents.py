@@ -26,8 +26,9 @@ from app.models.plans import get_plan_priority
 from app.services.scheduler import scheduler_scans
 from app.services.documents import copie_du_document as _copie_du_document, copie_prevue as _copie_prevue
 from app.services.documents import acces_archive, acces_jusqu_au
-from app.services.documents import (chemin_traduction_du_document, pages_selectionnees,
-                                    reglages_de, traduction_partielle_du_document)
+from app.services.documents import (chemin_traduction_du_document, pages_libres_du_document,
+                                    pages_selectionnees, reglages_de,
+                                    traduction_partielle_du_document)
 from app.services.jobs import STATUTS_ARRET, STATUTS_REPRENABLES, jobs
 from app.services.office import convert_to_pdf_bytes
 from app.services.translation_runner import render_translation_bytes
@@ -95,10 +96,12 @@ def _garder_pages(pdf: bytes, pages: set[int]) -> bytes:
         return d.tobytes(garbage=3, deflate=True)
 
 
-def _sans_pages_retirees(pdf: bytes, trad: str) -> bytes:
+def _sans_pages_retirees(pdf: bytes, trad: str,
+                         en_plus: set[int] | frozenset[int] = frozenset()) -> bytes:
     """Retire du fichier livré les pages hors sélection que le client a
-    retirées ; l'aperçu, lui, les garde à leur place."""
-    retirees = ocr_pages.pages_retirees(trad)
+    retirées ; l'aperçu, lui, les garde à leur place. `en_plus` : autres pages
+    à ôter (pages libres), numérotées comme l'original."""
+    retirees = set(ocr_pages.pages_retirees(trad)) | set(en_plus)
     if not retirees:
         return pdf
     import fitz
@@ -278,8 +281,12 @@ def _may_read_clear(user: User, doc: Document) -> bool:
     Le droit était lu sur le seul PLAN. C'était juste tant que le gratuit ne
     pouvait rien acheter ; ça devient faux dès qu'il le peut — il aurait payé
     des pages sans jamais pouvoir les récupérer.
+
+    Condition préalable : aucune page libre (traduite sans solde) à payer.
+    Tant qu'il en reste, le document n'est lisible en clair par personne,
+    abonné compris.
     """
-    return is_paid_plan(user.plan) or doc.paid
+    return not doc.pages_libres and (is_paid_plan(user.plan) or doc.paid)
 
 
 def _apercu_filigrane(user: User, doc: Document) -> bool:
@@ -289,6 +296,26 @@ def _apercu_filigrane(user: User, doc: Document) -> bool:
     bêta : téléchargeable, mais son aperçu reste filigrané, même sur un compte
     payant (conditions d'utilisation, « Offres et quotas »)."""
     return not _may_read_clear(user, doc) or bool(reglages_de(doc).get("beta"))
+
+
+def pages_filigranees(user: User, doc: Document, traduites=None):
+    """Pages de l'aperçu PDF à rendre en image filigranée.
+
+    `traduites` : pages produites (aperçu partiel) ; None = tout le document.
+    Renvoie (filigrane, pages) : pas de filigrane → aperçu en clair ; sinon
+    `pages` passe tel quel à `rasterize_for_trial` (None = toutes).
+
+    Document couvert avec des pages libres : seules les pages libres sont
+    filigranées, les pages payées restent nettes (étude traduction libre, §4.2).
+    """
+    if reglages_de(doc).get("beta") or not (is_paid_plan(user.plan) or doc.paid):
+        return True, traduites
+    libres = pages_libres_du_document(doc)
+    if traduites is not None:
+        libres &= {int(p) for p in traduites}
+    if not libres:
+        return False, None
+    return True, libres
 
 
 def _suivi_scan(doc: Document) -> dict:
@@ -312,6 +339,7 @@ def _doc_response(doc: Document, user: User) -> dict:
         **_suivi_scan(doc),
         "id": doc.id,
         "paid": doc.paid,
+        "pages_libres": doc.pages_libres or 0,
         "original_name": doc.original_name,
         "source_lang": doc.source_lang,
         "target_lang": doc.target_lang,
@@ -371,6 +399,9 @@ async def download_document(
     doc_id: str,
     user: User = Depends(require_auth),
     db: AsyncSession = Depends(get_db),
+    # « Continuer » de la fenêtre des pages libres : fichier limité aux pages
+    # payées (PDF). En dernier, comme `as` sur /original.
+    sans_libres: str | None = Query(None),
 ):
     """Téléchargement du fichier traduit (ou original si pas encore traduit).
 
@@ -389,15 +420,26 @@ async def download_document(
     _exiger_acces(user, doc)
 
     trad, livrables = await _traduction(db, doc)
+    ext = os.path.splitext(doc.original_name)[1].lstrip(".").lower()
+    # Pages libres retirées du fichier, s'il reste au moins une page payée
+    # (sinon le fichier serait vide) : sur demande (« Continuer », PDF), ou
+    # d'office pour un document arrêté, qui ne livre que ses pages payées et
+    # dont les pages libres ne se règlent pas (voir `regler_libres`).
+    libres = pages_libres_du_document(doc)
+    arret = livrables is not None
+    retirer = (libres if doc.paid and (arret or (sans_libres == "1" and ext == "pdf"))
+               else set())
     # Liste d'AUTORISATION : un plan inconnu est traité comme non payant.
-    if trad and not _may_read_clear(user, doc):
+    if trad and not retirer and not _may_read_clear(user, doc):
+        if doc.pages_libres and doc.translated_path:
+            return JSONResponse(status_code=402, content={
+                "reason": "pages_libres", "pages_libres": doc.pages_libres,
+                "detail": "Des pages de cette traduction ne sont pas payées."})
         raise HTTPException(
             status_code=402,
-            detail="Cette traduction n'est pas payée. Réglez ses pages pour "
-                   "la télécharger, ou passez à Starter.",
+            detail="Cette traduction n'est pas payée. Achetez ses pages pour "
+                   "la télécharger.",
         )
-
-    ext = os.path.splitext(doc.original_name)[1].lstrip(".").lower()
 
     # Pas encore de traduction : on rend l'original (le fichier de l'utilisateur).
     if not trad:
@@ -440,14 +482,63 @@ async def download_document(
         # Format natif non-PDF : jamais le cache d'aperçu.
         return _render_or_404(doc, ext, trad=trad)
 
+    if retirer and livrables is not None:
+        # Fichier partiel : `_build` ne garde que les pages livrées, on en ôte
+        # les libres avant de les numéroter.
+        livrables = set(livrables) - retirer
+        if not livrables:
+            raise HTTPException(status_code=402, detail="Aucune page payée à livrer.")
     data = await run_in_threadpool(_build)
     if ext == "pdf" and livrables is None:
-        data = await run_in_threadpool(_sans_pages_retirees, data, trad)
+        # Une seule coupe, numéros de l'original : couper en deux fois
+        # décalerait les numéros de la seconde.
+        data = await run_in_threadpool(_sans_pages_retirees, data, trad,
+                                       retirer)
     base = os.path.splitext(doc.original_name)[0]
-    dl_name = f"{base}_TRADUIT{'_PARTIEL' if livrables is not None else ''}.{ext}"
+    partiel = arret or bool(retirer)
+    dl_name = f"{base}_TRADUIT{'_PARTIEL' if partiel else ''}.{ext}"
     media = "application/pdf" if ext == "pdf" else "application/octet-stream"
     return Response(content=data, media_type=media,
                     headers={"Content-Disposition": _piece_jointe(dl_name)})
+
+
+# ── POST /documents/{id}/regler-libres ───────────────────────────────────────
+
+@router.post("/{doc_id}/regler-libres")
+async def regler_libres(
+    doc_id: str,
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Avant un téléchargement : paie avec le solde ce qu'il peut des pages
+    libres, sans rien demander (choix B1 de l'étude traduction libre).
+    Renvoie les pages débitées et celles qui restent non payées."""
+    # Contrôles d'abord, sans verrou : un refus ne bloque personne.
+    doc = await db.get(Document, doc_id)
+    if doc is None or doc.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Document introuvable.")
+    _exiger_acces(user, doc)
+    # Seule une traduction terminée se règle : un document arrêté ne livre que
+    # ses pages payées, un document en erreur a été remboursé.
+    if doc.pages_libres and not doc.translated_path:
+        raise HTTPException(status_code=409, detail="Cette traduction n'est pas terminée.")
+    # Verrous dans l'ordre unique du projet : compte, puis document.
+    # `populate_existing` : relire sous le verrou, pas l'objet déjà en session.
+    await db.execute(select(User).where(User.id == user.id).with_for_update()
+                     .execution_options(populate_existing=True))
+    doc = (await db.execute(
+        select(Document).where(Document.id == doc_id).with_for_update()
+        .execution_options(populate_existing=True)
+    )).scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document introuvable.")
+    if doc.pages_libres and not doc.translated_path:
+        raise HTTPException(status_code=409, detail="Cette traduction n'est pas terminée.")
+    debitees = await usage.regler_pages_libres(db, user.id, doc)
+    if debitees:
+        await db.commit()
+    return {"pages_debitees": debitees, "pages_libres": doc.pages_libres or 0,
+            "paid": bool(doc.paid)}
 
 
 # ── GET /documents/{id}/original ─────────────────────────────────────────────
@@ -603,10 +694,11 @@ async def preview_document(
                                                       "X-Render": "pending",
                                                       **_entetes_pages(job)})
         data = await run_in_threadpool(_lire, chemin)
-        if _apercu_filigrane(user, doc):
+        filigrane, cibles = pages_filigranees(user, doc, job.get("pages"))
+        if filigrane:
             # Même règle que /translate/partial : un plan d'essai ne reçoit
             # que des pixels, et seules les pages traduites sont à protéger.
-            data = await run_in_threadpool(rasterize_for_trial, data, job.get("pages"))
+            data = await run_in_threadpool(rasterize_for_trial, data, cibles)
         entetes = _entetes_pages(job) if rendu == "partial" else {}
         return Response(content=data, media_type="application/pdf",
                         headers={"Cache-Control": "no-store",
@@ -616,6 +708,9 @@ async def preview_document(
     # format non-PDF ne peut pas être filigrané ici sans risque de le livrer en
     # clair, donc on le réserve aux plans payants.
     clear = not _apercu_filigrane(user, doc)
+    # Pages à filigraner : toutes, ou seulement les pages libres d'un document
+    # couvert (ses pages payées restent nettes).
+    _, cibles = pages_filigranees(user, doc)
     if not _may_read_clear(user, doc) and ext != "pdf":
         raise HTTPException(
             status_code=402,
@@ -669,7 +764,7 @@ async def preview_document(
     if fenetre is None:
         data = await run_in_threadpool(_build_complet)
         if not clear:
-            data = await run_in_threadpool(rasterize_for_trial, data)
+            data = await run_in_threadpool(rasterize_for_trial, data, cibles)
         return Response(content=data, media_type="application/pdf",
                         headers={"Cache-Control": "no-store",
                                  "X-Render": "full"})
@@ -688,7 +783,11 @@ async def preview_document(
     def _build_page() -> bytes:
         data = _render_or_404(doc, ext, only_pages=fenetre, trad=trad)
         if not clear:
-            data = rasterize_for_trial(data)      # ext == "pdf" garanti ici
+            # ext == "pdf" garanti ici. Pages libres seules : inutile de
+            # rastériser les copies de l'original hors de la fenêtre.
+            vise = None if cibles is None else cibles & fenetre
+            if vise is None or vise:
+                data = rasterize_for_trial(data, vise)
         return data
 
     data = await run_in_threadpool(_build_page)
