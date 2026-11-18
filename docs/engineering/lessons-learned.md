@@ -79,3 +79,11 @@ Mémoire des incidents et quasi-incidents. Consulter avant de toucher une zone c
 - **Résolution** : garde-fou de capacité avant toute écriture (`PRECIS_MIN_FREE_GB`, défaut 5 Go, refus code 73 avec `docker builder prune` proposé, non lancé) ; échec de build traité à part (lien restauré, santé vérifiée, ni `up` ni rebuild) ; le retour arrière avec rebuild est réservé aux échecs après `up`. No-op d'une version déjà saine : plus aucune écriture.
 - **Prévention vérifiable** : `scripts/ci/test-vps-remote-deploy.sh` (job CI `production-deploy`) couvre disque bas, seuil configurable, no-op, build en échec avec prod saine ou KO, échec après `up`, succès.
 - **Leçon** : un message de retour arrière doit refléter l'état réellement touché ; distinguer les phases sans effet sur la prod (build) de celles qui la modifient (`up`).
+
+## 2026-11-18 — PR empilée fusionnée dans sa branche de base au lieu de `main`
+- **Contexte** : release 1.9.0. #85 (traduction libre) ciblait `feat/retours-clients`, la branche de #83. #83 a été fusionnée la première dans `main` par squash, puis #85 a été fusionnée. GitHub l'a marquée « MERGED », mais `main` n'a pas bougé : le contenu était arrivé dans `feat/retours-clients`.
+- **Cause racine** : la base d'une PR empilée n'est pas reciblée sur `main` quand la PR parente est fusionnée par squash sans suppression de branche. Le contrôle avant fusion ne regardait que la mergeabilité et la CI, pas `baseRefName`. Sur cette branche, la CI de #85 n'avait d'ailleurs pas tourné (seul « Project automation », ignoré).
+- **Classification** : near miss. La release aurait été publiée sans la fonctionnalité annoncée.
+- **Résolution** : branche d'intégration `feat/retours-clients` + `main` (un conflit dans `Home.tsx`, résolu côté #85), puis #86 vers `main`. Diff vérifié identique à #85 (37 fichiers, +1742/−107), CI complète verte avant la fusion.
+- **Prévention vérifiable** : avant de fusionner un lot, `gh pr list --json number,baseRefName` ; toute PR dont la base n'est pas `main` est reciblée (`gh pr edit N --base main`) avant la fusion. Après chaque fusion, vérifier que `git ls-remote origin refs/heads/main` a bien changé.
+- **Leçon** : « MERGED » ne veut pas dire « sur `main` ». Pour une PR empilée, la base fait partie du contrôle avant fusion, au même titre que la CI.
