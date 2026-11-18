@@ -8,6 +8,20 @@ leurs propres numéros internes.
 
 Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 
+## [1.10.0](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.9.0...v1.10.0) (2026-11-18)
+
+
+### Features
+
+* **release:** annonce WhatsApp automatique après déploiement ([#88](https://github.com/EagleFox31/Pr-cis-Translation/issues/88)) ([ee5aa87](https://github.com/EagleFox31/Pr-cis-Translation/commit/ee5aa878f04a08e7a72bb8e6cd871968277527b1))
+
+
+### Bug Fixes
+
+* **legal:** name OVHcloud as host instead of AWS ([#92](https://github.com/EagleFox31/Pr-cis-Translation/issues/92)) ([9a55198](https://github.com/EagleFox31/Pr-cis-Translation/commit/9a55198d407d43a0f51dc32d643ac96159b995dd))
+* **nouveautes:** let tooling-only and same-day releases pass the catalogue guard ([#93](https://github.com/EagleFox31/Pr-cis-Translation/issues/93)) ([3c94e3d](https://github.com/EagleFox31/Pr-cis-Translation/commit/3c94e3d6f1e56fdc1eeeca1b329ee4b43ac43f95))
+* **nouveautes:** publish 1.8.0 and 1.9.0 features in the catalogue ([#91](https://github.com/EagleFox31/Pr-cis-Translation/issues/91)) ([b04c0d4](https://github.com/EagleFox31/Pr-cis-Translation/commit/b04c0d49e17865a1b8ced7fc9d8ee3bea3fc3443))
+
 ## [1.9.0](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.8.0...v1.9.0) (2026-11-18)
 
 
