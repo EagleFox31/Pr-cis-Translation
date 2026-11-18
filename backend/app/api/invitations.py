@@ -4,8 +4,11 @@ GARDE-FOUS
     Chaque envoi part de NOTRE domaine vers une adresse choisie par
     l'utilisateur : sans bornes, c'est un relais de spam. D'où :
       * au plus `_MAX_PAR_REQUETE` adresses par envoi, `_QUOTA_JOUR` par jour ;
-      * une adresse déjà invitée (par qui que ce soit) il y a moins de
-        `_FENETRE_DOUBLON` n'en reçoit pas une seconde ;
+      * renvoi à une même adresse par le même compte : pas avant
+        `_DELAI_RENVOI`, et au plus `_MAX_PAR_COUPLE` fois par `_FENETRE` ;
+        sinon 429 explicite (l'inviteur ne découvre que ses propres envois) ;
+      * une adresse invitée `_MAX_PAR_ADRESSE` fois par `_FENETRE`, tous
+        comptes confondus, est écartée sans le dire ;
       * une adresse qui a DÉJÀ un compte est ignorée.
     Le quota se compte sous un verrou par compte (PostgreSQL) : des envois
     simultanés ne le dépassent pas. Les e-mails partent après la réponse
@@ -33,8 +36,17 @@ router = APIRouter(prefix="/api/invitations", tags=["Invitations"])
 
 _MAX_PAR_REQUETE = 10
 _QUOTA_JOUR = 20
-_FENETRE_DOUBLON = timedelta(days=7)
+_FENETRE = timedelta(days=7)
+_DELAI_RENVOI = timedelta(minutes=10)
+_MAX_PAR_COUPLE = 3
+_MAX_PAR_ADRESSE = 5
 _MAX_MESSAGE = 500
+
+
+def _utc(d: datetime) -> datetime:
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+
 class InvitationBody(BaseModel):
     emails: list[EmailStr] = Field(..., min_length=1, max_length=_MAX_PAR_REQUETE)
     message: str | None = Field(None, max_length=_MAX_MESSAGE)
@@ -66,6 +78,25 @@ async def inviter(
         # comptent l'un après l'autre.
         await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
                          {"k": f"invitations:{user.id}"})
+
+    # Renvois du même compte : refus explicite, avant toute réservation.
+    mes_envois = (await db.execute(
+        select(Invitation.email, func.count(), func.max(Invitation.created_at))
+        .where(Invitation.inviter_id == user.id, Invitation.email.in_(adresses),
+               Invitation.created_at >= maintenant - _FENETRE)
+        .group_by(Invitation.email))).all()
+    au_plafond = [e for e, n, _ in mes_envois if n >= _MAX_PAR_COUPLE]
+    if au_plafond:
+        raise HTTPException(429, detail={
+            "code": "renvoi_limite", "emails": au_plafond, "minutes": None})
+    trop_tot = {e: _utc(d) + _DELAI_RENVOI - maintenant for e, _, d in mes_envois
+                if _utc(d) + _DELAI_RENVOI > maintenant}
+    if trop_tot:
+        attente = max(trop_tot.values())
+        raise HTTPException(429, detail={
+            "code": "renvoi_trop_tot", "emails": list(trop_tot),
+            "minutes": max(1, -(-int(attente.total_seconds()) // 60))})
+
     deja = await db.scalar(
         select(func.count()).select_from(Invitation).where(
             Invitation.inviter_id == user.id,
@@ -79,15 +110,18 @@ async def inviter(
 
     inscrits = set((await db.scalars(
         select(func.lower(User.email)).where(func.lower(User.email).in_(adresses)))).all())
-    recentes = set((await db.scalars(
+    # Plafond par adresse, tous inviteurs confondus : écartée en silence.
+    saturees = set((await db.scalars(
         select(Invitation.email).where(
             Invitation.email.in_(adresses),
-            Invitation.created_at >= maintenant - _FENETRE_DOUBLON))).all())
+            Invitation.created_at >= maintenant - _FENETRE)
+        .group_by(Invitation.email)
+        .having(func.count() >= _MAX_PAR_ADRESSE))).all())
 
     message = (body.message or "").strip() or None
     inviteur = (user.name or "").strip() or user.email
     reservees = [(new_uuid(), a) for a in adresses
-                 if a not in inscrits and a not in recentes]
+                 if a not in inscrits and a not in saturees]
     for inv_id, adresse in reservees:
         db.add(Invitation(id=inv_id, inviter_id=user.id, email=adresse))
     await db.commit()

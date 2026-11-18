@@ -106,6 +106,7 @@ def log_error_threadsafe(source: str, message: str, **kw) -> None:
 # ── Alerte admin au seuil ─────────────────────────────────────────────────────
 
 _last_alert_at = 0.0
+_REESSAI_ALERTE = 600   # s : nouvel essai après un envoi d'alerte raté
 _alert_lock = threading.Lock()
 
 
@@ -134,7 +135,7 @@ async def maybe_alert_admins(db) -> bool:
             return False
 
         from app.core.email import FRONTEND_URL, send_plain
-        await send_plain(
+        envoye = await send_plain(
             emails,
             f"[Précis] {count} erreurs à traiter",
             f"{count} erreurs non traitées se sont accumulées dans le journal.\n"
@@ -148,6 +149,15 @@ async def maybe_alert_admins(db) -> bool:
                      ("Seuil d'alerte", str(ERROR_LOG_ALERT_THRESHOLD))],
             bouton=("Ouvrir le journal", f"{FRONTEND_URL}/admin/logs"),
         )
+        if envoye is False:
+            # Le délai d'attente était armé AVANT l'envoi : un échec taisait
+            # l'alerte pendant tout le délai. On réessaie dans
+            # `_REESSAI_ALERTE`, pas tout de suite (l'échec lui-même écrit
+            # dans ce journal : réessayer aussitôt tournerait en boucle).
+            with _alert_lock:
+                if _last_alert_at == now:
+                    _last_alert_at = now - max(0, ERROR_LOG_ALERT_COOLDOWN
+                                                   - _REESSAI_ALERTE)
         return True
     except Exception:
         return False

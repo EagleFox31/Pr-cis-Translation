@@ -30,6 +30,17 @@
 # ══════════════════════════════════════════════════════════════════════════════
 
 # ── Étape 1 : compilation ────────────────────────────────────────────────────
+# ZIP d'installation manuelle de l'extension, servi sous /extension/. Il est
+# exclu du dépôt (.gitignore) : sans cette étape, le lien de téléchargement
+# de la page /extension renvoie une 404 en production.
+FROM node:22-alpine AS extension
+
+WORKDIR /src/extension
+COPY extension/package.json extension/package-lock.json ./
+RUN npm ci
+COPY extension/ ./
+RUN node package.mjs
+
 FROM node:22-alpine AS build
 
 WORKDIR /app
@@ -41,6 +52,7 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
 COPY frontend/ ./
+COPY --from=extension /src/frontend/public/extension ./public/extension
 
 # Vite CUIT ces valeurs dans les fichiers produits : elles sont nécessaires
 # ICI, à la construction, et non au démarrage. Une variable posée au lancement

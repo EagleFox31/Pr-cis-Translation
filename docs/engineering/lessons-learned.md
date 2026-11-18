@@ -54,3 +54,28 @@ Mémoire des incidents et quasi-incidents. Consulter avant de toucher une zone c
 - **Résolution** : repérage via des runs incohérents ; nom pris depuis `git remote get-url origin`.
 - **Prévention vérifiable** : dans ce dépôt, ne jamais taper `-R` à la main : `R=$(gh repo view --json nameWithOwner -q .nameWithOwner)` depuis la copie locale.
 - **Leçon** : un identifiant de ressource se découvre (remote, API), il ne se reconstitue pas de mémoire ; une réponse vide n'est pas une preuve.
+
+## 2026-11-10 — PR collaborateur : sync Project en 403, puis conflit PASSATION
+
+- **Contexte** : PR #70/#71 d'Ibrahim (`MbowouIbrah`) ; job `bootstrap-github-app-user` en 403 `personal_owner_required`. Après correctif, l'ajout d'une entrée PASSATION sur `main` (#73) a mis #70 et #71 en conflit.
+- **Cause racine** : (1) le broker AppFactory n'autorisait que le propriétaire, et refuse par conception tout workflow hors de la branche par défaut (modifiable par le contributeur) ; #71 était empilée sur `integration/main-1.7`. (2) La branche d'intégration réécrivait `PASSATION.md` (sections d'état) et supprimait le journal daté ; tout ajout sur `main` entrait alors en conflit, et une fusion telle quelle aurait effacé le journal.
+- **Classification** : intégration CI (échec visible) + near miss de perte de journal.
+- **Résolution** : broker appfactory #153 (délégation du workflow de `main`), #72 (sync sautée hors `main`), rejeu du run 42788870679 vert ; conflit résolu en gardant l'état d'Ibrahim (sections 1 à 5) puis le journal daté complet de `main`, sur `integration/main-1.7` et `feat/connexion-extension-site`.
+- **Prévention vérifiable** : les PR ciblent `main` (sinon ni sync Project ni CI complète) ; une PR qui retire des entrées datées de `PASSATION.md` est refusée en relecture (`git diff main -- PASSATION.md` ne doit montrer que des ajouts sous les sections d'état).
+- **Leçon** : un fichier « en ajout seulement » partagé entre branches ne se réécrit pas en entier ; on met à jour l'état en tête, on n'efface jamais le journal.
+
+## 2026-11-15 — Release 1.8.0 : version codée en dur, puis disque VPS plein
+- **Contexte** : la PR de release 1.8.0 échouait sur `test_version_alignee` ; une fois corrigée, le premier déploiement VPS échouait en `npm ci` / extraction de couche.
+- **Cause racine** : (1) `VERSION` et l'instantané SEO recopiaient la version de `package.json` sans être déclarés à Release Please ; (2) disque partagé à 99 %, cache de build Docker jamais purgé (~4 Go).
+- **Classification** : configuration de release incomplète ; capacité d'hôte non surveillée.
+- **Résolution** : `extra-files` dans `release-please-config.json` (#78) ; purge du cache de build et des images orphelines, relance du job.
+- **Prévention vérifiable** : `test_version_suivie_par_release_please` ; avant un déploiement VPS, vérifier `df -h /` (≥ 5 Go libres) — à automatiser dans `remote-deploy.sh` (refus explicite plutôt qu'échec en plein build).
+- **Leçon** : toute copie d'une donnée versionnée doit être soit dérivée au build, soit déclarée à l'outil de release ; un hôte partagé a besoin d'un garde-fou de capacité avant chaque build.
+
+## 2026-11-15 — Faux « retour arrière en échec » après un build VPS raté
+- **Contexte** : lors du déploiement 1.8.0 (disque plein), `remote-deploy.sh` a affiché « retour arrière en échec : intervention requise » alors que la prod tournait toujours sur 865e40a.
+- **Cause racine** : le lien `current` était basculé avant le build ; sur tout échec, le script restaurait le lien puis lançait `compose up -d --build`, qui reconstruisait l'ancienne version sur le même disque plein et échouait à nouveau. Les conteneurs, eux, n'avaient jamais été recréés (l'échec précédait `up`).
+- **Classification** : near miss — diagnostic trompeur pouvant pousser à une intervention inutile sur une prod saine.
+- **Résolution** : garde-fou de capacité avant toute écriture (`PRECIS_MIN_FREE_GB`, défaut 5 Go, refus code 73 avec `docker builder prune` proposé, non lancé) ; échec de build traité à part (lien restauré, santé vérifiée, ni `up` ni rebuild) ; le retour arrière avec rebuild est réservé aux échecs après `up`. No-op d'une version déjà saine : plus aucune écriture.
+- **Prévention vérifiable** : `scripts/ci/test-vps-remote-deploy.sh` (job CI `production-deploy`) couvre disque bas, seuil configurable, no-op, build en échec avec prod saine ou KO, échec après `up`, succès.
+- **Leçon** : un message de retour arrière doit refléter l'état réellement touché ; distinguer les phases sans effet sur la prod (build) de celles qui la modifient (`up`).
