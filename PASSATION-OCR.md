@@ -3,7 +3,7 @@
 Étude : docs/etude-robustesse-ocr.md, docs/etude-defauts-colonnes.md (non suivi). Registre : docs/revues/robustesse-ocr.md.
 
 ## Objectif en cours
-Colonne G1+F3+G2 COMMITÉE (b37590f), G3 commité (18/11). Suite : G4 puis G5 un par un, par gravité, mêmes contrôles.
+G3 commité (16fc0e3). G4 abandonné (18/11, choix utilisateur option 1, code annulé, noté au registre). Suivant : G5, à expliquer simplement puis attendre l'ok.
 Reprise : worktree C:/Users/IBRAH/Documents/Projets/Precis-Translator-ocr, branche fix/ocr-robustesse-documents.
 ## Fait (historique, tout commité)
 - T3, backend/app/services/ocr_v2/image.py : `_VALEUR`, `GRILLE`=3, `_suite`, `_en_face` (après `LISTE_PAS`). Dans `blocs()`,
@@ -60,7 +60,9 @@ Reprise : worktree C:/Users/IBRAH/Documents/Projets/Precis-Translator-ocr, branc
        05e8 et 6739 « Carb » identiques à G3 ; compromis assumé : 1ec6 « Name: » 9→13, 3651 « Lizard »/« Caterpillar » plus grands.
        Interne lots 0–3 identique à avant G3 (f82 corrigé). Tests ocr_v2 5/5 OK. À surveiller : 9a53 « 8 liters » touchait déjà
        « OurWorldInData » dans G3.
-   [ ] G4 (graisse décidée pour la série), G5 (effacement s arrête au dessin).
+   [x] G4 ABANDONNÉ (18/11) : trois votes de graisse rejoués, autant de reculs que de gains (mesure d épaisseur fausse).
+       Code annulé ; registre : « mesure de graisse peu fiable », défaut d aspect niveau 2 (cause H).
+   [ ] G5 (effacement s arrête au dessin).
    Ensuite niveau 1 suite (2bis ancrage, D chevauchements/nombres coupés, B bandeaux, ligne effacée vide),
    niveau 2 aspect, niveau 3 finition.
 5. [ ] Rejeu complet + banc interne + tests.
@@ -83,4 +85,7 @@ Tests : $P -X utf8 tests/test_ocr_v2_image.py (scripts, pas de pytest). test_ocr
 Scratchpad S=C:/Users/IBRAH/AppData/Local/Temp/claude/6d6c80c79a7942fb/031f9379-b3f1-481b-99a8-3b70d27e5306/scratchpad :
   protege.py <banc> <dest ABSOLU> [cas1,cas2…] (rendu avec/sans `_proteger`, `-u` pour voir la sortie au fil de l'eau)
   zones.py <src> <dest> (découpe les zones qui diffèrent) ; groupes.py <sortie> [banc] (regroupements).
+Scratchpad G4 S2=C:/Users/IBRAH/AppData/Local/Temp/claude/6d6c80c79a7942fb/98d1cb75-5330-46b2-aa3e-93af744a53dc/scratchpad :
+  banc_clu.py <dest> <off|on|clu|clu2> [banc] [args] (depuis backend/ ; off = G3) ; compare.py <avant> <après> <dest> ;
+  crops.py <avant> <après> <dest> <noms…> (original | avant | après recadrés). Rendus : pub_off, pub_on, pub_clu, pub_clu2.
 Un rendu public prend environ 1 min par cas : passer les commandes longues en arrière-plan.
