@@ -1,7 +1,7 @@
 """Catalogue des nouveautés : complet, cohérent, aligné sur la version livrée.
 
 Ce qui est MESURÉ :
-  • 19 éléments, ids uniques (ils servent d'ancres et de clés « vu ») ;
+  • 28 éléments, ids uniques (ils servent d'ancres et de clés « vu ») ;
   • type et domaine dans les listes fermées ; dates ISO valides ;
   • FR et EN complets (titre, resume, detail non vides), textes courts
     présents pour chaque élément phare, 4 phares au plus ;
@@ -22,7 +22,7 @@ RACINE = Path(__file__).resolve().parents[2]
 
 def test_nombre_et_ids_uniques():
     ids = [e["id"] for e in cat.FONCTIONNALITES]
-    assert len(ids) == 19
+    assert len(ids) == 28
     assert len(set(ids)) == len(ids)
 
 
@@ -74,7 +74,7 @@ def test_phares():
 
 def test_elements_par_langue():
     fr, en = cat.elements("fr"), cat.elements("en")
-    assert len(fr) == len(en) == 19
+    assert len(fr) == len(en) == 27
     assert [e["date"] for e in fr] == sorted((e["date"] for e in fr), reverse=True)
     assert cat.elements("de") == fr  # langue inconnue : repli sur le français
 
@@ -93,6 +93,38 @@ def test_instantane_seo_a_jour():
     assert CIBLE.read_text(encoding="utf-8") == instantane(), (
         "frontend/seo/fonctionnalites.json n'est pas à jour : "
         "lancer backend/scripts/exporter_fonctionnalites.py"
+    )
+
+
+def test_version_avec_fonctionnalites_publiee_au_catalogue():
+    """Une version dont le CHANGELOG annonce des « Features » doit ajouter au
+    moins un élément public au catalogue depuis la version précédente.
+
+    Release Please écrit la section de la version dans la PR de release : ce
+    test échoue donc sur cette PR tant que les nouveautés ne sont pas publiées
+    (oubli constaté en 1.8.0 et 1.9.0 malgré la case du modèle de PR)."""
+    import re
+
+    journal = RACINE / "CHANGELOG.md"
+    if not journal.exists():  # image Docker : pas de CHANGELOG, rien à vérifier
+        return
+    texte = journal.read_text(encoding="utf-8")
+    # Sections de la plus récente à la plus ancienne : [version](lien) (date)
+    entetes = list(re.finditer(
+        r"^## \[(\d+\.\d+\.\d+)\]\([^)]*\) \((\d{4}-\d{2}-\d{2})\)", texte, re.M))
+    rang = next((i for i, m in enumerate(entetes) if m.group(1) == cat.VERSION), None)
+    if rang is None or rang + 1 >= len(entetes):
+        return
+    section = texte[entetes[rang].end():entetes[rang + 1].start()]
+    if "### Features" not in section:
+        return
+    precedente = entetes[rang + 1].group(2)
+    publics = [e["date"] for e in cat.FONCTIONNALITES if e.get("audience", "tous") == "tous"]
+    assert max(publics) > precedente, (
+        f"La version {cat.VERSION} annonce des fonctionnalités, mais aucun élément "
+        f"public du catalogue n'est daté après la version précédente ({precedente}) : "
+        "ajouter les nouveautés dans backend/app/content/nouveautes.py (FR et EN), "
+        "puis lancer backend/scripts/exporter_fonctionnalites.py"
     )
 
 
