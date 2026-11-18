@@ -181,3 +181,10 @@ Mission F terminée (PR #75). En attente de fusion par l'utilisateur : #70, puis
 - Échec de build : lien `current` restauré, santé vérifiée, plus de `up --build` de l'ancienne version (cause du faux « intervention requise » de la 1.8.0). Retour arrière complet seulement après échec de `up`/santé.
 - Test : `bash scripts/ci/test-vps-remote-deploy.sh` (doublures, sans Docker), branché dans le job CI `production-deploy`.
 - Restant : VPS non touché. Après fusion, réinstaller à la main `bin/deploy.sh` depuis `deploy/vps/remote-deploy.sh` (hors du flux de déploiement, voir 2026-11 ci-dessus), sinon le garde-fou n'est pas actif. Pour changer le seuil : `environment="PRECIS_MIN_FREE_GB=…"` dans `authorized_keys` (exige `PermitUserEnvironment`) ou wrapper `bin/deploy.sh`.
+
+## 2026-11-18 12:24 — Annonce WhatsApp automatique des releases
+
+- Branche `feat/release-whatsapp-notify` : job `announce-release` dans `release.yml` (après `deploy-vps` ou `deploy-production` réussi), script `scripts/ci/release_announcement.py` + émetteur générique `scripts/ci/waha_notify.py`, tests `scripts/ci/test_release_announcement.py` (branchés dans `ci.yml`).
+- Idempotence : statut de commit `release/whatsapp-announcement` sur le SHA de release.
+- À poser avant la prochaine release : variables `NOTIFY_SESSION`, `NOTIFY_CHAT_ID`, secret `NOTIFY_API_KEY` (cf. `docs/deploiement.md`). Sans elles : no-op.
+- Piste : extraire `waha_notify.py` en action réutilisable dans appfactory-project-automation quand un 2e dépôt en aura besoin.
