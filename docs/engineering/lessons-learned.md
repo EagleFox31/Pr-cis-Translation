@@ -87,3 +87,11 @@ Mémoire des incidents et quasi-incidents. Consulter avant de toucher une zone c
 - **Résolution** : branche d'intégration `feat/retours-clients` + `main` (un conflit dans `Home.tsx`, résolu côté #85), puis #86 vers `main`. Diff vérifié identique à #85 (37 fichiers, +1742/−107), CI complète verte avant la fusion.
 - **Prévention vérifiable** : avant de fusionner un lot, `gh pr list --json number,baseRefName` ; toute PR dont la base n'est pas `main` est reciblée (`gh pr edit N --base main`) avant la fusion. Après chaque fusion, vérifier que `git ls-remote origin refs/heads/main` a bien changé.
 - **Leçon** : « MERGED » ne veut pas dire « sur `main` ». Pour une PR empilée, la base fait partie du contrôle avant fusion, au même titre que la CI.
+
+## 2026-11-18 — Nouveautés 1.8.0 et 1.9.0 absentes du catalogue (date du 9 novembre)
+- **Contexte** : après la release 1.9.0, le panneau « Nouveautés » de l'app affichait la date du 9 novembre et aucune des fonctionnalités de 1.8.0 (texte des images, connexion de l'extension par le site…) ni de 1.9.0 (traduction libre, solde par forfait…).
+- **Cause racine** : le catalogue `backend/app/content/nouveautes.py` est tenu à la main ; seule une case du modèle de PR rappelait de l'alimenter. Release Please monte `VERSION`, pas `DATE_VERSION` ni les entrées, et `test_version_alignee` ne compare la date qu'au contenu du catalogue lui-même : un catalogue oublié reste cohérent.
+- **Classification** : oubli répété (deux releases de suite) — un rappel en prose ne suffit pas, il faut un contrôle bloquant.
+- **Résolution** : 9 entrées FR/EN ajoutées (dont 1 réservée aux admins), `DATE_VERSION` = 2026-11-18, instantané SEO régénéré.
+- **Prévention vérifiable** : `test_version_avec_fonctionnalites_publiee_au_catalogue` lit `CHANGELOG.md` ; si la section de la version courante contient « ### Features », au moins un élément public doit être daté après la version précédente. Il échoue donc sur la PR de release elle-même. Vérifié : avec l'ancien catalogue, le test échoue sur 1.9.0 avec un message qui indique quoi faire.
+- **Leçon** : une étape manuelle répétée à chaque release doit être reliée à un artefact que la release produit (ici le CHANGELOG) et vérifiée par un test, pas par une case à cocher.

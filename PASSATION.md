@@ -194,3 +194,9 @@ Mission F terminée (PR #75). En attente de fusion par l'utilisateur : #70, puis
 ## 2026-11-18 12:32 — Garde-fou disque actif sur le VPS
 - `bin/deploy.sh` réinstallé depuis `current/deploy/vps/remote-deploy.sh` (sha256 a1ad52b7…, identique à `main`). Sauvegarde `bin/deploy.sh.bak-20261118-1131`.
 - Preuves : redéployer `a63983796251` est un no-op (« déjà en service », `current` inchangé). Dans une base temporaire avec `PRECIS_MIN_FREE_GB=999` : refus, code 73, sans aucune modification. Prod toujours en 1.9.0.
+
+## 2026-11-18 12:51 — Catalogue des nouveautés 1.8.0 et 1.9.0 (date du 9 novembre)
+- Cause : catalogue `backend/app/content/nouveautes.py` non alimenté en 1.8.0 ni en 1.9.0, d'où la date du 9 novembre dans le panneau « Nouveautés ».
+- Branche `fix/catalogue-nouveautes-1-9` : 9 entrées FR/EN (dont « Aperçu des documents clients », admin), `DATE_VERSION` 2026-11-18, `frontend/seo/fonctionnalites.json` régénéré.
+- Garde-fou : `test_version_avec_fonctionnalites_publiee_au_catalogue` (CHANGELOG « Features » ⇒ élément public plus récent que la version précédente). Leçon ajoutée dans `docs/engineering/lessons-learned.md`.
+- Suite : release 1.9.1 (commit `fix:`), déploiement VPS, vérifier la date du 18 novembre dans l'app. E-mail aux abonnés : seulement via `backend/scripts/envoyer_nouveautes.py`, à la main, non lancé.
