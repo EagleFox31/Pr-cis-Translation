@@ -88,3 +88,11 @@
   .nvd-panes li span { white-space: normal; }
 }
 @media (prefers-reduced-motion: reduce) { .nvd * { transition: none !important; } }
+
+/* Fenêtre « pages non payées » (téléchargement d'une traduction libre). */
+.tl-fenetre__texte { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 15px; line-height: 1.6; color: var(--gray-700); }
+.tl-fenetre__actions { margin-top: 22px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+@media (max-width: 480px) {
+  .tl-fenetre__actions { flex-direction: column-reverse; }
+  .tl-fenetre__actions > * { width: 100%; }
+}

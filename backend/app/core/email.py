@@ -33,7 +33,7 @@ from pathlib import Path
 
 from app.core.email_content import (MARQUE, date_longue, normaliser_langue,
                                     textes, textes_invitation,
-                                    textes_nouveautes)
+                                    textes_nouveautes, textes_rappel_libres)
 
 logger = logging.getLogger("email_service")
 
@@ -588,5 +588,69 @@ async def send_nouveautes_email(destinataire: str, langue: str,
         logger.info("Nouveautés %s envoyées à %s (%s)", version, destinataire, langue)
     except Exception as exc:
         logger.error("Échec nouveautés à %s : %s", destinataire, exc)
+        raise EmailIndisponible(
+            "L'envoi de l'e-mail a échoué. Réessayez dans un instant.") from exc
+
+
+def _message_rappel_libres(destinataire: str, langue: str,
+                           documents: list[tuple[str, str]]) -> MIMEMultipart:
+    """Rappel avant suppression. `documents` : (nom du fichier, date ISO de
+    suppression). Les noms viennent de l'utilisateur : échappés dans le HTML."""
+    t = textes_rappel_libres(langue)
+    esc = _html.escape
+    url = FRONTEND_URL
+    lignes = [(t["colonne"].format(date=date_longue(iso, langue)), esc(nom))
+              for nom, iso in documents]
+    corps = (_titre(t["titre"]) + _para(t["sous_titre"]) + _details(lignes)
+             + _bouton(t["bouton"], esc(url)) + _petit(t["note"], marge=0))
+    html = _carte(lang=langue, niveau="info", bandeau=t["bandeau"],
+                  corps=corps, pied=_petit(t["pied"], marge=0))
+    liste = "\n".join(f"- {nom} : {date_longue(iso, langue)}"
+                       for nom, iso in documents)
+    texte = t["texte_brut"].format(liste=liste, url=url)
+
+    msg = MIMEMultipart("related")
+    _expediteur(msg)
+    msg["To"] = destinataire
+    msg["Subject"] = t["sujet"]
+    msg["Reply-To"] = SMTP_REPLY_TO
+    msg["Auto-Submitted"] = "auto-generated"
+    msg["X-Auto-Response-Suppress"] = "All"
+
+    alt = MIMEMultipart("alternative")
+    alt.attach(MIMEText(texte, "plain", "utf-8"))
+    alt.attach(MIMEText(html, "html", "utf-8"))
+    msg.attach(alt)
+
+    logo = _logo()
+    if logo is not None:
+        msg.attach(logo)
+    return msg
+
+
+async def send_rappel_libres_email(destinataire: str, langue: str,
+                                   documents: list[tuple[str, str]]) -> None:
+    """Envoie le rappel avant suppression des traductions en aperçu.
+
+    Lève `EmailIndisponible` si le serveur refuse : la purge ne compte alors
+    pas le rappel comme envoyé, et réessaie le lendemain."""
+    msg = _message_rappel_libres(destinataire, langue, documents)
+
+    if not EMAIL_ENABLED or not SMTP_HOST:
+        logger.info("[DEV] Rappel aperçu → %s | %d document(s)",
+                    destinataire, len(documents))
+        return
+
+    import aiosmtplib
+
+    try:
+        await aiosmtplib.send(
+            msg, hostname=SMTP_HOST, port=SMTP_PORT,
+            sender=SMTP_FROM or None, username=SMTP_USER or None, password=SMTP_PASSWORD or None,
+            start_tls=(SMTP_PORT != 465), use_tls=(SMTP_PORT == 465),
+        )
+        logger.info("Rappel aperçu envoyé à %s", destinataire)
+    except Exception as exc:
+        logger.error("Échec du rappel aperçu à %s : %s", destinataire, exc)
         raise EmailIndisponible(
             "L'envoi de l'e-mail a échoué. Réessayez dans un instant.") from exc

@@ -14,6 +14,7 @@ import PricingSection from '../components/pricing/PricingSection';
 import AboutSection from '../components/about/AboutSection';
 import { showToast } from '../components/ui/Toast';
 import PaymentModal from '../components/payment/LazyPaymentModal';
+import { useTelechargementLibres } from '../components/library/TelechargementLibres';
 import DocumentLibrary from '../components/library/DocumentLibrary';
 import { useAuth } from '../contexts/AuthContext';
 import { useDocumentLibrary, STATUTS_REPRENABLES, type DocMeta } from '../hooks/useDocumentLibrary';
@@ -531,6 +532,33 @@ export default function Home() {
   }, [libraryDocId, adminDoc, currentPage, showPreview, getPreviewBlob, previewPoll]);
 
   // ---- Download (le résultat complet, une fois la traduction terminée) ----
+  const rafraichirSolde = useCallback(() => { refresh(); refreshUser(); }, [refresh, refreshUser]);
+  // Pages encore libres après un règlement : l'aperçu en cours se met à jour
+  // sans attendre une nouvelle traduction.
+  const [libresReglees, setLibresReglees] = useState<Record<string, number>>({});
+  const noterReglement = useCallback((id: string, libres: number) => {
+    setLibresReglees((m) => ({ ...m, [id]: libres }));
+    // Pages réglées : l'aperçu filigrané en cache est périmé ; plus aucune
+    // page libre, la lecture en clair est acquise.
+    const { biblio, flux } = versRendu.current;
+    if (id !== (biblio ?? flux)) return;
+    if (libres === 0) {
+      versRendu.current.clair = true;
+      if (biblio) setLibraryCanReadClear(true);
+    }
+    rafraichirRendu();
+  }, [rafraichirRendu]);
+  const {
+    telecharger: telechargerLibres, acheterLibres, fenetre: fenetreLibres,
+  } = useTelechargementLibres(rafraichirSolde, noterReglement);
+  const docCourant = libraryDocId ?? stream.documentId;
+  const pagesLibresAffichees = docCourant && docCourant in libresReglees
+    ? libresReglees[docCourant]
+    : libraryDocId
+      ? documents.find((doc) => doc.id === libraryDocId)?.pagesLibres
+        ?? (libraryDocId === stream.documentId ? stream.pagesLibres : 0)
+      : stream.pagesLibres;
+
   const handleDownload = useCallback(async () => {
     if (adminDoc) {
       const { ok } = await downloadAdminDocument(adminDoc.docId, 'translated', translatedFilename || adminDoc.nom).catch(() => ({ ok: false }));
@@ -541,6 +569,14 @@ export default function Home() {
     // blob reçu en fin de traduction ignore les choix faits ensuite sur les
     // pages illisibles (garder, laisser vide, traduire quand même).
     const id = libraryDocId ?? stream.documentId;
+    // Connecté : pages libres réglées d'office, sinon la fenêtre propose
+    // d'acheter le reste ou un fichier limité aux pages payées.
+    // Le hook signale lui-même un échec : pas de repli sur le blob local, qui
+    // contiendrait les pages non payées.
+    if (id && user && translatedFilename) {
+      await telechargerLibres(id, translatedFilename);
+      return;
+    }
     const frais = id ? await getBlob(id).catch(() => undefined) : undefined;
     const blob = frais ?? stream.result?.blob ?? translatedBlob;
     if (blob && translatedFilename) {
@@ -553,7 +589,7 @@ export default function Home() {
       URL.revokeObjectURL(url);
       document.body.removeChild(a);
     }
-  }, [adminDoc, libraryDocId, stream.documentId, stream.result, translatedBlob, translatedFilename, getBlob, t]);
+  }, [adminDoc, libraryDocId, stream.documentId, stream.result, translatedBlob, translatedFilename, getBlob, t, user, telechargerLibres]);
 
   // ---- Pause / Annuler ----
   // Traduction lancée ici : le flux connaît le job. Document rouvert depuis la
@@ -852,6 +888,7 @@ export default function Home() {
 
       {/* Paiement à la page : achat des crédits nécessaires à la traduction
           courante (402). Une fois payé, on REJOUE la traduction telle quelle. */}
+      {fenetreLibres}
       <PaymentModal
         open={payPages !== null}
         onClose={() => setPayPages(null)}
@@ -931,6 +968,9 @@ export default function Home() {
           onBuyPages={(p) => setPayPages(p)}
           pagesCovered={stream.imagesNeeded ? null : stream.pagesCovered}
           imagesNeeded={stream.imagesNeeded}
+          pagesLibres={pagesLibresAffichees}
+          onBuyLibres={docCourant && translatedFilename
+            ? () => { void acheterLibres(docCourant, translatedFilename); } : undefined}
           onTranslateWithoutImages={() => {
             const cfg = lastConfigRef.current;
             if (cfg) handleStartTranslate({ ...cfg, images: false, coverOnly: false });

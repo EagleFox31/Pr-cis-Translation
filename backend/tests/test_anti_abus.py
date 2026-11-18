@@ -340,11 +340,15 @@ class EndpointTests(unittest.IsolatedAsyncioTestCase):
             await db.commit()
             return user
 
-    async def envoyer(self, user, **entetes):
+    async def envoyer(self, user, couvert_seul=False, **entetes):
+        # couvert_seul : sans aperçu filigrané, un refus de l'offre reste un 402.
+        donnees = {"target_lang": "en", "use_beta": "0"}
+        if couvert_seul:
+            donnees["covered_only"] = "1"
         return await self.client.post("/api/translate",
             headers={**self.fx.headers(user), **entetes},
             files={"file": ("document.pdf", fixtures.pdf(), "application/octet-stream")},
-            data={"target_lang": "en", "use_beta": "0"})
+            data=donnees)
 
     async def etat(self, user):
         async with self.fx.sessions() as db:
@@ -358,13 +362,28 @@ class EndpointTests(unittest.IsolatedAsyncioTestCase):
         async with self.fx.sessions() as db:
             self.assertEqual(await db.scalar(select(func.count()).select_from(FreeGrant)), 2)
         troisieme = await self.nouveau_compte()
-        refus = await self.envoyer(troisieme, **self.appareil)
+        refus = await self.envoyer(troisieme, couvert_seul=True, **self.appareil)
         self.assertEqual(refus.status_code, 402, refus.text)
         corps = refus.json()
         self.assertEqual(corps["reason"], "free_limit_device")
         self.assertEqual(corps["risk"], "device")
         self.assertEqual(await self.etat(troisieme), (0, 0))
         # Le refus ne laisse aucune attribution ni aucun document en file.
+        async with self.fx.sessions() as db:
+            self.assertEqual(await db.scalar(select(func.count()).select_from(FreeGrant)), 2)
+
+    async def test_offre_refusee_bascule_en_apercu_filigrane_sans_debit(self):
+        # Mode libre (PDF) : le refus ne bloque pas, les pages passent en aperçu
+        # non téléchargeable, sans rien prélever ni attribuer.
+        for _ in range(2):
+            await self.envoyer(await self.nouveau_compte(), **self.appareil)
+        troisieme = await self.nouveau_compte()
+        reponse = await self.envoyer(troisieme, **self.appareil)
+        self.assertEqual(reponse.status_code, 200, reponse.text)
+        corps = reponse.json()
+        self.assertEqual(corps["pages_libres"], 1)
+        self.assertFalse(corps["can_download"])
+        self.assertEqual(await self.etat(troisieme), (0, 0))
         async with self.fx.sessions() as db:
             self.assertEqual(await db.scalar(select(func.count()).select_from(FreeGrant)), 2)
 
@@ -387,12 +406,12 @@ class EndpointTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_compte_neuf_sur_appareil_inconnu_est_refuse_puis_accepte_une_fois_connu(self):
         neuf = await self.nouveau_compte(created_at=datetime.now(timezone.utc))
-        refus = await self.envoyer(neuf, **self.appareil)
+        refus = await self.envoyer(neuf, couvert_seul=True, **self.appareil)
         self.assertEqual(refus.status_code, 402, refus.text)
         self.assertEqual(refus.json()["risk"], "new_account")
         # Le refus a pourtant enregistré l'appareil : la tentative suivante passe.
         self.assertIn(anti_abus.COOKIE_NAME + "=", refus.headers.get("set-cookie", ""))
-        suite = await self.envoyer(neuf, **self.appareil)
+        suite = await self.envoyer(neuf, couvert_seul=True, **self.appareil)
         self.assertEqual(suite.status_code, 200, suite.text)
 
     async def test_inscription_avec_un_domaine_jetable_refusee(self):

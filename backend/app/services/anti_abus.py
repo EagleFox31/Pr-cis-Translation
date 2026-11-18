@@ -30,7 +30,7 @@ from fastapi import HTTPException, Request, Response
 from sqlalchemy import delete, func, select, update
 
 from app.config import IS_PRODUCTION, JWT_SECRET
-from app.models import DeviceLink, FreeGrant, User
+from app.models import DeviceLink, FreeGrant, LibreGrant, User
 from app.models.base import new_uuid
 from app.services import usage
 from app.services.beta_abuse import aware, canonical_mailbox, network_key
@@ -44,6 +44,9 @@ GRANT_DAYS = 35
 MACHINE_OTHER_ACCOUNTS = 2
 IP_PAGES_24H = 30
 NEW_ACCOUNT_HOURS = 24
+# Mode libre : pages traduites en aperçu sans solde, plafonnées par compte et par appareil.
+LIBRE_MAX_PAGES = 20
+LIBRE_WINDOW = timedelta(hours=24)
 
 _COOKIE = re.compile(r"[A-Za-z0-9_-]{32}\.[a-f0-9]{64}")
 _HEADER = re.compile(r"[A-Za-z0-9_-]{8,128}")
@@ -222,13 +225,34 @@ def record_grant(db, user, signals: DeviceSignals, machine_id: str, pages: int, 
                      created_at=now or utcnow()))
 
 
+async def libre_used(db, user_id: str, machine_id: str | None, now=None) -> int:
+    """Pages libres des dernières 24 h : le plus fort du compte et de l'appareil."""
+    since = aware(now or utcnow()) - LIBRE_WINDOW
+    total = func.coalesce(func.sum(LibreGrant.pages), 0)
+    by_user = await db.scalar(select(total).where(
+        LibreGrant.user_id == user_id, LibreGrant.created_at >= since)) or 0
+    by_machine = 0
+    if machine_id:
+        by_machine = await db.scalar(select(total).where(
+            LibreGrant.machine_id == machine_id, LibreGrant.created_at >= since)) or 0
+    return int(max(by_user, by_machine))
+
+
+def record_libre(db, user, machine_id: str | None, pages: int, now=None):
+    db.add(LibreGrant(user_id=user.id, machine_id=machine_id, pages=pages,
+                      created_at=now or utcnow()))
+
+
 async def purge(db, now=None):
-    """Efface les liens inactifs depuis 60 jours et les attributions de plus de 35 jours."""
+    """Efface les liens inactifs depuis 60 jours, les attributions de plus de 35 jours
+    et les pages libres de plus de 2 jours."""
     now = now or utcnow()
     await db.execute(delete(DeviceLink).where(
         DeviceLink.last_seen < now - timedelta(days=LINK_DAYS)))
     await db.execute(delete(FreeGrant).where(
         FreeGrant.created_at < now - timedelta(days=GRANT_DAYS)))
+    await db.execute(delete(LibreGrant).where(
+        LibreGrant.created_at < now - timedelta(days=2)))
 
 
 async def touch(db, request: Request, response: Response):

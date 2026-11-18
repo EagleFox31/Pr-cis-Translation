@@ -57,6 +57,8 @@ interface StorySectionProps {
   creditsNeeded?: number | null;
   /** Ouvre le paiement à la page pour `n` pages. */
   onBuyPages?: (pages: number) => void;
+  /** Achat des pages libres d'un document déjà traduit (ligne sous l'aperçu). */
+  onBuyLibres?: (pages: number) => void;
   /** Pages déjà couvertes par le solde, si on peut ne traduire qu'elles. */
   pagesCovered?: number | null;
   /** Motif du refus à afficher au-dessus de l'achat (pages offertes refusées
@@ -66,6 +68,8 @@ interface StorySectionProps {
   onTranslateCovered?: () => void;
   /** Pages du manque dues aux images demandées. */
   imagesNeeded?: number | null;
+  /** Pages traduites en aperçu mais non payées (mode libre). */
+  pagesLibres?: number;
   /** Relance du document sans ses images. */
   onTranslateWithoutImages?: () => void;
   /** Mode agrandi (focus) actif ? */
@@ -121,10 +125,12 @@ export default function StorySection({
   limitReached = false,
   creditsNeeded = null,
   onBuyPages,
+  onBuyLibres,
   pagesCovered = null,
   creditsReason = null,
   onTranslateCovered,
   imagesNeeded = null,
+  pagesLibres = 0,
   onTranslateWithoutImages,
   focus = false,
   onStartTranslate,
@@ -579,6 +585,30 @@ export default function StorySection({
                     copyBusy={copyBusy}
                   />
                   {imagesPanel}
+                  {/* Mode libre : des pages sont traduites mais non payées. Elles
+                      restent filigranées et hors du fichier tant qu'on ne les
+                      achète pas. Barre affichée une fois la traduction finie :
+                      avant, le règlement serait refusé (409). */}
+                  {pagesLibres > 0 && !isTranslating && (
+                    <div role="status" className="libre-bar" style={{
+                      display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px 12px',
+                      padding: '8px 14px', background: '#fffbeb',
+                      borderBottom: '1px solid #fde68a', color: '#92400e', fontSize: '13px',
+                    }}>
+                      <span style={{ flex: '1 1 220px' }}>
+                        {t('preview.libre_pages', { count: pagesLibres })}
+                      </span>
+                      {onBuyLibres && (
+                        <button onClick={() => onBuyLibres(pagesLibres)} style={{
+                          padding: '6px 12px', borderRadius: '6px', border: '1.5px solid #b45309',
+                          background: 'transparent', color: '#92400e', fontSize: '13px',
+                          fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap',
+                        }}>
+                          {t('story.buy_pages_cta', { count: pagesLibres })}
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   <div className="scroll" id="scroll">
                     <DocumentPreview

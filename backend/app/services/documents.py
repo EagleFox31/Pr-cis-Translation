@@ -258,6 +258,21 @@ def pages_selectionnees(doc) -> set[int] | None:
     return sel[2] if sel else None
 
 
+def pages_libres_du_document(doc) -> set[int]:
+    """Numéros (1-basés) des pages libres : les DERNIÈRES de la sélection (les
+    premières sont les pages payées). Vide si le document n'en a pas.
+    Les pages non facturables relevées dans cette zone à la clôture
+    (`hors_libres`) n'en font plus partie : la zone ne se décale pas."""
+    n = doc.pages_libres or 0
+    if n <= 0:
+        return set()
+    sel = pages_selectionnees(doc)
+    visees = sorted(sel) if sel else list(range(1, (doc.page_count or 0) + 1))
+    hors = {int(p) for p in reglages_de(doc).get("hors_libres") or []}
+    visees = [p for p in visees if p not in hors]
+    return set(visees[-n:])
+
+
 def chemin_traduction_du_document(doc) -> str | None:
     """Fichier de traduction (partielle) d'un Document : le ménage doit le
     garder tant que le document peut être repris."""

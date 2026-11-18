@@ -432,7 +432,14 @@ class JobManager:
             return
 
         async def _maj(db):
-            from app.models import Document
+            from sqlalchemy import select
+            from app.models import Document, User
+            # Ordre unique des verrous : compte, puis document (un
+            # remboursement verrouille ensuite le compte).
+            uid = (await db.execute(select(Document.user_id)
+                                    .where(Document.id == doc_id))).scalar_one_or_none()
+            if uid:
+                await db.execute(select(User.id).where(User.id == uid).with_for_update())
             doc = await db.get(Document, doc_id, with_for_update=True)
             # Disparu ou déjà REPRIS par un autre job (worker d'un processus
             # précédent qui finit tard) : sa facturation appartient désormais
@@ -510,9 +517,27 @@ class JobManager:
                 visees = pages_selectionnees(doc)
                 if visees:
                     exclues &= visees
+                # Pages libres (non débitées) : hors de la base du
+                # remboursement ; une page non facturable parmi elles cesse
+                # d'être à payer et sort de la zone libre (mémorisée, pour
+                # que la zone ne glisse pas sur une page payée ni à la
+                # clôture rejouée).
+                libres = doc.pages_libres or 0
+                if exclues and libres:
+                    import json
+                    from app.services.documents import pages_libres_du_document
+                    blanches_libres = exclues & pages_libres_du_document(doc)
+                    exclues -= blanches_libres
+                    if blanches_libres:
+                        r = reglages_de(doc)
+                        r["hors_libres"] = sorted(
+                            {int(p) for p in r.get("hors_libres") or []} | blanches_libres)
+                        doc.reglages = json.dumps(r)
+                        doc.pages_libres = libres - len(blanches_libres)
                 if exclues:
                     await refund_unfinished(
-                        db, doc_id, max(0, (doc.page_count or 0) - len(exclues) - deja))
+                        db, doc_id,
+                        max(0, (doc.page_count or 0) - len(exclues) - deja - libres))
 
         try:
             _dans_une_boucle_jetable(_maj)

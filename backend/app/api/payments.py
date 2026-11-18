@@ -510,9 +510,14 @@ async def _apply_credit(db: AsyncSession, payment: Payment) -> None:
     if payment.document_id:
         # Paiement ciblé : il débloque CE document. Les pages payées au-delà
         # de sa taille (montant minimum de l'opérateur) vont au compte.
+        # Ordre unique des verrous : compte, puis document.
+        await db.execute(select(User.id).where(User.id == payment.user_id)
+                         .with_for_update())
         await db.execute(update(Document)
                          .where(Document.id == payment.document_id)
-                         .values(paid=True))
+                         # Un document non payé n'a que des pages libres :
+                         # ce paiement, à sa taille, les couvre toutes.
+                         .values(paid=True, pages_libres=0))
         doc = await db.get(Document, payment.document_id)
         # Document supprimé entre-temps : rien à débloquer, tout le paiement
         # revient au compte plutôt que de disparaître.
