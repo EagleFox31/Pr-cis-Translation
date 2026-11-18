@@ -1,6 +1,6 @@
 import type { LegalDoc } from './types';
 
-export const LEGAL_UPDATED = '11 novembre 2026';
+export const LEGAL_UPDATED = '18 novembre 2026';
 
 export const LEGAL_FR: LegalDoc[] = [
   {
@@ -23,7 +23,7 @@ export const LEGAL_FR: LegalDoc[] = [
       {
         heading: 'Hébergement',
         paragraphs: [
-          'Le service est hébergé par Amazon Web Services, Inc., 410 Terry Avenue North, Seattle, WA 98109, États-Unis. Les serveurs de Précis fonctionnent sur Amazon EC2.',
+          'Le service est hébergé par OVH Hosting Inc. (OVHcloud), 800-1801 McGill College, Montréal (Québec) H3A 2N4, Canada. Les serveurs de Précis sont situés dans le centre de données OVHcloud de Beauharnois (Québec, Canada).',
         ],
       },
       {
@@ -204,7 +204,7 @@ export const LEGAL_FR: LegalDoc[] = [
         ],
         list: [
           'DeepSeek : reçoit le texte de vos documents afin de le traduire ;',
-          'Amazon Web Services : hébergement ;',
+          'OVHcloud : hébergement, au Canada ;',
           'Campay, Fapshi et Paddle : paiements ;',
           'Cloudflare Turnstile : vérification anti-robot ;',
           'Google : connexion avec Google, si vous la choisissez ;',
