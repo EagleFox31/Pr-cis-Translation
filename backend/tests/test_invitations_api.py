@@ -4,7 +4,9 @@ CE QUI EST VÉRIFIÉ
   1. ACCÈS     — un anonyme est refusé ; plus de 10 adresses, refusé.
   2. TRI       — soi-même, doublons de saisie, comptes existants : écartés,
                  sans que la réponse le révèle.
-  3. DOUBLON   — une adresse déjà invitée récemment ne reçoit rien de plus.
+  3. RENVOI    — même compte, même adresse : 429 avant 10 min, renvoi permis
+                 ensuite, 429 au 3e envoi de la semaine. Une adresse déjà
+                 invitée 5 fois (tous comptes) est écartée sans le dire.
   4. QUOTA     — au-delà du quota quotidien : 429, rien n'est envoyé.
   5. PANNE     — l'envoi (après la réponse) échoue : 200 quand même, et la
                  trace est effacée pour que l'adresse reste invitable.
@@ -79,6 +81,13 @@ async def _remplir(user_id, n):
         await db.commit()
 
 
+async def _vieillir(email, minutes):
+    async with async_session() as db:
+        for inv in (await db.scalars(select(Invitation).where(Invitation.email == email))).all():
+            inv.created_at = inv.created_at - timedelta(minutes=minutes)
+        await db.commit()
+
+
 async def _nettoyer(users, emails):
     async with async_session() as db:
         await db.execute(delete(Invitation).where(
@@ -140,14 +149,46 @@ async def run():
             r = post({"emails": [hote.email]})
             ok("TRI     s'inviter soi-même → 422", r.status_code == 422, r.status_code)
 
-            # 3. Doublon
+            # 3. Renvoi
+            envoyes.clear()
+            r = post({"emails": [nouveau, autre]})
+            d = r.json().get("detail") if r.status_code == 429 else None
+            ok("RENVOI  < 10 min → 429 nommant l'adresse",
+               isinstance(d, dict) and d.get("code") == "renvoi_trop_tot"
+               and d.get("emails") == [nouveau] and 1 <= d.get("minutes", 0) <= 10, r.text)
+            ok("RENVOI  rien envoyé, même aux autres", not envoyes, envoyes)
+            ok("RENVOI  pas de seconde trace", len(await _invitations([nouveau])) == 1)
+            await _vieillir(nouveau, 11)
+            r = post({"emails": [nouveau]})
+            ok("RENVOI  > 10 min → renvoyée",
+               r.status_code == 200 and [e[0] for e in envoyes] == [nouveau], r.text)
+            async with async_session() as db:
+                db.add(Invitation(inviter_id=hote.id, email=nouveau,
+                                  created_at=datetime.now(timezone.utc) - timedelta(hours=1)))
+                await db.commit()
+            await _vieillir(nouveau, 11)
             envoyes.clear()
             r = post({"emails": [nouveau]})
-            ok("DOUBLON 200 mais rien envoyé", r.status_code == 200 and not envoyes, envoyes)
-            ok("DOUBLON pas de seconde trace", len(await _invitations([nouveau])) == 1)
+            d = r.json().get("detail") if r.status_code == 429 else None
+            ok("RENVOI  3 envois/semaine → 429 limite",
+               isinstance(d, dict) and d.get("code") == "renvoi_limite", r.text)
+            ok("RENVOI  limite : rien envoyé", not envoyes, envoyes)
+            # Plafond par adresse : 5 invitations d'un autre compte.
+            cible = _adresse("cible")
+            emails.append(cible)
+            async with async_session() as db:
+                for _ in range(5):
+                    db.add(Invitation(inviter_id=inscrit.id, email=cible))
+                await db.commit()
+            r = post({"emails": [cible]})
+            ok("RENVOI  adresse saturée : 200 muet",
+               r.status_code == 200 and r.json() == {"ok": True, "count": 1}, r.text)
+            ok("RENVOI  adresse saturée : rien envoyé", not envoyes, envoyes)
+            ok("RENVOI  adresse saturée : pas de trace de l'hôte",
+               all(i.inviter_id != hote.id for i in await _invitations([cible])))
 
-            # 4. Quota (1 déjà consommé + 18 = 19 ; il en reste 1)
-            await _remplir(hote.id, 18)
+            # 4. Quota (3 déjà consommés + 16 = 19 ; il en reste 1)
+            await _remplir(hote.id, 16)
             r = post({"emails": [autre, autre2]})
             ok("QUOTA   429 au-delà", r.status_code == 429, r.status_code)
             ok("QUOTA   rien envoyé", not envoyes, envoyes)
