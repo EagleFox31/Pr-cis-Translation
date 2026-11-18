@@ -181,3 +181,11 @@ Mission F terminée (PR #75). En attente de fusion par l'utilisateur : #70, puis
 - Échec de build : lien `current` restauré, santé vérifiée, plus de `up --build` de l'ancienne version (cause du faux « intervention requise » de la 1.8.0). Retour arrière complet seulement après échec de `up`/santé.
 - Test : `bash scripts/ci/test-vps-remote-deploy.sh` (doublures, sans Docker), branché dans le job CI `production-deploy`.
 - Restant : VPS non touché. Après fusion, réinstaller à la main `bin/deploy.sh` depuis `deploy/vps/remote-deploy.sh` (hors du flux de déploiement, voir 2026-11 ci-dessus), sinon le garde-fou n'est pas actif. Pour changer le seuil : `environment="PRECIS_MIN_FREE_GB=…"` dans `authorized_keys` (exige `PermitUserEnvironment`) ou wrapper `bin/deploy.sh`.
+
+## 2026-11-18 12:42 — Lancement : fiches boutiques de l'extension (#63)
+
+- PR #89 (passation 1.9.0, leçon PR empilée, garde-fou disque) fusionnée : main = 6aa3a60.
+- Date « 9 novembre » affichée dans l'app : `DATE_VERSION` de `backend/app/content/nouveautes.py` = date de la nouveauté la plus récente (test du catalogue). Les fonctions 1.8.0 et 1.9.0 (traduction libre #85, aperçu des pages non payées) n'ont jamais été ajoutées au catalogue. À faire : entrées FR/EN datées 2026-11-18, `frontend/seo/fonctionnalites.json`, contrôle « feat sans entrée au catalogue », leçon, release 1.9.1. Reporté par l'utilisateur (« D'abord les issues »).
+- Issues de lancement : #63 stores, #64 article, #62 AlternativeTo, #60 annuaires, #61 Product Hunt (en dernier). Toutes sauf #63 attendent #59 en prod.
+- #63 : textes, permissions et déclarations déjà prêts dans `docs/fiches-boutiques-extension.md`. Ajouté sur la branche `docs/extension-store-assets` : vignettes 440×280 FR/EN (`docs/boutiques/`, PNG RGB 24 bits) et leur source HTML. Archive vérifiée : `npm run package` → `precis-translator-1.0.0.zip`, aucun `localhost`.
+- Reste #63 : captures 1280×800 (besoin d'un compte connecté dans l'extension), comptes éditeur Chrome (5 $, à payer par le propriétaire) et Edge (gratuit), envoi, puis variables `VITE_EXTENSION_*` et liens `/extension` + JSON-LD.
