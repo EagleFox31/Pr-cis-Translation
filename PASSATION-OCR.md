@@ -3,9 +3,9 @@
 Étude : docs/etude-robustesse-ocr.md, docs/etude-defauts-colonnes.md (non suivi). Registre : docs/revues/robustesse-ocr.md.
 
 ## Objectif en cours
-Clore T3 (rangée de tableau) et `_proteger` (effacement qui n'entame plus une ligne gardée), montrer l'avant/après, puis commit et T1/T2.
-
-## Fait (non committé)
+Colonne G1+F3+G2 COMMITÉE (b37590f), G3 commité (18/11). Suite : G4 puis G5 un par un, par gravité, mêmes contrôles.
+Reprise : worktree C:/Users/IBRAH/Documents/Projets/Precis-Translator-ocr, branche fix/ocr-robustesse-documents.
+## Fait (historique, tout commité)
 - T3, backend/app/services/ocr_v2/image.py : `_VALEUR`, `GRILLE`=3, `_suite`, `_en_face` (après `LISTE_PAS`). Dans `blocs()`,
   une ligne avec une valeur numérique en face sur la même rangée est une `rangee` si ≥3 rangées partagent le bord gauche ET la colonne
   de valeurs. Test `cas_blocs` (Zinc/Manganese/Copper/Calcium, plus un contre-cas hors grille).
@@ -48,7 +48,19 @@ Clore T3 (rangée de tableau) et `_proteger` (effacement qui n'entame plus une l
    Traits de tableau troués à l'effacement (a2a3) : cause B, garder sa place dans l'ordre prévu (décidé 14/11).
    Après chaque traitement : sur chaque image concernée, lister TOUS les défauts visibles (même hors sujet),
    en précisant pour chacun s'il est déjà dans la liste (où) ou nouveau.
-   [ ] colonne G1+F3+G2 → G3–G5 (docs/etude-defauts-colonnes.md).
+   [x] colonne G1+F3+G2 : COMMITÉ (b37590f). Recul 9a53 (« Slovenia » sur la barre) corrigé par `_aplat`
+       (bord du fond = aplat d une autre couleur → reste une limite ; APLAT_ECART=150 pour ne pas prendre une carte pâle, f6ae).
+       Gains : f4554, 09fe, 0c30, 5a61, 3faab, b3374, f6ae, 9a53 ; 6739 corps 33→25 acceptable. Tests + `cas_aplat` OK, interne identique.
+       Défauts préexistants vus : prix « 59 » coupé (09fe), lignes minuscules chevauchées (3faab), « Drug S » coupé (b3374).
+   [x] G3 + A limité (18/11, COMMITÉ) : `placer(serie=)` : libellé de colonne rapetisse jusqu au plancher sur ses
+       lignes d origine (`serie="rang"`) ; la ligne de plus (rendu normal) n est gardée que si elle fait n0+1 lignes, un
+       corps STRICTEMENT plus grand et reste dans `bornes` = `_bornes()` (part des lignes voisines et des traductions
+       posées) resserré par `_traits()` (trait de tableau entre la boîte et le bord de l effacement, que `_libre()` ne voit pas).
+       Public : gains 09fe, 0c30, 5a61, 497e, f4554, 0fc2, 5c83, 9406, ca0f, c8dd, fdc8, 5707, b2b5, b780, 6739 « Sample # » ;
+       05e8 et 6739 « Carb » identiques à G3 ; compromis assumé : 1ec6 « Name: » 9→13, 3651 « Lizard »/« Caterpillar » plus grands.
+       Interne lots 0–3 identique à avant G3 (f82 corrigé). Tests ocr_v2 5/5 OK. À surveiller : 9a53 « 8 liters » touchait déjà
+       « OurWorldInData » dans G3.
+   [ ] G4 (graisse décidée pour la série), G5 (effacement s arrête au dessin).
    Ensuite niveau 1 suite (2bis ancrage, D chevauchements/nombres coupés, B bandeaux, ligne effacée vide),
    niveau 2 aspect, niveau 3 finition.
 5. [ ] Rejeu complet + banc interne + tests.

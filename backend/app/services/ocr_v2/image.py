@@ -1094,7 +1094,7 @@ def cadre(bgr, bloc, tous, groupe=None):
 
 
 def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max=None, n_min=1,
-           milieu=None, dico=None):
+           milieu=None, dico=None, serie=False, bornes=None):
     """Taille, lignes et cadre `(x, y, w)` de la traduction, ou `None` si
     elle ne tient pas au-dessus du plancher. `libre` : rangées `(haut, bas)`
     vides autour du bloc, où il peut grandir vers le bas ; `cadre` :
@@ -1102,7 +1102,12 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
     d'une liste ; `n_min` : lignes gardées quand le corps baisse ; `milieu` :
     milieu vertical d'une case fermée, où un texte centré pose le milieu de
     ses capitales (du haut des capitales à la ligne de base), comme en PAO :
-    sans jambage, il ne remonte pas. `dico` : césures de la langue cible."""
+    sans jambage, il ne remonte pas. `dico` : césures de la langue cible ;
+    `serie` : libellé d'une colonne (G3), qui rapetisse jusqu'au plancher sur
+    ses lignes d'origine avant d'en prendre une de plus, sauf si cette ligne
+    tient dans l'espace libre (`libre`) : la série garde un seul nombre de
+    lignes et un seul corps (`_freres()`) ; `bornes` : `(haut, bas)` de
+    `_bornes()`, que cette ligne de plus ne franchit pas."""
     fichier = fichier or _fichier_police()
     x, y, w, h = bloc.boite
     hl = float(np.median([b[3] for b in bloc.lignes]))
@@ -1137,7 +1142,20 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
     # plutôt que tassée en petit sur de nombreuses lignes. Dès la ligne de
     # plus, un mot plus large que la case s'y coupe aux syllabes plutôt que
     # de faire baisser le corps de tout le texte.
-    passes = [(max(n0, n_min), TOLERE * min(s0, taille_max or s0), False)]
+    if serie is True and libre:
+        # La ligne de plus est prise si elle tient dans l'espace libre (case
+        # ou zone vide) en écrivant plus grand que la série : rapetisser y
+        # laisserait la place à moitié vide. Elle ne mord jamais sur la part
+        # d'une ligne voisine (`bornes`), même dans une boîte lue gonflée.
+        args = (bloc, largeur_image, fichier, libre, cadre, taille_max, n_min, milieu, dico)
+        seul, rang = placer(*args), placer(*args, serie="rang")
+        b0, b1 = bornes or (-np.inf, np.inf)
+        if seul and len(seul["lignes"]) == max(n0, n_min) + 1 and (
+                not rang or seul["taille"] > rang["taille"]) and (
+                seul["y"] >= b0 and seul["y"] + seul["haut"] <= b1):
+            return seul
+        return rang
+    passes = [(max(n0, n_min), plancher if serie else TOLERE * min(s0, taille_max or s0), False)]
     passes += ([(n0 + 1, plancher, False), (None, GRANDIR * s0, False)] if libre
                else [(None, plancher, False)])
     if not _CJK.search(bloc.traduction):
@@ -1319,6 +1337,46 @@ def _libre(bgr, bloc, autres, x0, x1, efface, poses=()):
             else:
                 bas = min(bas, int(py0) - m)
     return min(haut + m, y), max(bas - m, y + h)
+
+
+def _bornes(bloc, autres, x0, x1, poses=()):
+    """Limites `(haut, bas)` que la traduction du bloc ne franchit pas : la
+    part de chaque ligne voisine lue entre x0..x1 et de chaque traduction déjà
+    posée. Une voisine dont la boîte chevauche celle du bloc (photo penchée :
+    l'OCR gonfle les boîtes) borne au milieu du chevauchement, côté de son
+    centre ; `_libre()` ne la voit pas et rend au moins la boîte du bloc."""
+    x, y, w, h = bloc.boite
+    haut, bas = -np.inf, np.inf
+    for ax, ay, aw, ah in [*autres, *((px0, py0, px1 - px0, py1 - py0) for px0, py0, px1, py1 in poses)]:
+        if (ax, ay, aw, ah) in bloc.lignes or min(ax + aw, x1) <= max(ax, x0):
+            continue
+        if ay + ah / 2 > y + h / 2:
+            bas = min(bas, max((y + h + ay) / 2, ay - ah / 2) if ay >= y + h else (ay + y + h) / 2)
+        else:
+            haut = max(haut, min((ay + ah + y) / 2, ay + ah + ah / 2) if ay + ah <= y else (ay + ah + y) / 2)
+    return haut, bas
+
+
+def _traits(bgr, bloc, efface, x0, x1, bornes):
+    """Resserre `bornes` sur le trait de tableau le plus proche du bloc, entre
+    sa boîte et le bord de la zone effacée : `_libre()` ne cherche l'encre
+    qu'au-delà de l'effacement et ne le voit pas (même critère que `_trait`)."""
+    x, y, w, h = _union([bloc.boite])
+    _, ey, _, eh = efface
+    x0, x1 = max(int(x0), x, 0), min(int(x1), x + w, bgr.shape[1])  # largeur partagée
+    y0, y1 = max(min(ey, y), 0), min(max(ey + eh, y + h), bgr.shape[0])
+    haut, bas = bornes
+    if x1 - x0 < 8 or y1 <= y0:
+        return haut, bas
+    bande = bgr[y0:y1, x0:x1].astype(np.int16)
+    fond = np.median(bgr[y:y + h, x0:x1].reshape(-1, 3), axis=0)
+    pleines = np.flatnonzero((np.abs(bande - fond).max(axis=2) > SEUIL_ENCRE).mean(axis=1) > 0.8) + y0
+    dessus, dessous = pleines[pleines < y], pleines[pleines >= y + h]
+    if dessus.size:
+        haut = max(haut, dessus.max() + 1)
+    if dessous.size:
+        bas = min(bas, dessous.min())
+    return haut, bas
 
 
 def _hauteur_encre(masque, boites):
@@ -1524,7 +1582,10 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
                 x0 = max(x, b.lignes[0][0])
                 cb = (x0, max(cb[1], x0 + w), False)
             libre = case[1] if case else _libre(bgr, b, [l for _, l in lus], cb[0], cb[1], efface, poses)
-            p = placer(b, W, fichier, libre, cb, milieu=case[3] if case else None, dico=dico)
+            p = placer(b, W, fichier, libre, cb, milieu=case[3] if case else None, dico=dico,
+                       serie=bool(groupe) and id(b) in colonne,
+                       bornes=_traits(bgr, b, efface, cb[0], cb[1],
+                                      _bornes(b, [l for _, l in lus], cb[0], cb[1], poses)))
             return case, cb, libre, p
 
         case, cb, libre, p = poser(axes.get(id(b)))
