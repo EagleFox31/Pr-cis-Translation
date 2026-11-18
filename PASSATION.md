@@ -233,3 +233,20 @@ Mission F terminée (PR #75). En attente de fusion par l'utilisateur : #70, puis
 - Release Please propose **1.10.0** (feat #88), pas 1.9.1. Le garde-fou du catalogue la bloquait (feature d'outillage seule, même date que 1.9.0) : corrigé sur `fix/garde-fou-catalogue-interne` (`ecart_catalogue()` + cas limites, `PORTEES_INTERNES`).
 - Config NOTIFY présente : variables `NOTIFY_SESSION`, `NOTIFY_CHAT_ID`, secret `NOTIFY_API_KEY` ; l'annonce WhatsApp partira à la release 1.10.0.
 - Suite : fusionner ce correctif, ouvrir la PR Release Please 1.10.0 à la main (label `autorelease: pending`), CI, fusion, vérifier déploiement VPS + prod (nouveautés au 18 novembre, pages légales OVHcloud, API 1.10.0) et l'annonce WhatsApp.
+
+## 2026-11-18 14:58 — Release 1.10.0 en cours (PR #94)
+
+- #93 fusionnée (garde-fou catalogue : outillage seul et release le même jour acceptés ; main = 3c94e3d).
+- PR #94 « chore(main): release 1.10.0 » ouverte à la main (label `autorelease: pending`). CI : tout vert sauf « Suites backend » relancée.
+- Cause des lenteurs CI du jour : l'étape « LibreOffice et polices » télécharge ~120 Mo depuis le miroir Ubuntu à ~100 ko/s (20 min ; log du job 134808707042). Correctif prévu sur `ci/cache-apt-libreoffice` : mettre en cache les paquets apt.
+- Suite : CI verte sur #94 → fusion → release.yml (tag v1.10.0, deploy-vps, announce-release WhatsApp) → vérifier en prod nouveautés au 18 novembre, pages légales OVHcloud, API 1.10.0.
+
+## 2026-11-18 15:08 — Release 1.10.0 livrée en prod
+
+- #94 fusionnée (main = 196843c) ; run release.yml 44320540047 vert : tag, deploy-vps, announce-release (« Annonce 1.10.0 envoyée », issue : sent).
+- Prod vérifiée : `/api/nouveautes` → version 1.10.0, date_version 2026-11-18 ; /confidentialite-documents et mentions légales citent OVHcloud, plus aucune mention d'Amazon.
+- Aucune PR ouverte. Reste : cache apt pour l'étape « LibreOffice et polices » (branche locale `ci/cache-apt-libreoffice`, non poussée) ; entité et adresse OVH à confirmer sur la facture ; URL Product Hunt à ajouter à #61 après le lancement.
+
+## 2026-11-18 15:28 — Cache apt de la CI
+
+- Branche `ci/cache-apt-libreoffice` : cache des .deb de l'étape « LibreOffice et polices » (ci.yml), leçon ajoutée. Vérification : deux runs de la PR (le premier remplit le cache, le second doit l'utiliser).
