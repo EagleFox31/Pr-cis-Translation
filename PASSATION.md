@@ -190,3 +190,7 @@ Mission F terminée (PR #75). En attente de fusion par l'utilisateur : #70, puis
 - Annonce envoyée à la main au groupe WhatsApp TRIGENYS GROUP (WAHA `trigenys-test`). #88 automatise l'envoi après chaque déploiement : poser `NOTIFY_API_KEY` et les variables `NOTIFY_*` avant de fusionner.
 - Issues #60 à #64 (lancement) assignées : #63 à Ibrahim et au propriétaire, les autres au propriétaire.
 - Restant : réinstaller `bin/deploy.sh` sur le VPS (garde-fou disque de #80) ; vérifier la cible de base des PR empilées avant fusion ; EC2 i-0ce97ff971dd343b2 à arrêter ; copie chiffrée de `shared/backend.env` hors VPS.
+
+## 2026-11-18 12:32 — Garde-fou disque actif sur le VPS
+- `bin/deploy.sh` réinstallé depuis `current/deploy/vps/remote-deploy.sh` (sha256 a1ad52b7…, identique à `main`). Sauvegarde `bin/deploy.sh.bak-20261118-1131`.
+- Preuves : redéployer `a63983796251` est un no-op (« déjà en service », `current` inchangé). Dans une base temporaire avec `PRECIS_MIN_FREE_GB=999` : refus, code 73, sans aucune modification. Prod toujours en 1.9.0.
