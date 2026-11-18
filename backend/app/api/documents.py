@@ -292,10 +292,10 @@ def _may_read_clear(user: User, doc: Document) -> bool:
 def _apercu_filigrane(user: User, doc: Document) -> bool:
     """L'aperçu de CE document porte-t-il la mention promotionnelle ?
 
-    Oui sans droit au clair, et aussi pour un document traduit avec des crédits
-    bêta : téléchargeable, mais son aperçu reste filigrané, même sur un compte
-    payant (conditions d'utilisation, « Offres et quotas »)."""
-    return not _may_read_clear(user, doc) or bool(reglages_de(doc).get("beta"))
+    Oui sans droit au clair, seulement. Une page payée par un crédit, quel
+    qu'il soit (offert, bêta, forfait, achat), appartient au client : aperçu
+    net et téléchargement (étude traduction libre, règle a)."""
+    return not _may_read_clear(user, doc)
 
 
 def pages_filigranees(user: User, doc: Document, traduites=None):
@@ -308,7 +308,7 @@ def pages_filigranees(user: User, doc: Document, traduites=None):
     Document couvert avec des pages libres : seules les pages libres sont
     filigranées, les pages payées restent nettes (étude traduction libre, §4.2).
     """
-    if reglages_de(doc).get("beta") or not (is_paid_plan(user.plan) or doc.paid):
+    if not (is_paid_plan(user.plan) or doc.paid):
         return True, traduites
     libres = pages_libres_du_document(doc)
     if traduites is not None:

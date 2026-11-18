@@ -16,7 +16,7 @@ import racine  # noqa: F401
 import test_beta_program as fixtures
 from sqlalchemy import select
 
-from app.api.documents import _may_read_clear, pages_filigranees
+from app.api.documents import _apercu_filigrane, _may_read_clear, pages_filigranees
 from app.models import Document, LibreGrant, UsageRecord, User
 from app.services import anti_abus
 from app.services.documents import pages_libres_du_document
@@ -157,6 +157,16 @@ class TraductionLibreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pages_filigranees(subscriber, paid), (False, None))
         self.assertEqual(pages_filigranees(free, unpaid, [1]), (True, [1]))
         self.assertEqual(pages_filigranees(free, unpaid), (True, None))
+        # Crédit bêta (gratuit ou abonné) ou pages offertes : aperçu net, la
+        # liste des documents comme l'aperçu en cours de traduction.
+        beta_doc = Document(user_id="x", paid=True, pages_libres=0, page_count=2,
+                            reglages='{"beta": true}')
+        for user in (free, subscriber):
+            self.assertEqual(pages_filigranees(user, beta_doc), (False, None))
+            self.assertEqual(pages_filigranees(user, beta_doc, [1]), (False, None))
+            self.assertFalse(_apercu_filigrane(user, beta_doc))
+        self.assertFalse(_apercu_filigrane(free, paid))
+        self.assertTrue(_apercu_filigrane(free, unpaid))
 
     async def test_purge_removes_old_libre_grants_only(self):
         now = anti_abus.utcnow()
