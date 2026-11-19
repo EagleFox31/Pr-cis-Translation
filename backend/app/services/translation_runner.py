@@ -562,13 +562,26 @@ def _coherence_document(slides_traduites: dict, pptx_eng, target_lang: str,
     if not fragments:
         return 0
 
+    # Même fragment source, traductions différentes (diapositives traduites en
+    # parallèle) : la traduction majoritaire, sans appel au modèle.
+    slides_touchees = set()
+    majoritaires = runtags.traductions_majoritaires(
+        (el["text"], el["translated_text"]) for _sn, el in fragments)
+    n_unifies = 0
+    for sn, el in fragments:
+        cible = majoritaires.get(el["text"])
+        if cible is not None and el["translated_text"] != cible:
+            el["translated_text"] = cible
+            slides_touchees.add(sn)
+            n_unifies += 1
+    if n_unifies and progress_cb:
+        progress_cb(f"cohérence : {n_unifies} fragment(s) alignés sur la "
+                    f"traduction majoritaire.")
+
     incoherents = runtags.termes_incoherents(
         (el["text"], el["translated_text"]) for _sn, el in fragments)
-    if not incoherents:
-        return 0
-
-    a_reprendre, slides_touchees = [], set()
-    for sn, el in fragments:
+    a_reprendre = []
+    for sn, el in fragments if incoherents else ():
         termes = runtags.termes_a_reprendre(el["text"], el["translated_text"],
                                             incoherents)
         if not termes:
@@ -577,20 +590,21 @@ def _coherence_document(slides_traduites: dict, pptx_eng, target_lang: str,
             termes=", ".join(termes), precedente=el["translated_text"])
         a_reprendre.append(el)
         slides_touchees.add(sn)
-    if not a_reprendre:
-        return 0
 
-    if progress_cb:
-        progress_cb(f"cohérence : {len(a_reprendre)} fragment(s) repris "
-                    f"({len(incoherents)} terme(s) concerné(s)).")
-    # `_translate_batch` écrit `translated_text` DANS ces dictionnaires, qui
-    # sont ceux de `slides_traduites` : la correction se propage donc au JSON
-    # persistant sans qu'on ait à le reconstruire.
-    ai_translator._translate_batch(a_reprendre, target_lang, progress_cb,
-                                   passes=0,
-                                   cadre={"fiche": fiche} if fiche else None)
-    for el in a_reprendre:
-        el.pop("consigne", None)
+    if a_reprendre:
+        if progress_cb:
+            progress_cb(f"cohérence : {len(a_reprendre)} fragment(s) repris "
+                        f"({len(incoherents)} terme(s) concerné(s)).")
+        # `_translate_batch` écrit `translated_text` DANS ces dictionnaires,
+        # qui sont ceux de `slides_traduites` : la correction se propage donc
+        # au JSON persistant sans qu'on ait à le reconstruire.
+        ai_translator._translate_batch(a_reprendre, target_lang, progress_cb,
+                                       passes=0,
+                                       cadre={"fiche": fiche} if fiche else None)
+        for el in a_reprendre:
+            el.pop("consigne", None)
+    if not slides_touchees:
+        return 0
 
     # Réinjection des seules slides touchées. L'injection écrit par
     # identifiant de paragraphe : la repasser sur un XML déjà injecté remplace
@@ -601,7 +615,7 @@ def _coherence_document(slides_traduites: dict, pptx_eng, target_lang: str,
             pptx_eng.inject_slide(sn, {
                 el["id"]: (el.get("translated_text") or el["text"])
                 for el in _elements_de(sd)})
-    return len(a_reprendre)
+    return n_unifies + len(a_reprendre)
 
 
 def run_pptx_progressive_job(

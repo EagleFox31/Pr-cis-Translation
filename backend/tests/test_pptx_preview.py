@@ -533,6 +533,26 @@ def test_coherence(ok) -> None:
     ok("COHERENCE  un document cohérent ne coûte aucun appel",
        n == 0 and appels == [], f"n={n} appels={appels}")
 
+    # Même titre traduit différemment sur une diapositive : aligné sur la
+    # traduction majoritaire, sans appel au modèle.
+    def _titre(t):
+        return {"text_elements": [{"id": "t", "text": "[[0]]Job control board[[/0]]",
+                                   "translated_text": f"[[0]]{t}[[/0]]"}]}
+    trois = {1: _titre("Tableau de suivi"), 2: _titre("Tableau de suivi"),
+             3: _titre("Planning des travaux")}
+    appels.clear()
+    moteur = _FauxMoteur()
+    appmod.ai_translator = _FauxTraducteur()
+    try:
+        n = appmod._coherence_document(trois, moteur, "fr", None)
+    finally:
+        appmod.ai_translator = vrai
+    ok("COHERENCE  même original aligné sur la majorité, sans appel",
+       n == 1 and appels == [] and moteur.reinjections == [3]
+       and trois[3]["text_elements"][0]["translated_text"]
+       == "[[0]]Tableau de suivi[[/0]]",
+       f"n={n} appels={appels} {moteur.reinjections}")
+
 
 def test_ordre_fiche(ok) -> None:
     """La fiche lit les diapositives dans l'ordre de `sldIdLst`.

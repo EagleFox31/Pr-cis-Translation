@@ -180,3 +180,24 @@ def test_pas_d_espace_double_a_la_jonction():
     assert _injecter(xml, {"slide1_p_p0":
                            "[[0]]Accueil [[/0]][[1]] client[[/1]]"}) \
         == [["Accueil ", "client"]]
+
+
+# ── même original, traductions différentes ──────────────────────────────────
+
+def test_majorite_unifie():
+    s = "[[0]]Job control[[/0]]"
+    assert runtags.traductions_majoritaires(
+        [(s, "A"), (s, "A"), (s, "B")]) == {s: "A"}
+
+
+def test_majorite_egalite_ou_mot_seul_laisses():
+    s = "[[0]]How to utilize[[/0]]"
+    assert runtags.traductions_majoritaires([(s, "A"), (s, "B")]) == {}
+    m = "[[0]]Customer[[/0]]"
+    assert runtags.traductions_majoritaires(
+        [(m, "Accueil"), (m, "Accueil"), (m, "Client")]) == {}
+
+
+def test_majorite_traductions_identiques_rien_a_faire():
+    s = "[[0]]Job control[[/0]]"
+    assert runtags.traductions_majoritaires([(s, "A"), (s, "A")]) == {}

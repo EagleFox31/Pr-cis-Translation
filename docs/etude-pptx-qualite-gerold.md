@@ -92,13 +92,17 @@ Notre passe de cohérence (`termes_incoherents`) ne détecte qu'un cas : un mot 
 C'est le contrôle standard « même original, traductions différentes ». Xbench l'appelle « Inconsistency in target », et Gridly et Verifika ont le même. Les professionnels le complètent par un **glossaire** fixé au début du projet.
 
 ### Ce qui existe déjà chez nous
-- `fiche_document` construit déjà, avant de traduire, une fiche du document. Elle donne, pour chaque terme propre au document, **une seule traduction**.
+- `fiche_document` construit déjà, avant de traduire, une fiche du document. C'est un texte libre, pas une liste de termes avec leur traduction : on ne peut donc pas s'en servir comme glossaire.
 - `_coherence_document` relit déjà tout le document à la fin et corrige les écarts.
 
-### Règle proposée
-1. On étend la détection : pour chaque terme de la fiche, on vérifie qu'il est traduit **partout de la même façon**.
-2. Les morceaux où le terme est traduit autrement sont envoyés à la passe de cohérence existante, avec la traduction imposée par la fiche.
-3. On ne touche **qu'aux termes de la fiche**. Le reste du texte n'est pas reformulé, donc il ne peut pas y avoir de régression ailleurs.
+### Règle retenue (mise en œuvre)
+1. Quand **le même texte d'origine** (au moins deux mots) apparaît plusieurs fois avec des traductions différentes, on garde la traduction **majoritaire** et on l'applique partout. Par exemple, « Toyota customer service philosophy » est traduit 8 fois d'une façon et 1 fois d'une autre : les 9 deviennent identiques.
+2. On ne touche à rien en cas d'égalité (2 contre 2), ni pour un mot seul : « Customer » peut légitimement donner « Accueil » ou « Client » selon l'endroit.
+3. Aucun appel au modèle : on recopie une traduction déjà produite. Seules les diapositives modifiées sont réécrites.
+4. Sur le PowerPoint de Gerold, cela corrige les écarts nets (« Job control » 6 contre 1, « Introduction to parts operation » 7 contre 3, etc.).
+
+### Piste écartée
+Imposer la traduction d'un libellé court partout où il apparaît dans une phrase. Testé sur Gerold, cela dégrade le texte : « HRD policy » forcerait « Politique HRD » au lieu de « politique RH », qui est meilleur. De même, « daily job » imposerait « Travail quotidien » là où « tâches quotidiennes » est juste. Sans glossaire validé, on ne force donc rien à l'intérieur des phrases.
 
 ---
 

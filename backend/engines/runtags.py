@@ -441,3 +441,33 @@ def decouper_lignes(texte: str, longueurs: list[int]) -> list[str]:
         lignes.append("".join(sep + m for sep, m in jetons[i:j]).strip())
         j = i
     return lignes[::-1]
+
+
+def traductions_majoritaires(paires) -> dict[str, str]:
+    """Contrôle « même original, traductions différentes » (Xbench :
+    Inconsistency in target). Un même fragment source, balises comprises,
+    rendu de plusieurs façons dans le document reçoit la traduction
+    MAJORITAIRE. Sans appel au modèle, donc sans reformulation ailleurs.
+
+    Prudence : il faut au moins deux mots (un mot seul change de sens avec le
+    contexte : « Customer » / « Accueil » ou « Client »), et une majorité
+    stricte d'au moins deux occurrences. Une égalité reste en l'état : rien
+    ne dit laquelle est la bonne (« Comment l'utiliser » / « les utiliser »).
+
+    `paires` : itérable de (texte_source, texte_traduit).
+    Renvoie {texte_source: traduction à appliquer} pour les seuls écarts.
+    """
+    comptes: dict[str, dict[str, int]] = {}
+    for source, cible in paires:
+        if not cible or len(_MOT.findall(sans_balises(source))) < 2:
+            continue
+        c = comptes.setdefault(source, {})
+        c[cible] = c.get(cible, 0) + 1
+    choix = {}
+    for source, c in comptes.items():
+        if len(c) < 2:
+            continue
+        rang = sorted(c.values(), reverse=True)
+        if rang[0] >= 2 and rang[0] > rang[1]:
+            choix[source] = max(c, key=c.get)
+    return choix
