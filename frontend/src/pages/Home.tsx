@@ -5,6 +5,7 @@ import { ArrowUp } from 'lucide-react';
 import AppBar from '../components/navbar/AppBar';
 import { prendreSource, type DemandeBibliotheque, type DemandeApercuAdmin } from '../components/library/BibliothequeHote';
 import { createAdminCopy, downloadAdminDocument, fetchAdminPdf } from '../hooks/useAdminDocuments';
+import { reportClientError } from '../lib/errorReporting';
 import HeroSection from '../components/hero/HeroSection';
 import LanguageMarquee from '../components/hero/LanguageMarquee';
 import FeaturesGrid from '../components/features/FeaturesGrid';
@@ -88,12 +89,15 @@ export default function Home() {
   // périmait le chargement du document SOURCE — le panneau gauche restait vide
   // et la comparaison côte à côte disparaissait.
   const openToken = useRef(0);    // une ouverture d'aperçu
+  // Ouverture en attente de sa traduction affichée (mesure de lenteur).
+  const ouvertureApercu = useRef<{ t: number; docId: string; format: string; admin: boolean } | null>(null);
   const pageToken = useRef(0);    // une demande de page
   // Pages déjà reçues (clé `docId:page`) et document dont on possède le rendu
   // COMPLET : c'est ce qui rend la navigation instantanée au retour sur une
   // page, et muette côté réseau quand le serveur a livré tout le document.
   const pageBlobCache = useRef(new Map<string, Blob>());
   const fullDocFor = useRef<string | null>(null);
+  const apercuEnVol = useRef<string | null>(null);
   // Document rouvert pendant sa traduction : chaque tick redemande l'aperçu.
   // Les relances ne repassent pas l'écran en « chargement » (clignotement).
   const [previewPoll, setPreviewPoll] = useState(0);
@@ -296,6 +300,10 @@ export default function Home() {
       setTranslatedBlob(null);
       setSelectedFile(null);
       setTranslatedFilename(req.filename);
+      ouvertureApercu.current = {
+        t: Date.now(), docId: req.docId, admin: false,
+        format: req.filename.split('.').pop()?.toLowerCase() || req.ext,
+      };
       // Caches d'aperçu REMIS À ZÉRO : ils appartiennent à l'ouverture
       // précédente. Les garder servirait les pages d'une traduction
       // potentiellement retraduite depuis.
@@ -377,10 +385,16 @@ export default function Home() {
   const location = useLocation();
   const navigate = useNavigate();
   const demande = (location.state as DemandeBibliotheque | null)?.bibliotheque;
+  // Demande déjà exécutée. L'état de navigation n'est effacé qu'au rendu
+  // suivant : entre-temps l'effet repasse (ouvrir l'aperçu change ses
+  // dépendances, et le mode strict le rejoue), et chaque passage relançait le
+  // chargement complet du document — 3 à 5 fois le même gros fichier.
+  const demandeTraitee = useRef<object | null>(null);
   useEffect(() => {
-    if (!demande) return;
+    if (!demande || demandeTraitee.current === demande) return;
     const doc = documents.find((d) => d.id === demande.docId);
     if (!doc && !bibliothequeChargee) return;   // liste pas encore arrivée
+    demandeTraitee.current = demande;
     navigate(location.pathname, { replace: true, state: null });
     if (!doc) {
       // Supprimé entre-temps : on le dit, et la demande ne reste pas armée.
@@ -403,7 +417,8 @@ export default function Home() {
   // CET aperçu par les routes admin (l'état est effacé : pas de rejeu).
   const demandeAdmin = (location.state as DemandeApercuAdmin | null)?.apercuAdmin;
   useEffect(() => {
-    if (!demandeAdmin) return;
+    if (!demandeAdmin || demandeTraitee.current === demandeAdmin) return;
+    demandeTraitee.current = demandeAdmin;
     navigate(location.pathname, { replace: true, state: null });
     handleLibraryPreview({
       docId: demandeAdmin.docId, filename: demandeAdmin.nom, ext: 'pdf',
@@ -411,6 +426,7 @@ export default function Home() {
       source: fetchAdminPdf(demandeAdmin.docId, 'source').catch(() => undefined),
     });
     setAdminDoc(demandeAdmin);
+    if (ouvertureApercu.current) ouvertureApercu.current.admin = true;
   }, [demandeAdmin, navigate, location.pathname, handleLibraryPreview]);
 
   const handleAdminCopy = useCallback(async () => {
@@ -418,17 +434,28 @@ export default function Home() {
     setCopieEnCours(true);
     try {
       const res = await createAdminCopy(adminDoc.docId);
+      refresh();
+      // La copie s'ouvre comme tout document de la bibliothèque : la demande
+      // attend que la liste rafraîchie la contienne.
+      const ouvrir = () => {
+        const state: DemandeBibliotheque = { bibliotheque: { action: 'apercu', docId: res.id } };
+        navigate(location.pathname, { state });
+      };
       showToast('success', res.cree
         ? t('admin_docs.copy_created', 'Copie créée : elle est dans votre bibliothèque.')
-        : t('admin_docs.copy_exists', 'Vous avez déjà une copie de ce document.'));
-      refresh();
+        : t('admin_docs.copy_exists', 'Vous avez déjà une copie de ce document.'),
+        undefined, { label: t('admin_docs.copy_open', 'Ouvrir ma copie'), onClick: ouvrir });
     } catch (err) {
       showToast('error', t('admin_docs.copy_error', 'La copie n’a pas pu être créée.'),
         err instanceof Error ? err.message : undefined);
     } finally {
       setCopieEnCours(false);
     }
-  }, [adminDoc, copieEnCours, refresh, t]);
+  }, [adminDoc, copieEnCours, refresh, navigate, location.pathname, t]);
+
+  // L'identifiant seul : l'objet change à chaque ouverture et relançait le
+  // rendu complet de la traduction pour le même document.
+  const adminDocId = adminDoc?.docId;
 
   // ---- Aperçu bibliothèque : réseau seulement quand on ne SAIT pas ---------
   //
@@ -447,12 +474,17 @@ export default function Home() {
     }
     if (fullDocFor.current === libraryDocId) return;          // niveau 1
 
-    if (adminDoc?.docId === libraryDocId) {
+    if (adminDocId === libraryDocId) {
       // Document d'un autre compte : la route admin rend la traduction
       // ENTIÈRE en une fois, la navigation est ensuite locale.
+      // Une seule demande en vol par document : l'effet rejoué (StrictMode,
+      // re-rendu) ne relance pas un second rendu complet côté serveur.
+      if (apercuEnVol.current === libraryDocId) return;
+      apercuEnVol.current = libraryDocId;
       const token = ++pageToken.current;
       setPreviewLoading(true);
       fetchAdminPdf(libraryDocId, 'apercu')
+        .finally(() => { if (apercuEnVol.current === libraryDocId) apercuEnVol.current = null; })
         .then((blob) => {
           if (pageToken.current !== token) return;
           fullDocFor.current = libraryDocId;
@@ -529,7 +561,21 @@ export default function Home() {
       .catch(() => { echec(); /* le lecteur garde son écran d'attente */ })
       .finally(() => { if (pageToken.current === token) setPreviewLoading(false); });
     return () => { if (relance) clearTimeout(relance); };
-  }, [libraryDocId, adminDoc, currentPage, showPreview, getPreviewBlob, previewPoll]);
+  }, [libraryDocId, adminDocId, currentPage, showPreview, getPreviewBlob, previewPoll]);
+
+  // Aperçu lent : le Journal le sait (un admin a attendu ~40 s sans trace).
+  useEffect(() => {
+    const o = ouvertureApercu.current;
+    if (!translatedBlob || !o || o.docId !== libraryDocId) return;
+    ouvertureApercu.current = null;
+    const ms = Date.now() - o.t;
+    if (ms > 15000) {
+      reportClientError(`Aperçu lent : ${Math.round(ms / 1000)} s`, {
+        level: 'warning', component: 'apercu',
+        context: { docId: o.docId, format: o.format, admin: o.admin, ms },
+      });
+    }
+  }, [translatedBlob, libraryDocId]);
 
   // ---- Download (le résultat complet, une fois la traduction terminée) ----
   const rafraichirSolde = useCallback(() => { refresh(); refreshUser(); }, [refresh, refreshUser]);
@@ -1000,7 +1046,7 @@ export default function Home() {
           onRideauChange={setRideau}
           onPageChange={setCurrentPage}
           onDownload={handleDownload}
-          onDownloadOriginal={selectedFile ? handleDownloadOriginal : undefined}
+          onDownloadOriginal={selectedFile || adminDoc ? handleDownloadOriginal : undefined}
           onPagesLoaded={setNumPages}
           onLibraryOpen={() => setShowLibrary(true)}
           scanPages={pagesIllisibles}

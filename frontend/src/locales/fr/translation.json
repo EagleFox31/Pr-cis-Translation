@@ -712,6 +712,7 @@
     "create_copy": "Créer ma copie",
     "copy_created": "Copie créée : elle est dans votre bibliothèque.",
     "copy_exists": "Vous avez déjà une copie de ce document.",
+    "copy_open": "Ouvrir ma copie",
     "copy_error": "La copie n’a pas pu être créée.",
     "copy_tag": "Copie"
   },
