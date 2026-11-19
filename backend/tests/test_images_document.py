@@ -280,15 +280,6 @@ class Route(unittest.TestCase):
         connecte.include_router(route.router)
         connecte.dependency_overrides[require_auth] = lambda: SimpleNamespace(id=1, plan="free")
         cls.client = TestClient(connecte)
-        cls.original = route.analyser_images
-        route.analyser_images = lambda data, ext: analyser(data, ext, Simule())
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.route.analyser_images = cls.original
-
-    def setUp(self):
-        module._CACHE.clear()
 
     def envoyer(self, nom, data, cle=None, client=None):
         entetes = {"X-API-Key": self.cle if cle is None else cle}
@@ -299,20 +290,28 @@ class Route(unittest.TestCase):
         r = self.envoyer("doc.pdf", pdf_document())
         self.assertEqual(r.status_code, 200, r.text)
         j = r.json()
-        self.assertEqual((j["pages"], j["images"], j["analysees"], j["total"]), (4, 1, 2, 2))
+        # Option D1 : le dépôt compte les images (hors petites et scans), sans
+        # rien lire ; la lecture se fait pendant la traduction.
+        self.assertEqual((j["pages"], j["images"], j["analysees"], j["total"]), (4, 2, 0, 2))
         self.assertFalse(j["incomplet"] or j["indisponible"])
-        ap = j["apercus"][0]
-        self.assertEqual(ap["pages"], [1, 2, 3])
-        self.assertEqual((ap["largeur"], ap["hauteur"]), (400, 140))
-        self.assertTrue(ap["vignette"].startswith("data:image/jpeg;base64,"))
-        self.assertEqual(set(ap), {"cle", "pages", "largeur", "hauteur", "vignette"})
+        self.assertEqual(j["apercus"], [])
+
+    def test_aucune_lecture_au_depot(self):
+        with unittest.mock.patch.object(module, "detecter",
+                                        side_effect=AssertionError("lecture au dépôt")):
+            self.assertEqual(self.envoyer("doc.pdf", pdf_document()).status_code, 200)
+
+    def test_xlsx_non_propose(self):
+        with unittest.mock.patch.object(self.route, "count_pages", return_value=1):
+            r = self.envoyer("t.xlsx", xlsx_document())
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["images"], 0)
 
     def test_pptx(self):
         r = self.envoyer("deck.pptx", pptx_document())
         self.assertEqual(r.status_code, 200, r.text)
         j = r.json()
-        self.assertEqual((j["pages"], j["images"]), (3, 1))
-        self.assertEqual(j["apercus"][0]["pages"], [1, 2])
+        self.assertEqual((j["pages"], j["images"]), (3, 2))
 
     def test_txt_sans_analyse(self):
         r = self.envoyer("note.txt", b"Un peu de texte pour la page.")

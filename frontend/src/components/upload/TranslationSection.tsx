@@ -92,7 +92,6 @@ export default function TranslationSection({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [preciseMode, setPreciseMode] = useState(false);
   const [justReset, setJustReset] = useState(false);
-  const [traduireImages, setTraduireImages] = useState(false);
 
   const ext = file?.name.split('.').pop()?.toLowerCase() ?? '';
   const isPdf = ext === 'pdf';
@@ -123,20 +122,18 @@ export default function TranslationSection({
   const handleFile = (f: File | null) => {
     setFile(f);
     setPages('');          // une plage est propre à un document
-    setTraduireImages(false);   // un choix qui coûte des pages se refait à chaque document
     if (f) setJustReset(false);
   };
 
-  // Images à texte : l'analyse ne débite rien mais exige un compte. Le serveur
-  // compte les images du document ENTIER : avec une plage de pages, l'utilisateur
-  // paierait des images hors de sa sélection, d'où l'option désactivée.
+  // Images : le dépôt ne fait que les compter. Leur lecture se fait pendant la
+  // traduction et la proposition arrive à la fin, sur l'aperçu. Pas de
+  // proposition en bêta, en mode structure ni avec une plage de pages.
   const { analyse, enCours: analyseEnCours } = useAnalyseImages(file, !!user && formatAvecImages(ext));
   const imagesTrouvees = analyse?.images ?? 0;
   const imagesBloquees = betaUsable && useBetaCredits ? 'beta'
     : supportsStructure && structureMode ? 'structure'
     : supportsPages && pages.trim() ? 'pages'
     : null;
-  const imagesActives = imagesTrouvees > 0 && traduireImages && !imagesBloquees;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -149,7 +146,7 @@ export default function TranslationSection({
       debug: supportsStructure && structureMode,
       precise: supportsPrecise && preciseMode,
       beta: betaAccess.data ? betaUsable && useBetaCredits : undefined,
-      images: imagesActives,
+      images: false,
       onAccepted: () => { void betaAccess.refresh(); },
     });
   };
@@ -286,28 +283,13 @@ export default function TranslationSection({
             {t('story.images_analysing')}
           </span>
         )}
-        {imagesTrouvees > 0 && analyse && (
-          <CheckboxOption
-            id="images"
-            checked={imagesActives}
-            onChange={setTraduireImages}
-            disabled={isTranslating || !!imagesBloquees}
-            icon={<ImageIcon size={14} strokeWidth={2} />}
-            label={t('story.images_label', { count: imagesTrouvees })}
-            description={imagesBloquees
-              ? t(`story.images_blocked_${imagesBloquees}`)
-              : [
-                  analyse.pages > 0
-                    ? t('story.images_totals', { count: analyse.pages, avec: analyse.pages + imagesTrouvees })
-                    : t('story.images_total_only', { count: imagesTrouvees }),
-                  t('story.images_unchanged_free'),
-                  analyse.incomplet ? t('story.images_incomplete') : '',
-                ].filter(Boolean).join(' ')}
-          />
-        )}
-        {imagesTrouvees === 0 && analyse?.indisponible && (
-          <span role="status" style={{ fontSize: '11.5px', color: 'var(--gray-500)' }}>
-            {t('story.images_unavailable')}
+        {imagesTrouvees > 0 && !imagesBloquees && (
+          <span role="status" style={{
+            display: 'inline-flex', alignItems: 'flex-start', gap: '6px',
+            fontSize: '11.5px', color: 'var(--gray-500)',
+          }}>
+            <ImageIcon size={12} strokeWidth={2} style={{ flexShrink: 0, marginTop: '2px' }} />
+            {t('story.images_note', { count: imagesTrouvees })}
           </span>
         )}
 

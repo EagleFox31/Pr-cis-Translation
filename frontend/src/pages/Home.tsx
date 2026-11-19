@@ -130,7 +130,7 @@ export default function Home() {
   const stream = useStreamingTranslation(user?.plan === 'free');
 
   // ---- Document library ----
-  const { documents, charge: bibliothequeChargee, erreur: bibliothequeErreur, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal, getIllegiblePages, setIllegiblePages } = useDocumentLibrary();
+  const { documents, charge: bibliothequeChargee, erreur: bibliothequeErreur, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal, getImagesProposition, translateImages, getIllegiblePages, setIllegiblePages } = useDocumentLibrary();
 
   // Les droits du document viennent du serveur ; une mise à jour de la
   // bibliothèque après paiement doit aussi débloquer l'aperçu déjà ouvert.
@@ -708,6 +708,10 @@ export default function Home() {
   // Après l'écran de démarrage, sans traduction en cours ni autre fenêtre ouverte.
   const { chargerAVoir, marquerVu } = useNouveautes();
   const occupe = stream.isTranslating || !!suiviBiblio;
+  // Panneau des images : document rouvert depuis la bibliothèque, ou
+  // traduction qui vient de se terminer sans erreur dans cette page.
+  const docImages = libraryDocId
+    ?? (!stream.isTranslating && !stream.error ? stream.documentId : null);
   const occupeRef = useRef(occupe);
   occupeRef.current = occupe;
   const userId = user?.id ?? null;
@@ -1009,11 +1013,15 @@ export default function Home() {
                 provisoire={pagesIllisibles.provisoire}
                 onPageChange={setCurrentPage}
               />
-              {libraryDocId && !suiviBiblio && !adminDoc ? (
+              {docImages && !suiviBiblio && !adminDoc ? (
                 <DocumentImagesPanel
-                  docId={libraryDocId}
+                  key={docImages}
+                  docId={docImages}
                   load={getDocumentImages}
                   setOriginal={setImageOriginal}
+                  loadProposition={getImagesProposition}
+                  translate={translateImages}
+                  onBuyPages={(p) => setPayPages(p)}
                   onChanged={rafraichirRendu}
                 />
               ) : null}
