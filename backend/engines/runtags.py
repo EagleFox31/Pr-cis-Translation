@@ -368,3 +368,76 @@ CONSIGNE_COHERENCE = (
     "c'est légitime, et le changer serait une faute.\n"
     "Ta traduction précédente : {precedente}"
 )
+
+
+
+def _jetons(texte: str) -> list[tuple[str, str]]:
+    """Mots et points de coupe : après une espace, ou après un trait d'union
+    collé à une lettre (« Self-study » se coupe en « Self- » / « study »).
+    Chaque jeton porte le séparateur qui le précède ("" ou " ")."""
+    jetons = []
+    for i, mot in enumerate(texte.split()):
+        morceaux = re.split(r"(?<=\w-)(?=\w)", mot)
+        for j, m in enumerate(morceaux):
+            jetons.append((" " if i and not j else "", m))
+    return jetons
+
+
+def joindre_lignes(lignes: list[str]) -> str:
+    """Recolle des lignes coupées à la main : une espace entre deux lignes,
+    rien après un trait d'union de coupure (« Self- » + « study »)."""
+    out = ""
+    for l in (l.strip() for l in lignes):
+        if out and not re.search(r"\w-$", out):
+            out += " "
+        out += l
+    return out
+
+
+def decouper_lignes(texte: str, longueurs: list[int]) -> list[str]:
+    """Redécoupe `texte` en autant de lignes que `longueurs`.
+
+    Sert aux libellés que l'auteur a coupés à la main (saut de ligne ou
+    paragraphe court) : le texte part ENTIER à la traduction, comme le fait un
+    outil de TAO, puis revient sur le même nombre de lignes. La coupe se fait
+    aux espaces (ou après un trait d'union) et suit les proportions des lignes
+    source (coût = écart quadratique), ce qui rend exactement la coupe
+    d'origine quand on réinjecte le texte source.
+    Moins de mots que de lignes : les mots remplissent les lignes dans
+    l'ordre, les dernières restent vides (le nombre de lignes ne change pas).
+    """
+    n = len(longueurs)
+    if n <= 1:
+        return [texte.strip()][:n]
+    jetons = _jetons(texte)
+    W = len(jetons)
+    if W <= n:
+        return [m for _, m in jetons] + [""] * (n - W)
+    total = sum(longueurs) or n
+    plein = sum(len(sep) + len(m) for sep, m in jetons) - len(jetons[0][0])
+    cibles = [l * plein / total for l in longueurs]
+    pre = [0]
+    for sep, m in jetons:
+        pre.append(pre[-1] + len(sep) + len(m))
+
+    def lg(i, j):           # longueur de la ligne faite des jetons [i, j)
+        return pre[j] - pre[i] - len(jetons[i][0])
+
+    inf = float("inf")
+    meilleur = [[inf] * (W + 1) for _ in range(n + 1)]
+    choix = [[0] * (W + 1) for _ in range(n + 1)]
+    meilleur[0][0] = 0.0
+    for k in range(1, n + 1):
+        for j in range(k, W - (n - k) + 1):
+            for i in range(k - 1, j):
+                if meilleur[k - 1][i] == inf:
+                    continue
+                c = meilleur[k - 1][i] + (lg(i, j) - cibles[k - 1]) ** 2
+                if c < meilleur[k][j]:
+                    meilleur[k][j], choix[k][j] = c, i
+    lignes, j = [], W
+    for k in range(n, 0, -1):
+        i = choix[k][j]
+        lignes.append("".join(sep + m for sep, m in jetons[i:j]).strip())
+        j = i
+    return lignes[::-1]
