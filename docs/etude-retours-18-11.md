@@ -6,7 +6,7 @@ Ordre de traitement, du plus grave au moins grave (structure > aspect > finition
 |---|----------|---------|---------|
 | 1 | Filigrane sur des pages payées avec un crédit (bêta, pages offertes) | Structure : promesse faite au client | Oubli de la règle (a) (étude traduction libre) dans deux fonctions et dans les CGU (§1) |
 | 2 | Pas de mail admin quand il y a du nouveau | Structure : demandes manquées | Seuls les tickets de support envoient un mail (`api/support.py:48`). Rien pour les candidatures bêta, les nouveaux comptes ni les erreurs. |
-| 3 | Analyse du document au dépôt : le formulaire compte mal le nombre de … | Structure si le devis est faux | Précision attendue de l'utilisateur |
+| 3 | Analyse du document au dépôt : le formulaire compte mal le nombre d'images à traduire réellement (celles qui contiennent du texte lisible et traitable) | Structure si le devis est faux | Précisé le 18/11, à étudier |
 | 4 | Bêta : traduction des images dans les documents, plafond par document | Offre | Exclue aujourd'hui (`api/translate.py:431`). Proposition : 30 images par document. |
 | 5 | Les nouveautés ne s'affichent pas d'elles-mêmes à l'ouverture | Aspect | À analyser (`components/nouveautes/`) |
 | 6 | Soldes « 5/5 » sans unité | Aspect | Afficher le restant avec son unité |
@@ -83,3 +83,55 @@ Pourquoi les comptes en récapitulatif : un nouveau compte ne demande aucune act
 Ce qui change dans la réalisation : le seuil de 50 disparaît. Chaque nouvelle entrée du journal déclenche la règle de son niveau.
 
 Aujourd'hui, aucune erreur n'est enregistrée au niveau `critical` : le code n'utilise que `error` et `warning`. Il faut donc choisir lesquelles passent en critique. Je propose de commencer par les trois refus d'accès des prestataires de paiement (Fapshi, Paddle). Elles bloquent tous les achats. On ajoutera d'autres cas un par un, quand une panne réelle le justifie.
+
+## 3. Nombre d'images à traduire annoncé au dépôt
+
+### Constat (code vérifié le 18/11)
+Au dépôt, le formulaire affiche « Traduire aussi les N images qui contiennent du texte » et « Avec : jusqu'à X pages ». Ce N vient d'une **détection** seule (`services/images_document.py:227` `detecter`) : une image compte dès que le lecteur y voit **une zone qui ressemble à du texte**. Rien n'est lu à ce stade.
+
+Pendant la traduction, une image n'est remplacée (et payée) que si au moins un bloc a été lu **et** traduit autrement (`services/ocr_v2/image.py:992`). Sont donc comptées au dépôt mais laissées telles quelles :
+- un logo ou un nom de marque (« ROPER », « Green Corner ») ;
+- des chiffres, des codes, des lettres seules (« A », « B », « 12 % ») ;
+- un texte déjà dans la langue cible ;
+- un texte trop petit ou flou pour être lu ;
+- un texte posé sur un fond transparent.
+
+### L'écart sur un exemple
+Un rapport Word de 10 pages avec 8 images : 2 schémas légendés en anglais, 1 logo, 3 graphiques dont les axes n'ont que des chiffres, 2 photos avec une plaque d'immatriculation.
+- Le formulaire annonce : « 8 images qui contiennent du texte », « jusqu'à 18 pages ».
+- En réalité, 2 images seront traduites : le document coûte 12 pages.
+
+Le client n'est pas surpayé : seules les images remplacées sont débitées (`services/translation_runner.py:92`). Mais le devis est faux, et le contrôle des crédits exige les 18 pages (`api/translate.py:572`) : un client qui a 12 pages se voit dire « crédits insuffisants ». De plus, la traduction libre est coupée dès qu'une image est comptée (`api/translate.py:577`).
+
+### Options
+- **A. Lire les images au dépôt et ne compter que le texte traduisible** (recommandé). Après la détection, le lecteur lit les zones trouvées. Une image compte si elle contient au moins un mot de 2 lettres ou plus qui n'est ni un chiffre ni un code. Les lignes lues sont gardées pour la traduction : la lecture n'est pas refaite. Le compte suit alors de près le résultat. Un logo avec un mot (« ROPER ») reste compté : seul le traducteur sait qu'un nom ne se traduit pas. Limite : l'analyse prend plus de temps (quelques secondes par image), dans le même délai maximal de 20 s ; au-delà, le formulaire indique « environ N images ».
+- **B. Garder la détection, mais ne plus bloquer sur les images.** Le contrôle des crédits ne compte que le texte ; les images sont traduites tant que le solde le permet, les autres restent en original. Le libellé devient « jusqu'à N images ». Rapide à faire, mais le nombre affiché reste trop haut.
+- **C. A et B ensemble.** Compte juste quand la lecture a le temps de se faire ; sinon, pas de blocage sur un compte incertain.
+
+Ma recommandation : **C**. A donne un chiffre juste dans la plupart des cas ; B évite qu'un compte encore approximatif (document lourd, délai dépassé) empêche une traduction que le client peut payer.
+
+### Option D (proposée le 19/11) : proposer les images après la traduction
+Au dépôt, on détecte seulement la présence d'images, sans rien promettre. Le texte part en traduction et, en même temps, les images sont lues. À la fin, si des images ont du texte à traduire, l'écran de résultat propose : « 2 images sur 8 contiennent du texte à traduire. Les traduire ? [Traduire (2 pages)] ».
+
+Faisabilité (code vérifié le 19/11) :
+- Le document final est refait à chaque téléchargement ou aperçu à partir d'une table d'images posée à côté de la traduction (`translation_runner.py:1551` PDF, `:1606` Word/PowerPoint). Ajouter des images après coup = compléter cette table et vider le cache du rendu, sans retraduire le texte.
+- Un précédent existe : « Traduire quand même » une page illisible après la fin (`translation_runner.py:1611`), débité seulement si la page est traduite.
+- L'écran existant des images (`DocumentImagesPanel.tsx`, `GET/PATCH /api/documents/{id}/images`) permet déjà de remettre une image à l'original : la proposition s'y branche, pas de nouvel écran.
+- Les lignes lues pendant l'analyse sont gardées (`traduire_image(..., lus=)`) : au clic, il ne reste qu'à traduire et repeindre, quelques secondes par image.
+
+Effets :
+- Le prix affiché est exact (images réellement traduisibles), et le contrôle des crédits au dépôt ne porte plus que sur le texte : plus de « crédits insuffisants » à tort, et la traduction libre n'est plus coupée par les images.
+- Le client attend un peu plus s'il veut les images : un clic, puis quelques secondes par image.
+- Solde insuffisant au clic : le bouton mène à l'achat de crédits ; les images restent proposées tant que le document est disponible.
+
+Points à trancher :
+- **D1. Toujours demander à la fin** (case « Traduire aussi les images » retirée du dépôt). Simple, prix toujours exact.
+- **D2. Garder la case au dépôt** : cochée, les images trouvées sont traduites d'office à la fin, sans clic ; décochée, on propose comme en D1.
+
+Recommandation : **D1**. Un seul parcours, un prix toujours juste, et le client ne paie jamais une image qu'il n'a pas vue proposée. D est préférable à C : le compte n'est plus une estimation sous délai de 20 s, et le dépôt reste rapide.
+
+**Décision : D1 validée le 19/11.** Écarts avec la description :
+- les images à texte sont lues et traduites pendant la traduction du texte, sans débit ; le clic ne fait que les poser et débiter une page par image ;
+- Excel exclu (pas de mise en page d'images comparable) ;
+- pas de proposition pour une sélection de pages, un document bêta ou de structure ;
+- les anciens documents déjà traduits avec leurs images restent tels quels.
