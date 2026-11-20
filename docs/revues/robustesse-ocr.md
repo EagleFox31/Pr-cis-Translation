@@ -3,6 +3,9 @@
 Étape fautive : L = lecture OCR, R = regroupement en blocs, E = effacement, T = traduction, P = pose.
 Causes déjà connues (.13h) : A = lignes empilées fusionnées malgré une valeur en face ;
 B = texte clair sur bandeau foncé ; C = noms propres / chiffres altérés par la traduction.
+Lot G (20/11) : 87 images à texte d'un PowerPoint réel (formation après-vente, EN→FR), banc séparé
+`_banc_gerold` (`--banc _banc_gerold`). 61 traduites, 26 laissées telles quelles, 0 échec ; résultat jugé
+largement exploitable. Ses défauts suivent le même ordre : structure (2bis, A) > aspect (H) > finition.
 
 ## Défauts par cas
 | Lot | Cas | Source | Défaut | Étape | Cause |
@@ -219,6 +222,19 @@ B = texte clair sur bandeau foncé ; C = noms propres / chiffres altérés par l
 | 15 | fd411dc59f | frise chronologique (slovène) | rejeu A+2bis (mieux) : chaque année avec sa légende dessous, plus de chevauchement entre colonnes ; reste légendes éclatées en morceaux espacés (1958, 1991) | R | A, D |
 | 15 | fdc8e1f41c | graphique Statista | « Dallas Mavericks », « Portland Trailblazers » réécrits en petit gras serré (« Trail Blazers » : nom altéré) alors qu'ils sont à garder ; titre d'axe fusionné avec la graduation « 20 » → « 20 millions d'abonnés Twitter », posé sur les graduations ; bouton et liens plus petits ou maigres ; icône « Show source » rognée | regroupement / traduction / pose / effacement | A, 2bis, C, H, D, G |
 | 15 | fdc8e1f41c | graphique Statista | rejeu A+2bis (beaucoup mieux) : titre d'axe séparé des graduations (« 15 »/« 20 » rendus, plus de « 15 millions » inventé), posé à sa place ; reste Dallas/Portland en petit gras, « Trail Blazers » altéré | P/T | C, H |
+| G | fd1afc2dc2 | pptx Gerold (diapo 74, planning) | petits textes du planning illisibles après pose | L/P | D, L |
+| G | a1c249bc5a | pptx Gerold (diapo 70) | « Customer » lu « Custairer » / « Cusomár » ; « Toyota Customer Service » dégradé alors qu'il est à garder | L | C, L |
+| G | c820f293e3 | pptx Gerold (diapo 38) | phrase inventée « Irehisysectivil… » posée à la place d'un petit texte | L | D, L |
+| G | 9b5e75560c | pptx Gerold (diapo 65) | boutons verts : ancien et nouveau texte superposés | E/P | G, 2bis |
+| G | 39de554788 | pptx Gerold (diapo 38, ruban logiciel) | libellés empilés les uns sur les autres, « Compléments » posé deux fois | R/P | A, 2bis |
+| G | 10e55b2761 | pptx Gerold (diapo 65) | en-tête qui chevauche le texte voisin | P | 2bis |
+| G | d367eecd6e, 232ed40891, e8ee2c815d | pptx Gerold (diapos 70-71, bandeaux) | gras perdu sur environ un bandeau sur deux (même défaut sur la série 110 à 132) | P | H |
+| G | 37051c9167 | pptx Gerold (diapo 40, schéma 4S) | Seiri et Seiton perdent leur gras italique, Seiso et Seiketsu le gardent | P | H |
+| G | (image86) | pptx Gerold (menu logiciel) | tailles incohérentes : « Enregistrer au format Adobe PDF » énorme à côté des autres entrées | P | H, A |
+| G | 85a433d522, dc47f8c314 | pptx Gerold (diapos 20-21, tableaux) | environ la moitié des lignes laissées en anglais | L/T | M |
+| G | e8ee2c815d | pptx Gerold (diapo 71) | deux bandeaux laissés en anglais | T | M |
+| G | (plusieurs) | pptx Gerold | « walk-around check » traduit « contrôle de ronde » au lieu de « tour du véhicule » | T | terme métier |
+| G | 70b85b0529, 44551f86f8, 0439c4814b, e1c06a8f69, 5967ea03d7, bb2c0c4c1d | pptx Gerold (diapo 69) | petits encadrés de l'original non traduits : à vérifier (lecture ou texte jugé douteux) | L | D ? |
 
 ## Causes par fréquence (lots 0 à 15)
 Un cas compte une fois par cause. Détail, étape fautive et ordre de correction :
