@@ -22,21 +22,32 @@
 .beta-status--expired, .beta-status--revoked { background: #fff1f2; color: #9f1239; }
 .beta-error { border: 1px solid #fecaca; background: #fff1f2; color: #991b1b !important; border-radius: 10px; padding: 12px; }
 .beta-dialog { width: min(680px, calc(100% - 32px)); max-height: 85vh; overflow: auto; margin: auto; box-sizing: border-box; }
+.beta-dialog--invite { width: min(480px, calc(100% - 32px)); }
+.beta-dialog__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.beta-card .beta-dialog__head h2 { margin: 0; }
 .beta-dialog::backdrop { background: rgba(13,27,62,.45); }
-.beta-fieldset > .admin-field--wide { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 600; color: var(--gray-700); min-width: 0; }
+.beta-fieldset > .admin-field--wide, .beta-fieldset > .admin-field--full { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 600; color: var(--gray-700); min-width: 0; }
 .beta-invitees { display: grid; gap: 8px; font-weight: 400; }
-.beta-invitees__box { position: relative; }
-.beta-invitees .admin-input { width: 100%; }
-.beta-invitees__chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.beta-invitees__chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 4px 4px 4px 10px; border-radius: 999px; background: var(--gray-100); color: var(--navy); font-size: 13px; font-weight: 600; }
+/* Champ unique : adresses choisies sur une ligne, puis la saisie. */
+.beta-invitees__box { display: flex; align-items: center; gap: 6px; min-height: 42px; padding: 4px 6px 4px 8px; border: 1px solid var(--gray-300); border-radius: 9px; background: #fff; box-sizing: border-box; cursor: text; }
+.beta-invitees__box:focus-within { outline: 3px solid var(--blue-light); border-color: var(--blue); }
+.beta-invitees__chips { display: flex; flex-wrap: wrap; gap: 6px; flex: 0 1 auto; min-width: 0; height: 32px; overflow: hidden; margin: 0; padding: 0; list-style: none; }
+.beta-invitees__box--open { flex-wrap: wrap; }
+.beta-invitees__box--open .beta-invitees__chips { height: auto; flex-basis: 100%; }
+.beta-invitees__chip { display: inline-flex; align-items: center; gap: 2px; max-width: 220px; height: 32px; box-sizing: border-box; padding: 2px 2px 2px 10px; border-radius: 999px; background: var(--gray-100); color: var(--navy); font-size: 13px; font-weight: 600; }
 .beta-invitees__chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.beta-invitees__chip button { display: inline-grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; }
+.beta-invitees__chip button { display: inline-grid; place-items: center; flex-shrink: 0; width: 28px; height: 28px; border: 0; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; }
 .beta-invitees__chip button:hover { background: rgba(13,27,62,.08); }
 .beta-invitees__chip button:focus-visible { outline: 3px solid var(--blue-light); }
-.beta-invitees__list { position: absolute; z-index: 5; top: calc(100% + 4px); left: 0; right: 0; max-height: 240px; overflow: auto; margin: 0; padding: 4px; list-style: none; background: #fff; border: 1px solid var(--gray-200, #e5e7eb); border-radius: 10px; box-shadow: 0 12px 28px rgba(13,27,62,.14); }
+.beta-invitees__more { flex-shrink: 0; height: 28px; padding: 0 10px; border: 1px solid var(--gray-200); border-radius: 999px; background: #fff; color: var(--navy); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.beta-invitees__more:focus-visible { outline: 3px solid var(--blue-light); }
+.beta-card .beta-invitees__input { flex: 1 1 120px; min-width: 120px; border: 0; padding: 6px 4px; outline: none; background: transparent; }
+.beta-card .beta-invitees__input:focus-visible { outline: none; }
+.beta-invitees__list { max-height: 240px; overflow: auto; margin: 0; padding: 4px; list-style: none; background: #fff; border: 1px solid var(--gray-200, #e5e7eb); border-radius: 10px; box-shadow: 0 12px 28px rgba(13,27,62,.14); }
 .beta-invitees__option { display: grid; gap: 2px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 14px; color: var(--navy); }
 .beta-invitees__option span { font-size: 12px; color: var(--gray-600); }
 .beta-invitees__option:hover, .beta-invitees__option[aria-selected="true"] { background: var(--gray-100); }
+.beta-invitees__empty { padding: 8px 10px; font-size: 13px; color: var(--gray-600); }
 .beta-invitees .admin-note { margin: 0; }
 .beta-results h3 { margin: 0 0 8px; font-size: 15px; color: var(--navy); }
 .beta-results h3:focus { outline: none; }
@@ -45,7 +56,6 @@
 .beta-results__row--refused { background: #fff7ed; border-color: #fed7aa; }
 .beta-results__email { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; font-weight: 600; color: var(--navy); }
 .beta-results__status { font-size: 13px; color: var(--gray-600); }
-.beta-unsent { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .beta-upload { background: var(--blue-light); border: 1px solid #bfdbfe; border-radius: 10px; padding: 12px; color: var(--navy); font-size: 13px; line-height: 1.5; }
 .beta-upload label { display: flex; gap: 9px; align-items: center; font-weight: 600; }
 .beta-upload p { margin: 6px 0 0; }
@@ -121,7 +131,7 @@
   .beta-public { padding: 20px; }
 }
 
-.beta-review-alert { margin: 12px 0; padding: 12px; border: 1px solid #efd39e; border-radius: 10px; background: #fffbf2; color: #713f12; font-size: 13px; overflow-wrap: anywhere; }
+.beta-review-alert { margin: 8px 0 0; padding: 12px; border: 1px solid #efd39e; border-radius: 10px; background: #fffbf2; color: #713f12; font-size: 13px; overflow-wrap: anywhere; }
 .beta-review-alert summary { cursor: pointer; font-weight: 650; min-height: 24px; }
 .beta-review-alert summary:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; border-radius: 4px; }
 .beta-review-alert ul { margin: 8px 0; padding-left: 18px; }
@@ -134,3 +144,16 @@
 .beta-tabs button[aria-selected="true"] { color: var(--navy); border-bottom-color: var(--blue); }
 .beta-tabs button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .beta-tabs__count { font-size: 12px; padding: 1px 7px; border-radius: 999px; background: var(--gray-100); }
+
+/* Liste admin : motivation sur une ligne, étiquette « points à vérifier », icônes d'action. */
+.beta-person__motivation { margin: 4px 0 0; font-size: 13px; color: var(--gray-600); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.beta-risk { margin-top: 6px; }
+.beta-risk__tag { display: inline-flex; align-items: center; gap: 4px; border: 0; cursor: pointer; background: #fef3c7; color: #b45309; font: inherit; font-size: 11px; font-weight: 700; }
+.beta-risk__tag:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
+.admin-tag.beta-tag--info { background: var(--blue-light); color: var(--blue); }
+.beta-person__actions { display: flex; align-items: center; gap: 6px; }
+@media (max-width: 720px) {
+  .beta-person .admin-row__side { justify-content: flex-start; }
+  .beta-person__actions { margin-left: auto; }
+  .beta-person__actions .admin-icon-btn { width: 44px; height: 44px; }
+}
