@@ -18,6 +18,7 @@ import type { BetaApplication, BetaEnrollment, BetaFormat, BetaLimits } from '..
 import api from '../services/api';
 import { betaError } from '../lib/betaError';
 import { showToast } from '../components/ui/Toast';
+import { InviteeField, InviteResults, isEmail, ResendMail, type InviteResult } from '../components/admin/BetaInvitees';
 
 const CAMPAIGN_PARAM = 'c';
 const NEW = 'new';
@@ -166,7 +167,10 @@ export default function AdminBetaPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
-  const [email, setEmail] = useState('');
+  const [invitees, setInvitees] = useState<string[]>([]);
+  const [pending, setPending] = useState('');
+  const [results, setResults] = useState<InviteResult[] | null>(null);
+  const [unsent, setUnsent] = useState<{ id: string; email: string }[]>([]);
   const [format, setFormat] = useState<BetaFormat>('pdf');
   const [inviting, setInviting] = useState(false);
   const [editing, setEditing] = useState<BetaEnrollment | null>(null);
@@ -227,6 +231,7 @@ export default function AdminBetaPage() {
     }
   }, [selected]);
 
+  const closeInvite = () => { setInviting(false); setResults(null); setInvitees([]); setPending(''); };
   const mutate = async (path: string, body: unknown, method: 'post' | 'patch' = 'post') => {
     setBusy(true); setError('');
     try {
@@ -397,7 +402,11 @@ export default function AdminBetaPage() {
                   <div className="admin-row__side">
                     <span className={'beta-status beta-status--application-' + person.row.state}>{t(`beta.application.states.${person.row.state}`)}</span>
                     <button className="beta-primary" disabled={busy || seatsFull}
-                      onClick={() => void mutate('/api/admin/beta/applications/' + person.row.id, { decision: 'approved' }, 'patch')}>
+                      onClick={() => void mutate('/api/admin/beta/applications/' + person.row.id, { decision: 'approved' }, 'patch').then(row => {
+                        const done = row as { mail_sent?: boolean; enrollment_id?: string } | null;
+                        const id = done?.mail_sent === false ? done.enrollment_id : undefined;
+                        if (id) setUnsent(list => [...list.filter(item => item.id !== id), { id, email: person.row.email }]);
+                      })}>
                       {t('beta.application.approve')}
                     </button>
                     {person.row.state === 'pending' && <button className="tb-btn ghost" disabled={busy} onClick={() => setAsk({
@@ -454,6 +463,12 @@ export default function AdminBetaPage() {
         <RefreshButton disabled={busy} onClick={() => load().catch(() => setError(t('beta.error')))} />
       </>}>
       {error && <p role="alert" className="beta-error">{error}</p>}
+      {unsent.map(item => (
+        <div key={item.id} role="status" className="beta-error beta-unsent">
+          <span>{t('beta.invitees.approval_not_mailed', { email: item.email })}</span>
+          <ResendMail enrollmentId={item.id} onSent={() => setUnsent(list => list.filter(other => other.id !== item.id))} />
+        </div>
+      ))}
       {!data ? <div className="admin-loading" role="status">{t('beta.loading')}</div> : (
         <div className={`admin-duo${selected ? ' admin-duo--open' : ''}`}>
           <AdminList empty={campaigns.length === 0} emptyText={t('beta.campaigns.empty')}>
@@ -478,19 +493,34 @@ export default function AdminBetaPage() {
       )}
       {inviting && campaign && (
         <dialog ref={inviteDialog} aria-labelledby="beta-invite-title" className="beta-card beta-dialog"
-          onCancel={event => { if (busy) event.preventDefault(); else setInviting(false); }}>
+          onCancel={event => { if (busy) event.preventDefault(); else closeInvite(); }}>
           <h2 id="beta-invite-title">{t('beta.invite')}</h2>
           <p className="admin-panel__muted">{t('beta.invite_hint')}</p>
           {!campaign.recruitment_open && <p className="beta-note">{t('beta.recruitment_closed')}</p>}
+          {results ? (
+            <>
+              <InviteResults results={results} />
+              <div className="admin-form-actions">
+                <button className="tb-btn ghost" type="button" onClick={() => setResults(null)}>{t('beta.invitees.again')}</button>
+                <button className="beta-primary" type="button" onClick={closeInvite}>{t('beta.invitees.close')}</button>
+              </div>
+            </>
+          ) : (
           <form onSubmit={event => {
             event.preventDefault();
-            void mutate('/api/admin/beta/invitations', { email, primary_format: format, campaign_id: campaign.id }).then(ok => {
-              if (ok) { setEmail(''); setInviting(false); }
+            const typed = pending.trim().toLowerCase();
+            const emails = isEmail(typed) && !invitees.includes(typed) ? [...invitees, typed] : invitees;
+            if (!emails.length) return;
+            void mutate('/api/admin/beta/invitations', { emails, primary_format: format, campaign_id: campaign.id }).then(data => {
+              const rows = (data as { results?: InviteResult[] } | null)?.results;
+              if (rows) { setResults(rows); setInvitees([]); setPending(''); }
             });
           }}>
             <fieldset disabled={busy} className="beta-fieldset admin-form">
-              <label className="admin-field--wide">{t('beta.email')}<input className="admin-input" type="email" required maxLength={255} value={email}
-                onChange={event => setEmail(event.target.value)} /></label>
+              <div className="admin-field--wide">
+                <span id="beta-invitees-label">{t('beta.email')}</span>
+                <InviteeField labelId="beta-invitees-label" value={invitees} onChange={setInvitees} pending={pending} onPending={setPending} />
+              </div>
               <label>{t('beta.primary_format')}<select className="admin-select" value={format}
                 onChange={event => setFormat(event.target.value as BetaFormat)}>
                 {BETA_FORMATS.map(item => <option key={item} value={item}>{t(`beta.formats.${item}`)}</option>)}
@@ -498,12 +528,13 @@ export default function AdminBetaPage() {
               <div className="admin-form-footer">
                 <span />
                 <div className="admin-form-actions">
-                  <button className="tb-btn ghost" type="button" onClick={() => setInviting(false)}>{t('beta.cancel')}</button>
-                  <button className="beta-primary" disabled={busy || seatsFull}>{t('beta.invite')}</button>
+                  <button className="tb-btn ghost" type="button" onClick={closeInvite}>{t('beta.cancel')}</button>
+                  <button className="beta-primary" disabled={busy || seatsFull || (!invitees.length && !isEmail(pending))}>{t('beta.invite')}</button>
                 </div>
               </div>
             </fieldset>
           </form>
+          )}
           {error && <p role="alert" className="beta-error">{error}</p>}
         </dialog>
       )}

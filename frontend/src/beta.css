@@ -23,6 +23,29 @@
 .beta-error { border: 1px solid #fecaca; background: #fff1f2; color: #991b1b !important; border-radius: 10px; padding: 12px; }
 .beta-dialog { width: min(680px, calc(100% - 32px)); max-height: 85vh; overflow: auto; margin: auto; box-sizing: border-box; }
 .beta-dialog::backdrop { background: rgba(13,27,62,.45); }
+.beta-fieldset > .admin-field--wide { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 600; color: var(--gray-700); min-width: 0; }
+.beta-invitees { display: grid; gap: 8px; font-weight: 400; }
+.beta-invitees__box { position: relative; }
+.beta-invitees .admin-input { width: 100%; }
+.beta-invitees__chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.beta-invitees__chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 4px 4px 4px 10px; border-radius: 999px; background: var(--gray-100); color: var(--navy); font-size: 13px; font-weight: 600; }
+.beta-invitees__chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.beta-invitees__chip button { display: inline-grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; }
+.beta-invitees__chip button:hover { background: rgba(13,27,62,.08); }
+.beta-invitees__chip button:focus-visible { outline: 3px solid var(--blue-light); }
+.beta-invitees__list { position: absolute; z-index: 5; top: calc(100% + 4px); left: 0; right: 0; max-height: 240px; overflow: auto; margin: 0; padding: 4px; list-style: none; background: #fff; border: 1px solid var(--gray-200, #e5e7eb); border-radius: 10px; box-shadow: 0 12px 28px rgba(13,27,62,.14); }
+.beta-invitees__option { display: grid; gap: 2px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 14px; color: var(--navy); }
+.beta-invitees__option span { font-size: 12px; color: var(--gray-600); }
+.beta-invitees__option:hover, .beta-invitees__option[aria-selected="true"] { background: var(--gray-100); }
+.beta-invitees .admin-note { margin: 0; }
+.beta-results h3 { margin: 0 0 8px; font-size: 15px; color: var(--navy); }
+.beta-results h3:focus { outline: none; }
+.beta-results ul { display: grid; gap: 6px; margin: 0 0 16px; padding: 0; list-style: none; }
+.beta-results__row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--gray-200, #e5e7eb); }
+.beta-results__row--refused { background: #fff7ed; border-color: #fed7aa; }
+.beta-results__email { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; font-weight: 600; color: var(--navy); }
+.beta-results__status { font-size: 13px; color: var(--gray-600); }
+.beta-unsent { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .beta-upload { background: var(--blue-light); border: 1px solid #bfdbfe; border-radius: 10px; padding: 12px; color: var(--navy); font-size: 13px; line-height: 1.5; }
 .beta-upload label { display: flex; gap: 9px; align-items: center; font-weight: 600; }
 .beta-upload p { margin: 6px 0 0; }
