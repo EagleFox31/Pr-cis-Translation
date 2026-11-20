@@ -22,41 +22,56 @@
 .beta-status--expired, .beta-status--revoked { background: #fff1f2; color: #9f1239; }
 .beta-error { border: 1px solid #fecaca; background: #fff1f2; color: #991b1b !important; border-radius: 10px; padding: 12px; }
 .beta-dialog { width: min(680px, calc(100% - 32px)); max-height: 85vh; overflow: auto; margin: auto; box-sizing: border-box; }
-.beta-dialog--invite { width: min(480px, calc(100% - 32px)); }
+/* Courte : la liste des comptes peut déborder sous la fenêtre sans être coupée. */
+.beta-dialog--invite { width: min(480px, calc(100% - 32px)); overflow: visible; }
 .beta-dialog__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .beta-card .beta-dialog__head h2 { margin: 0; }
 .beta-dialog::backdrop { background: rgba(13,27,62,.45); }
 .beta-fieldset > .admin-field--wide, .beta-fieldset > .admin-field--full { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 600; color: var(--gray-700); min-width: 0; }
-.beta-invitees { display: grid; gap: 8px; font-weight: 400; }
-/* Champ unique : adresses choisies sur une ligne, puis la saisie. */
-.beta-invitees__box { display: flex; align-items: center; gap: 6px; min-height: 42px; padding: 4px 6px 4px 8px; border: 1px solid var(--gray-300); border-radius: 9px; background: #fff; box-sizing: border-box; cursor: text; }
+.beta-invitees { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-width: 0; font-weight: 400; }
+/* Les noms sur une ligne ne doivent jamais élargir la fenêtre (fieldset et grilles prennent sinon la largeur du contenu). */
+.beta-dialog--invite .beta-fieldset, .beta-dialog--invite .admin-field--full, .beta-invitees__anchor { min-width: 0; }
+/* Champ replié : noms choisis sur une ligne, « +N » en bout de ligne. Ouvert : la recherche seule. */
+.beta-invitees__box { position: relative; display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 6px; border: 1px solid var(--gray-300); border-radius: 10px; background: #fff; box-sizing: border-box; cursor: text; }
 .beta-invitees__box:focus-within { outline: 3px solid var(--blue-light); border-color: var(--blue); }
-.beta-invitees__chips { display: flex; flex-wrap: wrap; gap: 6px; flex: 0 1 auto; min-width: 0; height: 32px; overflow: hidden; margin: 0; padding: 0; list-style: none; }
-.beta-invitees__box--open { flex-wrap: wrap; }
-.beta-invitees__box--open .beta-invitees__chips { height: auto; flex-basis: 100%; }
-.beta-invitees__chip { display: inline-flex; align-items: center; gap: 2px; max-width: 220px; height: 32px; box-sizing: border-box; padding: 2px 2px 2px 10px; border-radius: 999px; background: var(--gray-100); color: var(--navy); font-size: 13px; font-weight: 600; }
-.beta-invitees__chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.beta-invitees__chip button { display: inline-grid; place-items: center; flex-shrink: 0; width: 28px; height: 28px; border: 0; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; }
-.beta-invitees__chip button:hover { background: rgba(13,27,62,.08); }
-.beta-invitees__chip button:focus-visible { outline: 3px solid var(--blue-light); }
-.beta-invitees__more { flex-shrink: 0; height: 28px; padding: 0 10px; border: 1px solid var(--gray-200); border-radius: 999px; background: #fff; color: var(--navy); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
-.beta-invitees__more:focus-visible { outline: 3px solid var(--blue-light); }
-.beta-card .beta-invitees__input { flex: 1 1 120px; min-width: 120px; border: 0; padding: 6px 4px; outline: none; background: transparent; }
+.beta-invitees__chips { display: flex; flex-wrap: nowrap; gap: 6px; flex: 0 1 auto; min-width: 0; height: 30px; overflow: hidden; margin: 0; padding: 0; list-style: none; }
+/* Avec un badge : les noms visibles se partagent la ligne et le badge se cale au bord droit. */
+.beta-invitees__chips--fill { flex: 1 1 auto; }
+.beta-invitees__chips--fill .beta-invitees__chip { flex: 1 1 auto; max-width: none; text-align: center; }
+.beta-invitees__more { margin-left: auto; }
+.beta-invitees__chips--measure { position: absolute; top: 6px; left: 6px; right: 52px; flex-wrap: wrap; visibility: hidden; pointer-events: none; }
+.beta-invitees__chip { max-width: 180px; height: 30px; line-height: 30px; padding: 0 12px; border-radius: 999px; background: var(--gray-100); color: var(--navy); font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; box-sizing: border-box; }
+.beta-invitees__more { flex-shrink: 0; height: 30px; line-height: 30px; padding: 0 10px; border-radius: 999px; background: var(--blue); color: #fff; font-size: 12px; font-weight: 700; }
+.beta-card .beta-invitees__input { flex: 1 1 auto; min-width: 0; height: 100%; border: 0; padding: 0 6px; outline: none; background: transparent; font: inherit; font-size: 14px; color: var(--navy); }
+/* Replié avec des noms : la saisie reste focalisable mais ne prend pas de place. */
+.beta-card .beta-invitees__input--idle { flex: 0 0 0; width: 0; padding: 0; }
 .beta-card .beta-invitees__input:focus-visible { outline: none; }
 .beta-invitees__anchor { position: relative; }
-.beta-invitees__list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 5; max-height: 240px; overflow: auto; margin: 0; padding: 4px; list-style: none; background: #fff; border: 1px solid var(--gray-200, #e5e7eb); border-radius: 10px; box-shadow: 0 12px 28px rgba(13,27,62,.14); }
-.beta-invitees__option { display: grid; gap: 2px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 14px; color: var(--navy); }
-.beta-invitees__option span { font-size: 12px; color: var(--gray-600); }
-.beta-invitees__option:hover, .beta-invitees__option[aria-selected="true"] { background: var(--gray-100); }
-.beta-invitees__empty { padding: 8px 10px; font-size: 13px; color: var(--gray-600); }
-.beta-invitees .admin-note { margin: 0; }
-.beta-results h3 { margin: 0 0 8px; font-size: 15px; color: var(--navy); }
-.beta-results h3:focus { outline: none; }
-.beta-results ul { display: grid; gap: 6px; margin: 0 0 16px; padding: 0; list-style: none; }
-.beta-results__row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--gray-200, #e5e7eb); }
-.beta-results__row--refused { background: #fff7ed; border-color: #fed7aa; }
-.beta-results__email { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; font-weight: 600; color: var(--navy); }
-.beta-results__status { font-size: 13px; color: var(--gray-600); }
+.beta-invitees__list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 5; max-height: min(280px, 45vh); overflow: auto; margin: 0; padding: 4px; list-style: none; background: #fff; border: 1px solid var(--gray-200, #e5e7eb); border-radius: 10px; box-shadow: 0 12px 28px rgba(13,27,62,.14); }
+.beta-invitees__option { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 14px; color: var(--navy); }
+.beta-invitees__option:hover, .beta-invitees__option--active { background: var(--gray-100); }
+.beta-invitees__option[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.beta-invitees__check { display: inline-grid; place-items: center; flex: 0 0 20px; height: 20px; border: 1.5px solid var(--gray-300); border-radius: 6px; background: #fff; color: #fff; box-sizing: border-box; }
+.beta-invitees__check--on { background: var(--blue); border-color: var(--blue); }
+.beta-invitees__who { display: grid; min-width: 0; }
+.beta-invitees__who strong, .beta-invitees__who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.beta-invitees__who span { font-size: 12px; color: var(--gray-600); }
+.beta-invitees__empty { padding: 10px; font-size: 13px; color: var(--gray-600); }
+.beta-invitees .beta-invitees__hint { display: flex; justify-content: space-between; gap: 12px; margin: 0; }
+.beta-invitees__count { flex-shrink: 0; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--navy); }
+/* Choix du format : 4 boutons de même largeur (2 × 2 sur téléphone), le choisi en bleu. */
+.beta-segments { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 6px; }
+.beta-segment { position: relative; display: flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 8px; border: 1px solid var(--gray-300); border-radius: 10px; background: #fff; color: var(--navy); font-size: 14px; font-weight: 600; cursor: pointer; text-align: center; transition: background .15s, border-color .15s, color .15s; }
+.beta-segment:hover { border-color: var(--blue); }
+.beta-segment--on { background: var(--blue-light); border-color: var(--blue); color: var(--blue); }
+.beta-segment input { position: absolute; opacity: 0; pointer-events: none; }
+.beta-segment:has(input:focus-visible) { outline: 3px solid #93c5fd; outline-offset: 2px; }
+@media (max-width: 480px) { .beta-segments { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* Pied de fenêtre : deux boutons de même taille qui occupent toute la largeur. */
+.beta-dialog__actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--gray-200); }
+.beta-secondary { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--gray-300); background: #fff; color: var(--navy); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; line-height: 1.4; }
+.beta-secondary:hover { background: var(--gray-100); }
+.beta-secondary:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; }
 .beta-upload { background: var(--blue-light); border: 1px solid #bfdbfe; border-radius: 10px; padding: 12px; color: var(--navy); font-size: 13px; line-height: 1.5; }
 .beta-upload label { display: flex; gap: 9px; align-items: center; font-weight: 600; }
 .beta-upload p { margin: 6px 0 0; }
