@@ -271,8 +271,8 @@ async def invite(body: Invitation, _admin: User = Depends(require_admin),
         results.append({"email": email, "status": "invited"})
     await db.commit()
     for index, row in invited:
-        results[index]["enrollment"] = await beta.serialize_enrollment(db, row)
         results[index]["mail_sent"] = await beta.send_invitation_mail(db, row, campaign=campaign)
+        results[index]["enrollment"] = await beta.serialize_enrollment(db, row)
     return {"results": results}
 
 

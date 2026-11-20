@@ -556,6 +556,7 @@ class BetaTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([(r["email"], r["status"]) for r in rows],
                          [(self.tester.email, "invited"), ("nobody-here@example.com", "no_account")])
         self.assertTrue(rows[0]["mail_sent"])
+        self.assertTrue(rows[0]["enrollment"]["mailed_at"], "the list shows the mail left")
         self.assertNotIn("mail_sent", rows[1])
         self.assertEqual(again, "already_invited")
         self.assertEqual(sent, [(self.tester.email, "fr", 30)], "one mail, to the invited account only")
@@ -571,6 +572,7 @@ class BetaTests(unittest.IsolatedAsyncioTestCase):
                 json={"emails": [self.tester.email]})
         row = result.json()["results"][0]
         self.assertEqual((row["status"], row["mail_sent"]), ("invited", False))
+        self.assertIsNone(row["enrollment"]["mailed_at"], "no mail left: the admin must see it")
         enrollment_id = row["enrollment"]["id"]
         url = f"/api/admin/beta/enrollments/{enrollment_id}/email"
         self.assertEqual((await self.client.post(url, headers=self.tester_headers)).status_code, 403)
@@ -579,8 +581,9 @@ class BetaTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ok.json(), {"mail_sent": True}, ok.text)
         resend.assert_awaited_once()
         async with self.sessions() as db:
-            self.assertEqual(len((await db.execute(select(BetaEnrollment))).scalars().all()), 1,
-                             "resending does not create a second invitation")
+            rows = (await db.execute(select(BetaEnrollment))).scalars().all()
+            self.assertEqual(len(rows), 1, "resending does not create a second invitation")
+            self.assertIsNotNone(rows[0].mailed_at, "a resent mail is recorded")
         missing = await self.client.post("/api/admin/beta/enrollments/nope/email", headers=self.admin_headers)
         self.assertEqual(missing.status_code, 404)
         await self.client.patch(f"/api/admin/beta/enrollments/{enrollment_id}", json={"revoke": True},
@@ -603,6 +606,9 @@ class BetaTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(approved.json()["mail_sent"])
         self.assertTrue(approved.json()["enrollment_id"])
         self.assertEqual(send.await_args.args, (self.tester.email, "en"))
+        async with self.sessions() as db:
+            enrollment = await db.get(BetaEnrollment, approved.json()["enrollment_id"])
+            self.assertIsNotNone(enrollment.mailed_at, "the acceptance mail is recorded")
 
     async def test_resent_mail_matches_the_state_of_the_access(self):
         await self.start_campaign()

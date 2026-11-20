@@ -118,6 +118,7 @@ async def serialize_enrollment(db, enrollment, *, now=None):
         "invited_at": aware(enrollment.invited_at).isoformat(),
         "activated_at": aware(enrollment.activated_at).isoformat() if enrollment.activated_at else None,
         "expires_at": aware(enrollment.expires_at).isoformat() if enrollment.expires_at else None,
+        "mailed_at": aware(enrollment.mailed_at).isoformat() if enrollment.mailed_at else None,
         "limits": limits,
         "formats": {
             fmt: {
@@ -209,12 +210,14 @@ async def send_invitation_mail(db, enrollment, *, user=None, campaign=None) -> b
             user.email, user.langue or "fr", limites={**DEFAULT_LIMITS, **enrollment.limits},
             jours=campaign.access_days, date_limite=ends.date().isoformat() if ends else None,
             fin_acces=aware(enrollment.expires_at).date().isoformat() if active else None)
-        return True
     except Exception:
         # EmailIndisponible, or any fault while building the message: the invitations
         # are already saved, so the admin must still get the per-person results.
         logger.exception("Beta invitation mail not sent (enrollment %s)", enrollment.id)
         return False
+    enrollment.mailed_at = now_utc()
+    await db.commit()
+    return True
 
 
 async def activate(db, user, *, signals=None):
