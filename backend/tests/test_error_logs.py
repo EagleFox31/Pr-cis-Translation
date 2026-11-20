@@ -16,6 +16,7 @@ Requiert PostgreSQL et la migration 0005.
 from __future__ import annotations
 import asyncio
 import sys
+import time
 import uuid
 
 import racine  # noqa: F401  -- met backend/ sur le chemin
@@ -207,6 +208,17 @@ async def main() -> None:
             r3 = await al.recapitulatif_quotidien(db, jours[1] + dt.timedelta(days=1))
         check(r2 is True and r3 is False and len(sent) == 1,
               "récap : envoyé une fois, pas deux le même jour")
+
+        # mail d'erreurs raté → nouvel essai après `_REESSAI_ERREURS`, pas après tout le délai
+        async def send_rate(to, subject, body, **_):   # noqa: ANN001
+            return False
+
+        email_mod.send_plain = send_rate
+        al._reinitialiser()
+        await svc.log_error("backend", f"{TOKEN} rate", location="RT")
+        reste = al._dernier_mail_erreurs + al.ERROR_LOG_ALERT_COOLDOWN - time.time()
+        check(abs(reste - min(al._REESSAI_ERREURS, al.ERROR_LOG_ALERT_COOLDOWN)) < 5,
+              f"mail raté : nouvel essai dans ~{al._REESSAI_ERREURS} s (vu {reste:.0f})")
     finally:
         email_mod.send_plain = orig_send
         al._reinitialiser()

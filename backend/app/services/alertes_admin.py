@@ -26,6 +26,7 @@ from app.models import (AdminRecap, ErrorLog, STATUS_NEW, User, utcnow)
 
 # Garde-fou contre une avalanche de pannes « critiques » différentes.
 _MAX_CRITIQUES_HEURE = 5
+_REESSAI_ERREURS = 600   # s : nouvel essai après un mail d'erreurs raté
 
 _verrou = threading.Lock()
 _dernier_mail_erreurs = 0.0          # horodatage (time.time) du dernier mail « error »
@@ -54,8 +55,7 @@ async def _envoyer(db, sujet: str, corps: str, **carte) -> bool:
     emails = await destinataires(db)
     if not emails:
         return False
-    await send_plain(emails, sujet, corps, **carte)
-    return True
+    return await send_plain(emails, sujet, corps, **carte) is not False
 
 
 def _url(chemin: str) -> str:
@@ -160,7 +160,7 @@ async def _erreurs(db) -> bool:
     pluriel = "s" if total > 1 else ""
     titre = f"{total} nouvelle{pluriel} erreur{pluriel} depuis {heure} (UTC)"
     details = [((msg or "")[:80], str(n)) for msg, n in groupes]
-    return await _envoyer(
+    envoye = await _envoyer(
         db, f"[Précis] {titre}",
         titre + ".\n\n" + "\n".join(f"- {m} ({n})" for m, n in details)
         + "\n\nOuvre /admin/logs pour les traiter.",
@@ -170,6 +170,14 @@ async def _erreurs(db) -> bool:
         niveau="avertissement", bandeau="Journal", details=details,
         bouton=("Ouvrir le journal", _url("/admin/logs")),
     )
+    if not envoye:
+        # Envoi raté : nouvel essai dans `_REESSAI_ERREURS`, pas après tout le
+        # délai (ni tout de suite : l'échec écrit lui-même dans le journal).
+        with _verrou:
+            if _dernier_mail_erreurs == maintenant:
+                _dernier_mail_erreurs = maintenant - max(
+                    0, ERROR_LOG_ALERT_COOLDOWN - _REESSAI_ERREURS)
+    return envoye
 
 
 # ── Récapitulatif quotidien ───────────────────────────────────────────────────

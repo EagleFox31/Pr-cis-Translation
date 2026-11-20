@@ -1032,7 +1032,10 @@
     "link_label": "Précis link",
     "copy": "Copy link",
     "copied": "Link copied",
-    "copy_error": "Couldn't copy"
+    "copy_error": "Couldn't copy",
+    "resend_title": "Already invited",
+    "resend_limit_body": "You have already invited {{emails}} several times this week.",
+    "resend_wait_body": "Invitation already sent to {{emails}}. Try again in {{count}} min."
   },
   "extension_page": {
     "doc_title": "Browser extension · Précis",

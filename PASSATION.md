@@ -161,3 +161,92 @@ Mission F terminée (PR #75). En attente de fusion par l'utilisateur : #70, puis
 - Preuve : run 42788870679 (PR #70 d'Ibrahim vers `main`) rejoué → `bootstrap-github-app-user` et `sync-github-app-user` verts.
 - Règle d'équipe : les PR ciblent `main` (sinon ni sync Project ni CI complète). #71 (empilée sur `integration/main-1.7`) sera synchronisée une fois rebasée sur `main` après fusion de #70.
 - Restant : fermer appfactory-project-automation#52 (validation faite) ; EC2 i-0ce97ff971dd343b2 à arrêter après stabilité.
+
+## 2026-11-10 15:01 — Conflit PASSATION de #70/#71 résolu
+- #71 retargetée sur `main`. #73 avait mis #70 et #71 en conflit : la branche d'Ibrahim réécrivait `PASSATION.md` et supprimait le journal daté.
+- Résolution poussée sur `integration/main-1.7` (55779b5) puis `feat/connexion-extension-site` (c6d7e10) : état d'Ibrahim (sections 1 à 5) + journal daté complet. #70 et #71 : MERGEABLE.
+- Leçon ajoutée dans `docs/engineering/lessons-learned.md`.
+- Restant : CI de #70/#71 à surveiller ; relecture puis fusion de #70 ; EC2 i-0ce97ff971dd343b2 à arrêter après stabilité.
+
+## 2026-11-15 22:30 — Release 1.8.0 livrée sur le VPS
+- Fusionnées (merge commits) : #70 eac8aba, #71 407acac, #75 8f264a8, #76 dfe86e5. Puis #78 (Release Please monte aussi `VERSION` de `nouveautes.py` et `frontend/seo/fonctionnalites.json`) et #77 (release 1.8.0, tag v1.8.0).
+- PR de release : ouverte à la main (Actions ne peut pas créer de PR) ; le push du bot ne déclenche pas la CI, lancer `gh workflow run ci.yml --ref release-please--branches--main--components--precis-translator`.
+- Premier déploiement en échec : disque du VPS plein (399 Mo libres). Prod restée sur 865e40a, intacte. Libéré avec accord : `docker builder prune`, images orphelines (~4 Go). Relance du job : succès.
+- Prod : `current -> app-9ffd5b41154b`, API `version 1.8.0`, migration `0024_nouveautes`, db non recréée, `/health` `/tarifs` `/sitemap.xml` 200.
+- `shared/backend.env` : ajout de `SMTP_FROM` et `SMTP_REPLY_TO` (fournies par Ibrahim, pas des secrets) ; sauvegarde `backend.env.bak-20261115-2126` ; sauvegarde DB `backups/pre-release-20261115-2047.dump`.
+- Restant : disque VPS à 83 % (images inutilisées ~10 Go à revoir) ; garder une copie chiffrée de `shared/backend.env` hors VPS ; EC2 i-0ce97ff971dd343b2 à arrêter ; Ibrahim doit `git pull` avant de repousser.
+
+## 2026-11-15 22:44 — Garde-fou disque et faux retour arrière du déploiement VPS
+- `deploy/vps/remote-deploy.sh` : refus avant toute écriture sous `PRECIS_MIN_FREE_GB` Go libres (défaut 5, chemins `PRECIS_DISK_PATHS`, défaut `$BASE /var/lib/docker`), code 73, propose `docker builder prune` sans le lancer.
+- Échec de build : lien `current` restauré, santé vérifiée, plus de `up --build` de l'ancienne version (cause du faux « intervention requise » de la 1.8.0). Retour arrière complet seulement après échec de `up`/santé.
+- Test : `bash scripts/ci/test-vps-remote-deploy.sh` (doublures, sans Docker), branché dans le job CI `production-deploy`.
+- Restant : VPS non touché. Après fusion, réinstaller à la main `bin/deploy.sh` depuis `deploy/vps/remote-deploy.sh` (hors du flux de déploiement, voir 2026-11 ci-dessus), sinon le garde-fou n'est pas actif. Pour changer le seuil : `environment="PRECIS_MIN_FREE_GB=…"` dans `authorized_keys` (exige `PermitUserEnvironment`) ou wrapper `bin/deploy.sh`.
+
+## 2026-11-18 12:30 — Envoi des mails via Spacemail, release 1.9.0 livrée sur le VPS
+- Mails en spam : expéditeur `@trigenys.com` envoyé par le SMTP Gmail, donc SPF/DKIM non alignés et DMARC en échec. `shared/backend.env` passe au SMTP Spacemail (`mail.spacemail.com:587`, DKIM `spacemail._domainkey`). Sauvegarde `backend.env.bak-20261116-0801`. Mot de passe écrit sans guillemets (avec guillemets : échec AUTH). Réception réelle à confirmer par Ibrahim.
+- Fusionnées (squash) : #80 bbcd8e7, #81 4f1a4a2, #82 69f9745, #84 27e945c, #83 8b80d03. #85 visait `feat/retours-clients` (empilée sur #83) : sa fusion n'a pas touché `main`. Portée par #86 (2e58586, conflit `Home.tsx` résolu côté #85).
+- Release 1.9.0 : Actions ne peut pas créer la PR, ouverte à la main (#87, label `autorelease: pending`, corps au format Release Please), CI lancée à la main, fusion a639837, tag v1.9.0.
+- Prod : `current -> app-a63983796251`, API `version 1.9.0`, migrations jusqu'à `0027_traduction_libre`, db non recréée, `/health` `/tarifs` `/sitemap.xml` et le ZIP de l'extension en 200. Disque 71 %. Sauvegarde DB `backups/pre-release-1.9.0-20261118-1102.dump`.
+- Annonce envoyée à la main au groupe WhatsApp TRIGENYS GROUP (WAHA `trigenys-test`). #88 automatise l'envoi après chaque déploiement : poser `NOTIFY_API_KEY` et les variables `NOTIFY_*` avant de fusionner.
+- Issues #60 à #64 (lancement) assignées : #63 à Ibrahim et au propriétaire, les autres au propriétaire.
+- Restant : réinstaller `bin/deploy.sh` sur le VPS (garde-fou disque de #80) ; vérifier la cible de base des PR empilées avant fusion ; EC2 i-0ce97ff971dd343b2 à arrêter ; copie chiffrée de `shared/backend.env` hors VPS.
+
+## 2026-11-18 12:32 — Garde-fou disque actif sur le VPS
+- `bin/deploy.sh` réinstallé depuis `current/deploy/vps/remote-deploy.sh` (sha256 a1ad52b7…, identique à `main`). Sauvegarde `bin/deploy.sh.bak-20261118-1131`.
+- Preuves : redéployer `a63983796251` est un no-op (« déjà en service », `current` inchangé). Dans une base temporaire avec `PRECIS_MIN_FREE_GB=999` : refus, code 73, sans aucune modification. Prod toujours en 1.9.0.
+
+## 2026-11-18 12:51 — Catalogue des nouveautés 1.8.0 et 1.9.0 (date du 9 novembre)
+- Cause : catalogue `backend/app/content/nouveautes.py` non alimenté en 1.8.0 ni en 1.9.0, d'où la date du 9 novembre dans le panneau « Nouveautés ».
+- Branche `fix/catalogue-nouveautes-1-9` : 9 entrées FR/EN (dont « Aperçu des documents clients », admin), `DATE_VERSION` 2026-11-18, `frontend/seo/fonctionnalites.json` régénéré.
+- Garde-fou : `test_version_avec_fonctionnalites_publiee_au_catalogue` (CHANGELOG « Features » ⇒ élément public plus récent que la version précédente). Leçon ajoutée dans `docs/engineering/lessons-learned.md`.
+- Suite : release 1.9.1 (commit `fix:`), déploiement VPS, vérifier la date du 18 novembre dans l'app. E-mail aux abonnés : seulement via `backend/scripts/envoyer_nouveautes.py`, à la main, non lancé.
+
+## 2026-11-18 13:18 — Hébergeur corrigé (#92), catalogue en CI (#91), Product Hunt prêt
+- #92 fusionnée : mentions légales, politique de confidentialité et pages SEO indiquent OVHcloud (OVH Hosting Inc., Beauharnois, Canada) au lieu d'AWS. Entité et adresse à confirmer sur la facture OVHcloud. Kit Product Hunt : `docs/lancement-product-hunt.md` (date et compte qui publie : au propriétaire).
+- #91 : première CI rouge, `test_nouveautes_api.py` codait en dur 19 éléments. Attentes dérivées du catalogue (9408b45), CI relancée.
+- Suite : fusionner #91 (vérifier `baseRefName`), ouvrir la PR Release Please 1.9.1 à la main (label `autorelease: pending`, CI via `gh workflow run ci.yml --ref <branche>`), fusionner, suivre deploy-vps, vérifier en prod la date du 18 novembre, la page /confidentialite-documents et les mentions légales.
+
+## 2026-11-18 12:42 — Lancement : fiches boutiques de l'extension (#63)
+
+- PR #89 (passation 1.9.0, leçon PR empilée, garde-fou disque) fusionnée : main = 6aa3a60.
+- Date « 9 novembre » affichée dans l'app : `DATE_VERSION` de `backend/app/content/nouveautes.py` = date de la nouveauté la plus récente (test du catalogue). Les fonctions 1.8.0 et 1.9.0 (traduction libre #85, aperçu des pages non payées) n'ont jamais été ajoutées au catalogue. À faire : entrées FR/EN datées 2026-11-18, `frontend/seo/fonctionnalites.json`, contrôle « feat sans entrée au catalogue », leçon, release 1.9.1. Reporté par l'utilisateur (« D'abord les issues »).
+- Issues de lancement : #63 stores, #64 article, #62 AlternativeTo, #60 annuaires, #61 Product Hunt (en dernier). Toutes sauf #63 attendent #59 en prod.
+- #63 : textes, permissions et déclarations déjà prêts dans `docs/fiches-boutiques-extension.md`. Ajouté sur la branche `docs/extension-store-assets` : vignettes 440×280 FR/EN (`docs/boutiques/`, PNG RGB 24 bits) et leur source HTML. Archive vérifiée : `npm run package` → `precis-translator-1.0.0.zip`, aucun `localhost`.
+- Reste #63 : captures 1280×800 (besoin d'un compte connecté dans l'extension), comptes éditeur Chrome (5 $, à payer par le propriétaire) et Edge (gratuit), envoi, puis variables `VITE_EXTENSION_*` et liens `/extension` + JSON-LD.
+
+## 2026-11-18 12:44 — #63 confiée à Ibrahim
+
+- Captures 1280×800, comptes éditeur et envoi : Ibrahim (consignes en commentaire sur #63). PR #90 (vignettes, fiche) ouverte, à fusionner.
+- Prochaines étapes côté session : catalogue des nouveautés 1.9.0 + release 1.9.1 ; #64/#62/#60/#61 après #59 en prod.
+
+## 2026-11-18 12:24 — Annonce WhatsApp automatique des releases
+
+- Branche `feat/release-whatsapp-notify` : job `announce-release` dans `release.yml` (après `deploy-vps` ou `deploy-production` réussi), script `scripts/ci/release_announcement.py` + émetteur générique `scripts/ci/waha_notify.py`, tests `scripts/ci/test_release_announcement.py` (branchés dans `ci.yml`).
+- Idempotence : statut de commit `release/whatsapp-announcement` sur le SHA de release.
+- À poser avant la prochaine release : variables `NOTIFY_SESSION`, `NOTIFY_CHAT_ID`, secret `NOTIFY_API_KEY` (cf. `docs/deploiement.md`). Sans elles : no-op.
+- Piste : extraire `waha_notify.py` en action réutilisable dans appfactory-project-automation quand un 2e dépôt en aura besoin.
+
+## 2026-11-18 14:16 — PR #90, #88, #91 fusionnées ; garde-fou catalogue corrigé avant la release 1.10.0
+
+- Fusionnées en squash : #91 (catalogue 1.8/1.9, b04c0d4), #90 (vignettes boutiques, 6e956f5), #88 (annonce WhatsApp, ee5aa87). Conflits uniquement dans PASSATION.md : entrées des branches ajoutées en fin.
+- CI #88 : « Suites backend » bloquée 20 min sur l'apt LibreOffice (runner) ; annulée puis relancée, verte.
+- Release Please propose **1.10.0** (feat #88), pas 1.9.1. Le garde-fou du catalogue la bloquait (feature d'outillage seule, même date que 1.9.0) : corrigé sur `fix/garde-fou-catalogue-interne` (`ecart_catalogue()` + cas limites, `PORTEES_INTERNES`).
+- Config NOTIFY présente : variables `NOTIFY_SESSION`, `NOTIFY_CHAT_ID`, secret `NOTIFY_API_KEY` ; l'annonce WhatsApp partira à la release 1.10.0.
+- Suite : fusionner ce correctif, ouvrir la PR Release Please 1.10.0 à la main (label `autorelease: pending`), CI, fusion, vérifier déploiement VPS + prod (nouveautés au 18 novembre, pages légales OVHcloud, API 1.10.0) et l'annonce WhatsApp.
+
+## 2026-11-18 14:58 — Release 1.10.0 en cours (PR #94)
+
+- #93 fusionnée (garde-fou catalogue : outillage seul et release le même jour acceptés ; main = 3c94e3d).
+- PR #94 « chore(main): release 1.10.0 » ouverte à la main (label `autorelease: pending`). CI : tout vert sauf « Suites backend » relancée.
+- Cause des lenteurs CI du jour : l'étape « LibreOffice et polices » télécharge ~120 Mo depuis le miroir Ubuntu à ~100 ko/s (20 min ; log du job 134808707042). Correctif prévu sur `ci/cache-apt-libreoffice` : mettre en cache les paquets apt.
+- Suite : CI verte sur #94 → fusion → release.yml (tag v1.10.0, deploy-vps, announce-release WhatsApp) → vérifier en prod nouveautés au 18 novembre, pages légales OVHcloud, API 1.10.0.
+
+## 2026-11-18 15:08 — Release 1.10.0 livrée en prod
+
+- #94 fusionnée (main = 196843c) ; run release.yml 44320540047 vert : tag, deploy-vps, announce-release (« Annonce 1.10.0 envoyée », issue : sent).
+- Prod vérifiée : `/api/nouveautes` → version 1.10.0, date_version 2026-11-18 ; /confidentialite-documents et mentions légales citent OVHcloud, plus aucune mention d'Amazon.
+- Aucune PR ouverte. Reste : cache apt pour l'étape « LibreOffice et polices » (branche locale `ci/cache-apt-libreoffice`, non poussée) ; entité et adresse OVH à confirmer sur la facture ; URL Product Hunt à ajouter à #61 après le lancement.
+
+## 2026-11-18 15:28 — Cache apt de la CI
+
+- Branche `ci/cache-apt-libreoffice` : cache des .deb de l'étape « LibreOffice et polices » (ci.yml), leçon ajoutée. Vérification : deux runs de la PR (le premier remplit le cache, le second doit l'utiliser).

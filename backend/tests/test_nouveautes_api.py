@@ -65,7 +65,8 @@ async def run():
     # Juste avant le dernier élément du catalogue : seuls les plus récents restent.
     dates = sorted({e["date"] for e in catalogue.FONCTIONNALITES})
     avant_dernier = datetime.fromisoformat(dates[-2]).replace(tzinfo=timezone.utc)
-    attendus = [e["id"] for e in catalogue.FONCTIONNALITES if e["date"] > dates[-2]]
+    attendus = [e["id"] for e in catalogue.FONCTIONNALITES
+                if e["date"] > dates[-2] and e.get("audience", "tous") == "tous"]
 
     neuf = await _compte()
     ancien = await _compte(avant_dernier)
@@ -86,7 +87,7 @@ async def run():
             r = client.get("/api/nouveautes?lang=en")
             corps = r.json()
             ok("LISTE   publique", r.status_code == 200, r.status_code)
-            ok("LISTE   19 éléments", len(corps.get("elements", [])) == 19)
+            ok("LISTE   éléments publics", len(corps.get("elements", [])) == len(catalogue.elements("en")))
             ok("LISTE   en anglais", corps["elements"][0]["titre"] ==
                catalogue.elements("en")[0]["titre"])
             ok("LISTE   version", corps.get("version") == catalogue.VERSION)

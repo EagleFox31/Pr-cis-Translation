@@ -67,6 +67,34 @@ jobs:
     with:
       ref: ${{ needs.release.outputs.release_sha }}
     secrets: inherit
+  # Annonce WhatsApp après un déploiement réussi (VPS ou EC2), une seule fois par release.
+  # Désactivée tant que vars.NOTIFY_SESSION / vars.NOTIFY_CHAT_ID sont absentes.
+  announce-release:
+    needs: [release, deploy-vps, deploy-production]
+    if: >-
+      always() && needs.release.outputs.release_created == 'true' &&
+      (needs.deploy-vps.result == 'success' || needs.deploy-production.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.release_sha }}
+          persist-credentials: false
+      - name: Annoncer la release sur WhatsApp
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.release.outputs.release_sha }}
+          RELEASE_TAG: ${{ needs.release.outputs.tag_name }}
+          PUBLIC_ORIGIN: https://precis-translator.trigenys.com
+          NOTIFY_BASE_URL: ${{ vars.NOTIFY_BASE_URL }}
+          NOTIFY_SESSION: ${{ vars.NOTIFY_SESSION }}
+          NOTIFY_CHAT_ID: ${{ vars.NOTIFY_CHAT_ID }}
+          NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
+        run: python3 scripts/ci/release_announcement.py --tag "$RELEASE_TAG"
   deploy-production:
     needs: release
     if: needs.release.outputs.release_created == 'true' && vars.PRECIS_DEPLOY_TARGET == 'aws'

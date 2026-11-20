@@ -5,7 +5,18 @@
   "packages": {
     ".": {
       "release-type": "node",
-      "initial-version": "1.2.0"
+      "initial-version": "1.2.0",
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "backend/app/content/nouveautes.py"
+        },
+        {
+          "type": "json",
+          "path": "frontend/seo/fonctionnalites.json",
+          "jsonpath": "$.version"
+        }
+      ]
     }
   }
 }
