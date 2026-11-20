@@ -74,11 +74,14 @@ Le français est plus long que l'anglais, d'environ 15 à 25 %. Dans une forme d
 ### Ce qui existe déjà chez nous
 Le moteur PDF a `translated_fit`. Il mesure si la traduction tient dans son cadre. Si elle ne tient pas, il demande une **traduction plus courte**. Il ne déforme jamais la mise en page.
 
-### Règle proposée
-1. **Mesurer** : on estime la place prise par le texte traduit, à partir de la taille de la forme, de la police et du nombre de lignes. On la compare à celle de l'original.
-2. **Si ça déborde** : on demande une traduction plus courte, comme dans le moteur PDF.
-3. **Si ça déborde encore** : on réduit la police, sans descendre sous 80 % de la taille d'origine. On l'écrit dans le fichier avec `normAutofit fontScale`, la valeur que PowerPoint utilise lui-même.
-4. Une forme qui ne déborde pas n'est **jamais modifiée**.
+### Règle retenue (mise en œuvre)
+1. **L'original fait référence.** S'il tenait dans sa zone, la traduction doit tenir. S'il débordait déjà, la traduction ne doit pas déborder davantage : l'auteur avait accepté ce dépassement-là, pas un plus grand.
+2. **Mesurer** : on estime la hauteur du texte à partir de la taille de la zone, de ses marges, de la taille de police et de la largeur réelle de chaque lettre en Arial (la police de 6 151 morceaux sur ce fichier). La table de largeurs est fixe : aucune dépendance aux polices du serveur. L'original et la traduction sont mesurés de la même façon, dans la même zone.
+3. **Si ça déborde** : on redemande une traduction plus courte de la diapositive, avec un nombre maximal de caractères, par reformulation seulement : sans abréviation, sans sigle inventé, sans rien omettre d'essentiel. La nouvelle version n'est gardée que si elle est plus courte et garde la même mise en forme.
+4. **Si ça déborde encore** : on réduit la police au plus juste, jamais sous 80 % de la taille d'origine, avec `normAutofit fontScale`, la valeur que PowerPoint écrit lui-même.
+5. Une zone qui ne déborde pas n'est **jamais modifiée**. Les zones qui s'agrandissent seules, sans retour à la ligne, en texte vertical ou en colonnes ne sont pas touchées.
+6. **Contrôle sur Gerold** : 85 zones sur 1 578 mesurées débordent dans la traduction de production. Le rendu confirme les cas vérifiés : « Caractérist/iques », « Livraiso/n », titres d'onglets sur deux lignes, textes qui se chevauchent (diapositives 6, 10, 51, 69).
+7. **À faire ensuite** : la même règle pour les cellules XLSX.
 
 ---
 

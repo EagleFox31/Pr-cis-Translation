@@ -25,6 +25,7 @@ import copy
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -546,6 +547,61 @@ def _reprendre_slide(slide_data: dict, connus: dict[str, dict],
 _CONSIGNE_COHERENCE = runtags.CONSIGNE_COHERENCE
 
 
+_BALISES_RUN = re.compile(r"\[\[/?\d+\]\]")
+_CONSIGNE_COMPACTE = (
+    "La traduction précédente ne tient pas dans sa zone de la diapositive : "
+    "« {precedente} ». Retraduis le texte source en MAXIMUM {budget} caractères "
+    "(hors balises), par REFORMULATION uniquement : AUCUNE abréviation, AUCUN "
+    "sigle absent du texte source, ne rien omettre d'essentiel. Garde les mêmes "
+    "balises [[n]]…[[/n]].")
+
+
+def _compacter_slide(pptx_eng, slide_num: int, slide_data: dict,
+                     target_lang: str, progress_cb=None, fiche: str = "") -> int:
+    """Texte qui déborde de sa zone PLUS que l'original : on redemande une
+    traduction plus courte (même règle que le moteur PDF), avant que l'injection
+    ne réduise la police en dernier recours. Renvoie le nombre de fragments
+    raccourcis. Best-effort : toute erreur garde la traduction telle quelle."""
+    try:
+        ratios = pptx_eng.debordements(slide_num, {
+            el["id"]: (el.get("translated_text") or el["text"])
+            for el in _elements_de(slide_data)})
+    except Exception:
+        return 0
+    if not ratios:
+        return 0
+    copies, origines = [], []
+    for el in _elements_de(slide_data):
+        ratio, cur = ratios.get(el.get("id")), el.get("translated_text")
+        if ratio is None or not cur:
+            continue
+        lg_src = len(runtags.sans_balises(el["text"]))
+        lg_cur = len(runtags.sans_balises(cur))
+        budget = max(int(0.92 * lg_src), int(lg_cur * ratio))
+        if lg_cur <= budget:
+            continue
+        copies.append({**el, "consigne": _CONSIGNE_COMPACTE.format(
+            precedente=cur, budget=budget)})
+        origines.append(el)
+    if not copies:
+        return 0
+    try:
+        ai_translator._translate_batch(copies, target_lang, progress_cb, passes=0,
+                                       cadre={"fiche": fiche} if fiche else None)
+    except Exception:
+        return 0
+    n = 0
+    for el, c in zip(origines, copies):
+        avant, apres = el["translated_text"], c.get("translated_text") or ""
+        if (apres.strip()
+                and len(runtags.sans_balises(apres)) < len(runtags.sans_balises(avant))
+                and sorted(_BALISES_RUN.findall(apres))
+                == sorted(_BALISES_RUN.findall(avant))):
+            el["translated_text"] = apres
+            n += 1
+    return n
+
+
 def _coherence_document(slides_traduites: dict, pptx_eng, target_lang: str,
                         progress_cb=None, fiche: str = "") -> int:
     """Reprend les fragments qui laissent en langue source un terme que le
@@ -880,6 +936,9 @@ def run_pptx_progressive_job(
                         os.remove(p)
                     except OSError:
                         pass
+                _compacter_slide(pptx_eng, slide_num, slide_data, target_lang,
+                                 jobs.progress_callback(job_id, "translate"),
+                                 fiche_doc)
 
             jobs.emit(job_id, "page", {"page": slide_num, "status": "rendering",
                          "done": done, "total": total})

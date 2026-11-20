@@ -1,49 +1,50 @@
-# PASSATION — 16/10/2026 (nuit)
+# PASSATION — 19/11/2026
 
 ## 1. Objectif en cours
-Expansion XLSX fusionnée dans main (0d48e30, 17/10) et poussée ; 45/45 suites vertes après fusion. Prochaine étape : déploiement 1.1.0 (côté utilisateur).
+Corriger les défauts PPTX du PowerPoint de Gerold (R6/R7) selon `docs/etude-pptx-qualite-gerold.md`. On est dans le worktree `Precis-Translator-pptx-qualite`, sur la branche `fix/pptx-qualite`. Rien n'est poussé : on attend la validation locale de l'utilisateur.
 
 ## 2. Fait
-- `backend/engines/xlsx/expansion.py` (nouveau) : dernière passe de `inject_translation` et de `injecter_partiel` (`engine.py`). L'instantané source `self._origine` est pris dans `_ouvrir`.
-  - Texte sur une ligne : la colonne propre est élargie selon l'alignement et les voisines vides. Besoin = `min(t, (A−marge)·t/s) + marge` ; plusieurs paragraphes sont sommés ; une fusion est répartie au prorata de ses colonnes.
-  - Retour à la ligne : `ht · Lt/Ls`, seulement si la ligne source a un `ht` ; `customHeight` est restauré, jamais forcé.
-  - Nombre : on calcule l'écart de largeur des littéraux traduits, sommé dans chaque section `;` puis maximum entre sections. Plus de `#####`.
-  - Tolérance aux défauts : `r` manquant, valeurs illisibles, `<col>` invalide. Une feuille qui fait planter la passe est sautée et journalisée.
-- Moteur XLSX passé en **1.0.0**. Docs mises à jour : `version.py`, `engines/__init__.py`, `CONTEXTE.md`, README, ARCHITECTURE, TODO §4, CHANGELOG `[Non publié]`.
+- a02225c (étapes a, b, e) dans `engines/pptx/engine.py` et `engines/runtags.py` :
+  - un titre coupé par des sauts de ligne manuels est traduit en une seule unité, puis recoupé en lignes équilibrées (`decouper_lignes` et `joindre_lignes`) ;
+  - un libellé court coupé en paragraphes est fusionné de la même façon ;
+  - un symbole seul n'est pas envoyé au modèle, et un préfixe symbole est conservé ;
+  - aucun espace double n'est créé.
+  - Tests : `tests/test_pptx_porteurs.py`.
+- cef7439 (étape d) :
+  - `runtags.traductions_majoritaires` : pour un même original d'au moins deux mots, la majorité stricte (≥ 2) l'emporte ; en cas d'égalité, rien ne change.
+  - Elle est branchée dans `_coherence_document` (`app/services/translation_runner.py` ~l.549), avant la reprise des termes incohérents. Elle ne fait aucun appel au modèle et ne réinjecte que les diapositives touchées.
+  - L'étude, section (d), est mise à jour.
 - Preuves :
-  - `tests/test_xlsx_expansion.py` 28/28 ;
-  - 18 mutations, toutes tuées ;
-  - 45 suites backend vertes ;
-  - rendu LibreOffice réel : texte entier et nombre lisible avec la passe ; texte coupé et `###` sans.
+  - test_pptx_porteurs 21 passés ;
+  - test_pptx_preview 38/38 ;
+  - test_runtags 41/41.
+  - Auparavant : reprise_pptx, apercu_progressif, contexte_traduction, ole_apercu, xlsx, rendu_structure, download_format, tous verts.
 
 ## 3. Décisions
-- Aucun seuil : la traduction est comparée à SA source dans la même place. Une source déjà coupée reste coupée dans la même proportion (l'auteur l'avait acceptée).
-- On n'élargit que la colonne propre, jamais une voisine. Sans voisine pleine du côté du débordement, la place est infinie et rien ne bouge.
-- Une ligne sans `ht` est laissée à l'ajustement automatique d'Excel ; lui donner une hauteur la figerait.
-- Mesure en « zéros » avec la police helv de fitz comme police témoin, faute de la police réelle.
-- Idempotence : chaque passe restaure `<cols>` et les hauteurs d'origine avant d'appliquer, donc l'aperçu progressif peut réinjecter à volonté.
+- d2 abandonné : imposer la traduction d'un libellé partout dans les phrases dégradait le texte (« HRD policy » donnait « Politique HRD » au lieu de « politique RH »). La fiche est un texte libre, pas un glossaire.
+- Mots seuls exclus de l'unification : « Customer » peut donner Accueil ou Client selon l'endroit.
+- Contrôle commun à toutes les étapes : réinjecter la source rend exactement l'original (aller-retour).
 
-## 4. Reste à faire
-1. ~~Fusion dans main~~ fait le 17/10. Rappel : un push ne déclenche deploy.yml que si `release/version.txt` change.
-2. **Déploiement 1.1.0** : c'est à l'utilisateur de le faire (console AWS ou push de release).
-3. Dettes :
-   - le chemin réel `_ouvrir` → `injecter_partiel` n'a pas de test dédié de l'expansion ;
-   - fusion sur plusieurs lignes à retour à la ligne : hauteur non ajustée ;
-   - alignements `fill`/`distributed` traités comme « standard » ;
-   - glob `sheet*.xml` sensible à la casse.
-4. Restent d'avant :
-   - police de repli Times→Liberation Serif (`engines/pdf/engine.py` `_matched_family`) ;
-   - clignotement de la carte PPTX ;
-   - OCR du Code de la Route ;
-   - vérifier la cohérence PDF sur le CV `b885219a18f7` (à retraduire).
+## 4. Plan
+1. [x] (a) + R6 sauts de ligne et libellés coupés
+2. [x] (b) symboles
+3. [x] (e) espaces doubles
+4. [x] (d) cohérence : même original, majorité
+5. [x] (c) débordement de zone : `engines/pptx/debordement.py` (mesure par largeurs Arial, `ajuster` avec un plancher de 80 %), `engine.py` (`_inject_in_xml`, `debordements`), `translation_runner._compacter_slide` (retraduction plus courte). Tests : `tests/test_pptx_debordement.py`.
+6. [ ] ← Rejouer Gerold (`original.pptx` → nouvelle traduction) et montrer seulement les cas qui changent.
+7. [ ] Rapport à l'utilisateur. Push/PR seulement après sa validation locale.
+
+**Hors plan** : la même règle de débordement pour XLSX (accord de l'utilisateur ; branche à part).
 
 ## 5. Pièges / contexte
-- Tests :
-  - commande : `cd backend && for t in tests/test_*.py; do PYTHONIOENCODING=utf-8 venv/Scripts/python.exe "$t" </dev/null; done` ;
-  - jamais d'appel API payant (traduction simulée) ;
-  - la trace affichée par la section ILLISIBLE est attendue.
-- Ne pas combiner `python - <<EOF` et `</dev/null` (le shell bloque). Passer par un fichier de script.
-- Éditer par script Python (`newline=''`, CRLF/LF mixtes) ; les heredocs bash écrasent `\\`.
-- Serveur sans rechargement automatique :
-  - backend : `cd backend && PYTHONIOENCODING=utf-8 venv/Scripts/python.exe -m uvicorn main:app --port 8000` ;
-  - front : `cd frontend && npm run dev`.
+- Fichiers Gerold : `C:/Users/IBRAH/AppData/Local/Temp/claude/6d6c80c79a7942fb/1158bb8f-57e3-42af-8146-b3911ec69fb7/scratchpad/gerold/{original,traduit}.pptx`.
+- Scripts d'analyse dans `C:/Users/IBRAH/AppData/Local/Temp/claude/6d6c80c79a7942fb/34e53c1c-5d86-4eb3-bd86-a334927c8f09/scratchpad/` :
+  - `verif.py` : diff des extractions et aller-retour ;
+  - `termes.py` : incohérences.
+- Python : il n'y a pas de venv dans le worktree. Utiliser `/c/Users/IBRAH/Documents/Projets/Precis_Translator_backup_2026-06-10_13-10/backend/venv/Scripts/python.exe -X utf8` (pytest y est installé).
+- Beaucoup de tests sont des scripts avec `main()` : les lancer avec `python -X utf8 tests/x.py`, pas avec pytest.
+- Les tests qui ont besoin de la base exigent `backend/.env` :
+  - copier celui du dépôt principal ;
+  - lancer les tests ;
+  - puis `rm .env`, car il est ignoré par git et ne doit pas rester.
+- Commits : ne mentionner l'IA nulle part et ne pas ajouter de trailer.

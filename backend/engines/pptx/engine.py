@@ -10,6 +10,7 @@ from pathlib import Path
 from collections import defaultdict
 
 from engines import runtags        # contrat des balises de runs (et sa réparation)
+from engines.pptx import debordement
 
 NAMESPACES = {
     'p': 'http://schemas.openxmlformats.org/presentationml/2006/main',
@@ -322,6 +323,8 @@ class PPTXTranslatorEngine:
         # Parties partagées déjà extraites pour CE document (chemins de
         # fichiers). Remis à zéro avec le dossier temporaire.
         self._parts_vues: set[str] = set()
+        # Mesure des zones de texte ORIGINALES, par fichier XML (étape c).
+        self._sources_debord: dict[str, dict] = {}
 
     def generate_autorefresh_pptm(self, pptx_path: str, pptm_output_path: str = None) -> str:
         """Génère une version .pptm (PowerPoint Macro-Enabled) contenant la macro VBA
@@ -391,6 +394,7 @@ class PPTXTranslatorEngine:
             shutil.rmtree(self.temp_dir, ignore_errors=True)
             self.temp_dir = None
         self._parts_vues.clear()
+        self._sources_debord.clear()
 
     def _extract_zip(self, pptx_path):
         """Décompresse le PPTX (archive ZIP) dans le dossier temporaire."""
@@ -399,6 +403,7 @@ class PPTXTranslatorEngine:
             zf.extractall(temp_path)
         # Nouveau document : les parties partagées sont à revoir.
         self._parts_vues.clear()
+        self._sources_debord.clear()
 
     def _part_deja_vue(self, chemin) -> bool:
         """Cette partie PARTAGÉE a-t-elle déjà été extraite ? (et la marque)"""
@@ -825,8 +830,51 @@ class PPTXTranslatorEngine:
         """
         tree = etree.parse(str(xml_path))
         root = tree.getroot()
-        modified = False
+        etat = self._etat_debord(xml_path, root) if id_prefix == "p" else None
+        modified = self._injecter_racine(root, slide_num, id_prefix,
+                                         translation_map, num_alt)
+        if modified and etat:
+            debordement.ajuster(root, etat)
+        if modified:
+            with open(xml_path, "wb") as f:
+                f.write(etree.tostring(tree, encoding="utf-8", xml_declaration=True))
+        return modified
 
+    def _etat_debord(self, xml_path, root):
+        """Mesure de l'ORIGINAL de la diapositive, prise une seule fois : la
+        passe de cohérence réinjecte dans un fichier déjà traduit, qui ne dit
+        plus si l'original tenait dans ses zones."""
+        cle = str(xml_path)
+        if cle not in self._sources_debord:
+            self._sources_debord[cle] = debordement.etat_source(root)
+        return self._sources_debord[cle]
+
+    def debordements(self, slide_num: int, translation_map: dict) -> dict:
+        """{identifiant: ratio} des paragraphes dont la zone déborderait plus
+        que l'original avec cette traduction (ratio = place disponible / place
+        demandée, < 1). Simulation en mémoire : rien n'est écrit."""
+        path = self._slide_path(slide_num)
+        if not path.exists():
+            return {}
+        root = etree.parse(str(path)).getroot()
+        etat = self._etat_debord(path, root)
+        if not etat:
+            return {}
+        # Les éléments restent référencés par `paras` : lxml rend donc les
+        # mêmes objets Python après l'injection (un `id()` seul ne tiendrait pas).
+        paras = root.xpath(".//a:p", namespaces=NAMESPACES)
+        rang = {p: i for i, p in enumerate(paras)}
+        self._injecter_racine(root, slide_num, "p", translation_map, ())
+        out = {}
+        for ratio, paras in debordement.excedents(root, etat):
+            for p in paras:
+                elem_id = f"slide{slide_num}_p_p{rang[p]}"
+                if elem_id in translation_map:
+                    out[elem_id] = ratio
+        return out
+
+    def _injecter_racine(self, root, slide_num, id_prefix, translation_map, num_alt):
+        modified = False
         paragraphs = root.xpath(".//a:p", namespaces=NAMESPACES)
 
         def _id(p_idx):
@@ -899,10 +947,6 @@ class PPTXTranslatorEngine:
                     # s'affichait telle quelle dans le graphique.
                     v_node.text = runtags.sans_balises(translation_map[elem_id])
                     modified = True
-
-        if modified:
-            with open(xml_path, "wb") as f:
-                f.write(etree.tostring(tree, encoding="utf-8", xml_declaration=True))
         return modified
 
     # ── Méthodes pour le pipeline PROGRESSIF (slide par slide) ──────────────
