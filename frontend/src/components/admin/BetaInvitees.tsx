@@ -90,6 +90,8 @@ export function InviteeField({ labelId, value, onChange, exclude }: {
 
   return (
     <div className="beta-invitees">
+      {/* La liste flotte sous le champ : la fermer ne déplace pas les boutons pendant un clic. */}
+      <div className="beta-invitees__anchor">
       <div className={'beta-invitees__box' + (expanded ? ' beta-invitees__box--open' : '')}
         onMouseDown={event => { if (event.target === event.currentTarget) { event.preventDefault(); input.current?.focus(); } }}>
         {value.length > 0 && (
@@ -147,6 +149,7 @@ export function InviteeField({ labelId, value, onChange, exclude }: {
           {suggestions.length === 0 && <li className="beta-invitees__empty">{t('beta.invitees.no_match')}</li>}
         </ul>
       )}
+      </div>
       <p id={hintId} className="admin-note">{t('beta.invitees.help', { max: MAX_INVITEES })}</p>
       <span className="sr-only" role="status">{announce}</span>
     </div>

@@ -43,7 +43,8 @@
 .beta-invitees__more:focus-visible { outline: 3px solid var(--blue-light); }
 .beta-card .beta-invitees__input { flex: 1 1 120px; min-width: 120px; border: 0; padding: 6px 4px; outline: none; background: transparent; }
 .beta-card .beta-invitees__input:focus-visible { outline: none; }
-.beta-invitees__list { max-height: 240px; overflow: auto; margin: 0; padding: 4px; list-style: none; background: #fff; border: 1px solid var(--gray-200, #e5e7eb); border-radius: 10px; box-shadow: 0 12px 28px rgba(13,27,62,.14); }
+.beta-invitees__anchor { position: relative; }
+.beta-invitees__list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 5; max-height: 240px; overflow: auto; margin: 0; padding: 4px; list-style: none; background: #fff; border: 1px solid var(--gray-200, #e5e7eb); border-radius: 10px; box-shadow: 0 12px 28px rgba(13,27,62,.14); }
 .beta-invitees__option { display: grid; gap: 2px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 14px; color: var(--navy); }
 .beta-invitees__option span { font-size: 12px; color: var(--gray-600); }
 .beta-invitees__option:hover, .beta-invitees__option[aria-selected="true"] { background: var(--gray-100); }
