@@ -12,8 +12,11 @@ du serveur), 1 em pour les caractères pleine chasse (CJK), interligne 1,2 em.
 L'erreur résiduelle est la même des deux côtés, puisque source et traduction
 sont mesurées dans la même zone, avec la même taille de police.
 
-Dernier recours après la retraduction plus courte : `normAutofit fontScale`
-(« Ajuster le texte » de PowerPoint), jamais sous 80 % de la taille d'origine.
+Dernier recours après la retraduction plus courte : la police est réduite en
+écrivant la nouvelle taille dans le texte, comme le fait un maquettiste (même
+rendu dans PowerPoint, LibreOffice, Keynote…), jamais sous 80 % de l'original.
+Si la taille est héritée du masque (inconnue ici), repli sur
+`normAutofit fontScale`, la valeur qu'écrit PowerPoint pour « Ajuster le texte ».
 Les zones qui s'agrandissent seules (`spAutoFit`), sans retour à la ligne
 (`wrap="none"`), en texte vertical ou en colonnes ne sont pas touchées.
 """
@@ -47,6 +50,10 @@ _LARGEURS = {c: w / 1000 for w, cs in _ARIAL.items() for c in cs}
 _DEFAUT_EM = 0.556          # chiffres, minuscules courantes, accents
 _ESPACE_EM = 0.278
 _INTERLIGNE = 1.2
+# Marge de sécurité sur la largeur : le rendu (crénage, police de
+# substitution métriquement proche) varie de quelques pour cent selon le
+# logiciel ; un mot mesuré « tout juste » serait coupé ailleurs.
+_MARGE = 0.97
 _TAILLE_DEFAUT = 18.0
 PLANCHER = 0.80
 _PAS = 0.025
@@ -105,7 +112,7 @@ def _nb_lignes(texte: str, largeur: float, taille: float) -> int:
     mots = texte.split()
     if not mots:
         return 1
-    ligne = largeur / taille          # largeur d'une ligne, en em
+    ligne = largeur * _MARGE / taille   # largeur d'une ligne, en em
     espace = _ESPACE_EM
     n, courant = 1, 0.0
     for mot in mots:
@@ -175,6 +182,42 @@ def _geometrie(sp):
     return largeur, haut
 
 
+_PORTEURS = ("rPr", "endParaRPr", "defRPr")
+
+
+def _porteurs(txbody) -> list:
+    """Éléments de la zone qui portent une taille de police explicite."""
+    return [el for el in txbody.iter()
+            if isinstance(el.tag, str)
+            and etree.QName(el).localname in _PORTEURS
+            and (el.get("sz") or "").isdigit()]
+
+
+def _taille_connue(txbody) -> bool:
+    """Toutes les tailles du texte sont écrites dans la zone (sinon elles
+    viennent du masque et une taille écrite ici serait devinée)."""
+    if txbody.find(f"{{{_A}}}lstStyle/{{{_A}}}lvl1pPr/{{{_A}}}defRPr[@sz]") is not None:
+        return True
+    for el in txbody.iter(_q(_A, "r"), _q(_A, "fld")):
+        rpr = el.find(_q(_A, "rPr"))
+        if rpr is None or not (rpr.get("sz") or "").isdigit():
+            return False
+    return True
+
+
+def _restaurer(txbody, source, applique):
+    """Remet les tailles d'origine d'une zone déjà réduite (`applique`)."""
+    if not applique:
+        return
+    els = _porteurs(txbody)
+    if len(els) == len(source[3]):
+        for el, v in zip(els, source[3]):
+            el.set("sz", str(v))
+    else:
+        for el in els:
+            el.set("sz", str(round(int(el.get("sz")) / applique)))
+
+
 def _ajustement(corps):
     for nom in _AJUSTEMENTS:
         el = corps.find(_q(_A, nom))
@@ -191,7 +234,9 @@ def _echelle(corps) -> float:
 
 def etat_source(root) -> dict[int, tuple]:
     """Mesure de l'ORIGINAL, prise avant toute injection :
-    {rang de la forme: (hauteur source, échelle source, ajustement d'origine)}."""
+    {rang de la forme: (hauteur source, échelle source, ajustement d'origine,
+    tailles écrites d'origine, tailles toutes connues)}. La clé "_reduites"
+    garde les réductions déjà écrites, pour repartir de l'original."""
     etat = {}
     for i, sp in enumerate(formes(root)):
         geo = _geometrie(sp)
@@ -202,7 +247,9 @@ def etat_source(root) -> dict[int, tuple]:
         f0 = _echelle(corps)
         aj = _ajustement(corps)
         etat[i] = (hauteur(txbody, geo[0], f0), f0,
-                   copy.deepcopy(aj) if aj is not None else None)
+                   copy.deepcopy(aj) if aj is not None else None,
+                   [int(el.get("sz")) for el in _porteurs(txbody)],
+                   _taille_connue(txbody))
     return etat
 
 
@@ -211,7 +258,7 @@ def _mesure(sp, source):
     geo = _geometrie(sp)
     if geo is None:
         return None
-    hs, f0, _aj = source
+    hs, f0 = source[0], source[1]
     largeur, haut = geo
     txbody = sp.find(_q(_P, "txBody"))
     return max(haut, hs), hauteur(txbody, largeur, f0), largeur
@@ -221,9 +268,11 @@ def excedents(root, etat: dict) -> list[tuple[float, list]]:
     """Formes dont la traduction déborde plus que l'original :
     [(limite / hauteur traduite, paragraphes de la forme)]."""
     out = []
+    reduites = etat.get("_reduites", {})
     for i, sp in enumerate(formes(root)):
         if i not in etat:
             continue
+        _restaurer(sp.find(_q(_P, "txBody")), etat[i], reduites.get(i))
         m = _mesure(sp, etat[i])
         if m and m[1] > m[0]:
             out.append((m[0] / m[1],
@@ -233,15 +282,18 @@ def excedents(root, etat: dict) -> list[tuple[float, list]]:
 
 def ajuster(root, etat: dict) -> int:
     """Réduit la police des formes qui débordent encore plus que l'original,
-    au plus juste et jamais sous `PLANCHER`. Repart toujours de l'ajustement
-    d'origine : une réinjection ne cumule pas les réductions. Renvoie le
-    nombre de formes réduites."""
+    au plus juste et jamais sous `PLANCHER`. Repart toujours de l'original :
+    une réinjection ne cumule pas les réductions. Renvoie le nombre de formes
+    réduites."""
+    reduites = etat.setdefault("_reduites", {})
     n = 0
     for i, sp in enumerate(formes(root)):
         if i not in etat:
             continue
-        hs, f0, aj0 = etat[i]
-        corps = sp.find(f"{{{_P}}}txBody/{{{_A}}}bodyPr")
+        hs, f0, aj0, _t0, connue = etat[i]
+        txbody = sp.find(_q(_P, "txBody"))
+        corps = txbody.find(_q(_A, "bodyPr"))
+        _restaurer(txbody, etat[i], reduites.pop(i, None))
         actuel = _ajustement(corps)
         if actuel is not None:
             corps.remove(actuel)
@@ -251,20 +303,24 @@ def ajuster(root, etat: dict) -> int:
         if m is None or m[1] <= m[0]:
             continue
         limite, _ht, largeur = m
-        txbody = sp.find(_q(_P, "txBody"))
         s = 1.0
         while s - _PAS >= PLANCHER - 1e-9:
             s = round(s - _PAS, 3)
             if hauteur(txbody, largeur, f0 * s) <= limite:
                 break
-        el = corps.find(_q(_A, "normAutofit"))
-        if el is None:
-            ancien = _ajustement(corps)
-            if ancien is not None:
-                corps.remove(ancien)
-            el = etree.Element(_q(_A, "normAutofit"))
-            _inserer(corps, el)
-        el.set("fontScale", str(int(round(f0 * s * 100000))))
+        if connue:
+            for el in _porteurs(txbody):
+                el.set("sz", str(max(100, round(int(el.get("sz")) * s))))
+            reduites[i] = s
+        else:
+            el = corps.find(_q(_A, "normAutofit"))
+            if el is None:
+                ancien = _ajustement(corps)
+                if ancien is not None:
+                    corps.remove(ancien)
+                el = etree.Element(_q(_A, "normAutofit"))
+                _inserer(corps, el)
+            el.set("fontScale", str(int(round(f0 * s * 100000))))
         n += 1
     return n
 

@@ -48,6 +48,13 @@ def _injecter(xml, traduction):
 
 
 def _echelle(root):
+    """Réduction écrite dans le texte, en millièmes de pour cent (comme
+    fontScale) ; None si la taille d'origine (18 pt) est intacte."""
+    sz = int(root.find(f".//{{{A}}}rPr").get("sz"))
+    return None if sz == 1800 else round(sz * 100000 / 1800)
+
+
+def _autofit(root):
     el = root.find(f".//{{{A}}}normAutofit")
     return None if el is None else int(el.get("fontScale"))
 
@@ -82,7 +89,7 @@ def test_source_deborde_traduction_deborde_plus_reduite_au_niveau_source():
     # ramène à deux lignes (le débord de l'original), pas à une seule.
     _e, _c, root = _injecter(_slide("aaa bbb ccc ddd eee fff"),
                              "aaaa bbbb cccc dddd eeee ffff gggg")
-    assert _echelle(root) == 90000
+    assert _echelle(root) == 87500
 
 
 def test_zone_qui_grandit_seule_ignoree():
@@ -94,17 +101,27 @@ def test_zone_qui_grandit_seule_ignoree():
 
 
 def test_ajustement_existant_remplace_puis_restaure():
-    # noAutofit d'origine : remplacé par la réduction, et réinjecter une
-    # traduction qui tient le remet tel quel.
+    # La taille réduite est écrite dans le texte ; l'ajustement d'origine
+    # (noAutofit) reste. Réinjecter une traduction qui tient remet 18 pt.
     corps = "<a:bodyPr><a:noAutofit/></a:bodyPr>"
     eng, chemin, root = _injecter(_slide("Short text", corps),
                                   "Texte un peu plus long")
     assert _echelle(root) == 92500
-    assert root.find(f".//{{{A}}}noAutofit") is None
+    assert _autofit(root) is None
+    assert root.find(f".//{{{A}}}noAutofit") is not None
     eng._inject_in_xml(chemin, 1, "p", {ID: "Texte court"})
     root = etree.parse(str(chemin)).getroot()
     assert _echelle(root) is None
     assert root.find(f".//{{{A}}}noAutofit") is not None
+
+
+def test_taille_heritee_du_masque_repli_ajustement():
+    # Sans taille écrite, la vraie taille vient du masque : on ne la devine
+    # pas, on laisse PowerPoint réduire (fontScale) avec le même plancher.
+    xml = _slide("Short text").replace(' sz="1800"', "")
+    _e, _c, root = _injecter(xml, "Texte un peu plus long")
+    assert _autofit(root) == 92500
+    assert root.find(f".//{{{A}}}rPr").get("sz") is None
 
 
 def test_reinjection_ne_cumule_pas():
@@ -113,8 +130,8 @@ def test_reinjection_ne_cumule_pas():
     eng, chemin, _r = _injecter(_slide("Short text"), "Texte un peu plus long")
     eng._inject_in_xml(chemin, 1, "p", {ID: "Texte un peu plus long"})
     root = etree.parse(str(chemin)).getroot()
-    assert _echelle(root) == 92500
-    assert len(root.findall(f".//{{{A}}}normAutofit")) == 1
+    assert _echelle(root) == 92500          # pas 92,5 % de 92,5 %
+    assert _autofit(root) is None
 
 
 def test_aller_retour_source_identique():

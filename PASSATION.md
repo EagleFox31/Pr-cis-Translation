@@ -31,6 +31,9 @@ Corriger les défauts PPTX du PowerPoint de Gerold (R6/R7) selon `docs/etude-ppt
 3. [x] (e) espaces doubles
 4. [x] (d) cohérence : même original, majorité
 5. [x] (c) débordement de zone : `engines/pptx/debordement.py` (mesure par largeurs Arial, `ajuster` avec un plancher de 80 %), `engine.py` (`_inject_in_xml`, `debordements`), `translation_runner._compacter_slide` (retraduction plus courte). Tests : `tests/test_pptx_debordement.py`.
+5b. [x] Réduction de police écrite dans le texte (`sz`), avec repli `normAutofit` si la taille vient du masque ; marge de 3 % sur la largeur.
+   - Reste pour l'étape 6 : « Caractéristiques » (diapositive 6) et « Entretien Rappel d'entretien… » (diapositive 10) ne tiennent pas, même à 80 % : il faut la retraduction plus courte.
+   - Bandeau « Niveaux de certification » : `wrap=none` + `spAutoFit`. Il est sur une ligne dans PowerPoint ; seul LibreOffice le coupe.
 6. [ ] ← Rejouer Gerold (`original.pptx` → nouvelle traduction) et montrer seulement les cas qui changent.
 7. [ ] Rapport à l'utilisateur. Push/PR seulement après sa validation locale.
 
