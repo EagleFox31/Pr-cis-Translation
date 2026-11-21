@@ -4,8 +4,8 @@
 d'un même jour (docs/etude-retours-18-11.md §2)."""
 from alembic import op
 
-revision = "0028_admin_recaps"
-down_revision = "0027_traduction_libre"
+revision = "0029_admin_recaps"
+down_revision = "0028_beta_mailed_at"
 branch_labels = None
 depends_on = None
 
