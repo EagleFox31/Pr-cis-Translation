@@ -13,6 +13,8 @@ export interface BetaEnrollment {
   id: string; email: string; primary_format: BetaFormat;
   state: 'invited' | 'active' | 'expired' | 'revoked';
   invited_at: string; activated_at: string | null; expires_at: string | null;
+  /** Date d'envoi effectif du mail d'invitation ; vide tant qu'il n'est pas parti. */
+  mailed_at?: string | null;
   limits: BetaLimits; formats: Record<BetaFormat, BetaAllowance>;
 }
 export interface BetaMe {

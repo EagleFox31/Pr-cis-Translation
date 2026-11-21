@@ -156,9 +156,17 @@ class BetaTests(unittest.IsolatedAsyncioTestCase):
     async def invite_tester(self, user=None):
         user = user or self.tester
         result = await self.client.post("/api/admin/beta/invitations",
-            json={"email": user.email.upper(), "primary_format": "xlsx"}, headers=self.admin_headers)
-        self.assertEqual(result.status_code, 201, result.text)
-        return result.json()
+            json={"emails": [user.email.upper()], "primary_format": "xlsx"}, headers=self.admin_headers)
+        self.assertEqual(result.status_code, 200, result.text)
+        outcome = result.json()["results"][0]
+        self.assertEqual(outcome["status"], "invited", result.text)
+        return outcome["enrollment"]
+
+    async def invite_status(self, email, **fields):
+        result = await self.client.post("/api/admin/beta/invitations",
+            json={"emails": [email], **fields}, headers=self.admin_headers)
+        self.assertEqual(result.status_code, 200, result.text)
+        return result.json()["results"][0]["status"]
 
     async def activate_tester(self):
         await self.start_campaign(); await self.invite_tester()
@@ -199,16 +207,13 @@ class BetaTests(unittest.IsolatedAsyncioTestCase):
     async def test_two_waves_and_two_month_recruitment_window(self):
         await self.start_campaign(capacity=2, first_wave_capacity=1)
         await self.invite_tester()
-        second = await self.client.post("/api/admin/beta/invitations",
-            json={"email": self.other.email}, headers=self.admin_headers)
-        self.assertEqual(second.status_code, 409)
+        self.assertEqual(await self.invite_status(self.other.email), "wave_full")
         async with self.sessions() as db:
             campaign = await db.get(BetaCampaign, self.campaign_id)
             campaign.starts_at = beta.now_utc() - timedelta(days=32)
             campaign.recruitment_ends_at = beta.now_utc() + timedelta(days=27)
             await db.commit()
-        self.assertEqual((await self.client.post("/api/admin/beta/invitations",
-            json={"email": self.other.email}, headers=self.admin_headers)).status_code, 201)
+        self.assertEqual(await self.invite_status(self.other.email), "invited")
         async with self.sessions() as db:
             campaign = await db.get(BetaCampaign, self.campaign_id)
             campaign.recruitment_ends_at = beta.now_utc() - timedelta(seconds=1); await db.commit()
@@ -428,10 +433,7 @@ class BetaTests(unittest.IsolatedAsyncioTestCase):
         early = await self.client.post("/api/beta/applications", json=application, headers=self.tester_headers)
         self.assertEqual(early.status_code, 409)
         self.assertIn("previous_access_active", early.text)
-        invited = await self.client.post("/api/admin/beta/invitations", json={"email": self.tester.email},
-                                         headers=self.admin_headers)
-        self.assertEqual(invited.status_code, 409)
-        self.assertIn("previous_access_active", invited.text)
+        self.assertEqual(await self.invite_status(self.tester.email), "previous_access_active")
         me = (await self.client.get("/api/beta/me", headers=self.tester_headers)).json()
         self.assertEqual(me["enrollment"]["id"], enrollment["id"], "the earlier access keeps running")
         async with self.sessions() as db:
@@ -480,11 +482,11 @@ class BetaTests(unittest.IsolatedAsyncioTestCase):
             (await db.get(User, self.tester.id)).email = "beta-tester@outlook.com"
             enrollment = (await db.execute(select(BetaEnrollment))).scalars().one()
             enrollment.email = "beta-tester@outlook.com"; enrollment.mailbox_key = "beta-tester@outlook.com"
+            db.add(User(email="beta-tester+2@outlook.com", plan="free", email_verified=True,
+                        created_at=racine.compte_ancien()))
             await db.commit()
-        invited = await self.client.post("/api/admin/beta/invitations", headers=self.admin_headers,
-            json={"email": "beta-tester+2@outlook.com", "campaign_id": self.campaign_id})
-        self.assertEqual(invited.status_code, 409)
-        self.assertIn("previous_access_active", invited.text)
+        self.assertEqual(await self.invite_status("beta-tester+2@outlook.com", campaign_id=self.campaign_id),
+                         "previous_access_active")
 
     async def test_an_alias_mailbox_cannot_hold_a_second_running_access(self):
         await self.activate_tester()
@@ -536,15 +538,122 @@ class BetaTests(unittest.IsolatedAsyncioTestCase):
         draft = await self.client.post("/api/admin/beta/campaigns", json={"name": "Draft", "capacity": 40,
             "first_wave_capacity": 20, "access_days": 30, "limits": DEFAULT_LIMITS}, headers=self.admin_headers)
         into_draft = await self.client.post("/api/admin/beta/invitations", headers=self.admin_headers,
-            json={"email": self.tester.email, "campaign_id": draft.json()["id"]})
+            json={"emails": [self.tester.email], "campaign_id": draft.json()["id"]})
         self.assertEqual(into_draft.status_code, 409)
         self.assertIn("campaign_closed", into_draft.text)
         missing = await self.client.post("/api/admin/beta/invitations", headers=self.admin_headers,
-            json={"email": self.tester.email, "campaign_id": "nope"})
+            json={"emails": [self.tester.email], "campaign_id": "nope"})
         self.assertEqual(missing.status_code, 404)
-        on_screen = await self.client.post("/api/admin/beta/invitations", headers=self.admin_headers,
-            json={"email": self.tester.email, "campaign_id": self.campaign_id})
-        self.assertEqual(on_screen.status_code, 201, on_screen.text)
+        self.assertEqual(await self.invite_status(self.tester.email, campaign_id=self.campaign_id), "invited")
+
+    async def test_invitation_list_reports_each_address_and_mails_the_invited(self):
+        await self.start_campaign()
+        sent = []
+        async def fake_send(to, langue, **kw):
+            sent.append((to, langue, kw["jours"]))
+        with patch("app.core.email.send_invitation_beta_email", side_effect=fake_send):
+            result = await self.client.post("/api/admin/beta/invitations", headers=self.admin_headers,
+                json={"emails": [self.tester.email, "nobody-here@example.com", self.tester.email.upper()],
+                      "primary_format": "pdf"})
+            again = await self.invite_status(self.tester.email)
+        self.assertEqual(result.status_code, 200, result.text)
+        rows = result.json()["results"]
+        self.assertEqual([(r["email"], r["status"]) for r in rows],
+                         [(self.tester.email, "invited"), ("nobody-here@example.com", "no_account")])
+        self.assertTrue(rows[0]["mail_sent"])
+        self.assertTrue(rows[0]["enrollment"]["mailed_at"], "the list shows the mail left")
+        self.assertNotIn("mail_sent", rows[1])
+        self.assertEqual(again, "already_invited")
+        self.assertEqual(sent, [(self.tester.email, "fr", 30)], "one mail, to the invited account only")
+        async with self.sessions() as db:
+            emails = (await db.execute(select(BetaEnrollment.email))).scalars().all()
+        self.assertEqual(emails, [self.tester.email])
+
+    async def test_failed_mail_keeps_the_invitation_and_can_be_resent(self):
+        from app.core.email import EmailIndisponible
+        await self.start_campaign()
+        with patch("app.core.email.send_invitation_beta_email", side_effect=EmailIndisponible("smtp down")):
+            result = await self.client.post("/api/admin/beta/invitations", headers=self.admin_headers,
+                json={"emails": [self.tester.email]})
+        row = result.json()["results"][0]
+        self.assertEqual((row["status"], row["mail_sent"]), ("invited", False))
+        self.assertIsNone(row["enrollment"]["mailed_at"], "no mail left: the admin must see it")
+        enrollment_id = row["enrollment"]["id"]
+        url = f"/api/admin/beta/enrollments/{enrollment_id}/email"
+        self.assertEqual((await self.client.post(url, headers=self.tester_headers)).status_code, 403)
+        with patch("app.core.email.send_invitation_beta_email") as resend:
+            ok = await self.client.post(url, headers=self.admin_headers)
+        self.assertEqual(ok.json(), {"mail_sent": True}, ok.text)
+        resend.assert_awaited_once()
+        async with self.sessions() as db:
+            rows = (await db.execute(select(BetaEnrollment))).scalars().all()
+            self.assertEqual(len(rows), 1, "resending does not create a second invitation")
+            self.assertIsNotNone(rows[0].mailed_at, "a resent mail is recorded")
+        missing = await self.client.post("/api/admin/beta/enrollments/nope/email", headers=self.admin_headers)
+        self.assertEqual(missing.status_code, 404)
+        await self.client.patch(f"/api/admin/beta/enrollments/{enrollment_id}", json={"revoke": True},
+                                headers=self.admin_headers)
+        revoked = await self.client.post(url, headers=self.admin_headers)
+        self.assertEqual(revoked.status_code, 409)
+        self.assertIn("invitation_revoked", revoked.text)
+
+    async def test_approved_application_mails_the_applicant(self):
+        await self.start_campaign()
+        applied = await self.client.post("/api/beta/applications", headers=self.tester_headers,
+            json={"primary_format": "pdf", "motivation": "Rapports trimestriels bilingues"})
+        self.assertEqual(applied.status_code, 200, applied.text)
+        async with self.sessions() as db:
+            (await db.get(User, self.tester.id)).langue = "en"; await db.commit()
+        with patch("app.core.email.send_invitation_beta_email") as send:
+            approved = await self.client.patch(f"/api/admin/beta/applications/{applied.json()['id']}",
+                                               json={"decision": "approved"}, headers=self.admin_headers)
+        self.assertEqual(approved.status_code, 200, approved.text)
+        self.assertTrue(approved.json()["mail_sent"])
+        self.assertTrue(approved.json()["enrollment_id"])
+        self.assertEqual(send.await_args.args, (self.tester.email, "en"))
+        async with self.sessions() as db:
+            enrollment = await db.get(BetaEnrollment, approved.json()["enrollment_id"])
+            self.assertIsNotNone(enrollment.mailed_at, "the acceptance mail is recorded")
+
+    async def test_resent_mail_matches_the_state_of_the_access(self):
+        await self.start_campaign()
+        with patch("app.core.email.send_invitation_beta_email"):
+            invited = await self.client.post("/api/admin/beta/invitations", headers=self.admin_headers,
+                json={"emails": [self.tester.email]})
+        enrollment_id = invited.json()["results"][0]["enrollment"]["id"]
+        url = f"/api/admin/beta/enrollments/{enrollment_id}/email"
+        async with self.sessions() as db:
+            campaign = await db.get(BetaCampaign, self.campaign_id)
+            ends, campaign.recruitment_ends_at = campaign.recruitment_ends_at, beta.now_utc() - timedelta(seconds=1)
+            await db.commit()
+        closed = await self.client.post(url, headers=self.admin_headers)
+        self.assertEqual(closed.status_code, 409)
+        self.assertIn("activation_closed", closed.text, "a pending invitation can no longer be activated")
+        async with self.sessions() as db:
+            (await db.get(BetaCampaign, self.campaign_id)).recruitment_ends_at = ends; await db.commit()
+        activated = await self.client.post("/api/beta/activate", headers=self.tester_headers)
+        self.assertEqual(activated.status_code, 200, activated.text)
+        with patch("app.core.email.send_invitation_beta_email") as send:
+            sent = await self.client.post(url, headers=self.admin_headers)
+        self.assertEqual(sent.json(), {"mail_sent": True}, sent.text)
+        self.assertTrue(send.await_args.kwargs["fin_acces"], "an open access is announced as open")
+        self.assertEqual(set(send.await_args.kwargs["limites"]), set(DEFAULT_LIMITS))
+        async with self.sessions() as db:
+            row = await db.get(BetaEnrollment, enrollment_id)
+            row.expires_at = beta.now_utc() - timedelta(seconds=1); await db.commit()
+        expired = await self.client.post(url, headers=self.admin_headers)
+        self.assertEqual(expired.status_code, 409)
+        self.assertIn("access_expired", expired.text)
+
+    def test_open_access_mail_names_its_end_instead_of_the_activation(self):
+        from app.core.email import _message_invitation_beta
+        msg = _message_invitation_beta("a@example.com", "fr", limites=DEFAULT_LIMITS, jours=30,
+                                       date_limite="2027-01-01", fin_acces="2026-12-20")
+        text = msg.get_payload()[0].get_payload()[0].get_payload(decode=True).decode()
+        self.assertIn("ouvert jusqu'au 20 décembre 2026", text)
+        self.assertNotIn("première connexion", text)
+        self.assertNotIn("avant le", text)
+        self.assertIn("Ouvrir Précis : http", text)
 
     async def test_a_program_past_its_recruitment_window_yields_the_open_slot(self):
         await self.start_campaign()
