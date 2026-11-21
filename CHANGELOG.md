@@ -8,6 +8,14 @@ leurs propres numéros internes.
 
 Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 
+## [1.11.0](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.10.0...v1.11.0) (2026-11-21)
+
+
+### Features
+
+* **beta:** invitation mail, resend and simplified admin beta screen ([#97](https://github.com/EagleFox31/Pr-cis-Translation/issues/97)) ([b9d21cb](https://github.com/EagleFox31/Pr-cis-Translation/commit/b9d21cbb468ac7eab7849612fb31d26925089ee2))
+* **images:** offer image translation after the text, severity-based admin emails and admin preview fixes ([#96](https://github.com/EagleFox31/Pr-cis-Translation/issues/96)) ([05df336](https://github.com/EagleFox31/Pr-cis-Translation/commit/05df3360f21bae5fadcfc045687397c4b3a6a21c))
+
 ## [1.10.0](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.9.0...v1.10.0) (2026-11-18)
 
 
