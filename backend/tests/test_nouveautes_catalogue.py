@@ -1,7 +1,7 @@
 """Catalogue des nouveautés : complet, cohérent, aligné sur la version livrée.
 
 Ce qui est MESURÉ :
-  • 28 éléments, ids uniques (ils servent d'ancres et de clés « vu ») ;
+  • 29 éléments, ids uniques (ils servent d'ancres et de clés « vu ») ;
   • type et domaine dans les listes fermées ; dates ISO valides ;
   • FR et EN complets (titre, resume, detail non vides), textes courts
     présents pour chaque élément phare, 4 phares au plus ;
@@ -24,7 +24,7 @@ PORTEES_INTERNES = {"release", "ci", "build", "deps", "infra", "deploy"}
 
 def test_nombre_et_ids_uniques():
     ids = [e["id"] for e in cat.FONCTIONNALITES]
-    assert len(ids) == 28
+    assert len(ids) == 29
     assert len(set(ids)) == len(ids)
 
 
@@ -76,7 +76,7 @@ def test_phares():
 
 def test_elements_par_langue():
     fr, en = cat.elements("fr"), cat.elements("en")
-    assert len(fr) == len(en) == 27
+    assert len(fr) == len(en) == 28
     assert [e["date"] for e in fr] == sorted((e["date"] for e in fr), reverse=True)
     assert cat.elements("de") == fr  # langue inconnue : repli sur le français
 

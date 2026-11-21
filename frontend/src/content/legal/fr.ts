@@ -79,8 +79,8 @@ export const LEGAL_FR: LegalDoc[] = [
         paragraphs: [
           'Précis propose une offre gratuite de 5 pages par mois, une offre Starter de 100 pages par mois et une offre Pro de 500 pages par mois. Le programme bêta dispose de quotas propres et d\'une durée limitée, précisés lors de l\'inscription au programme.',
           'Les prix en vigueur sont affichés sur le site avant tout paiement. Ils ne figurent pas dans ces conditions, car ils peuvent évoluer.',
-          'L\'offre gratuite et le programme bêta sont financés en partie par une mention promotionnelle de Précis, intégrée à l\'aperçu des traductions. Elle s\'affiche pour les comptes gratuits et pour les bêta-testeurs ; un compte payant qui participe au programme bêta la voit uniquement sur les traductions réalisées avec ses crédits bêta. Cette mention ne fait appel à aucune régie publicitaire et n\'utilise aucune de vos données.',
-          'Les traductions réalisées avec les pages gratuites se consultent en aperçu. Toutes les autres, qu\'elles proviennent d\'une offre payante, de pages achetées à l\'unité ou de crédits bêta, peuvent être téléchargées.',
+          'Sans forfait ni solde, vous pouvez quand même traduire. Les pages ainsi traduites se consultent uniquement en aperçu, avec une mention promotionnelle de Précis intégrée à l\'image. Cette mention ne fait appel à aucune régie publicitaire et n\'utilise aucune de vos données.',
+          'Toute page traduite avec un crédit vous appartient, qu\'il provienne des pages offertes de l\'offre gratuite, d\'une offre payante, de pages achetées à l\'unité ou de crédits bêta : son aperçu est net et elle peut être téléchargée. Un document qui contient encore des pages traduites sans crédit se télécharge une fois ces pages payées, ou sans elles.',
         ],
       },
       {
@@ -272,7 +272,7 @@ export const LEGAL_FR: LegalDoc[] = [
       {
         heading: 'Pas de vente de données, pas de publicité ciblée',
         paragraphs: [
-          'Nous ne vendons pas vos données et ne faisons appel à aucune régie publicitaire. Les aperçus de l\'offre gratuite et du programme bêta portent une mention promotionnelle de Précis, identique pour tous : elle n\'utilise aucune donnée personnelle ni aucun traceur.',
+          'Nous ne vendons pas vos données et ne faisons appel à aucune régie publicitaire. Les aperçus des pages traduites sans crédit portent une mention promotionnelle de Précis, identique pour tous : elle n\'utilise aucune donnée personnelle ni aucun traceur.',
         ],
       },
       {
@@ -296,7 +296,7 @@ export const LEGAL_FR: LegalDoc[] = [
       {
         heading: 'Ce que nous utilisons',
         paragraphs: [
-          'Précis n\'utilise que ce qui est nécessaire au fonctionnement et à la sécurité du service. Nous n\'utilisons ni cookie publicitaire ni mesure d\'audience (la mention promotionnelle des aperçus gratuits et bêta est intégrée à l\'image et ne dépose aucun cookie) : aucun bandeau de consentement n\'est donc affiché.',
+          'Précis n\'utilise que ce qui est nécessaire au fonctionnement et à la sécurité du service. Nous n\'utilisons ni cookie publicitaire ni mesure d\'audience (la mention promotionnelle des aperçus sans crédit est intégrée à l\'image et ne dépose aucun cookie) : aucun bandeau de consentement n\'est donc affiché.',
         ],
       },
       {

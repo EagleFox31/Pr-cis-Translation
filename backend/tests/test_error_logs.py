@@ -1,5 +1,5 @@
 """Journal central des erreurs — écriture, regroupement, garde admin, cycle
-« consigner puis vider », et alerte au seuil.
+« consigner puis vider », et mails admin selon la gravité.
 
 Ce qui est MESURÉ, jamais supposé :
   • `log_error` écrit une ligne, d'où qu'on l'appelle ;
@@ -7,7 +7,8 @@ Ce qui est MESURÉ, jamais supposé :
     et deux défauts distincts non ;
   • `require_admin` bloque un non-admin (403) et laisse passer l'admin ;
   • on NE supprime PAS un log `new` (409) — il faut d'abord marquer traité ;
-  • l'alerte part au franchissement du seuil, puis se tait (throttle).
+  • mails admin : error regroupées (1/h), critical immédiat (1 par panne),
+    critical du navigateur rétrogradé, warning sans mail, récap quotidien unique.
 
 Exécution :  backend/venv/Scripts/python.exe backend/tests/test_error_logs.py
 Requiert PostgreSQL et la migration 0005.
@@ -21,7 +22,7 @@ import uuid
 import racine  # noqa: F401  -- met backend/ sur le chemin
 
 from fastapi import HTTPException                         # noqa: E402
-from sqlalchemy import delete, func, select              # noqa: E402
+from sqlalchemy import delete, select                      # noqa: E402
 from sqlalchemy.ext.asyncio import (                      # noqa: E402
     AsyncSession, async_sessionmaker, create_async_engine,
 )
@@ -140,50 +141,91 @@ async def main() -> None:
         r = await delete_logs(TargetBody(fingerprints=[grp_fp]), _admin=admin, db=db)
     check(r["deleted"] == 3, "suppression permise une fois `traité`")
 
-    # ── 6. Alerte au seuil, puis throttle ─────────────────────────────────────
-    svc._last_alert_at = 0.0
-    async with async_session() as db:
-        current_new = await db.scalar(
-            select(func.count()).select_from(ErrorLog).where(ErrorLog.status == STATUS_NEW)
-        )
-    orig_threshold = svc.ERROR_LOG_ALERT_THRESHOLD
-    svc.ERROR_LOG_ALERT_THRESHOLD = (current_new or 0) + 3   # nos 3 franchiront
-
-    sent: list[str] = []
+    # ── 6. Mails admin selon la gravité (docs/etude-retours-18-11.md §2) ──────
+    import datetime as dt
+    from types import SimpleNamespace
+    from app.services import alertes_admin as al
     import app.core.email as email_mod
+
+    sent: list[tuple[str, dict]] = []
     orig_send = email_mod.send_plain
 
-    async def fake_send(to, subject, body, **_):   # noqa: ANN001
-        sent.append(subject)
+    async def fake_send(to, subject, body, **carte):   # noqa: ANN001
+        sent.append((subject, carte))
 
     email_mod.send_plain = fake_send
+    al._reinitialiser()
+    jours = [dt.date(2001, 1, 1), dt.date(2001, 1, 2)]
     try:
-        async with async_session() as db:
-            for i in range(3):
-                db.add(ErrorLog(source="backend", level="error",
-                                message=f"{TOKEN} alert{i}",
-                                fingerprint=svc.fingerprint("backend", "error", f"a{i}", "L"),
-                                status=STATUS_NEW))
-            await db.commit()
-            first = await svc.maybe_alert_admins(db)
-            second = await svc.maybe_alert_admins(db)
-        check(first is True and len(sent) == 1, "alerte envoyée au franchissement du seuil")
-        check(second is False and len(sent) == 1, "alerte throttlée ensuite (pas de spam)")
+        # 20 erreurs d'affilée → un seul mail qui les regroupe
+        for i in range(20):
+            await svc.log_error("backend", f"{TOKEN} rafale{i % 2}", location=f"L{i % 2}")
+        check(len(sent) == 1, "20 erreurs d'affilée → un seul mail")
+        check(len(sent[0][1].get("details", [])) <= 3, "le mail liste au plus 3 groupes")
 
-        # Envoi raté : nouvel essai après `_REESSAI_ALERTE`, pas après tout le délai.
+        # critical : tout de suite, une fois par panne
+        sent.clear()
+        await svc.log_error("backend", f"{TOKEN} panne", level="critical", location="P")
+        await svc.log_error("backend", f"{TOKEN} panne", level="critical", location="P")
+        check(len(sent) == 1 and sent[0][1].get("niveau") == "critique",
+              "critical : un mail immédiat, pas de doublon pour la même panne")
+
+        # critical déclaré par le navigateur → traité comme error (déjà envoyé : rien)
+        sent.clear()
+        check(al.niveau_alerte("frontend", "critical") == "error",
+              "critical du navigateur rétrogradé en error")
+        await svc.log_error("frontend", f"{TOKEN} faux critique", level="critical", location="F")
+        check(not sent, "critical du navigateur : pas de mail immédiat")
+
+        # warning : jamais de mail
+        await svc.log_error("backend", f"{TOKEN} avert", level="warning", location="W")
+        check(not sent, "warning : pas de mail")
+
+        # candidature bêta
+        async with async_session() as db:
+            ok = await al.candidature_beta(db, SimpleNamespace(
+                email=f"cand-{TOKEN}@example.com", motivation="Traduire mes cours",
+                primary_format="pdf"), "Candidat")
+        check(ok and len(sent) == 1 and "candidature" in sent[0][0],
+              "candidature bêta → un mail")
+
+        # récapitulatif : rien la veille → pas de mail, mais le jour est marqué
+        sent.clear()
+        async with async_session() as db:
+            r1 = await al.recapitulatif_quotidien(db, jours[0] + dt.timedelta(days=1))
+        check(r1 is False and not sent, "récap : journée vide → pas de mail")
+
+        # un avertissement la veille → un mail, une seule fois
+        async with async_session() as db:
+            db.add(ErrorLog(source="backend", level="warning", message=f"{TOKEN} recap",
+                            fingerprint=svc.fingerprint("backend", "warning", "recap", "R"),
+                            status=STATUS_NEW,
+                            created_at=dt.datetime(2001, 1, 2, 12, tzinfo=dt.timezone.utc)))
+            await db.commit()
+        async with async_session() as db:
+            r2 = await al.recapitulatif_quotidien(db, jours[1] + dt.timedelta(days=1))
+        async with async_session() as db:
+            r3 = await al.recapitulatif_quotidien(db, jours[1] + dt.timedelta(days=1))
+        check(r2 is True and r3 is False and len(sent) == 1,
+              "récap : envoyé une fois, pas deux le même jour")
+
+        # mail d'erreurs raté → nouvel essai après `_REESSAI_ERREURS`, pas après tout le délai
         async def send_rate(to, subject, body, **_):   # noqa: ANN001
             return False
 
         email_mod.send_plain = send_rate
-        svc._last_alert_at = 0.0
-        async with async_session() as db:
-            await svc.maybe_alert_admins(db)
-        reste = svc._last_alert_at + svc.ERROR_LOG_ALERT_COOLDOWN - time.time()
-        check(abs(reste - min(svc._REESSAI_ALERTE, svc.ERROR_LOG_ALERT_COOLDOWN)) < 5,
-              f"alerte ratée : nouvel essai dans ~{svc._REESSAI_ALERTE} s (vu {reste:.0f})")
+        al._reinitialiser()
+        await svc.log_error("backend", f"{TOKEN} rate", location="RT")
+        reste = al._dernier_mail_erreurs + al.ERROR_LOG_ALERT_COOLDOWN - time.time()
+        check(abs(reste - min(al._REESSAI_ERREURS, al.ERROR_LOG_ALERT_COOLDOWN)) < 5,
+              f"mail raté : nouvel essai dans ~{al._REESSAI_ERREURS} s (vu {reste:.0f})")
     finally:
-        svc.ERROR_LOG_ALERT_THRESHOLD = orig_threshold
         email_mod.send_plain = orig_send
+        al._reinitialiser()
+        async with async_session() as db:
+            from app.models import AdminRecap
+            await db.execute(delete(AdminRecap).where(AdminRecap.jour.in_(jours)))
+            await db.commit()
 
     # ── Nettoyage ─────────────────────────────────────────────────────────────
     async with async_session() as db:

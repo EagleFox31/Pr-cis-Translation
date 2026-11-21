@@ -223,7 +223,6 @@ TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY", "")
 # une seule à la fois (throttle), pour signaler qu'il y a du grain à moudre sans
 # noyer sa boîte. Puis il traite (exporte) et supprime : la table ne gonfle que
 # tant qu'on ne s'en occupe pas.
-ERROR_LOG_ALERT_THRESHOLD = int(os.getenv("ERROR_LOG_ALERT_THRESHOLD", "50"))
 ERROR_LOG_ALERT_COOLDOWN = int(os.getenv("ERROR_LOG_ALERT_COOLDOWN", "3600"))  # s
 # Destinataire de repli si AUCUN compte n'a le plan `admin` en base (bootstrap).
 ADMIN_ALERT_EMAIL = os.getenv("ADMIN_ALERT_EMAIL") or None

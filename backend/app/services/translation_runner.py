@@ -62,54 +62,60 @@ for _fmt, _raison in engines.INDISPONIBLES.items():
     note(logging.WARNING, f"{_fmt.upper()} indisponible : {_raison}")
 
 
+# Dossiers d'images dont la proposition est en cours de calcul (un seul calcul
+# par fichier + langue, même si plusieurs travaux ou lectures le demandent).
+_propositions_en_cours: set[str] = set()
+_propositions_verrou = threading.Lock()
+
+
+def dossier_images(translation_path: str) -> str:
+    return os.path.join(os.path.dirname(translation_path), "images")
+
+
+def proposition_en_cours(dossier: str) -> bool:
+    with _propositions_verrou:
+        return dossier in _propositions_en_cours
+
+
+def lancer_proposition(file_bytes: bytes, ext: str, langue: str, dossier: str) -> bool:
+    """Lance, dans un fil à part, la lecture des images à texte du document
+    (option D1) : rien n'est débité, le cache se remplit et le nombre d'images
+    à traduire est écrit pour la proposition de fin. Renvoie False si un calcul
+    tourne déjà pour ce dossier."""
+    with _propositions_verrou:
+        if dossier in _propositions_en_cours:
+            return False
+        _propositions_en_cours.add(dossier)
+
+    def _travail():
+        try:
+            images_document.proposer(
+                file_bytes, ext, lambda t: ext_service.traduire_textes(t, langue),
+                dossier, langue=langue)
+        except Exception as e:
+            logger.warning("Proposition d'images non calculée (%s) : %s", dossier, e)
+        finally:
+            with _propositions_verrou:
+                _propositions_en_cours.discard(dossier)
+
+    threading.Thread(target=_travail, name="images-proposition", daemon=True).start()
+    return True
+
+
 def _preparer_images(job_id: str, user_id: str | None, file_bytes: bytes, ext: str,
                      langue: str, translation_path: str) -> dict[str, bytes]:
-    """Traduit les images à texte du document lancé avec `images=1` et renvoie
-    la table `{clé d'image: octets traduits}` à poser dans le rendu.
-
-    Le budget est lu AVANT de traduire (couverture restante du compte) ; le
-    débit est unique, après coup, lié au document : un échec du travail rend
-    donc aussi les images. Si le solde a été consommé entre-temps, rien n'est
-    posé. Une image qui échoue reste en original : jamais d'échec du document.
-    """
-    if not user_id:
-        return {}
+    """Images à texte d'un document éligible : la lecture part en parallèle
+    du texte (proposition de fin, sans débit) ; aucune image n'est posée tant
+    que le client n'a pas accepté. Renvoie la table déjà acceptée s'il y en a
+    une (reprise d'un document dont les images sont traduites)."""
     try:
-        lu: list = []
-
-        async def _couverture(db):
-            from app.models import User
-            user = await db.get(User, user_id)
-            reste_plan, solde, _ = await ext_service.couverture(db, user)
-            lu.append(None if reste_plan is None else reste_plan + solde)
-
-        _dans_une_boucle_jetable(_couverture)
-        table, rapport = images_document.traduire_images(
-            file_bytes, ext, lambda t: ext_service.traduire_textes(t, langue),
-            os.path.join(os.path.dirname(translation_path), "images"), lu[0],
-            arret=lambda: jobs.verifier_arret(job_id), langue=langue)
-
-        k = rapport["traduites"]
-        if k:
-            debite: list = []
-            document_id = (jobs.get(job_id) or {}).get("document_id")
-
-            async def _debit(db):
-                debite.append(await ext_service.debiter(db, user_id, k, document_id=document_id))
-
-            try:
-                _dans_une_boucle_jetable(_debit)
-            except Exception as e:
-                logger.warning("Job %s : débit des images échoué : %s", job_id, e)
-            if not (debite and debite[0]):
-                table, rapport["traduites"] = {}, 0
-                rapport["sans_credit"] += k
-        images_document.ecrire_table(translation_path, table, rapport)
-        jobs.set(job_id, images=rapport)
-        jobs.emit(job_id, "images", rapport)
-        return table
+        dossier = dossier_images(translation_path)
+        if (ext in images_document.IMAGES_PROPOSABLES
+                and images_document.lire_proposition(dossier) is None):
+            lancer_proposition(file_bytes, ext, langue, dossier)
+        return images_document.charger_table(translation_path)
     except Exception as e:
-        logger.warning("Job %s : images non traduites : %s", job_id, e)
+        logger.warning("Job %s : proposition d'images non lancée : %s", job_id, e)
         return {}
 
 

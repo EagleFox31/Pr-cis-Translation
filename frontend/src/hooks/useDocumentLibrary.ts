@@ -42,6 +42,14 @@ export interface DocImage {
   vignette_originale: string | null;
 }
 
+/** Proposition de traduire les images à texte (`GET …/images/proposition`) :
+ *  `n` images à traduire sur `total` lues. */
+export interface PropositionImages {
+  etat: 'en_cours' | 'pret' | 'faite' | 'aucune';
+  n: number;
+  total: number;
+}
+
 /** Choix sur une page illisible (`vide`) ou hors sélection (`retirer`). */
 export type ChoixPage = 'original' | 'vide' | 'traduire' | 'retirer';
 
@@ -373,6 +381,29 @@ export function useDocumentLibrary() {
     return (await api.patch(`/api/documents/${id}/images`, { cle, originale })).ok;
   }, [user]);
 
+  /** Proposition de traduire les images à texte, lues pendant la traduction. */
+  const getImagesProposition = useCallback(async (id: string): Promise<PropositionImages> => {
+    const aucune: PropositionImages = { etat: 'aucune', n: 0, total: 0 };
+    if (!user) return aucune;
+    const res = await api.get(`/api/documents/${id}/images/proposition`);
+    return res.ok ? { ...aucune, ...(res.data as Partial<PropositionImages>) } : aucune;
+  }, [user]);
+
+  /** Accepte la proposition : `credits` si le solde ne couvre pas les images. */
+  const translateImages = useCallback(async (
+    id: string,
+  ): Promise<{ ok: true; images: DocImage[] } | { ok: false; credits: number | null }> => {
+    if (!user) return { ok: false, credits: null };
+    const res = await api.post(`/api/documents/${id}/images/traduire`, {});
+    if (res.ok) {
+      refresh();
+      return { ok: true, images: (res.data as { images?: DocImage[] }).images ?? [] };
+    }
+    const corps = (res.data ?? {}) as { required?: unknown };
+    return { ok: false,
+             credits: res.status === 402 && typeof corps.required === 'number' ? corps.required : null };
+  }, [user, refresh]);
+
   /** Pages de scan illisibles d'un document ; vide si aucune ou sans compte.
    *  Lève une erreur si la lecture échoue (réseau, serveur). */
   const getIllegiblePages = useCallback(async (id: string): Promise<PagesIllisibles> => {
@@ -403,5 +434,6 @@ export function useDocumentLibrary() {
 
   return { documents, loading, charge, erreur, refresh, saveDocument, getBlob, getPreviewBlob,
            getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal,
+           getImagesProposition, translateImages,
            getIllegiblePages, setIllegiblePages };
 }

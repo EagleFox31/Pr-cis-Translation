@@ -292,10 +292,10 @@ def _may_read_clear(user: User, doc: Document) -> bool:
 def _apercu_filigrane(user: User, doc: Document) -> bool:
     """L'aperçu de CE document porte-t-il la mention promotionnelle ?
 
-    Oui sans droit au clair, et aussi pour un document traduit avec des crédits
-    bêta : téléchargeable, mais son aperçu reste filigrané, même sur un compte
-    payant (conditions d'utilisation, « Offres et quotas »)."""
-    return not _may_read_clear(user, doc) or bool(reglages_de(doc).get("beta"))
+    Oui sans droit au clair, seulement. Une page payée par un crédit, quel
+    qu'il soit (offert, bêta, forfait, achat), appartient au client : aperçu
+    net et téléchargement (étude traduction libre, règle a)."""
+    return not _may_read_clear(user, doc)
 
 
 def pages_filigranees(user: User, doc: Document, traduites=None):
@@ -308,7 +308,7 @@ def pages_filigranees(user: User, doc: Document, traduites=None):
     Document couvert avec des pages libres : seules les pages libres sont
     filigranées, les pages payées restent nettes (étude traduction libre, §4.2).
     """
-    if reglages_de(doc).get("beta") or not (is_paid_plan(user.plan) or doc.paid):
+    if not (is_paid_plan(user.plan) or doc.paid):
         return True, traduites
     libres = pages_libres_du_document(doc)
     if traduites is not None:
@@ -885,6 +885,105 @@ async def choisir_image(
     await run_in_threadpool(images_document.marquer_originale, copie, choix.cle, choix.originale)
     await run_in_threadpool(_invalider_rendu, copie)
     return {"cle": choix.cle, "originale": choix.originale}
+
+
+# ── Proposition de traduire les images (option D1, retours 18/11 §3) ────────
+# Les images à texte ont été lues pendant la traduction, sans débit. Le client
+# voit « N images sur M contiennent du texte à traduire » et décide ; l'offre
+# reste ouverte tant que le document existe.
+
+# Documents dont l'acceptation est en cours (un double clic ne débite qu'une fois).
+_images_en_acceptation: set[str] = set()
+
+
+def _proposition_du_document(doc: Document) -> dict:
+    ext = os.path.splitext(doc.original_name)[1].lstrip(".").lower()
+    if ext not in images_document.IMAGES_PROPOSABLES or not reglages_de(doc).get("images"):
+        return {"etat": "aucune", "n": 0, "total": 0}
+    if images_document._lire_meta(doc.translated_path) is not None:
+        return {"etat": "faite", "n": 0, "total": 0}
+    dossier = translation_runner.dossier_images(doc.translated_path)
+    prop = images_document.lire_proposition(dossier)
+    if prop is not None:
+        return {"etat": prop.get("etat", "aucune"), "n": int(prop.get("n") or 0),
+                "total": int(prop.get("total") or 0)}
+    if not translation_runner.proposition_en_cours(dossier):
+        # Calcul perdu (redémarrage, cache purgé) : relancé depuis l'original.
+        try:
+            with open(doc.original_path, "rb") as f:
+                donnees = f.read()
+        except (OSError, TypeError):
+            return {"etat": "aucune", "n": 0, "total": 0}
+        translation_runner.lancer_proposition(donnees, ext, doc.target_lang, dossier)
+    return {"etat": "en_cours", "n": 0, "total": 0}
+
+
+def _table_depuis_le_cache(doc: Document) -> tuple[dict[str, bytes], dict]:
+    ext = os.path.splitext(doc.original_name)[1].lstrip(".").lower()
+    with open(doc.original_path, "rb") as f:
+        donnees = f.read()
+    langue = doc.target_lang
+    return images_document.traduire_images(
+        donnees, ext, lambda t: extension.traduire_textes(t, langue),
+        translation_runner.dossier_images(doc.translated_path), None,
+        analyse=images_document.analyse_complete(donnees, ext), langue=langue)
+
+
+@router.get("/{doc_id}/images/proposition")
+async def proposition_images(
+    doc_id: str,
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """État de la proposition : `en_cours`, `pret` (n images à texte sur
+    total), `faite` (images déjà traduites) ou `aucune`."""
+    doc = await _doc_traduit(db, user, doc_id)
+    return await run_in_threadpool(_proposition_du_document, doc)
+
+
+@router.post("/{doc_id}/images/traduire")
+async def traduire_images_proposees(
+    doc_id: str,
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Accepte la proposition : pose les images traduites (déjà en cache) et
+    débite une page par image réellement remplacée. 402 si le solde ne couvre
+    pas : le client achète des crédits, l'offre reste ouverte."""
+    doc = await _doc_traduit(db, user, doc_id)
+    if doc.id in _images_en_acceptation:
+        raise HTTPException(status_code=409, detail="Les images sont déjà en cours de traduction.")
+    _images_en_acceptation.add(doc.id)
+    try:
+        prop = await run_in_threadpool(_proposition_du_document, doc)
+        if prop["etat"] != "pret" or prop["n"] <= 0:
+            raise HTTPException(status_code=409, detail="Aucune image n'est à traduire.")
+        refus = await _couvre_les_pages(db, user, doc, prop["n"])
+        if refus is not None:
+            return refus
+        table, rapport = await run_in_threadpool(_table_depuis_le_cache, doc)
+        if not table:
+            raise HTTPException(status_code=409, detail="Aucune image n'est à traduire.")
+        try:
+            copie = await run_in_threadpool(_copie_du_document, doc)
+        except OSError:
+            logger.exception("Copie de traduction impossible (doc %s)", doc.id)
+            raise HTTPException(status_code=500, detail="Le changement n'a pas pu être enregistré.")
+        if not await extension.debiter(db, user.id, len(table), document_id=doc.id):
+            message = "Votre solde ne couvre pas ces images. Rechargez vos crédits pour les traduire."
+            return JSONResponse(status_code=402, content={
+                "reason": "insufficient_credits", "required": len(table),
+                "detail": message, "message": message})
+        # `debiter` a commité : le document est relu avant d'y lier la copie.
+        await db.refresh(doc)
+        if copie != doc.translated_path:
+            doc.translated_path = copie
+            await db.commit()
+        await run_in_threadpool(images_document.ecrire_table, copie, table, rapport)
+        await run_in_threadpool(_invalider_rendu, copie)
+        return {"images": await run_in_threadpool(_images_du_document, doc)}
+    finally:
+        _images_en_acceptation.discard(doc.id)
 
 
 # ── Pages illisibles d'un scan : original, vide ou traduire quand même ───────

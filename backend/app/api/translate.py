@@ -13,7 +13,6 @@ import json
 import os
 import queue
 from typing import Literal
-import shutil
 
 from fastapi import (APIRouter, Depends, File, Form, Header, HTTPException,
                      Request, UploadFile)
@@ -41,13 +40,13 @@ from app.services import usage
 from app.services import anti_abus
 from app.services import beta
 from app.services.beta_meter import BetaCost, FORMATS as BETA_FORMATS, office_cost
-from app.services.images_document import Analyse, analyser as analyser_images, vignette
+from app.services.images_document import IMAGES_PROPOSABLES, lister as lister_images
 from app.services.ocr import OCR_VERSION
 from app.services.ocr_v2.detect import Tesseract
 from app.services.jobs import STATUTS_ARRET, STATUTS_REPRENABLES, jobs
 from app.services.office import convert_to_pdf_bytes
 from app.services.scheduler import scheduler, scheduler_scans
-from app.services.translation_runner import (_chemin_reprise, run_pdf_v2_job,
+from app.services.translation_runner import (run_pdf_v2_job,
                                              run_pptx_progressive_job,
                                              run_translation_job,
                                              run_xlsx_progressive_job,
@@ -188,31 +187,14 @@ APERCUS_MAX = 50
 
 
 def _analyse_images(file_bytes: bytes, ext: str):
-    """Pages du document et images à texte (détection seule, aucune lecture)."""
-    if ext in ("pdf", "docx", "pptx", "xlsx"):
-        analyse = analyser_images(file_bytes, ext)
-    else:
-        analyse = Analyse()
-    try:
-        pages = count_pages(file_bytes, ext)
-    except ValueError:
-        # Document fait seulement d'images à texte : rien à compter côté texte,
-        # mais les images restent proposées.
-        if not analyse.a_texte:
-            raise
-        pages = 0
-    apercus = []
-    for img in analyse.a_texte[:APERCUS_MAX]:
-        try:
-            miniature = vignette(img.octets)
-        except Exception:
-            miniature = ""
-        apercus.append({"cle": img.cle, "pages": img.pages, "largeur": img.largeur,
-                        "hauteur": img.hauteur, "vignette": miniature})
-    return {"pages": pages, "images": len(analyse.a_texte), "analysees": analyse.analysees,
-            "total": sum(1 for i in analyse.images if not i.exclusion),
-            "incomplet": analyse.incomplet, "indisponible": analyse.indisponible,
-            "apercus": apercus}
+    """Pages du document et nombre d'images, repérées sans aucune lecture :
+    les images à texte se cherchent pendant la traduction et sont proposées à
+    la fin (option D1, étude retours 18/11 §3)."""
+    images = lister_images(file_bytes, ext) if ext in IMAGES_PROPOSABLES else []
+    total = sum(1 for i in images if not i.exclusion)
+    pages = count_pages(file_bytes, ext)
+    return {"pages": pages, "images": total, "analysees": 0, "total": total,
+            "incomplet": False, "indisponible": False, "apercus": []}
 
 
 @router.post("/api/translate/analyse")
@@ -221,9 +203,9 @@ async def analyse_endpoint(
     x_api_key: str = Header(None),
     current_user: "User" = Depends(require_auth),
 ):
-    """Dit quelles images du document contiennent du texte, avant le lancement.
-    Ne traduit ni ne débite rien ; la détection est légère et bornée, elle ne
-    prend donc pas le sémaphore de l'OCR."""
+    """Compte les pages et les images du document, avant le lancement. Aucune
+    image n'est lue ici : celles à texte le sont pendant la traduction, puis
+    proposées au client (option D1). Ne traduit ni ne débite rien."""
     verify_api_key(x_api_key)
 
     filename = file.filename or ""
@@ -261,9 +243,9 @@ async def translate_endpoint(
     # l'utilisateur après un 402 `need_credits`. Sans lui, un solde insuffisant
     # refuse le document entier — jamais de troncature silencieuse.
     covered_only: str = Form(""),
-    # Option « traduire aussi les images du document » : 1 page par image
-    # réellement remplacée, comptée en plus du texte.
-    images: str = Form(""),
+    # Ancienne option « traduire aussi les images » : ignorée depuis l'option D1
+    # (images proposées après la traduction), gardée pour les anciens clients.
+    images: str = Form(""),  # noqa: ARG001
     use_beta: str = Form("auto"),
     # Reprise d'un document arrêté (serveur coupé, pause, annulation) : ses pages déjà
     # traduites et déjà payées ne sont pas débitées une seconde fois.
@@ -421,21 +403,15 @@ async def translate_endpoint(
                 })
             qsuffix += f"_{OCR_VERSION}"
 
-    # ── Images à texte (option `images=1`) ────────────────────────────────
-    # Hors bêta (v1 : images ignorées), hors mode structure, et hors scan (les
-    # images d'une page lue ne sont plus celles de l'original). `n_images` :
-    # images proposées, base du contrôle de crédits.
-    # Images demandées : pas de mode libre (leur facturation se fait après la
-    # traduction, selon le résultat) ; un solde insuffisant garde le 402.
-    n_images = 0
-    if (images == "1" and ext in ("pdf", "docx", "pptx", "xlsx")
-            and not beta_mode and not debug_mode and not scans):
-        n_images = len((await run_in_threadpool(analyser_images, file_bytes, ext)).a_texte)
-    images_actives = n_images > 0
-    if images_actives:
-        # Variante de cache à part : la traduction avec images ne se mélange
-        # pas à celle du texte seul (même nom + `_img`).
-        qsuffix += "_img"
+    # ── Images à texte (option D1, étude retours 18/11 §3) ────────────────
+    # Rien n'est lu ni facturé au dépôt : les images sont lues pendant la
+    # traduction, puis leur traduction est proposée à la fin (« Traduire
+    # (N pages) »). Hors bêta, hors mode structure, hors scan (les images d'une
+    # page lue ne sont plus celles de l'original) ; document entier seulement
+    # (vérifié plus bas, une fois la sélection arrêtée). Le champ `images` reste
+    # accepté pour les anciens clients, sans effet.
+    images_actives = (ext in IMAGES_PROPOSABLES and not beta_mode
+                      and not debug_mode and not scans)
 
     # ── Limite de pages selon le plan ─────────────────────────────────────
     # On est dans un endpoint ASYNC : la session `db` et l'utilisateur
@@ -566,15 +542,14 @@ async def translate_endpoint(
             if refus_offert:
                 reste_plan = 0
         couvert = None if reste_plan is None else reste_plan + solde
-        # Les images remplacées se paient en plus du texte (1 page chacune) :
-        # le contrôle les compte, le débit au lancement ne prend que le texte
-        # (les images sont débitées une fois traduites, selon le résultat).
-        a_couvrir = needed + n_images
+        # Le texte seul : les images se paient à part, si le client accepte
+        # la proposition faite en fin de traduction.
+        a_couvrir = needed
         # Mode libre : ce que le solde ne couvre pas est traduit en aperçu, dans
         # la limite du plafond ; la sélection reste entière.
         libre_actif = False
         libre_limite = False
-        if (mode_libre and n_images == 0 and couvert is not None and a_couvrir > couvert
+        if (mode_libre and couvert is not None and a_couvrir > couvert
                 and deja_payees == 0 and not resume_of):
             libres = needed - couvert
             deja_libres = await anti_abus.libre_used(db, locked.id, machine_id)
@@ -606,7 +581,6 @@ async def translate_endpoint(
                     "detail": detail, "reason": "need_credits",
                     "pages_needed": a_couvrir, "pages_available": couvert,
                     "pages_missing": a_couvrir - couvert,
-                    "images_needed": n_images,
                     "partial_possible": partiel,
                     "trial": gratuit and reste_plan > 0,
                     "libre_limit": libre_limite,
@@ -666,19 +640,9 @@ async def translate_endpoint(
     # de page) ; pour DOCX/PPTX, le JSON de traduction. Le PDF/DOCX rendu, lui,
     # n'est PAS conservé : il se recalcule à la demande depuis ces deux-là.
     translation_path = translation_path_for(lang_dir, ext, pages_set, qsuffix)
-    if images_actives and not os.path.exists(translation_path):
-        # Le texte déjà traduit sans les images est repris tel quel : seules
-        # les images restent à traiter (aucun appel de traduction en double).
-        sans_img = translation_path_for(lang_dir, ext, pages_set, qsuffix[:-len("_img")])
-        if os.path.isfile(sans_img):
-            try:
-                shutil.copyfile(sans_img, translation_path)
-                for suite in ("", ".fiche"):    # reprise PPTX et sa fiche
-                    reprise = _chemin_reprise(sans_img) + suite
-                    if os.path.isfile(reprise):
-                        shutil.copyfile(reprise, _chemin_reprise(translation_path) + suite)
-            except OSError as e:
-                logger.warning("Traduction sans images non reprise : %s", e)
+    # Proposition d'images : document entier seulement (la sélection finale,
+    # couverture et plafond du plan compris, est arrêtée ici).
+    images_actives = images_actives and not pages_set
 
     output_filename = f"{safe_name}_TRADUIT{qsuffix}{psuffix}.{ext}"
     if debug_mode:
@@ -769,6 +733,9 @@ async def translate_endpoint(
                                           "qsuffix": qsuffix,
                                           "beta": bool(beta_charge),
                                           "deja": deja_payees,
+                                          # Document dont les images à texte
+                                          # seront proposées en fin de travail.
+                                          "images": bool(images_actives),
                                           **({"budget": budget} if budget else {})})
     except Exception:
         # Rien ne sera soumis : le job ouvert plus haut resterait « pending »
@@ -804,8 +771,6 @@ async def translate_endpoint(
     if scans:
         reponse["ocr_pages"] = len(scans)
         reponse["ocr_review_required"] = True
-    if images_actives:
-        reponse["images"] = n_images
     return avec_cookie(JSONResponse(reponse))
 
 

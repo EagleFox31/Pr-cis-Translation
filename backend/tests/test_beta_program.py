@@ -255,25 +255,30 @@ class BetaTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await beta.totals(db, enrollment["id"]))["pdf"]["units"], 3)
             self.assertNotIn("xlsx", await beta.totals(db, enrollment["id"]))
 
-    async def test_beta_document_downloads_but_preview_keeps_promotional_mark_on_paid_plan(self):
+    async def test_beta_document_preview_is_clear_and_downloadable_on_any_plan(self):
+        # Règle (a) : une page payée par un crédit, bêta compris, appartient au
+        # client. Aperçu net (aucune rastérisation) et fichier téléchargeable.
         await self.activate_tester()
-        async with self.sessions() as db:
-            (await db.get(User, self.tester.id)).plan = "pro"; await db.commit()
-        result = await self.translate(pdf(2))
-        self.assertEqual(result.status_code, 200, result.text)
-        self.assertTrue(result.json()["can_download"])
-        job_id = result.json()["job_id"]
-        produced = Path(self.temp.name) / "beta.pdf"
-        produced.write_bytes(pdf(2))
-        jobs.set(job_id, state="done", partial_path=str(produced),
-                 result_path=str(produced), result_filename="beta.pdf")
-        with patch.object(translation, "rasterize_for_trial", return_value=b"MARQUE") as mark:
-            preview = await self.client.get("/api/translate/partial/" + job_id, headers=self.tester_headers)
-        self.assertEqual((preview.status_code, preview.content), (200, b"MARQUE"))
-        mark.assert_called_once()
-        download = await self.client.get("/api/translate/result/" + job_id, headers=self.tester_headers)
-        self.assertEqual(download.status_code, 200, download.text[:100])
-        self.assertEqual(download.content, produced.read_bytes())
+        for plan in ("free", "pro"):
+            with self.subTest(plan=plan):
+                async with self.sessions() as db:
+                    (await db.get(User, self.tester.id)).plan = plan; await db.commit()
+                result = await self.translate(pdf(2))
+                self.assertEqual(result.status_code, 200, result.text)
+                self.assertTrue(result.json()["can_download"])
+                self.assertTrue(result.json()["read_clear"])
+                job_id = result.json()["job_id"]
+                produced = Path(self.temp.name) / f"beta-{plan}.pdf"
+                produced.write_bytes(pdf(2))
+                jobs.set(job_id, state="done", partial_path=str(produced),
+                         result_path=str(produced), result_filename="beta.pdf")
+                with patch.object(translation, "rasterize_for_trial", return_value=b"MARQUE") as mark:
+                    preview = await self.client.get("/api/translate/partial/" + job_id, headers=self.tester_headers)
+                self.assertEqual((preview.status_code, preview.content), (200, produced.read_bytes()))
+                mark.assert_not_called()
+                download = await self.client.get("/api/translate/result/" + job_id, headers=self.tester_headers)
+                self.assertEqual(download.status_code, 200, download.text[:100])
+                self.assertEqual(download.content, produced.read_bytes())
 
     async def test_each_office_format_consumes_its_own_allowance(self):
         enrollment = await self.activate_tester()

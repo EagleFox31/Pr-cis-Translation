@@ -250,3 +250,8 @@ Mission F terminée (PR #75). En attente de fusion par l'utilisateur : #70, puis
 ## 2026-11-18 15:28 — Cache apt de la CI
 
 - Branche `ci/cache-apt-libreoffice` : cache des .deb de l'étape « LibreOffice et polices » (ci.yml), leçon ajoutée. Vérification : deux runs de la PR (le premier remplit le cache, le second doit l'utiliser).
+
+## 2026-11-21 10:50 — Déploiement des mises à jour d'Ibrahim (#97, #96)
+- #97 (mail d'invitation bêta) fusionnée telle quelle : verte, sans conflit.
+- #96 corrigée avant fusion : migration `0028_admin_recaps` renumérotée `0029_admin_recaps` (parente `0028_beta_mailed_at` de #97, sinon deux têtes Alembic) ; `test_reprise_reglages` attend le nouveau champ `images` des réglages ; élément catalogue `images-proposees-apres-traduction` (21/11) et instantané SEO régénéré.
+- Ensuite : PR de release à la main (Actions ne peut pas l'ouvrir), puis vérification de la prod.

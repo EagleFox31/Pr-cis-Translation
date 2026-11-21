@@ -23,7 +23,7 @@ VERSION doit rester égale au champ "version" du package.json racine
 """
 
 VERSION = "1.10.0"  # x-release-please-version
-DATE_VERSION = "2026-11-18"
+DATE_VERSION = "2026-11-21"
 
 TYPES = ("nouveaute", "amelioration", "correctif")
 DOMAINES = ("documents", "visionneuse", "extension", "compte")
@@ -121,6 +121,24 @@ FONCTIONNALITES: list[dict] = [
             "titre": "Resend an invitation",
             "resume": "An invitation can be resent to an address already invited, within a reasonable limit.",
             "detail": "Resends are capped per sender and per address.",
+        },
+    },
+    {
+        "id": "images-proposees-apres-traduction",
+        "date": "2026-11-21",
+        "type": "nouveaute",
+        "domaine": "documents",
+        "importance": 2,
+        "phare": False,
+        "fr": {
+            "titre": "Les images traduites sur proposition",
+            "resume": "À la fin de la traduction, Précis indique combien d'images contiennent du texte à traduire et vous laisse choisir.",
+            "detail": "Vous ne payez que les images réellement traduites : une page par image, débitée au clic. Le contrôle des crédits au dépôt ne porte plus que sur le texte. Les images sont déjà prêtes : elles s'affichent en quelques secondes. Valable pour les PDF, Word et PowerPoint traduits en entier.",
+        },
+        "en": {
+            "titre": "Images translated on request",
+            "resume": "When the translation ends, Précis shows how many images contain text to translate and lets you choose.",
+            "detail": "You only pay for the images actually translated: one page per image, debited when you click. The credit check at upload now covers the text only. The images are already prepared: they appear within seconds. Available for PDF, Word and PowerPoint documents translated in full.",
         },
     },
     {
