@@ -6,10 +6,10 @@
  * les précédents restent consultables avec leurs candidatures et participants.
  * Le programme choisi est gardé dans l'URL (`?c=<id>`, `?c=new` pour en créer un).
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
-import { Check, Link2, Pencil, Plus, RotateCcw, SlidersHorizontal, UserPlus, UserX, X } from 'lucide-react';
+import { AlertTriangle, Check, Link2, Pencil, Plus, RotateCcw, SlidersHorizontal, UserPlus, UserX, X } from 'lucide-react';
 import AdminShell from '../components/admin/AdminShell';
 import { UserLink } from '../components/admin/UserPanel';
 import { AdminList, AdminStats, AdminToolbar, FileTypeIcon, RefreshButton } from '../components/admin/AdminParts';
@@ -18,6 +18,7 @@ import type { BetaApplication, BetaEnrollment, BetaFormat, BetaLimits } from '..
 import api from '../services/api';
 import { betaError } from '../lib/betaError';
 import { showToast } from '../components/ui/Toast';
+import { InviteeField, ResendMail, type InviteResult } from '../components/admin/BetaInvitees';
 
 const CAMPAIGN_PARAM = 'c';
 const NEW = 'new';
@@ -43,6 +44,13 @@ interface Dashboard {
 /** Une ligne de la liste unique de la fiche : candidature ou inscription. */
 type Person = { kind: 'application'; row: ReviewedApplication } | { kind: 'enrollment'; row: ReviewedEnrollment };
 const isPending = (person: Person) => person.kind === 'application' && person.row.state === 'pending';
+/** Reste une action à faire : candidature à trancher, ou invité dont le mail n'est pas parti (à renvoyer). */
+const needsAction = (person: Person) => isPending(person)
+  || (person.kind === 'enrollment' && person.row.state === 'invited' && !person.row.mailed_at);
+/** Couleur de l'étiquette d'état d'une inscription (même famille `admin-tag` que les candidatures). */
+const ENROLLMENT_TAG: Record<BetaEnrollment['state'], string> = {
+  invited: 'beta-tag--info', active: 'admin-tag--done', expired: '', revoked: 'admin-tag--error',
+};
 
 const pickSettings = (from: Settings): Settings => ({
   name: from.name, capacity: from.capacity, first_wave_capacity: from.first_wave_capacity,
@@ -52,11 +60,18 @@ const pickSettings = (from: Settings): Settings => ({
 const stateKey = (campaign: Campaign) =>
   campaign.state === 'open' && !campaign.recruitment_open ? 'ended' : campaign.state;
 
+/** Petite étiquette « Points à vérifier » ; le détail s'ouvre au clic. */
 function RiskNotice({ risk }: { risk?: BetaRisk }) {
   const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const id = useId();
   if (!risk?.flags.length) return null;
-  return <details className="beta-review-alert">
-    <summary>{t('beta.safety.review')}</summary>
+  return <div className="beta-risk">
+    <button type="button" className="admin-tag beta-risk__tag" aria-expanded={open} aria-controls={id}
+      onClick={() => setOpen(value => !value)}>
+      <AlertTriangle size={12} strokeWidth={2.4} aria-hidden="true" />{t('beta.safety.review')}
+    </button>
+    {open && <div id={id} className="beta-review-alert">
     <p className="beta-note">{t('beta.safety.hint')}</p>
     <ul>{risk.flags.map(flag => <li key={flag.kind}>
       {t(`beta.safety.${flag.kind}`, { count: flag.count })}
@@ -65,7 +80,8 @@ function RiskNotice({ risk }: { risk?: BetaRisk }) {
       <strong>{t('beta.safety.related')}</strong>
       <ul>{risk.related.map(person => <li key={person.email}><UserLink email={person.email} /></li>)}</ul>
     </>}
-  </details>;
+    </div>}
+  </div>;
 }
 /** Un champ par plafond, sur une ligne : icône du format et unité au-dessus du chiffre. */
 const LIMIT_FIELDS: { key: keyof BetaLimits; format: BetaFormat; unit: string; max: number }[] = [
@@ -166,7 +182,7 @@ export default function AdminBetaPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
-  const [email, setEmail] = useState('');
+  const [invitees, setInvitees] = useState<string[]>([]);
   const [format, setFormat] = useState<BetaFormat>('pdf');
   const [inviting, setInviting] = useState(false);
   const [editing, setEditing] = useState<BetaEnrollment | null>(null);
@@ -227,7 +243,9 @@ export default function AdminBetaPage() {
     }
   }, [selected]);
 
-  const mutate = async (path: string, body: unknown, method: 'post' | 'patch' = 'post') => {
+  const closeInvite = () => { if (!busy) { setInviting(false); setInvitees([]); setError(''); } };
+  /** `done` : message de réussite propre à l'action (aucun quand l'écran montre déjà le résultat). */
+  const mutate = async (path: string, body: unknown, method: 'post' | 'patch' = 'post', done?: string) => {
     setBusy(true); setError('');
     try {
       const result = await api[method](path, body);
@@ -235,7 +253,7 @@ export default function AdminBetaPage() {
         throw new Error(betaError(t, result.data));
       }
       await load();
-      showToast('success', t('beta.saved'));
+      if (done) showToast('success', done);
       return result.data;
     } catch (failure) {
       setError((failure as Error).message || t('beta.error'));
@@ -252,7 +270,7 @@ export default function AdminBetaPage() {
   const createCampaign = (values: Settings) => {
     const open = (data?.campaigns || []).filter(row => row.state === 'open');
     if (!closeOthers || !open.length) {
-      void mutate('/api/admin/beta/campaigns', values).then(row => created(row as Campaign | null));
+      void mutate('/api/admin/beta/campaigns', values, 'post', t('beta.saved')).then(row => created(row as Campaign | null));
       return;
     }
     setAsk({
@@ -263,7 +281,7 @@ export default function AdminBetaPage() {
           if (!await mutate('/api/admin/beta/campaigns/' + row.id, { state: 'closed' }, 'patch')) return;
         }
         const row = await mutate('/api/admin/beta/campaigns', values) as Campaign | null;
-        if (row) await mutate('/api/admin/beta/campaigns/' + row.id, { state: 'open' }, 'patch');
+        if (row) await mutate('/api/admin/beta/campaigns/' + row.id, { state: 'open' }, 'patch', t('beta.saved'));
         created(row);
       })(),
     });
@@ -276,11 +294,11 @@ export default function AdminBetaPage() {
     && !(row.recruitment_ends_at && new Date(row.recruitment_ends_at) <= new Date()));
   const applications = data?.applications || [];
   // Une seule liste : une candidature validée est déjà une inscription, on ne la montre qu'une fois.
-  // Les candidatures en attente passent en tête.
+  // Ce qui demande encore une action (candidature à trancher, mail à renvoyer) passe en tête.
   const people: Person[] = [
     ...applications.filter(row => row.state !== 'approved').map(row => ({ kind: 'application' as const, row })),
     ...(data?.enrollments || []).map(row => ({ kind: 'enrollment' as const, row })),
-  ].sort((a, b) => Number(!isPending(a)) - Number(!isPending(b)));
+  ].sort((a, b) => Number(!needsAction(a)) - Number(!needsAction(b)));
 
   const seatsFull = !campaign?.recruitment_open || campaign.seats_used >= campaign.current_capacity;
   const recruitmentOver = Boolean(campaign?.recruitment_ends_at && new Date(campaign.recruitment_ends_at) <= new Date());
@@ -353,14 +371,14 @@ export default function AdminBetaPage() {
               && <p className="admin-note">{t('beta.campaigns.other_open', { name: otherOpen.name })}</p>}
             <SettingsForm value={settings} onChange={setSettings} busy={busy} submitLabel={t('beta.save')}
               start={campaign.state === 'open' ? <button className="tb-btn admin-btn--danger" type="button" disabled={busy}
-                onClick={() => void mutate('/api/admin/beta/campaigns/' + campaign.id, { state: 'closed' }, 'patch')}>
+                onClick={() => void mutate('/api/admin/beta/campaigns/' + campaign.id, { state: 'closed' }, 'patch', t('beta.saved'))}>
                 {t('beta.close')}
               </button> : <button className="tb-btn ghost" type="button" disabled={busy || recruitmentOver || !!otherOpen}
-                onClick={() => void mutate('/api/admin/beta/campaigns/' + campaign.id, { state: 'open' }, 'patch')}>
+                onClick={() => void mutate('/api/admin/beta/campaigns/' + campaign.id, { state: 'open' }, 'patch', t('beta.saved'))}>
                 {t('beta.open')}
               </button>}
               onCancel={() => setEditingSettings(false)}
-              onSubmit={() => void mutate('/api/admin/beta/campaigns/' + campaign.id, settings, 'patch').then(saved => {
+              onSubmit={() => void mutate('/api/admin/beta/campaigns/' + campaign.id, settings, 'patch', t('beta.saved')).then(saved => {
                 if (saved) setEditingSettings(false);
               })} />
           </section>
@@ -377,37 +395,50 @@ export default function AdminBetaPage() {
                     ? <><Check size={16} strokeWidth={2.4} aria-hidden="true" color="#16a34a" /><span role="status">{t('beta.copied')}</span></>
                     : <><Link2 size={16} strokeWidth={2.2} aria-hidden="true" />{t('beta.copy_link')}</>}
                 </button>
-                <button type="button" className="beta-soft admin-btn" disabled={busy || campaign.state !== 'open'}
-                  title={campaign.state !== 'open' ? t('beta.recruitment_closed') : undefined} onClick={() => setInviting(true)}>
+                <button type="button" className="beta-soft admin-btn" disabled={busy || seatsFull}
+                  title={seatsFull ? t('beta.seats_full') : undefined} onClick={() => { setError(''); setInviting(true); }}>
                   <UserPlus size={16} strokeWidth={2.2} aria-hidden="true" />{t('beta.invite_by_email')}
                 </button>
               </div>
             </AdminToolbar>
+            {seatsFull && <p className="admin-note">{t('beta.seats_full')}</p>}
             <AdminList empty={people.length === 0} emptyText={t('beta.no_testers')}>
               {people.map(person => person.kind === 'application' ? (
-                <div className="admin-row" key={'a' + person.row.id}>
+                <div className="admin-row beta-person" key={'a' + person.row.id}>
                   <div className="admin-row__main">
                     <div className="admin-row__title"><UserLink email={person.row.email} /></div>
                     <div className="admin-row__meta">{t('beta.campaigns.kind_application')} · {t(`beta.formats.${person.row.primary_format}`)} · {date(person.row.submitted_at)}</div>
-                    <p className="admin-detail__text">{person.row.motivation}</p>
+                    {person.row.motivation && <p className="beta-person__motivation" title={person.row.motivation}>{person.row.motivation}</p>}
                     <RiskNotice risk={person.row.risk} />
-                    {person.row.state === 'pending' && seatsFull
-                      && <p className="admin-note">{t('beta.application.approval_unavailable')}</p>}
                   </div>
                   <div className="admin-row__side">
-                    <span className={'beta-status beta-status--application-' + person.row.state}>{t(`beta.application.states.${person.row.state}`)}</span>
-                    <button className="beta-primary" disabled={busy || seatsFull}
-                      onClick={() => void mutate('/api/admin/beta/applications/' + person.row.id, { decision: 'approved' }, 'patch')}>
-                      {t('beta.application.approve')}
-                    </button>
-                    {person.row.state === 'pending' && <button className="tb-btn ghost" disabled={busy} onClick={() => setAsk({
-                      message: t('beta.application.decline_confirm', { email: person.row.email }), label: t('beta.application.decline'),
-                      onConfirm: () => void mutate('/api/admin/beta/applications/' + person.row.id, { decision: 'declined' }, 'patch'),
-                    })}>{t('beta.application.decline')}</button>}
+                    <span className={'admin-tag' + (person.row.state === 'pending' ? ' admin-tag--pending' : '')}>
+                      {t(`beta.application.states.${person.row.state}`)}
+                    </span>
+                    {person.row.state === 'pending' && <div className="beta-person__actions">
+                      <button type="button" className="tb-btn ghost admin-icon-btn" disabled={busy || seatsFull}
+                        aria-label={t('beta.application.approve')} title={seatsFull ? t('beta.seats_full') : t('beta.application.approve')}
+                        onClick={() => void mutate('/api/admin/beta/applications/' + person.row.id, { decision: 'approved' }, 'patch').then(row => {
+                          const done = row as { mail_sent?: boolean } | null;
+                          if (!done) return;
+                          if (done.mail_sent === false) showToast('error', t('beta.invitees.approval_not_mailed', { email: person.row.email }));
+                          else showToast('success', t('beta.application.approved_toast', { email: person.row.email }));
+                        })}>
+                        <Check size={16} strokeWidth={2.4} aria-hidden="true" />
+                      </button>
+                      <button type="button" className="tb-btn ghost admin-icon-btn admin-icon-btn--danger" disabled={busy}
+                        aria-label={t('beta.application.decline')} title={t('beta.application.decline')} onClick={() => setAsk({
+                          message: t('beta.application.decline_confirm', { email: person.row.email }), label: t('beta.application.decline'),
+                          onConfirm: () => void mutate('/api/admin/beta/applications/' + person.row.id, { decision: 'declined' }, 'patch',
+                            t('beta.application.declined_toast', { email: person.row.email })),
+                        })}>
+                        <X size={16} strokeWidth={2.4} aria-hidden="true" />
+                      </button>
+                    </div>}
                   </div>
                 </div>
               ) : (
-                <div className="admin-row" key={'e' + person.row.id}>
+                <div className="admin-row beta-person" key={'e' + person.row.id}>
                   <div className="admin-row__main">
                     <div className="admin-row__title"><UserLink email={person.row.email} /></div>
                     <div className="admin-row__meta admin-row__meta--inline">
@@ -418,20 +449,30 @@ export default function AdminBetaPage() {
                     <RiskNotice risk={person.row.risk} />
                   </div>
                   <div className="admin-row__side">
-                    <span className={'beta-status beta-status--' + person.row.state}>{t(`beta.states.${person.row.state}`)}</span>
-                    <button className="tb-btn ghost admin-icon-btn" disabled={busy} aria-label={t('beta.edit_limits')} title={t('beta.edit_limits')}
-                      onClick={() => { setEditing(person.row); setEditLimits(person.row.limits); }}>
-                      <SlidersHorizontal size={16} strokeWidth={2.2} aria-hidden="true" />
-                    </button>
-                    <button className="tb-btn ghost admin-icon-btn" disabled={busy}
-                      aria-label={person.row.state === 'revoked' ? t('beta.restore') : t('beta.revoke')}
-                      title={person.row.state === 'revoked' ? t('beta.restore') : t('beta.revoke')} onClick={() => {
-                      const toggle = () => void mutate('/api/admin/beta/enrollments/' + person.row.id, { revoke: person.row.state !== 'revoked' }, 'patch');
-                      if (person.row.state === 'revoked') toggle();
-                      else setAsk({ message: t('beta.revoke_confirm', { email: person.row.email }), label: t('beta.revoke'), onConfirm: toggle });
-                    }}>{person.row.state === 'revoked'
-                      ? <RotateCcw size={16} strokeWidth={2.2} aria-hidden="true" />
-                      : <UserX size={16} strokeWidth={2.2} aria-hidden="true" />}</button>
+                    {person.row.state === 'invited' && !person.row.mailed_at
+                      ? <span className="admin-tag admin-tag--error" title={t('beta.mail_not_sent_hint')}>{t('beta.mail_not_sent')}</span>
+                      : <span className={'admin-tag ' + ENROLLMENT_TAG[person.row.state]}>{t(`beta.states.${person.row.state}`)}</span>}
+                    <div className="beta-person__actions">
+                      {person.row.state === 'invited' && !person.row.mailed_at
+                        && <ResendMail icon enrollmentId={person.row.id} onSent={() => void load().catch(() => undefined)} />}
+                      {person.row.state !== 'expired' && <>
+                        <button type="button" className="tb-btn ghost admin-icon-btn" disabled={busy} aria-label={t('beta.edit_limits')} title={t('beta.edit_limits')}
+                          onClick={() => { setError(''); setEditing(person.row); setEditLimits(person.row.limits); }}>
+                          <SlidersHorizontal size={16} strokeWidth={2.2} aria-hidden="true" />
+                        </button>
+                        <button type="button" className={'tb-btn ghost admin-icon-btn' + (person.row.state === 'revoked' ? '' : ' admin-icon-btn--danger')} disabled={busy}
+                          aria-label={person.row.state === 'revoked' ? t('beta.restore') : t('beta.revoke')}
+                          title={person.row.state === 'revoked' ? t('beta.restore') : t('beta.revoke')} onClick={() => {
+                            const revoke = person.row.state !== 'revoked';
+                            const toggle = () => void mutate('/api/admin/beta/enrollments/' + person.row.id, { revoke }, 'patch',
+                              t(revoke ? 'beta.revoked_toast' : 'beta.restored_toast', { email: person.row.email }));
+                            if (!revoke) toggle();
+                            else setAsk({ message: t('beta.revoke_confirm', { email: person.row.email }), label: t('beta.revoke'), onConfirm: toggle });
+                          }}>{person.row.state === 'revoked'
+                            ? <RotateCcw size={16} strokeWidth={2.2} aria-hidden="true" />
+                            : <UserX size={16} strokeWidth={2.2} aria-hidden="true" />}</button>
+                      </>}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -477,30 +518,56 @@ export default function AdminBetaPage() {
         </div>
       )}
       {inviting && campaign && (
-        <dialog ref={inviteDialog} aria-labelledby="beta-invite-title" className="beta-card beta-dialog"
-          onCancel={event => { if (busy) event.preventDefault(); else setInviting(false); }}>
-          <h2 id="beta-invite-title">{t('beta.invite')}</h2>
-          <p className="admin-panel__muted">{t('beta.invite_hint')}</p>
-          {!campaign.recruitment_open && <p className="beta-note">{t('beta.recruitment_closed')}</p>}
+        <dialog ref={inviteDialog} aria-labelledby="beta-invite-title" className="beta-card beta-dialog beta-dialog--invite"
+          onCancel={event => { event.preventDefault(); closeInvite(); }}>
+          <header className="beta-dialog__head">
+            <h2 id="beta-invite-title">{t('beta.invite_title')}</h2>
+            <button type="button" className="tb-btn ghost admin-icon-btn" disabled={busy} onClick={closeInvite}
+              aria-label={t('beta.invitees.close')} title={t('beta.invitees.close')}>
+              <X size={16} strokeWidth={2.2} aria-hidden="true" />
+            </button>
+          </header>
           <form onSubmit={event => {
             event.preventDefault();
-            void mutate('/api/admin/beta/invitations', { email, primary_format: format, campaign_id: campaign.id }).then(ok => {
-              if (ok) { setEmail(''); setInviting(false); }
+            if (!invitees.length) return;
+            void mutate('/api/admin/beta/invitations', { emails: invitees, primary_format: format, campaign_id: campaign.id }).then(data => {
+              const rows = (data as { results?: InviteResult[] } | null)?.results;
+              if (!rows) return;
+              // Pas d'écran de résultat : la fenêtre se ferme et la liste (rechargée) montre en tête ce qui reste à faire.
+              setInviting(false); setInvitees([]);
+              const invited = rows.filter(row => row.status === 'invited');
+              const unsent = invited.filter(row => !row.mail_sent).length;
+              const refused = rows.filter(row => row.status !== 'invited')
+                .map(row => `${row.email} (${t(`beta.errors.${row.status}`, { defaultValue: t('beta.error') })})`);
+              const parts = [t('beta.invitees.summary', { count: invited.length })];
+              if (unsent) parts.push(t('beta.invitees.summary_unsent', { count: unsent }));
+              if (refused.length) parts.push(t('beta.invitees.summary_refused', { list: refused.join(', ') }));
+              showToast(unsent || refused.length ? 'error' : 'success', parts.join(' '));
             });
           }}>
             <fieldset disabled={busy} className="beta-fieldset admin-form">
-              <label className="admin-field--wide">{t('beta.email')}<input className="admin-input" type="email" required maxLength={255} value={email}
-                onChange={event => setEmail(event.target.value)} /></label>
-              <label>{t('beta.primary_format')}<select className="admin-select" value={format}
-                onChange={event => setFormat(event.target.value as BetaFormat)}>
-                {BETA_FORMATS.map(item => <option key={item} value={item}>{t(`beta.formats.${item}`)}</option>)}
-              </select></label>
-              <div className="admin-form-footer">
-                <span />
-                <div className="admin-form-actions">
-                  <button className="tb-btn ghost" type="button" onClick={() => setInviting(false)}>{t('beta.cancel')}</button>
-                  <button className="beta-primary" disabled={busy || seatsFull}>{t('beta.invite')}</button>
+              <p className="admin-form-note">{t('beta.invite_hint')}</p>
+              <div className="admin-field--full">
+                <span id="beta-invitees-label">{t('beta.email')}</span>
+                <InviteeField labelId="beta-invitees-label" value={invitees} onChange={setInvitees}
+                  exclude={(data?.enrollments || []).map(row => row.email)} />
+              </div>
+              <div className="admin-field--full beta-format">
+                <span id="beta-format-label">{t('beta.primary_format')}</span>
+                {/* Quatre formats seulement : des boutons visibles d'un coup plutôt qu'une liste déroulante. */}
+                <div className="beta-segments" role="radiogroup" aria-labelledby="beta-format-label">
+                  {BETA_FORMATS.map(item => (
+                    <label key={item} className={'beta-segment' + (format === item ? ' beta-segment--on' : '')}>
+                      <input type="radio" name="beta-invite-format" value={item} checked={format === item}
+                        onChange={() => setFormat(item)} />
+                      {t(`beta.formats.${item}`)}
+                    </label>
+                  ))}
                 </div>
+              </div>
+              <div className="beta-dialog__actions">
+                <button className="beta-secondary" type="button" onClick={closeInvite}>{t('beta.cancel')}</button>
+                <button className="beta-primary" disabled={busy || seatsFull || !invitees.length}>{t('beta.invite')}</button>
               </div>
             </fieldset>
           </form>
@@ -513,7 +580,7 @@ export default function AdminBetaPage() {
           <h2 id="beta-edit-title">{t('beta.edit_limits')}</h2><p>{editing.email}</p>
           <form onSubmit={event => {
             event.preventDefault();
-            void mutate('/api/admin/beta/enrollments/' + editing.id, { limits: editLimits }, 'patch').then(ok => {
+            void mutate('/api/admin/beta/enrollments/' + editing.id, { limits: editLimits }, 'patch', t('beta.limits_saved', { email: editing.email })).then(ok => {
               if (ok) { setEditing(null); setEditLimits(null); }
             });
           }}>

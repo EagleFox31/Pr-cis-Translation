@@ -202,6 +202,7 @@
 .admin-toolbar__end { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .admin-form > .admin-check { flex-direction: row; align-items: center; height: auto; font-weight: 500; }
 .admin-form .admin-input, .admin-form .admin-select { width: 100%; min-width: 0; }
+.admin-form .admin-select { flex: 0 0 auto; }
 /* Groupe de champs de même nature (nombres) : colonnes égales, jamais un champ orphelin */
 .admin-form__group { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 14px 16px; align-items: end; }
 .admin-form__group > label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 600; color: var(--gray-700); min-width: 0; }

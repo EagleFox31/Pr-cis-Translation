@@ -213,6 +213,61 @@ def textes_invitation(langue: str) -> dict[str, str]:
     return TEXTES_INVITATION.get(langue, TEXTES_INVITATION[LANGUE_DEFAUT])
 
 
+# Invitation à la bêta, envoyée à un compte existant
+# (docs/etude-mail-invitation-beta.md). Les quotas viennent de l'invitation.
+TEXTES_INVITATION_BETA: dict[str, dict] = {
+    "fr": {
+        "sujet": "Vous êtes invité(e) à la bêta de Précis",
+        "bandeau": "Bêta",
+        "titre": "Vous êtes invité(e) à la bêta de Précis",
+        "sous_titre": "Pendant {jours} jours à partir de votre première "
+                      "connexion, vous pouvez traduire gratuitement :",
+        "unites": {"pages": ("page", "pages"), "slides": ("diapositive", "diapositives"),
+                   "words": ("mot", "mots"), "sheets": ("feuille", "feuilles")},
+        "ligne": "{format} : {quantite}",
+        "excel_mots": "{feuilles}, {mots} au plus",
+        "sous_titre_actif": "Votre accès est ouvert jusqu'au {date}. D'ici là, "
+                            "vous pouvez traduire gratuitement :",
+        "date_limite": "Connectez-vous avant le {date} pour activer votre accès.",
+        "bouton": "Ouvrir Précis",
+        "lien": "Ou copiez ce lien : {url}",
+        "pied": "Vous recevez cet e-mail parce que l'équipe Précis vous a "
+                "invité(e) à la bêta. Connectez-vous avec cette adresse : "
+                "l'accès s'active tout seul.",
+        "pied_actif": "Vous recevez cet e-mail parce que l'équipe Précis vous a "
+                      "invité(e) à la bêta. Votre accès est déjà ouvert : "
+                      "connectez-vous avec cette adresse.",
+    },
+    "en": {
+        "sujet": "You're invited to the Précis beta",
+        "bandeau": "Beta",
+        "titre": "You're invited to the Précis beta",
+        "sous_titre": "For {jours} days from your first sign-in, you can "
+                      "translate for free:",
+        "unites": {"pages": ("page", "pages"), "slides": ("slide", "slides"),
+                   "words": ("word", "words"), "sheets": ("sheet", "sheets")},
+        "ligne": "{format}: {quantite}",
+        "excel_mots": "{feuilles}, up to {mots}",
+        "sous_titre_actif": "Your access is open until {date}. Until then, you "
+                            "can translate for free:",
+        "date_limite": "Sign in before {date} to activate your access.",
+        "bouton": "Open Précis",
+        "lien": "Or copy this link: {url}",
+        "pied": "You're receiving this email because the Précis team invited "
+                "you to the beta. Sign in with this address: access turns on "
+                "automatically.",
+        "pied_actif": "You're receiving this email because the Précis team invited "
+                      "you to the beta. Your access is already open: sign in with "
+                      "this address.",
+    },
+}
+
+
+def textes_invitation_beta(langue: str) -> dict:
+    """Les textes de l'invitation bêta, français par défaut."""
+    return TEXTES_INVITATION_BETA.get(langue, TEXTES_INVITATION_BETA[LANGUE_DEFAUT])
+
+
 # Rappel avant la suppression des traductions en aperçu dont aucune page n'a
 # été payée (docs/etude-traduction-libre.md, étape 5.5).
 TEXTES_RAPPEL_LIBRES: dict[str, dict[str, str]] = {

@@ -33,6 +33,7 @@ from pathlib import Path
 
 from app.core.email_content import (MARQUE, date_longue, normaliser_langue,
                                     textes, textes_invitation,
+                                    textes_invitation_beta,
                                     textes_nouveautes, textes_rappel_libres)
 
 logger = logging.getLogger("email_service")
@@ -678,5 +679,94 @@ async def send_rappel_libres_email(destinataire: str, langue: str,
         logger.info("Rappel aperçu envoyé à %s", destinataire)
     except Exception as exc:
         logger.error("Échec du rappel aperçu à %s : %s", destinataire, exc)
+        raise EmailIndisponible(
+            "L'envoi de l'e-mail a échoué. Réessayez dans un instant.") from exc
+
+
+# ── Invitation à la bêta ──────────────────────────────────────────────────────
+_FORMATS_BETA = (("pdf", "PDF", "pages"), ("pptx", "PowerPoint", "slides"),
+                 ("docx", "Word", "words"), ("xlsx", "Excel", "sheets"))
+
+
+def _quantite(n: int, unite: str, t: dict, langue: str) -> str:
+    chiffre = f"{n:,}".replace(",", " " if langue == "fr" else ",")
+    un, plusieurs = t["unites"][unite]
+    return f"{chiffre} {un if n == 1 else plusieurs}"
+
+
+def _lignes_quotas(limites: dict, langue: str) -> list[str]:
+    t = textes_invitation_beta(langue)
+    lignes = []
+    for fmt, nom, unite in _FORMATS_BETA:
+        quantite = _quantite(int(limites.get(fmt, 0)), unite, t, langue)
+        if fmt == "xlsx" and limites.get("xlsx_words"):
+            quantite = t["excel_mots"].format(
+                feuilles=quantite, mots=_quantite(int(limites["xlsx_words"]), "words", t, langue))
+        lignes.append(t["ligne"].format(format=nom, quantite=quantite))
+    return lignes
+
+
+def _message_invitation_beta(destinataire: str, langue: str, *, limites: dict,
+                             jours: int, date_limite: str | None,
+                             fin_acces: str | None = None) -> MIMEMultipart:
+    """Invitation bêta. `date_limite` : date ISO (AAAA-MM-JJ) avant laquelle
+    se connecter, ou None. `fin_acces` : date ISO de fin quand l'accès est déjà
+    ouvert (candidature acceptée) ; le mail le dit au lieu d'inviter à
+    l'activer. Aucun texte saisi par un utilisateur n'y entre."""
+    t = textes_invitation_beta(langue)
+    url = f"{FRONTEND_URL.rstrip('/')}/login"
+    lignes = _lignes_quotas(limites, langue)
+    if fin_acces:
+        sous_titre = t["sous_titre_actif"].format(date=date_longue(fin_acces, langue))
+        rappel, pied = "", t["pied_actif"]
+    else:
+        sous_titre = t["sous_titre"].format(jours=jours)
+        rappel = t["date_limite"].format(date=date_longue(date_limite, langue)) if date_limite else ""
+        pied = t["pied"]
+    corps = (_titre(t["titre"]) + _para(sous_titre)
+             + _atouts(lignes) + (_para(rappel) if rappel else "")
+             + _bouton(t["bouton"], url)
+             + _petit(t["lien"].format(url=url), marge=8)
+               .replace("text-align:justify", "text-align:left;word-break:break-all"))
+    html = _carte(lang=langue, niveau="info", bandeau=t["bandeau"],
+                  corps=corps, pied=_petit(pied, marge=0))
+    liste = "\n".join(f"- {l}" for l in lignes)
+    texte = (f"{t['titre']}.\n\n{sous_titre}\n{liste}\n" + (f"\n{rappel}\n" if rappel else "")
+             + "\n" + t["ligne"].format(format=t["bouton"], quantite=url) + f"\n\n{pied}")
+
+    msg = MIMEMultipart("related")
+    _expediteur(msg)
+    msg["To"] = destinataire
+    msg["Subject"] = t["sujet"]
+    msg["Reply-To"] = SMTP_REPLY_TO
+    msg["X-Auto-Response-Suppress"] = "All"
+    alt = MIMEMultipart("alternative")
+    alt.attach(MIMEText(texte, "plain", "utf-8"))
+    alt.attach(MIMEText(html, "html", "utf-8"))
+    msg.attach(alt)
+    logo = _logo()
+    if logo is not None:
+        msg.attach(logo)
+    return msg
+
+
+async def send_invitation_beta_email(destinataire: str, langue: str, *, limites: dict,
+                                     jours: int, date_limite: str | None = None,
+                                     fin_acces: str | None = None) -> None:
+    """Envoie l'invitation bêta dans la langue du compte.
+
+    Lève `EmailIndisponible` si l'envoi échoue : l'invitation, elle, reste
+    valable ; l'admin peut renvoyer le mail."""
+    langue = langue if langue in ("fr", "en") else "fr"
+    msg = _message_invitation_beta(destinataire, langue, limites=limites,
+                                   jours=jours, date_limite=date_limite, fin_acces=fin_acces)
+    if not EMAIL_ENABLED or not SMTP_HOST:
+        logger.info("[DEV] Invitation bêta → %s | langue=%s", destinataire, langue)
+        return
+    try:
+        await _envoyer(msg)
+        logger.info("Invitation bêta envoyée à %s (%s)", destinataire, langue)
+    except Exception as exc:
+        logger.error("Échec de l'invitation bêta à %s : %s", destinataire, exc)
         raise EmailIndisponible(
             "L'envoi de l'e-mail a échoué. Réessayez dans un instant.") from exc
