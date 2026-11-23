@@ -182,9 +182,6 @@
     "ocr_notice_other": "{{count}} scanned pages: the text will be read page by page during translation. Review the result: fonts and layout in scanned documents remain approximate.",
     "page_ocr": "Reading the scan…",
     "page_ocr_waiting": "Waiting to be read",
-    "images_analysing": "Looking for text in the images…",
-    "images_note_one": "This document contains one image. When it's done, we'll tell you if it has text to translate.",
-    "images_note_other": "This document contains {{count}} images. When it's done, we'll tell you which ones have text to translate.",
     "images_skipped": "The images in this document weren’t translated: they stay in the original language.",
     "images_report": {
       "intro": "Images: {{detail}}.",
@@ -414,12 +411,7 @@
       "pages_other": "Pages {{pages}}",
       "use_original": "Restore original",
       "use_translation": "Restore translation",
-      "error": "The change could not be saved. Please try again.",
-      "analysing": "Looking for text in the images…",
-      "offer_one": "{{n}} of {{count}} image contains text to translate",
-      "offer_other": "{{n}} of {{count}} images contain text to translate",
-      "offer_button_one": "Translate ({{count}} page)",
-      "offer_button_other": "Translate ({{count}} pages)"
+      "error": "The change could not be saved. Please try again."
     },
     "pause": "Pause",
     "cancel": "Cancel translation",

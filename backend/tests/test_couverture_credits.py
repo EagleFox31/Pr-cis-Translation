@@ -299,19 +299,20 @@ async def run():
         ok("ENTERPRISE  sans quota : jamais d'avertissement",
            r["statut"] == 200 and r["solde"] == 0, str(r["statut"]))
 
-        # ── Images (option D1) : jamais comptées au dépôt ─────────────────
+        # ── Images : traduites avec leur page, jamais comptées ni débitées ──
         uid = await compte("starter", 0, quota_pris=96)         # 4 pages libres
         r = await _importer(uid, _pdf(4), images="1")
         ok("IMAGES  le dépôt ne vérifie que le texte, même avec images=1",
            r["statut"] == 200 and "images" not in r["corps"]
            and r["registre"] == [(KIND_PLAN, 4)], f"{r['statut']} {r['corps']} {r['registre']}")
-        ok("IMAGES  PDF entier : document marqué pour la proposition",
+        ok("IMAGES  PDF entier : images traduites avec les pages (aucun débit en plus)",
            json.loads(r["doc"].reglages or "{}").get("images") is True, str(r["doc"].reglages))
         uid = await compte("starter", 0)
         r = await _importer(uid, _pdf(4), pages="1-2")
-        ok("IMAGES  plage de pages : pas de proposition",
-           r["statut"] == 200 and not json.loads(r["doc"].reglages or "{}").get("images"),
-           f"{r['statut']} {r['doc'] and r['doc'].reglages}")
+        ok("IMAGES  plage de pages : images traduites aussi, pages couvertes seules débitées",
+           r["statut"] == 200 and json.loads(r["doc"].reglages or "{}").get("images") is True
+           and r["registre"] == [(KIND_PLAN, 2)],
+           f"{r['statut']} {r['doc'] and r['doc'].reglages} {r['registre']}")
     finally:
         for uid in comptes:
             await _supprimer(uid)

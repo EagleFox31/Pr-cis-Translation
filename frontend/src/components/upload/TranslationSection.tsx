@@ -6,7 +6,7 @@ import CheckboxOption from '../ui/CheckboxOption';
 import {
   Check, ArrowRight, Loader2, Languages, Wand2, FileText,
   SlidersHorizontal, ChevronDown, ScanSearch, Info,
-  Image as ImageIcon, AlertTriangle,
+  AlertTriangle,
 } from 'lucide-react';
 import FileUploader from './FileUploader';
 import LanguagePicker from './LanguagePicker';
@@ -134,17 +134,10 @@ export default function TranslationSection({
     if (f) setJustReset(false);
   };
 
-  // Images : le dépôt ne fait que les compter. Leur lecture se fait pendant la
-  // traduction et la proposition arrive à la fin, sur l'aperçu. Pas de
-  // proposition en bêta, en mode structure ni avec une plage de pages.
-  const { analyse, enCours: analyseEnCours } = useAnalyseImages(file, !!user);
+  // Analyse du dépôt : langue du document (les images sont traduites avec leur page).
+  const { analyse } = useAnalyseImages(file, !!user);
   // Langue d'arrivée identique à celle du document : simple avertissement.
   const memeLangue = !!analyse?.langue && analyse.langue === baseCode(targetLang);
-  const imagesTrouvees = analyse?.images ?? 0;
-  const imagesBloquees = betaUsable && useBetaCredits ? 'beta'
-    : supportsStructure && structureMode ? 'structure'
-    : supportsPages && pages.trim() ? 'pages'
-    : null;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -292,26 +285,6 @@ export default function TranslationSection({
             </span>
           )}
         </div>
-
-        {/* Images à texte : l'option n'existe que si l'analyse en a trouvé. */}
-        {analyseEnCours && (
-          <span role="status" style={{
-            display: 'inline-flex', alignItems: 'center', gap: '6px',
-            fontSize: '11.5px', color: 'var(--gray-500)',
-          }}>
-            <Loader2 size={12} strokeWidth={2} className="animate-spin" style={{ flexShrink: 0 }} />
-            {t('story.images_analysing')}
-          </span>
-        )}
-        {imagesTrouvees > 0 && !imagesBloquees && (
-          <span role="status" style={{
-            display: 'inline-flex', alignItems: 'flex-start', gap: '6px',
-            fontSize: '11.5px', color: 'var(--gray-500)',
-          }}>
-            <ImageIcon size={12} strokeWidth={2} style={{ flexShrink: 0, marginTop: '2px' }} />
-            {t('story.images_note', { count: imagesTrouvees })}
-          </span>
-        )}
 
         {/* Options avancées — repliées : elles servent à des cas particuliers
             (extrait, diagnostic) et n'apparaissent que pour les formats qui les

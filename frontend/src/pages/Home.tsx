@@ -138,7 +138,7 @@ export default function Home() {
   const stream = useStreamingTranslation(user?.plan === 'free');
 
   // ---- Document library ----
-  const { documents, charge: bibliothequeChargee, erreur: bibliothequeErreur, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal, getImagesProposition, translateImages, getIllegiblePages, setIllegiblePages } = useDocumentLibrary();
+  const { documents, charge: bibliothequeChargee, erreur: bibliothequeErreur, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal, getIllegiblePages, setIllegiblePages } = useDocumentLibrary();
 
   // Les droits du document viennent du serveur ; une mise à jour de la
   // bibliothèque après paiement doit aussi débloquer l'aperçu déjà ouvert.
@@ -1132,9 +1132,6 @@ export default function Home() {
                   docId={docImages}
                   load={getDocumentImages}
                   setOriginal={setImageOriginal}
-                  loadProposition={getImagesProposition}
-                  translate={translateImages}
-                  onBuyPages={(p) => setPayPages(p)}
                   onChanged={rafraichirRendu}
                 />
               ) : null}

@@ -182,9 +182,6 @@
     "ocr_notice_other": "{{count}} pages scannées : le texte sera lu page par page pendant la traduction. Vérifiez le résultat : les polices et la mise en page d’un scan restent approximatives.",
     "page_ocr": "Lecture du scan…",
     "page_ocr_waiting": "En attente de lecture",
-    "images_analysing": "Recherche de texte dans les images…",
-    "images_note_one": "Ce document contient une image. À la fin, nous vous dirons si elle contient du texte à traduire.",
-    "images_note_other": "Ce document contient {{count}} images. À la fin, nous vous dirons lesquelles contiennent du texte à traduire.",
     "images_skipped": "Les images de ce document n’ont pas été traduites : elles restent dans la langue d’origine.",
     "images_report": {
       "intro": "Images : {{detail}}.",
@@ -414,12 +411,7 @@
       "pages_other": "Pages {{pages}}",
       "use_original": "Remettre l’original",
       "use_translation": "Remettre la traduction",
-      "error": "Le changement n’a pas pu être enregistré. Réessayez.",
-      "analysing": "Recherche de texte dans les images…",
-      "offer_one": "{{n}} image sur {{count}} contient du texte à traduire",
-      "offer_other": "{{n}} images sur {{count}} contiennent du texte à traduire",
-      "offer_button_one": "Traduire ({{count}} page)",
-      "offer_button_other": "Traduire ({{count}} pages)"
+      "error": "Le changement n’a pas pu être enregistré. Réessayez."
     },
     "pause": "Mettre en pause",
     "cancel": "Annuler la traduction",

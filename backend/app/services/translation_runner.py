@@ -62,61 +62,22 @@ for _fmt, _raison in engines.INDISPONIBLES.items():
     note(logging.WARNING, f"{_fmt.upper()} indisponible : {_raison}")
 
 
-# Dossiers d'images dont la proposition est en cours de calcul (un seul calcul
-# par fichier + langue, même si plusieurs travaux ou lectures le demandent).
-_propositions_en_cours: set[str] = set()
-_propositions_verrou = threading.Lock()
-
-
 def dossier_images(translation_path: str) -> str:
     return os.path.join(os.path.dirname(translation_path), "images")
 
 
-def proposition_en_cours(dossier: str) -> bool:
-    with _propositions_verrou:
-        return dossier in _propositions_en_cours
-
-
-def lancer_proposition(file_bytes: bytes, ext: str, langue: str, dossier: str) -> bool:
-    """Lance, dans un fil à part, la lecture des images à texte du document
-    (option D1) : rien n'est débité, le cache se remplit et le nombre d'images
-    à traduire est écrit pour la proposition de fin. Renvoie False si un calcul
-    tourne déjà pour ce dossier."""
-    with _propositions_verrou:
-        if dossier in _propositions_en_cours:
-            return False
-        _propositions_en_cours.add(dossier)
-
-    def _travail():
-        try:
-            images_document.proposer(
-                file_bytes, ext, lambda t: ext_service.traduire_textes(t, langue),
-                dossier, langue=langue)
-        except Exception as e:
-            logger.warning("Proposition d'images non calculée (%s) : %s", dossier, e)
-        finally:
-            with _propositions_verrou:
-                _propositions_en_cours.discard(dossier)
-
-    threading.Thread(target=_travail, name="images-proposition", daemon=True).start()
-    return True
-
-
-def _preparer_images(job_id: str, user_id: str | None, file_bytes: bytes, ext: str,
-                     langue: str, translation_path: str) -> dict[str, bytes]:
-    """Images à texte d'un document éligible : la lecture part en parallèle
-    du texte (proposition de fin, sans débit) ; aucune image n'est posée tant
-    que le client n'a pas accepté. Renvoie la table déjà acceptée s'il y en a
-    une (reprise d'un document dont les images sont traduites)."""
-    try:
-        dossier = dossier_images(translation_path)
-        if (ext in images_document.IMAGES_PROPOSABLES
-                and images_document.lire_proposition(dossier) is None):
-            lancer_proposition(file_bytes, ext, langue, dossier)
-        return images_document.charger_table(translation_path)
-    except Exception as e:
-        logger.warning("Job %s : proposition d'images non lancée : %s", job_id, e)
-        return {}
+def _images_du_travail(job_id: str | None, file_bytes: bytes, ext: str, langue: str,
+                       translation_path: str, pages=None, reste=None, avance: int = 3,
+                       persister: bool = True):
+    """Images à texte traduites avec leur page, sans débit en plus ;
+    None si le format ne s'y prête pas. `pages` : pages permises."""
+    if ext not in images_document.IMAGES_PROPOSABLES:
+        return None
+    arret = (lambda: jobs.verifier_arret(job_id)) if job_id else None
+    return images_document.ImagesDuTravail(
+        file_bytes, ext, lambda t: ext_service.traduire_textes(t, langue),
+        dossier_images(translation_path), translation_path, langue=langue,
+        pages=pages, avance=avance, reste=reste, arret=arret, persister=persister)
 
 
 def _signaler_objets(job_id: str, non_traites: list[dict] | None = None,
@@ -172,6 +133,7 @@ def run_translation_job(
     # Moteur PPTX PROPRE à ce job : son dossier temporaire ne doit être partagé
     # avec aucun autre traitement (cf. PPTXTranslatorEngine).
     pptx_eng = engines.new_engine("pptx") if ext == "pptx" else None
+    travail = None
     try:
         jobs.emit(job_id, "progress", {"step": "start", "message": "Démarrage du job...", "page": 0, "total": None})
 
@@ -180,9 +142,11 @@ def run_translation_job(
 
         # Images à texte (option `images=1`) : traduites avant le texte, posées
         # dans le fichier final.
-        table_images = (_preparer_images(job_id, user_id, file_bytes, ext, target_lang,
+        if images and ext == "docx":
+            # Le document part d'un bloc, une fois toutes ses images traduites.
+            travail = _images_du_travail(job_id, file_bytes, ext, target_lang,
                                          translated_path)
-                        if images and ext == "docx" else {})
+            travail.demander([1])
 
         # 3. Extraction
         if not os.path.exists(extraction_path):
@@ -284,13 +248,16 @@ def run_translation_job(
         if not os.path.exists(output_path):
             raise ValueError("Le fichier traduit est introuvable après génération.")
 
-        _poser_images_fichier(output_path, table_images)
+        _poser_images_fichier(output_path, travail.attendre_tout() if travail else {})
         jobs.done(job_id, output_path, output_filename,
                   translation_path=translated_path)
 
     except Exception as e:
         logger.error(f"Job {job_id} failed: {e}")
         jobs.error(job_id, "La traduction a rencontré une erreur. Réessayez ou contactez le support.")
+    finally:
+        if travail is not None:
+            travail.fermer()
 
 
 def run_xlsx_progressive_job(
@@ -337,9 +304,9 @@ def run_xlsx_progressive_job(
 
         # Images à texte (option `images=1`) : posées dans chaque aperçu de
         # feuille comme dans le classeur final. Le socle reste l'original.
-        table_images = (_preparer_images(job_id, user_id, file_bytes, "xlsx",
-                                         target_lang, translation_path)
-                        if images else {})
+        # Excel reste hors des images traduites avec la page : seule une table
+        # déjà présente est posée.
+        table_images = images_document.charger_table(translation_path) if images else {}
 
         def _extraire_feuilles(chemin, pages):
             eng.build_partial_xlsx(chemin, only_sheets={n - 1 for n in pages})
@@ -768,6 +735,7 @@ def run_pptx_progressive_job(
     # `_cleanup_temp()` d'un aperçu ouvert pendant la traduction supprimait le
     # dossier temporaire SOUS le job (cf. PPTXTranslatorEngine).
     pptx_eng = engines.new_engine("pptx")
+    travail = None
     try:
         if not pptx_eng:
             raise ValueError("Moteur PPTX indisponible.")
@@ -775,15 +743,11 @@ def run_pptx_progressive_job(
         # ── Sauvegarde de l'original ──────────────────────────────────────
         _sauver_original(original_path, file_bytes)
 
-        # Images à texte (option `images=1`) : posées dans chaque aperçu
-        # partiel comme dans le PPTX final. Le socle reste l'original.
-        table_images = (_preparer_images(job_id, user_id, file_bytes, "pptx",
-                                         target_lang, translation_path)
-                        if images else {})
-
+        # Images à texte : chaque diapositive attend les siennes avant son
+        # affichage ; posées dans chaque aperçu partiel et dans le PPTX final.
         def _extraire_diapos(chemin, pages):
             pptx_eng.build_partial_pptx(chemin, max(pages), only_slides=pages)
-            _poser_images_fichier(chemin, table_images)
+            _poser_images_fichier(chemin, travail.table() if travail else {})
 
         # ── Décompression ─────────────────────────────────────────────────
         jobs.emit(job_id, "progress", {"step": "extract", "message": "Décompression du PPTX...", "page": 0, "total": None})
@@ -800,6 +764,9 @@ def run_pptx_progressive_job(
                 slides_to_process = [1]
         else:
             slides_to_process = list(range(1, total_slides + 1))
+        if images:
+            travail = _images_du_travail(job_id, file_bytes, "pptx", target_lang,
+                                         translation_path, pages=slides_to_process)
 
         total = len(slides_to_process)
         jobs.emit(job_id, "start", {"total": total})
@@ -952,6 +919,8 @@ def run_pptx_progressive_job(
             # Point de contrôle : pause/annulation. Celles en attente
             # s'arrêtent ici ; celles en vol sont abandonnées (`abandon`).
             jobs.verifier_arret(job_id)
+            if travail is not None:
+                travail.demander([slide_num])
             jobs.emit(job_id, "page", {"page": slide_num, "status": "extracting",
                          "done": done, "total": total})
             jobs.sync_progress(job_id, done, total)
@@ -1051,6 +1020,8 @@ def run_pptx_progressive_job(
             # injecteraient/greffieraient à la fois corrompraient le partiel.
             # La traduction (au-dessus) reste parallèle ; SEULE cette zone est
             # exclusive. Chaque thread la traverse à son tour pour SA page.
+            if travail is not None:
+                travail.attendre(slide_num)
             with _display_lock:
                 # Arrêt prononcé pendant la traduction : la diapositive n'est
                 # ni gardée, ni mise en reprise, ni comptée (décision du 30/10).
@@ -1189,7 +1160,7 @@ def run_pptx_progressive_job(
         # ── PPTX final ────────────────────────────────────────────────────
         jobs.emit(job_id, "progress", {"step": "inject", "message": "Génération du PPTX final...", "page": 0, "total": None})
         pptx_eng.build_partial_pptx(output_path, max(slides_to_process))
-        _poser_images_fichier(output_path, table_images)
+        _poser_images_fichier(output_path, travail.table() if travail else {})
         # Après la cohérence, qui réinjecte aussi.
         _signaler_objets(job_id, pptx_eng.objets_non_traites + pptx_eng.objets_restes
                          + pptx_eng.objets_hors_diapositives())
@@ -1229,6 +1200,9 @@ def run_pptx_progressive_job(
             pass
         jobs.error(job_id, str(e) if isinstance(e, DeckSansTexte) else
                    "La traduction a rencontré une erreur. Réessayez ou contactez le support.")
+    finally:
+        if travail is not None:
+            travail.fermer()
 
 
 def _version_ocr(translation_path: str) -> str | None:
@@ -1400,19 +1374,13 @@ def run_pdf_v2_job(
     `translation_path` (pages.json) est la traduction PERSISTANTE : le moteur y
     relit les pages déjà traduites au lieu de rappeler DeepSeek. Un document
     déjà traité n'y déclenche donc aucun appel — il se contente d'un rendu."""
+    travail = None
     try:
         jobs.emit(job_id, "progress", {"step": "start", "message": "Démarrage du job...", "page": 0, "total": None})
 
         _sauver_original(original_path, file_bytes)
 
         jobs.set(job_id, partial_path=partial_path)
-
-        # Images à texte (option `images=1`) : traduites avant les pages, puis
-        # posées à la place des originales (par xref). L'envoi ne l'active pas
-        # sur un scan : les images d'une page lue ne sont plus celles de l'original.
-        table_images = (_preparer_images(job_id, user_id, file_bytes, "pdf",
-                                         target_lang, translation_path)
-                        if images else {})
 
         def on_event(ev: dict):
             et = ev.get("type")
@@ -1454,12 +1422,28 @@ def run_pdf_v2_job(
         consommees: list[int] = []
         if budget:
             lecteur = _avec_budget(lecteur, budget, traitees, consommees)
+        if images:
+            # Images à texte : chaque page attend les siennes avant son rendu
+            # (posées par xref). Jamais lues pour une page hors plafond, hors
+            # sélection ou au-delà du budget.
+            # Une page sans texte est lue par OCR : ses images n'y sont jamais
+            # lues (pas même d'avance).
+            with fitz.open(original_path) as d:
+                avec_texte = {i + 1 for i in range(d.page_count) if d[i].get_text().strip()}
+                visees = sorted(pages_set) if pages_set else list(range(1, d.page_count + 1))
+            if plafond:
+                visees = visees[:plafond]
+            permises = [p for p in visees if p in avec_texte]
+            travail = _images_du_travail(
+                job_id, file_bytes, "pdf", target_lang, translation_path,
+                pages=permises,
+                reste=(lambda: budget - len(consommees)) if budget else None)
         pdf_v2_stream.translate_pdf_progressive(
             original_path, output_path, target_lang=target_lang,
             pages=pages_set, partial_path=partial_path, on_event=on_event,
             debug=debug, cache_path=translation_path,
             arret=arret,
-            images=table_images or None,
+            images_travail=travail,
             lecteur_ocr=lecteur,
             avant_page=_pause_au_plafond(job_id, original_path, pages_set, plafond),
             pages_originales=ocr_pages.pages_originales(translation_path),
@@ -1500,6 +1484,9 @@ def run_pdf_v2_job(
     except Exception as e:
         logger.error(f"Job PDF v2 {job_id} failed: {e}")
         jobs.error(job_id, "La traduction a rencontré une erreur. Réessayez ou contactez le support.")
+    finally:
+        if travail is not None:
+            travail.fermer()
 
 
 def render_translation_bytes(original_path: str, translation_path: str,
@@ -1863,32 +1850,52 @@ def _inclure_page(doc_id: str, user_id: str, original_path: str,
                 ocr_pages.ecrire(translation_path, page, lecture.statut, lecture.motif)
                 render_cache.invalider(translation_path)
                 return lecture.statut
-    dossier = tempfile.mkdtemp(prefix="inclure-", dir=os.path.dirname(translation_path))
+    dossier = None
+    images = None
     try:
+        dossier = tempfile.mkdtemp(prefix="inclure-", dir=os.path.dirname(translation_path))
+        if not debug and lecture is None:
+            # Ses images à texte partent avec elle, sans débit en plus ; elles
+            # n'entrent dans la table du document qu'une fois la page payée.
+            with open(original_path, "rb") as f:
+                images = _images_du_travail(None, f.read(), "pdf", target_lang,
+                                            translation_path, pages=[page], avance=0,
+                                            persister=False)
         travail = os.path.join(dossier, "travail.json")
         with render_cache.verrou_traduction(translation_path).lire():
             shutil.copy2(translation_path, travail)
         pdf_v2_stream.translate_pdf_progressive(
             original_path, os.path.join(dossier, "rendu.pdf"), target_lang=target_lang,
-            pages={page}, debug=debug, cache_path=travail,
+            pages={page}, debug=debug, cache_path=travail, images_travail=images,
             lecteur_ocr=((lambda numero, *_: lecture if numero == page else None)
                          if lecture else None))
         with open(travail, encoding="utf-8") as f:
             nouvelle = next((p for p in json.load(f).get("pages", [])
                              if p.get("page_num") == page), None)
         pdf = lecture.pdf if lecture else None
-        if not _page_traduite(nouvelle, debug):
-            # Rien à traduire : la page est notée incluse, sans débit.
+        if not _page_traduite(nouvelle, debug) and not (images and images.traduites):
+            # Rien à traduire, ni texte ni image : notée incluse, sans débit.
             _reporter_page(translation_path, page,
                            nouvelle or {"page_num": page, "elements": []},
                            pdf, lambda: True)
             return "sans_texte"
-        if not _reporter_page(translation_path, page, nouvelle, pdf,
-                              lambda: _debiter_une_page(doc_id, user_id, beta)):
+
+        def debiter():
+            if not _debiter_une_page(doc_id, user_id, beta):
+                return False
+            if images is not None:
+                images.reporter()
+            return True
+
+        if not _reporter_page(translation_path, page,
+                              nouvelle or {"page_num": page, "elements": []}, pdf, debiter):
             return "solde"
         return "ok"
     finally:
-        shutil.rmtree(dossier, ignore_errors=True)
+        if images is not None:
+            images.fermer()
+        if dossier:
+            shutil.rmtree(dossier, ignore_errors=True)
 
 
 def run_traduire_pages_job(job_id: str, doc_id: str, user_id: str, original_path: str,

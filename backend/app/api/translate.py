@@ -195,9 +195,9 @@ APERCUS_MAX = 50
 
 
 def _analyse_images(file_bytes: bytes, ext: str):
-    """Pages du document et nombre d'images, repérées sans aucune lecture :
-    les images à texte se cherchent pendant la traduction et sont proposées à
-    la fin (option D1, étude retours 18/11 §3)."""
+    """Pages, langue et nombre d'images du document, repérés sans aucune
+    lecture : les images à texte sont lues pendant la traduction, avec leur
+    page."""
     images = lister_images(file_bytes, ext) if ext in IMAGES_PROPOSABLES else []
     total = sum(1 for i in images if not i.exclusion)
     pages = count_pages(file_bytes, ext)
@@ -418,15 +418,13 @@ async def translate_endpoint(
                 })
             qsuffix += f"_{OCR_VERSION}"
 
-    # ── Images à texte (option D1, étude retours 18/11 §3) ────────────────
-    # Rien n'est lu ni facturé au dépôt : les images sont lues pendant la
-    # traduction, puis leur traduction est proposée à la fin (« Traduire
-    # (N pages) »). Hors bêta, hors mode structure, hors scan (les images d'une
-    # page lue ne sont plus celles de l'original) ; document entier seulement
-    # (vérifié plus bas, une fois la sélection arrêtée). Le champ `images` reste
-    # accepté pour les anciens clients, sans effet.
-    images_actives = (ext in IMAGES_PROPOSABLES and not beta_mode
-                      and not debug_mode and not scans)
+    # ── Images à texte : traduites avec leur page ─────────────────────────
+    # Une page part entière, images comprises, pour le prix de la page. Rien
+    # n'est lu au dépôt. Partout (bêta, sélection de pages, documents en
+    # partie scannés) sauf en mode structure ; une page lue par OCR est déjà
+    # lue entière et ne lit pas ses images. Le champ `images` reste accepté
+    # pour les anciens clients, sans effet.
+    images_actives = ext in IMAGES_PROPOSABLES and not debug_mode
 
     # ── Limite de pages selon le plan ─────────────────────────────────────
     # On est dans un endpoint ASYNC : la session `db` et l'utilisateur
@@ -571,8 +569,7 @@ async def translate_endpoint(
             if refus_offert:
                 reste_plan = 0
         couvert = None if reste_plan is None else reste_plan + solde
-        # Le texte seul : les images se paient à part, si le client accepte
-        # la proposition faite en fin de traduction.
+        # La page couvre ses images : rien ne se paie à part.
         a_couvrir = needed
         # Mode libre : ce que le solde ne couvre pas est traduit en aperçu, dans
         # la limite du plafond ; la sélection reste entière. Une reprise garde
@@ -710,9 +707,6 @@ async def translate_endpoint(
     # de page) ; pour DOCX/PPTX, le JSON de traduction. Le PDF/DOCX rendu, lui,
     # n'est PAS conservé : il se recalcule à la demande depuis ces deux-là.
     translation_path = translation_path_for(lang_dir, ext, pages_set, qsuffix)
-    # Proposition d'images : document entier seulement (la sélection finale,
-    # couverture et plafond du plan compris, est arrêtée ici).
-    images_actives = images_actives and not pages_set
 
     output_filename = f"{safe_name}_TRADUIT{qsuffix}{psuffix}.{ext}"
     if debug_mode:
@@ -803,8 +797,8 @@ async def translate_endpoint(
                                           "qsuffix": qsuffix,
                                           "beta": bool(beta_charge),
                                           "deja": deja_payees,
-                                          # Document dont les images à texte
-                                          # seront proposées en fin de travail.
+                                          # Images à texte traduites avec
+                                          # chaque page.
                                           "images": bool(images_actives),
                                           **({"budget": budget} if budget else {}),
                                           **reglages_libres})
