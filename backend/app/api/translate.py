@@ -32,7 +32,7 @@ from app.models import (Document, User, get_plan_page_limit,
                         get_plan_monthly_pages, is_paid_plan,
                         KIND_CREDITS, KIND_FREE_OFFER, KIND_PLAN)
 from app.rate_limit import verify_api_key
-from app.services.documents import acces_archive
+from app.services.documents import acces_archive, FORMATS_LIBRES
 from app.services.documents import (build_job_paths, cap_pages_for_plan,
                                     count_pages, pages_avec_texte, pages_faites,
                                     pages_selectionnees, reglages_de,
@@ -345,7 +345,7 @@ async def translate_endpoint(
     # Mode libre d'office (PDF) : ce que le solde ne couvre pas est traduit en
     # aperçu. Jamais en bêta (ses quotas ont leurs propres unités), ni quand le
     # client a choisi de ne traduire que les pages couvertes.
-    mode_libre = ext == "pdf" and not beta_mode and covered_only != "1"
+    mode_libre = ext in FORMATS_LIBRES and not beta_mode and covered_only != "1"
     # Hors format bêta, la case n'a pas d'objet : traduction ordinaire.
     if beta_choice in ("1", "true") and not beta_mode and ext in BETA_FORMATS:
         return JSONResponse(status_code=402, content={
@@ -594,7 +594,8 @@ async def translate_endpoint(
                     min(a_couvrir - acquises, anti_abus.LIBRE_MAX_PAGES))
                 # Le document avancerait d'au moins une page avant la pause :
                 # « traduire jusqu'à la limite » est possible.
-                avance = deja_payees + traduites > faites_reprise
+                # Pause (arrêt à la limite) : PDF seul ; Word se traduit d'un bloc.
+                avance = ext == "pdf" and deja_payees + traduites > faites_reprise
                 limite_info = {"libre_used": deja_libres, "libre_max": anti_abus.LIBRE_MAX_PAGES,
                                "libre_needed": a_couvrir - acquises,
                                "libre_reprise": heure_reprise.isoformat() if heure_reprise else None,
@@ -980,15 +981,25 @@ async def translation_partial(job_id: str, x_api_key: str = Header(None),
     verify_api_key(x_api_key)
     job = _job_of(job_id, current_user)
     path = job.get("partial_path")
-    if not path or not os.path.exists(path):
+    # Word : traduit d'un bloc, sans partiel au fil de l'eau. Une fois fini,
+    # l'aperçu est la conversion PDF du résultat (filigranée plus bas).
+    resultat = job.get("result_path") or ""
+    if ((not path or not os.path.exists(path)) and job.get("state") == "done"
+            and resultat.lower().endswith(".docx") and os.path.exists(resultat)):
+        from app.api.documents import _lire
+        word = await run_in_threadpool(_lire, resultat)
+        data = await run_in_threadpool(convert_to_pdf_bytes, word, "docx")
+        pages_pretes = None
+    elif not path or not os.path.exists(path):
         raise HTTPException(status_code=202, detail="Aucune page prête pour l'instant.")
-    # Lue AVANT le fichier : le runner l'écrit après lui, elle ne peut donc
-    # qu'être en retard sur le contenu, jamais annoncer une page absente.
-    pages_pretes = job.get("partial_pages")
-    # Lecture et rastérisation HORS de la boucle : appelé à chaque page du
-    # flux, un appel bloquant ici figeait toute l'application, SSE compris.
-    from app.api.documents import _lire
-    data = await run_in_threadpool(_lire, path)
+    else:
+        # Lue AVANT le fichier : le runner l'écrit après lui, elle ne peut donc
+        # qu'être en retard sur le contenu, jamais annoncer une page absente.
+        pages_pretes = job.get("partial_pages")
+        # Lecture HORS de la boucle : appelé à chaque page du flux, un appel
+        # bloquant ici figeait toute l'application, SSE compris.
+        from app.api.documents import _lire
+        data = await run_in_threadpool(_lire, path)
 
     # PLAN D'ESSAI : jamais le clair. On envoyait le PDF traduit tel quel et on
     # comptait sur le navigateur pour l'assombrir — mesuré : un compte `free`

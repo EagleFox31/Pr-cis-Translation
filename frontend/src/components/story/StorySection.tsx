@@ -571,7 +571,6 @@ export default function StorySection({
                     zoom={zoom}
                     currentPage={currentPage}
                     numPages={numPages}
-                    isTrialMode={isTrialMode}
                     sourceFilename={selectedFile?.name}
                     translatedFilename={translatedFilename}
                     targetLang={targetLang}
@@ -589,7 +588,6 @@ export default function StorySection({
                     onDownload={onDownload}
                     onDownloadOriginal={onDownloadOriginal}
                     onRetranslate={onRetranslate}
-                    onUnlock={onUnlock}
                     onToggleFocus={onToggleFocus}
                     onStop={onStop}
                     onCopy={onCopy}

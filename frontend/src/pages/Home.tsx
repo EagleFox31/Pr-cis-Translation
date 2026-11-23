@@ -631,9 +631,17 @@ export default function Home() {
     }
     rafraichirRendu();
   }, [rafraichirRendu]);
+  // Les tarifs se montrent en fermant l'aperçu (`handleUnlock`, défini plus
+  // bas) : passage par une référence, stable pour le hook.
+  const versTarifsRef = useRef<() => void>(() => {});
+  const versTarifs = useCallback(() => versTarifsRef.current(), []);
   const {
     telecharger: telechargerLibres, acheterLibres, fenetre: fenetreLibres,
-  } = useTelechargementLibres(rafraichirSolde, noterReglement);
+  } = useTelechargementLibres({
+    onChange: rafraichirSolde,
+    onRegle: noterReglement,
+    versTarifs: isTrialFor(user) ? versTarifs : undefined,
+  });
   const docCourant = libraryDocId ?? stream.documentId;
   // Un document repris depuis « Mes documents » est aussi celui du flux : la
   // fin du flux est plus fraîche que la liste, qui ne se recharge qu'ensuite.
@@ -675,6 +683,9 @@ export default function Home() {
       await telechargerLibres(id, translatedFilename);
       return;
     }
+    // Visiteur sans compte en essai : le serveur ne peut rien lui remettre ;
+    // le blob local contiendrait les pages voilées.
+    if (isTrialMode) { versTarifs(); return; }
     const frais = id ? await getBlob(id).catch(() => undefined) : undefined;
     const blob = frais ?? stream.result?.blob ?? translatedBlob;
     if (blob && translatedFilename) {
@@ -687,7 +698,7 @@ export default function Home() {
       URL.revokeObjectURL(url);
       document.body.removeChild(a);
     }
-  }, [adminDoc, libraryDocId, stream.documentId, stream.result, translatedBlob, translatedFilename, getBlob, t, user, telechargerLibres]);
+  }, [adminDoc, libraryDocId, stream.documentId, stream.result, translatedBlob, translatedFilename, getBlob, t, user, telechargerLibres, isTrialMode, versTarifs]);
 
   // ---- Pause / Annuler ----
   // Traduction lancée ici : le flux connaît le job. Document rouvert depuis la
@@ -757,6 +768,7 @@ export default function Home() {
     retourVers.current = 'pricing';
     handleBack();
   }, [handleBack]);
+  useEffect(() => { versTarifsRef.current = handleUnlock; }, [handleUnlock]);
 
   // ---- Nav click handler ----
   // La barre reste visible au-dessus de l'aperçu, mais l'aperçu est une
@@ -1043,7 +1055,6 @@ export default function Home() {
         onPreview={handleLibraryPreview}
         onDelete={deleteDocument}
         onClearAll={clearAll}
-        getBlob={getBlob}
         getOriginalBlob={getOriginalBlob}
         onPaid={() => { refresh(); refreshUser(); }}
         onRetry={handleRetry}

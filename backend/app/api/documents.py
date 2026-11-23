@@ -31,6 +31,7 @@ from app.services.documents import (chemin_traduction_du_document, pages_libres_
                                     traduction_partielle_du_document)
 from app.services.jobs import STATUTS_ARRET, STATUTS_REPRENABLES, jobs
 from app.services.office import convert_to_pdf_bytes
+from app.services.documents import FORMATS_LIBRES
 from app.services.translation_runner import render_translation_bytes
 from app.core.database import get_db
 from app.models import User, Document, is_paid_plan
@@ -108,6 +109,22 @@ def _sans_pages_retirees(pdf: bytes, trad: str,
     with fitz.open(stream=pdf, filetype="pdf") as d:
         total = len(d)
     return _garder_pages(pdf, set(range(1, total + 1)) - retirees)
+
+
+def _sans_diapositives(pptx: bytes, retirees: set[int]) -> bytes:
+    """Retire de la présentation les diapositives `retirees` (positions
+    1-basées). Les parties devenues orphelines ne sont pas réécrites."""
+    import io
+    from pptx import Presentation
+    prs = Presentation(io.BytesIO(pptx))
+    liste = prs.slides._sldIdLst
+    for pos, sld in reversed(list(enumerate(list(liste), start=1))):
+        if pos in retirees:
+            prs.part.drop_rel(sld.rId)
+            liste.remove(sld)
+    out = io.BytesIO()
+    prs.save(out)
+    return out.getvalue()
 
 
 def _inside_store(path: str) -> bool:
@@ -419,7 +436,8 @@ async def download_document(
     user: User = Depends(require_auth),
     db: AsyncSession = Depends(get_db),
     # « Continuer » de la fenêtre des pages libres : fichier limité aux pages
-    # payées (PDF). En dernier, comme `as` sur /original.
+    # payées (PDF, PowerPoint ; Word : PDF des pages payées). En dernier, comme
+    # `as` sur /original.
     sans_libres: str | None = Query(None),
 ):
     """Téléchargement du fichier traduit (ou original si pas encore traduit).
@@ -446,7 +464,10 @@ async def download_document(
     # dont les pages libres ne se règlent pas (voir `regler_libres`).
     libres = pages_libres_du_document(doc)
     arret = livrables is not None
-    retirer = (libres if doc.paid and (arret or (sans_libres == "1" and ext == "pdf"))
+    # Word partiel = PDF des pages payées (une coupe du .docx décale la mise en
+    # page) ; PowerPoint partiel = présentation sans les diapositives libres.
+    retirer = (libres if doc.paid and (arret or (sans_libres == "1"
+                                                 and ext in FORMATS_LIBRES))
                else set())
     # Liste d'AUTORISATION : un plan inconnu est traité comme non payant.
     if trad and not retirer and not _may_read_clear(user, doc):
@@ -454,11 +475,12 @@ async def download_document(
             return JSONResponse(status_code=402, content={
                 "reason": "pages_libres", "pages_libres": doc.pages_libres,
                 "detail": "Des pages de cette traduction ne sont pas payées."})
-        raise HTTPException(
-            status_code=402,
-            detail="Cette traduction n'est pas payée. Achetez ses pages pour "
-                   "la télécharger.",
-        )
+        # Aucune page payée : le nombre de pages permet au client d'annoncer
+        # l'achat nécessaire au lieu d'un simple refus.
+        return JSONResponse(status_code=402, content={
+            "reason": "non_paye", "pages": doc.page_count or 1,
+            "detail": "Cette traduction n'est pas payée. Achetez ses pages pour "
+                      "la télécharger."})
 
     # Pas encore de traduction : on rend l'original (le fichier de l'utilisateur).
     if not trad:
@@ -483,6 +505,9 @@ async def download_document(
     # pas) et, pour le PDF, on CONSERVE le résultat — la lenteur ne se paie
     # qu'une fois.
     def _build() -> bytes:
+        if retirer and livrables is None and ext == "docx":
+            # Le rendu de l'aperçu (en cache) : le fichier livré lui est identique.
+            return _rendu_pdf_complet(doc, ext, trad)
         if livrables is not None:       # partiel : jamais le cache, voir `_traduction`
             data = _render_or_404(doc, ext, only_pages=livrables, trad=trad)
             # Le TÉLÉCHARGEMENT d'un arrêt ne livre que les pages traduites :
@@ -508,7 +533,12 @@ async def download_document(
         if not livrables:
             raise HTTPException(status_code=402, detail="Aucune page payée à livrer.")
     data = await run_in_threadpool(_build)
-    if ext == "pdf" and livrables is None:
+    if retirer and livrables is None and ext == "docx":
+        data = await run_in_threadpool(_sans_pages_retirees, data, trad, retirer)
+        ext = "pdf"
+    elif retirer and livrables is None and ext == "pptx":
+        data = await run_in_threadpool(_sans_diapositives, data, retirer)
+    elif ext == "pdf" and livrables is None:
         # Une seule coupe, numéros de l'original : couper en deux fois
         # décalerait les numéros de la seconde.
         data = await run_in_threadpool(_sans_pages_retirees, data, trad,

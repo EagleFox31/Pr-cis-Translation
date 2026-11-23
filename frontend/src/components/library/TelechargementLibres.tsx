@@ -1,10 +1,13 @@
 /**
- * Téléchargement d'une traduction qui a des pages libres (non payées).
+ * Téléchargement d'une traduction : point d'entrée UNIQUE de tous les boutons
+ * « Télécharger » (barre de l'aperçu, cartes de la bibliothèque). Le serveur
+ * décide (402) ; ce hook traduit sa réponse, sans règle d'accès en double.
  *
- * Au clic sur « Télécharger », le solde paie d'office ce qu'il peut (quota du
- * forfait, puis pages achetées). S'il reste des pages non payées, une fenêtre
- * propose de les acheter ou de continuer avec un fichier limité aux pages
- * payées. Partagé par la bibliothèque et l'accueil.
+ * Au clic, le solde paie d'office ce qu'il peut (quota du forfait, puis pages
+ * achetées). S'il reste des pages non payées, une fenêtre propose de les
+ * acheter ou de continuer avec un fichier limité aux pages payées. Sans
+ * aucune page payée, la même fenêtre annonce l'achat nécessaire : jamais de
+ * renvoi muet vers les tarifs.
  */
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -20,6 +23,24 @@ import '../nouveautes/modal.css';
 
 interface Reglement { pages_debitees: number; pages_libres: number; paid: boolean }
 interface Choix { id: string; filename: string; debitees: number; libres: number; continuable: boolean }
+
+/** Refus 402 du serveur, lu une seule fois. */
+type Refus =
+  | { reason: 'pages_libres' }
+  | { reason: 'non_paye'; pages: number }
+  | null;
+
+export interface OptionsTelechargement {
+  /** Un solde ou un document a changé (liste à recharger). */
+  onChange?: () => void;
+  /** Pages encore libres d'un document après un règlement (ligne « N pages en aperçu »). */
+  onRegle?: (id: string, pagesLibres: number) => void;
+  /**
+   * Compte gratuit : « Acheter » / « Voir les tarifs » mènent aux tarifs.
+   * Absent : achat des pages sur place (fenêtre de paiement).
+   */
+  versTarifs?: () => void;
+}
 
 /** `ok` : fichier remis ; `libres` : la fenêtre a pris la main ; `echec` : rien. */
 export type IssueTelechargement = 'ok' | 'libres' | 'echec';
@@ -38,24 +59,20 @@ function enregistrer(blob: Blob, filename: string) {
 /** Même suffixe que le nom donné par le serveur au fichier partiel. */
 const nomPartiel = (filename: string) => filename.replace(/(\.[^.]+)?$/, '_PARTIEL$1');
 
-async function pagesLibresRefusees(res: Response): Promise<boolean> {
-  if (res.status !== 402) return false;
+/** Word partiel : le serveur livre un PDF des pages payées. */
+const estWord = (filename: string) => /\.docx$/i.test(filename);
+
+async function lireRefus(res: Response): Promise<Refus> {
+  if (res.status !== 402) return null;
   try {
-    return (await res.clone().json())?.reason === 'pages_libres';
-  } catch {
-    return false;
-  }
+    const corps = await res.clone().json();
+    if (corps?.reason === 'pages_libres') return { reason: 'pages_libres' };
+    if (corps?.reason === 'non_paye') return { reason: 'non_paye', pages: Number(corps.pages) || 1 };
+  } catch { /* corps illisible : refus générique */ }
+  return null;
 }
 
-/**
- * `onChange` : un solde ou un document a changé (liste à recharger).
- * `onRegle` : pages encore libres d'un document après un règlement (l'aperçu
- * en cours peut mettre sa ligne « N pages en aperçu » à jour).
- */
-export function useTelechargementLibres(
-  onChange?: () => void,
-  onRegle?: (id: string, pagesLibres: number) => void,
-) {
+export function useTelechargementLibres({ onChange, onRegle, versTarifs }: OptionsTelechargement = {}) {
   const { t } = useTranslation();
   const [choix, setChoix] = useState<Choix | null>(null);
   const [achat, setAchat] = useState<
@@ -81,7 +98,12 @@ export function useTelechargementLibres(
     const url = `/api/documents/${id}/download${sansLibres ? '?sans_libres=1' : ''}`;
     try {
       let res = await authFetch(url);
-      if (!sansLibres && await pagesLibresRefusees(res)) {
+      const refus = sansLibres ? null : await lireRefus(res);
+      if (refus?.reason === 'non_paye') {
+        setChoix({ id, filename, debitees: 0, libres: refus.pages, continuable: false });
+        return 'libres';
+      }
+      if (refus?.reason === 'pages_libres') {
         const r = await regler(id);
         if (!r) { showToast('error', t('libre_download.error')); return 'echec'; }
         if (r.pages_libres > 0) {
@@ -98,7 +120,11 @@ export function useTelechargementLibres(
       }
       // Nom donné par le serveur : il sait si le fichier est partiel (arrêt).
       const partiel = res.headers.get('content-disposition')?.includes('_PARTIEL') ?? sansLibres;
-      enregistrer(await res.blob(), partiel ? nomPartiel(filename) : filename);
+      let nom = partiel ? nomPartiel(filename) : filename;
+      if (partiel && res.headers.get('content-type')?.startsWith('application/pdf')) {
+        nom = nom.replace(/\.[^.]+$/, '.pdf');
+      }
+      enregistrer(await res.blob(), nom);
       return 'ok';
     } catch {
       showToast('error', t('libre_download.error'));
@@ -131,14 +157,18 @@ export function useTelechargementLibres(
 
   const acheter = useCallback(() => {
     if (!choix) return;
+    if (versTarifs) { setChoix(null); versTarifs(); return; }
     setAchat({ id: choix.id, filename: choix.filename, pages: choix.libres, telecharger: true });
     setChoix(null);
-  }, [choix]);
+  }, [choix, versTarifs]);
 
   const fenetre = (
     <>
       {choix && (
-        <FenetreLibres choix={choix} onAcheter={acheter} onContinuer={continuer} onClose={() => setChoix(null)} />
+        <FenetreLibres
+          choix={choix} tarifs={!!versTarifs}
+          onAcheter={acheter} onContinuer={continuer} onClose={() => setChoix(null)}
+        />
       )}
       <PaymentModal
         open={!!achat}
@@ -166,8 +196,8 @@ export function useTelechargementLibres(
   return { telecharger, acheterLibres, fenetre };
 }
 
-function FenetreLibres({ choix, onAcheter, onContinuer, onClose }: {
-  choix: Choix; onAcheter: () => void; onContinuer: () => void; onClose: () => void;
+function FenetreLibres({ choix, tarifs, onAcheter, onContinuer, onClose }: {
+  choix: Choix; tarifs: boolean; onAcheter: () => void; onContinuer: () => void; onClose: () => void;
 }) {
   const { t } = useTranslation();
   const uid = useId();
@@ -203,15 +233,22 @@ function FenetreLibres({ choix, onAcheter, onContinuer, onClose }: {
           <p>
             {choix.continuable
               ? t('libre_download.not_in_file', { count: choix.libres })
-              : t('libre_download.none_paid')}
+              : t('libre_download.none_paid', { count: choix.libres })}
           </p>
+          {choix.continuable && estWord(choix.filename) && (
+            <p>{t('libre_download.word_pdf', { count: choix.libres })}</p>
+          )}
         </div>
         <div className="tl-fenetre__actions">
-          {choix.continuable && (
+          {choix.continuable ? (
             <Button variant="secondary" onClick={onContinuer}>{t('libre_download.continue')}</Button>
+          ) : (
+            <Button variant="secondary" onClick={onClose}>{t('libre_download.close')}</Button>
           )}
           <Button onClick={onAcheter}>
-            {t('libre_download.buy', { count: choix.libres })}
+            {tarifs && !choix.continuable
+              ? t('libre_download.see_pricing')
+              : t('libre_download.buy', { count: choix.libres })}
           </Button>
         </div>
       </div>

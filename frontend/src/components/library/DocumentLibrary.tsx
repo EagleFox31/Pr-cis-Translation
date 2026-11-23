@@ -24,7 +24,6 @@ import Button from '../ui/Button';
 import Drawer from '../ui/Drawer';
 import EmptyState from '../ui/EmptyState';
 import Skeleton from '../ui/Skeleton';
-import PaymentModal from '../payment/LazyPaymentModal';
 import { openSupport } from '../support/supportBus';
 import { openInvite } from '../invite/inviteBus';
 import AccountPanel from './AccountPanel';
@@ -55,7 +54,6 @@ interface DocumentLibraryProps {
   }) => void;
   onDelete: (id: string) => void | Promise<void>;
   onClearAll: () => void;
-  getBlob: (id: string) => Promise<Blob | undefined>;
   getOriginalBlob: (id: string, asPdf?: boolean) => Promise<Blob | undefined>;
   /** Un paiement vient d'aboutir : la liste doit être relue (le `paid` du
    *  document a changé côté serveur). */
@@ -76,7 +74,7 @@ interface DocumentLibraryProps {
 
 export default function DocumentLibrary({
   isOpen, onClose, documents, onPreview, onDelete, onClearAll,
-  getBlob, getOriginalBlob, onPaid, onRetry, onRetranslate, onStop,
+  getOriginalBlob, onPaid, onRetry, onRetranslate, onStop,
   loading: enChargement = false, erreur: enErreur = false, onRefresh,
 }: DocumentLibraryProps) {
   const { t } = useTranslation();
@@ -90,8 +88,6 @@ export default function DocumentLibrary({
 
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [requete, setRequete] = useState('');
-  // Document dont on est en train de régler les pages (null = pas de paiement).
-  const [payFor, setPayFor] = useState<DocMeta | null>(null);
   // Archivé dont l'explication est dépliée sous la ligne (un seul à la fois).
   const [archiveOuverte, setArchiveOuverte] = useState<string | null>(null);
   // La bulle se retire seule après le temps de lecture ; survol ou focus la retiennent.
@@ -156,46 +152,22 @@ export default function DocumentLibrary({
     });
   }, [getOriginalBlob, onPreview]);
 
-  const { telecharger: telechargerLibres, fenetre: fenetreLibres } = useTelechargementLibres(onPaid);
-
-  const handleDownload = useCallback(async (doc: DocMeta) => {
-    // Pages libres : le solde paie d'office ce qu'il peut, puis une fenêtre
-    // propose d'acheter le reste ou de continuer avec les pages payées.
-    if (doc.pagesLibres > 0) {
-      setLoadingId(doc.id);
-      try { await telechargerLibres(doc.id, doc.filename); } finally { setLoadingId(null); }
-      return;
-    }
-    // Un compte gratuit dont le document est payé télécharge ; sinon on lui
-    // propose de le régler — sur place, pour ce document précis. L'ancienne
-    // version le renvoyait vers la grille de tarifs : la seule issue offerte
-    // était de s'abonner, alors qu'il ne voulait qu'un fichier.
-    if (trial && !doc.paid) {
-      setPayFor(doc);
-      return;
-    }
-    setLoadingId(doc.id);
-    try {
-      const blob = await getBlob(doc.id);
-      if (blob) {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = doc.filename;
-        document.body.appendChild(a);
-        a.click();
-        URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-      }
-    } finally {
-      setLoadingId(null);
-    }
-  }, [getBlob, trial, telechargerLibres]);
-
-  const versForfaits = () => {
+  const versForfaits = useCallback(() => {
     onClose();
     navigate('/home#pricing');
-  };
+  }, [onClose, navigate]);
+
+  // Même chemin pour tous les documents : le serveur dit ce qui est payé, la
+  // fenêtre partagée explique le reste (aucun accès décidé ici).
+  const { telecharger: telechargerLibres, fenetre: fenetreLibres } = useTelechargementLibres({
+    onChange: onPaid,
+    versTarifs: trial ? versForfaits : undefined,
+  });
+
+  const handleDownload = useCallback(async (doc: DocMeta) => {
+    setLoadingId(doc.id);
+    try { await telechargerLibres(doc.id, doc.filename); } finally { setLoadingId(null); }
+  }, [telechargerLibres]);
 
   const q = requete.trim().toLowerCase();
   const visibles = useMemo(
@@ -378,14 +350,6 @@ export default function DocumentLibrary({
       </Drawer>
 
       {fenetreLibres}
-      <PaymentModal
-        open={!!payFor}
-        onClose={() => setPayFor(null)}
-        pages={payFor?.pageCount ?? 1}
-        documentId={payFor?.id}
-        label={t('library.unlock_label', { name: payFor?.originalName ?? '' })}
-        onPaid={() => { onPaid?.(); setPayFor(null); }}
-      />
     </>
   );
 }

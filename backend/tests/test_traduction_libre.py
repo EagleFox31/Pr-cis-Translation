@@ -326,6 +326,80 @@ class TraductionLibreTests(unittest.IsolatedAsyncioTestCase):
         with fitz.open(stream=partial.content, filetype="pdf") as pdf:
             self.assertEqual(len(pdf), 5)
 
+    async def office_document(self, ext):
+        """Document Office de 7 pages : 5 offertes, 2 libres (6 et 7)."""
+        document = await self.mixed_document()
+        async with self.fx.sessions() as db:
+            stored = await db.get(Document, document.id)
+            stored.original_name = f"rapport.{ext}"
+            await db.commit()
+        return document
+
+    async def test_word_and_powerpoint_translate_in_preview_without_pause(self):
+        import io
+        from docx import Document as Word
+        word = Word()
+        for number in range(1, 8):
+            word.add_paragraph(f"Page {number} du rapport annuel.")
+        source = io.BytesIO()
+        word.save(source)
+        with patch("app.services.documents.pages_word", return_value=7):
+            response = await self.client.post("/api/translate", headers=self.headers,
+                files={"file": ("rapport.docx", source.getvalue(), "application/octet-stream")},
+                data={"target_lang": "en", "use_beta": "0"})
+        document = await self.document(response)
+        self.assertEqual(document.pages_libres, 2)
+        self.assertEqual(response.json()["pages_libres_numeros"], [6, 7])
+
+    async def test_word_partial_is_a_pdf_of_the_paid_pages(self):
+        document = await self.office_document("docx")
+        with self.rendu(b"inutile"), patch("app.api.documents._rendu_pdf_complet",
+                                           return_value=fixtures.pdf(7)):
+            partial = await self.client.get(
+                f"/api/documents/{document.id}/download?sans_libres=1", headers=self.headers)
+        self.assertEqual(partial.status_code, 200, partial.text)
+        self.assertEqual(partial.headers["content-type"], "application/pdf")
+        self.assertIn("rapport_TRADUIT_PARTIEL.pdf", partial.headers["content-disposition"])
+        import fitz
+        with fitz.open(stream=partial.content, filetype="pdf") as pdf:
+            self.assertEqual(len(pdf), 5)
+
+    async def test_finished_word_preview_is_its_pdf_with_free_pages_watermarked(self):
+        import tempfile
+        document = await self.office_document("docx")
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as rendu:
+            rendu.write(b"word traduit")
+        self.addCleanup(os.remove, rendu.name)
+        job_id = jobs.create()
+        job = jobs.get(job_id)
+        job.update(user_id=document.user_id, document_id=document.id, state="done",
+                   result_path=rendu.name, pages=list(range(1, 8)))
+        with patch("app.api.translate.convert_to_pdf_bytes", return_value=b"pdf") as conversion,                 patch("app.api.translate.rasterize_for_trial", return_value=b"voile") as voile:
+            apercu = await self.client.get(f"/api/translate/partial/{job_id}", headers=self.headers)
+        self.assertEqual(apercu.status_code, 200, apercu.text)
+        self.assertEqual(apercu.content, b"voile")
+        self.assertEqual(conversion.call_args.args, (b"word traduit", "docx"))
+        self.assertEqual(set(voile.call_args.args[1]), {6, 7})
+
+    async def test_powerpoint_partial_drops_the_free_slides(self):
+        import io
+        from pptx import Presentation
+        prs = Presentation()
+        for number in range(1, 8):
+            slide = prs.slides.add_slide(prs.slide_layouts[5])
+            slide.shapes.title.text = f"diapo {number}"
+        source = io.BytesIO()
+        prs.save(source)
+        document = await self.office_document("pptx")
+        with self.rendu(source.getvalue()):
+            partial = await self.client.get(
+                f"/api/documents/{document.id}/download?sans_libres=1", headers=self.headers)
+        self.assertEqual(partial.status_code, 200, partial.text)
+        self.assertIn("rapport_TRADUIT_PARTIEL.pptx", partial.headers["content-disposition"])
+        kept = Presentation(io.BytesIO(partial.content))
+        self.assertEqual([s.shapes.title.text for s in kept.slides],
+                         [f"diapo {n}" for n in range(1, 6)])
+
     async def test_fully_free_document_is_unlocked_by_purchased_pages(self):
         await self.upload(fixtures.pdf(5))          # épuise les pages offertes
         document = await self.document(await self.upload(fixtures.pdf(3)))
