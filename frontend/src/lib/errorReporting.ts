@@ -86,6 +86,9 @@ export function installGlobalErrorReporting(): void {
   _installed = true;
 
   window.addEventListener('error', (e: ErrorEvent) => {
+    // Erreur d'un script d'un autre site : le navigateur masque tout (ni fichier,
+    // ni pile). Inexploitable et sans effet pour le client : on ne la remonte pas.
+    if (e.message === 'Script error.' && !e.filename && !e.error?.stack) return;
     reportClientError(e.message || 'window.onerror', {
       stack: e.error?.stack,
       url: e.filename,

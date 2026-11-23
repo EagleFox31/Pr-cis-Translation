@@ -110,10 +110,10 @@
     "stopped_paused": "Translation paused. Resume it from your library: work already done is kept and nothing is charged twice.",
     "stopped_cancelled": "Translation cancelled. Work already done is kept; you can resume it from your library.",
     "stop_failed": "Could not stop the translation",
-    "tag": "Our Translation Process",
+    "tag": "Our translation process",
     "title": "How does it <em>work</em> ?",
     "desc": "Four steps, and you see the result before downloading it.",
-    "step1_title": "Upload",
+    "step1_title": "Document upload",
     "step1_desc": "Drop a PDF, Word, PowerPoint, Excel or text file.",
     "step2_title": "Analysis & Translation",
     "step2_desc": "Précis builds the document profile (field, register, terminology), then translates it in full.",
@@ -131,13 +131,14 @@
     "step_target": "Translate into",
     "target_lang": "Target language",
     "source_auto": "The document's language is detected automatically.",
+    "same_language": "This document already seems to be in {{langue}}. Choose another target language.",
     "lang_search": "Search a language…",
     "lang_none": "No language found",
     "lang_pdf_unsupported": "Script not renderable in PDF: the document's fonts do not contain these characters.",
     "btn_translate": "Translate",
     "btn_structure": "Analyse structure",
     "cta_hint": "Choose a document to get started.",
-    "translating": "Translating...",
+    "translating": "Translating…",
     "download": "Download",
     "new_translation": "New translation",
     "error_too_large": "File too large. Maximum 100 MB.",
@@ -145,7 +146,8 @@
     "error_default": "An error occurred",
     "free_limit_device": "Free pages aren't available for this account on this device. You can buy pages to continue.",
     "error_translation_failed": "Translation failed. Please try again or contact support.",
-    "queued_ahead": "In queue — {{count}} translation(s) ahead of yours. It will start as soon as a slot frees up.",
+    "queued_ahead_one": "In queue — {{count}} translation ahead of yours. It will start as soon as a slot frees up.",
+    "queued_ahead_other": "In queue — {{count}} translations ahead of yours. It will start as soon as a slot frees up.",
     "queued_soon": "In queue — starting shortly.",
     "error_limit_reached": "You have reached your plan limit. Upgrade to continue.",
     "error_limit_cta": "See plans",
@@ -160,14 +162,15 @@
     "saved_to_library": "Document saved to your library.",
     "advanced": "Advanced options",
     "structure_label": "Structure mode (no translation)",
-    "structure_desc": "Re-injects the original text without translating (block outlines in PDF) — to test extraction and layout without using any AI credit.",
+    "structure_desc": "Puts back the original text without translating (block outlines in PDF) — to test extraction and layout without using any AI credit.",
     "page_ready": "Page translated",
+    "page_ready_unpaid": "Translated page in preview, not paid: not included in the download",
     "page_progress": "Translating…",
     "page_waiting": "Waiting",
     "pages_label": "Pages to translate",
     "pages_placeholder": "E.g. 1-5, 8, 11-13",
     "pages_hint": "Leave empty to translate everything. Unselected pages stay in their original language.",
-    "free_plan_title": "Free plan — 5 equivalent pages / month",
+    "free_plan_title": "Free plan — 5 free pages each month",
     "free_plan_hint": "Your allowance is shared across all formats. Downloads included.",
     "retry_unavailable_title": "Cannot retry this document",
     "retry_unavailable_hint": "Its original file is missing or empty. Please upload it again.",
@@ -175,7 +178,8 @@
     "request_missing_hint": "It was deleted or is no longer in your library.",
     "precise_label": "Precise mode (admin)",
     "precise_desc": "Uses the reasoning model — slower (~2 min/page) but more reliable on complex layouts.",
-    "ocr_notice": "{{count}} scanned page(s): the text will be read page by page during translation. Review the result: fonts and layout in scanned documents remain approximate.",
+    "ocr_notice_one": "{{count}} scanned page: the text will be read page by page during translation. Review the result: fonts and layout in scanned documents remain approximate.",
+    "ocr_notice_other": "{{count}} scanned pages: the text will be read page by page during translation. Review the result: fonts and layout in scanned documents remain approximate.",
     "page_ocr": "Reading the scan…",
     "page_ocr_waiting": "Waiting to be read",
     "images_analysing": "Looking for text in the images…",
@@ -188,8 +192,8 @@
       "traduites_other": "{{count}} translated",
       "inchangees_one": "{{count}} unchanged",
       "inchangees_other": "{{count}} unchanged",
-      "sans_credit_one": "{{count}} not translated (no credit left)",
-      "sans_credit_other": "{{count}} not translated (no credit left)",
+      "sans_credit_one": "{{count}} not translated (no paid pages left)",
+      "sans_credit_other": "{{count}} not translated (no paid pages left)",
       "echecs_one": "{{count}} failed",
       "echecs_other": "{{count}} failed"
     },
@@ -268,7 +272,8 @@
     "pages_abbr": "{{count}} p.",
     "ext_text": "Text",
     "close": "Close",
-    "load_error": "Could not load your documents."
+    "load_error": "Could not load your documents.",
+    "retranslate": "Translate again"
   },
   "pricing": {
     "feat_free_page_other": "{{count}} equivalent pages free per month",
@@ -462,17 +467,19 @@
     "page_pending": "This page is waiting to be translated.",
     "file_missing": "This document's files are no longer available on the server. Upload it again to translate it.",
     "translation_missing": "This document's translation is no longer available. Run it again from the library.",
-    "libre_pages_one": "{{count}} page in preview only (not paid): watermarked, it will not be in the downloaded file.",
-    "libre_pages_other": "{{count}} pages in preview only (not paid): watermarked, they will not be in the downloaded file.",
-    "credits_insufficient": "Not enough credits",
-    "credits_needed": "Your balance is {{count}} page(s) short of translating the whole document.",
+    "credits_insufficient": "Not enough pages",
+    "credits_needed_one": "Your balance is {{count}} page short of translating the whole document.",
+    "credits_needed_other": "Your balance is {{count}} pages short of translating the whole document.",
     "credits_hint_buy": "Buy the missing pages to start the full translation.",
-    "credits_hint_covered": "Buy them, or translate the pages already covered right now.",
+    "credits_hint_covered": "Buy them, or translate the pages already paid right now.",
     "credits_hint_images": "Buy them, or translate the document without its images right now.",
     "credits_images_one": "The image counts for {{count}} page.",
     "credits_images_other": "The images count for {{count}} pages.",
     "translate_without_images": "Translate without images",
-    "translate_covered": "Translate only the {{count}} covered page(s)",
+    "translate_covered_one": "Translate only the paid page",
+    "translate_covered_other": "Translate only the {{count}} paid pages",
+    "libre_footer_one": "Watermarked preview · {{count}} page to pay to download",
+    "libre_footer_other": "Watermarked preview · {{count}} pages to pay to download",
     "trial_hover": "Trial: hover over the page to read it",
     "trial_touch": "Trial: tap the page to read it",
     "trial_buy": "Unlock"
@@ -480,6 +487,22 @@
   "account": {
     "default_name": "User",
     "unlimited": "Unlimited",
+    "balance_pages_one": "You have {{n}} page left",
+    "balance_pages_other": "You have {{n}} pages left",
+    "balance_slides_one": "You have {{n}} slide left",
+    "balance_slides_other": "You have {{n}} slides left",
+    "balance_sheets_one": "You have {{n}} sheet left",
+    "balance_sheets_other": "You have {{n}} sheets left",
+    "balance_words_one": "You have {{n}} word left",
+    "balance_words_other": "You have {{n}} words left",
+    "qty_pages_one": "{{n}} page",
+    "qty_pages_other": "{{n}} pages",
+    "qty_slides_one": "{{n}} slide",
+    "qty_slides_other": "{{n}} slides",
+    "qty_sheets_one": "{{n}} sheet",
+    "qty_sheets_other": "{{n}} sheets",
+    "qty_words_one": "{{n}} word",
+    "qty_words_other": "{{n}} words",
     "logout": "Sign out",
     "pages_left": "Pages left this month",
     "pages_free_left_one": "free page left",
@@ -494,7 +517,7 @@
     "detail_expires": "Subscription active until",
     "beta_name": "Beta",
     "expires_on": "expires {{date}}",
-    "renews_on": "renews {{date}}",
+    "renews_on": "Renews {{date}}",
     "resets_on": "resets {{date}}",
     "credits_after": "Never expire, used after your plan",
     "beta_apply": "Beta programme: apply",
@@ -510,7 +533,7 @@
   "extension_auth": {
     "title": "Authorize the Précis Translator extension?",
     "account": "Account: {{email}}",
-    "body": "The extension will be able to translate pages using this account's credits. You can sign it out at any time from the extension.",
+    "body": "The extension will be able to translate pages using this account's pages. You can sign it out at any time from the extension.",
     "allow": "Authorize",
     "cancel": "Cancel",
     "invalid": "Invalid link: restart the sign-in from the extension.",
@@ -569,7 +592,7 @@
     "pay_refused": "Payment refused or cancelled. No amount was charged.",
     "refund_due": "Payment received, but your current plan already covers this offer, so it was left unchanged. The amount will be refunded; contact support if needed.",
     "buy_pages_label": "Unlock the translation of this document",
-    "buy_credits_label": "Translation page credits",
+    "buy_credits_label": "Translation pages",
     "pages_count": "Number of pages",
     "subtotal": "Subtotal",
     "fee": "Transaction fee ({{percent}}%)",
@@ -597,7 +620,10 @@
     "preview_conv_failed": "Preview conversion failed.",
     "download_failed": "Downloading the result failed.",
     "mascot_alt": "Précis mascot",
-    "logo_alt": "Précis logo"
+    "logo_alt": "Précis logo",
+    "reprise_from": "from {{heure}}",
+    "reprise_tomorrow_at": "tomorrow at {{heure}}",
+    "reprise_day_at": "on {{date}} at {{heure}}"
   },
   "logs": {
     "nav": "Logs",
@@ -798,7 +824,7 @@
       "no_account": "No Précis account uses this address.",
       "invitation_revoked": "This invitation has been withdrawn.",
       "access_expired": "This access has ended.",
-      "enrollment_not_found": "This invitation no longer exists.",
+      "enrollment_not_found": "Invitation not found.",
       "wave_full": "All places in this wave are taken.",
       "already_invited": "This email address already has an invitation.",
       "email_unverified": "Please verify your email address first.",
@@ -820,7 +846,6 @@
       "campaign_not_found": "Program not found.",
       "campaign_reopen_draft": "A program that has opened cannot go back to draft.",
       "capacity_below_used": "Capacity cannot be lower than the places already committed.",
-      "enrollment_not_found": "Invitation not found.",
       "no_seat_to_restore": "No free place to restore this invitation.",
       "campaign_already_open": "Another program is already open. Close it first.",
       "previous_access_active": "Access from a previous program is still running.",
@@ -837,7 +862,7 @@
     "translate": "Translate a document",
     "feedback": "Share feedback",
     "use_credits": "Use my Beta allowance",
-    "choice_hint": "Uncheck to use your usual plan and purchased page credits.",
+    "choice_hint": "Uncheck to use your usual plan and purchased pages.",
     "translation_error": "Your Beta allowance does not cover this file. Check your allowances, select fewer pages, or turn off the Beta allowance to use your usual plan.",
     "inactive_error": "Your Beta access is not active. Check your invitation or turn off the Beta allowance to use your usual plan.",
     "refresh": "Refresh",
@@ -1106,7 +1131,7 @@
     "install_for": "Install on {{browser}}",
     "download_for": "Download for {{browser}}",
     "menu_hint_install": "Download and step-by-step guide",
-    "menu_hint_price": "Cost and credits used",
+    "menu_hint_price": "Cost and pages used",
     "menu_hint_perms": "Requested access, data sent",
     "menu_hint_faq": "Answers to common questions",
     "fact_browser": "Browser",
@@ -1203,7 +1228,7 @@
       "browsers_q": "Which browsers are supported?",
       "browsers_a": "Google Chrome, Microsoft Edge, Brave, Opera and Vivaldi on desktop, version 120 or later. Mobile browsers do not allow installing extensions.",
       "account_q": "Do I need a Précis account?",
-      "account_a": "Yes. The extension uses your account's credits. You can create one for free on the website.",
+      "account_a": "Yes. The extension uses your account's pages. You can create one for free on the website.",
       "data_q": "What happens to my data?",
       "data_a": "The page's text and images are sent only when you ask for a translation. We don't sell any data and show no ads.",
       "uninstall_q": "How do I uninstall it?",
@@ -1230,7 +1255,7 @@
     "fact_access": "Access",
     "fact_access_v": "Personal API key",
     "fact_billing": "Billing",
-    "fact_billing_v": "Credits from your Précis account",
+    "fact_billing_v": "Pages from your Précis account",
     "fact_format": "Format",
     "fact_format_v": "HTTPS, JSON",
     "features_title": "Planned features",
@@ -1291,7 +1316,7 @@
       "title": "What's new",
       "count_one": "{{count}} item",
       "count_other": "{{count}} items",
-      "email": "Email"
+      "email": "Get it by email"
     },
     "unsub": {
       "loading": "Checking the link…",
@@ -1337,9 +1362,18 @@
           "titre": "Your document translated, in its original layout.",
           "lede": "Drop a PDF, Word, PowerPoint or Excel file: Précis returns it in one of 36 languages, with fonts, tables and images right where they were. No more reformatting, no more copy-paste.",
           "pts": {
-            "1": { "t": "Meaning before word for word", "d": "Every sentence is translated with the context of the whole document." },
-            "2": { "t": "An intact layout", "d": "Columns, tables, bold and italics stay where you put them." },
-            "3": { "t": "One term, one translation", "d": "The same label is translated the same way from start to finish." }
+            "1": {
+              "t": "Meaning before word for word",
+              "d": "Every sentence is translated with the context of the whole document."
+            },
+            "2": {
+              "t": "An intact layout",
+              "d": "Columns, tables, bold and italics stay where you put them."
+            },
+            "3": {
+              "t": "One term, one translation",
+              "d": "The same label is translated the same way from start to finish."
+            }
           }
         },
         "scans": {
@@ -1348,9 +1382,18 @@
           "titre": "Scanned or as an image, it gets translated.",
           "lede": "Scanned contracts, diagrams, screenshots: Précis reads the text in the image and writes the translation in its place, on the same background.",
           "pts": {
-            "1": { "t": "Scanned documents", "d": "Translated like a native file." },
-            "2": { "t": "Diagrams and charts", "d": "Captions and labels in your language." },
-            "3": { "t": "Images translated in place", "d": "The text replaced, the image intact." }
+            "1": {
+              "t": "Scanned documents",
+              "d": "Translated like a native file."
+            },
+            "2": {
+              "t": "Diagrams and charts",
+              "d": "Captions and labels in your language."
+            },
+            "3": {
+              "t": "Images translated in place",
+              "d": "The text replaced, the image intact."
+            }
           }
         },
         "extension": {
@@ -1359,9 +1402,18 @@
           "titre": "Read the whole web in your language.",
           "lede": "Articles, product pages, documentation: the extension translates the page you are reading, in place, including the text in images. No tab switching, no copy-paste.",
           "pts": {
-            "1": { "t": "Free every day", "d": "Up to 30 pages a day, no subscription." },
-            "2": { "t": "Images included", "d": "The text in the page’s images is translated too." },
-            "3": { "t": "In your browsers", "d": "Chrome, Edge, Brave, Opera and Vivaldi." }
+            "1": {
+              "t": "Free every day",
+              "d": "Up to 30 pages a day, no subscription."
+            },
+            "2": {
+              "t": "Images included",
+              "d": "The text in the page’s images is translated too."
+            },
+            "3": {
+              "t": "In your browsers",
+              "d": "Chrome, Edge, Brave, Opera and Vivaldi."
+            }
           }
         },
         "api": {
@@ -1370,9 +1422,18 @@
           "titre": "Précis, right inside your tools.",
           "lede": "Soon, an API to send your documents to Précis from your own software: same quality, same layout, without going through the website.",
           "pts": {
-            "1": { "t": "Translations that send themselves", "d": "Automate recurring submissions." },
-            "2": { "t": "The same result as on the site", "d": "The same engine, no compromises." },
-            "3": { "t": "Where you work", "d": "Intranet, document management, business apps." }
+            "1": {
+              "t": "Translations that send themselves",
+              "d": "Automate recurring submissions."
+            },
+            "2": {
+              "t": "The same result as on the site",
+              "d": "The same engine, no compromises."
+            },
+            "3": {
+              "t": "Where you work",
+              "d": "Intranet, document management, business apps."
+            }
           }
         },
         "visionneuse": {
@@ -1381,9 +1442,18 @@
           "titre": "You check, you decide, you download.",
           "lede": "Each page is shown next to its original. A logo, a signature or a photo that should not have been translated? One click and the original image comes back.",
           "pts": {
-            "1": { "t": "Side by side", "d": "The original and the translation, page by page, with zoom." },
-            "2": { "t": "Restore the original", "d": "Image by image, and reversible at any time." },
-            "3": { "t": "Coming soon: edit mode", "d": "Edit the translated text directly, for all your documents." }
+            "1": {
+              "t": "Side by side",
+              "d": "The original and the translation, page by page, with zoom."
+            },
+            "2": {
+              "t": "Restore the original",
+              "d": "Image by image, and reversible at any time."
+            },
+            "3": {
+              "t": "Coming soon: edit mode",
+              "d": "Edit the translated text directly, for all your documents."
+            }
           }
         }
       },
@@ -1445,9 +1515,18 @@
         "titre": "Stay in the loop",
         "texte": "With each new release, a short email sums up what changed. One-click unsubscribe.",
         "pts": {
-          "1": { "t": "New features", "d": "What you can now do with Précis." },
-          "2": { "t": "Improvements", "d": "More faithful translations, better preserved layout." },
-          "3": { "t": "Fixes", "d": "Issues resolved since the previous release." }
+          "1": {
+            "t": "New features",
+            "d": "What you can now do with Précis."
+          },
+          "2": {
+            "t": "Improvements",
+            "d": "More faithful translations, better preserved layout."
+          },
+          "3": {
+            "t": "Fixes",
+            "d": "Issues resolved since the previous release."
+          }
         },
         "question": "Would you like to receive them?",
         "non": "No thanks",
@@ -1472,5 +1551,14 @@
       "optin_done": "You will receive the news",
       "cta": "See all features"
     }
+  },
+  "retranslate": {
+    "title": "Translate again",
+    "text": "“{{name}}” will be translated from the original. The current document stays in My documents.",
+    "price": "The price is the same as for a new upload.",
+    "same_target": "This is the language of the current translation.",
+    "cancel": "Cancel",
+    "confirm": "Translate",
+    "close": "Close"
   }
 }

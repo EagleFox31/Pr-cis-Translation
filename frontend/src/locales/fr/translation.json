@@ -110,10 +110,10 @@
     "stopped_paused": "Traduction en pause. Reprenez-la depuis votre bibliothèque : le travail déjà fait est gardé et rien n'est facturé deux fois.",
     "stopped_cancelled": "Traduction annulée. Le travail déjà fait est gardé ; vous pouvez la reprendre depuis votre bibliothèque.",
     "stop_failed": "Impossible d'arrêter la traduction",
-    "tag": "Notre Processus de Traduction",
+    "tag": "Notre processus de traduction",
     "title": "Comment ça <em>marche</em> ?",
     "desc": "Quatre étapes, et vous voyez le résultat avant de le télécharger.",
-    "step1_title": "Téléchargement",
+    "step1_title": "Dépôt du document",
     "step1_desc": "Déposez un PDF, Word, PowerPoint, Excel ou texte.",
     "step2_title": "Analyse & Traduction",
     "step2_desc": "Précis établit la fiche du document (domaine, registre, terminologie), puis le traduit en entier.",
@@ -131,13 +131,14 @@
     "step_target": "Traduire vers",
     "target_lang": "Langue cible",
     "source_auto": "La langue du document est détectée automatiquement.",
+    "same_language": "Ce document semble déjà être en {{langue}}. Choisissez une autre langue d'arrivée.",
     "lang_search": "Rechercher une langue…",
     "lang_none": "Aucune langue trouvée",
     "lang_pdf_unsupported": "Écriture non rendable en PDF : les polices du document ne contiennent pas ces caractères.",
     "btn_translate": "Traduire",
     "btn_structure": "Analyser la structure",
     "cta_hint": "Choisissez un document pour commencer.",
-    "translating": "Traduction en cours...",
+    "translating": "Traduction en cours…",
     "download": "Télécharger",
     "new_translation": "Nouvelle traduction",
     "error_too_large": "Fichier trop volumineux. Maximum 100 Mo.",
@@ -145,7 +146,8 @@
     "error_default": "Une erreur est survenue",
     "free_limit_device": "Les pages offertes ne sont pas disponibles pour ce compte sur cet appareil. Vous pouvez acheter des pages pour continuer.",
     "error_translation_failed": "La traduction a échoué. Réessayez ou contactez le support.",
-    "queued_ahead": "En file d’attente — {{count}} traduction(s) devant la vôtre. Elle démarrera dès qu’une place se libère.",
+    "queued_ahead_one": "En file d’attente — {{count}} traduction devant la vôtre. Elle démarrera dès qu’une place se libère.",
+    "queued_ahead_other": "En file d’attente — {{count}} traductions devant la vôtre. Elle démarrera dès qu’une place se libère.",
     "queued_soon": "En file d’attente — démarrage imminent.",
     "error_limit_reached": "Vous avez atteint la limite de votre forfait. Passez à un forfait supérieur pour continuer.",
     "error_limit_cta": "Voir les offres",
@@ -160,14 +162,15 @@
     "saved_to_library": "Document sauvegardé dans votre bibliothèque.",
     "advanced": "Options avancées",
     "structure_label": "Mode structure (sans traduction)",
-    "structure_desc": "Ré-injecte le texte d'origine sans le traduire (contours des blocs en PDF) — pour éprouver l'extraction et la mise en page sans consommer de crédit IA.",
+    "structure_desc": "Remet le texte d'origine sans le traduire (contours des blocs en PDF) — pour éprouver l'extraction et la mise en page sans consommer de crédit IA.",
     "page_ready": "Page traduite",
+    "page_ready_unpaid": "Page traduite en aperçu, non payée : absente du fichier téléchargé",
     "page_progress": "Traduction en cours…",
     "page_waiting": "En attente",
     "pages_label": "Pages à traduire",
     "pages_placeholder": "Ex. 1-5, 8, 11-13",
     "pages_hint": "Laissez vide pour tout traduire. Les pages non sélectionnées restent dans leur langue d'origine.",
-    "free_plan_title": "Forfait Gratuit — 5 pages équivalentes / mois",
+    "free_plan_title": "Forfait gratuit — 5 pages offertes chaque mois",
     "free_plan_hint": "Votre quota est partagé entre tous les formats. Téléchargement inclus.",
     "retry_unavailable_title": "Relance impossible",
     "retry_unavailable_hint": "Le fichier d'origine est absent ou vide. Renvoyez-le.",
@@ -175,7 +178,8 @@
     "request_missing_hint": "Il a été supprimé ou n'est plus dans votre bibliothèque.",
     "precise_label": "Mode précis (admin)",
     "precise_desc": "Utilise le modèle de raisonnement — plus lent (~2 min/page) mais plus fiable sur les mises en page complexes.",
-    "ocr_notice": "{{count}} page(s) scannée(s) : le texte sera lu page par page pendant la traduction. Vérifiez le résultat : les polices et la mise en page d’un scan restent approximatives.",
+    "ocr_notice_one": "{{count}} page scannée : le texte sera lu page par page pendant la traduction. Vérifiez le résultat : les polices et la mise en page d’un scan restent approximatives.",
+    "ocr_notice_other": "{{count}} pages scannées : le texte sera lu page par page pendant la traduction. Vérifiez le résultat : les polices et la mise en page d’un scan restent approximatives.",
     "page_ocr": "Lecture du scan…",
     "page_ocr_waiting": "En attente de lecture",
     "images_analysing": "Recherche de texte dans les images…",
@@ -188,8 +192,8 @@
       "traduites_other": "{{count}} traduites",
       "inchangees_one": "{{count}} inchangée",
       "inchangees_other": "{{count}} inchangées",
-      "sans_credit_one": "{{count}} non traduite faute de crédit",
-      "sans_credit_other": "{{count}} non traduites faute de crédit",
+      "sans_credit_one": "{{count}} non traduite faute de pages payées",
+      "sans_credit_other": "{{count}} non traduites faute de pages payées",
       "echecs_one": "{{count}} en échec",
       "echecs_other": "{{count}} en échec"
     },
@@ -268,7 +272,8 @@
     "pages_abbr": "{{count}} p.",
     "ext_text": "Texte",
     "close": "Fermer",
-    "load_error": "Impossible de charger vos documents."
+    "load_error": "Impossible de charger vos documents.",
+    "retranslate": "Traduire à nouveau"
   },
   "pricing": {
     "feat_free_page_other": "{{count}} pages équivalentes offertes par mois",
@@ -462,17 +467,19 @@
     "page_pending": "Cette page est en attente de traduction.",
     "file_missing": "Les fichiers de ce document ne sont plus disponibles sur le serveur. Redéposez-le pour le traduire à nouveau.",
     "translation_missing": "La traduction de ce document n'est plus disponible. Relancez-la depuis la bibliothèque.",
-    "libre_pages_one": "{{count}} page en aperçu seulement (non payée) : filigranée, elle ne sera pas dans le fichier téléchargé.",
-    "libre_pages_other": "{{count}} pages en aperçu seulement (non payées) : filigranées, elles ne seront pas dans le fichier téléchargé.",
-    "credits_insufficient": "Crédits insuffisants",
-    "credits_needed": "Il manque {{count}} page(s) à votre solde pour traduire tout le document.",
+    "credits_insufficient": "Pages insuffisantes",
+    "credits_needed_one": "Il manque {{count}} page à votre solde pour traduire tout le document.",
+    "credits_needed_other": "Il manque {{count}} pages à votre solde pour traduire tout le document.",
     "credits_hint_buy": "Achetez les pages manquantes pour lancer la traduction complète.",
-    "credits_hint_covered": "Achetez-les, ou traduisez dès maintenant les pages déjà couvertes.",
+    "credits_hint_covered": "Achetez-les, ou traduisez dès maintenant les pages déjà réglées.",
     "credits_hint_images": "Achetez-les, ou traduisez dès maintenant le document sans ses images.",
     "credits_images_one": "L’image compte pour {{count}} page.",
     "credits_images_other": "Les images comptent pour {{count}} pages.",
     "translate_without_images": "Traduire sans les images",
-    "translate_covered": "Traduire seulement les {{count}} page(s) couverte(s)",
+    "translate_covered_one": "Traduire seulement la page réglée",
+    "translate_covered_other": "Traduire seulement les {{count}} pages réglées",
+    "libre_footer_one": "Aperçu filigrané · {{count}} page à régler pour télécharger",
+    "libre_footer_other": "Aperçu filigrané · {{count}} pages à régler pour télécharger",
     "trial_hover": "Essai : survolez la page pour la lire",
     "trial_touch": "Essai : touchez la page pour la lire",
     "trial_buy": "Débloquer"
@@ -480,6 +487,22 @@
   "account": {
     "default_name": "Utilisateur",
     "unlimited": "Illimité",
+    "balance_pages_one": "Il vous reste {{n}} page",
+    "balance_pages_other": "Il vous reste {{n}} pages",
+    "balance_slides_one": "Il vous reste {{n}} diapositive",
+    "balance_slides_other": "Il vous reste {{n}} diapositives",
+    "balance_sheets_one": "Il vous reste {{n}} feuille",
+    "balance_sheets_other": "Il vous reste {{n}} feuilles",
+    "balance_words_one": "Il vous reste {{n}} mot",
+    "balance_words_other": "Il vous reste {{n}} mots",
+    "qty_pages_one": "{{n}} page",
+    "qty_pages_other": "{{n}} pages",
+    "qty_slides_one": "{{n}} diapo",
+    "qty_slides_other": "{{n}} diapos",
+    "qty_sheets_one": "{{n}} feuille",
+    "qty_sheets_other": "{{n}} feuilles",
+    "qty_words_one": "{{n}} mot",
+    "qty_words_other": "{{n}} mots",
     "logout": "Déconnexion",
     "pages_left": "Pages restantes ce mois",
     "pages_free_left_one": "page offerte restante",
@@ -494,7 +517,7 @@
     "detail_expires": "Abonnement actif jusqu'au",
     "beta_name": "Bêta",
     "expires_on": "expire le {{date}}",
-    "renews_on": "renouvelé le {{date}}",
+    "renews_on": "Renouvellement le {{date}}",
     "resets_on": "repart le {{date}}",
     "credits_after": "Sans expiration, utilisées après le forfait",
     "beta_apply": "Programme Bêta : postuler",
@@ -510,7 +533,7 @@
   "extension_auth": {
     "title": "Autoriser l'extension Précis Translator ?",
     "account": "Compte : {{email}}",
-    "body": "L'extension pourra traduire des pages avec les crédits de ce compte. Vous pourrez la déconnecter à tout moment depuis l'extension.",
+    "body": "L'extension pourra traduire des pages avec les pages de ce compte. Vous pourrez la déconnecter à tout moment depuis l'extension.",
     "allow": "Autoriser",
     "cancel": "Annuler",
     "invalid": "Lien invalide : relancez la connexion depuis l'extension.",
@@ -597,7 +620,10 @@
     "preview_conv_failed": "La conversion de l'aperçu a échoué.",
     "download_failed": "Le téléchargement du résultat a échoué.",
     "mascot_alt": "Mascotte Précis",
-    "logo_alt": "Logo Précis"
+    "logo_alt": "Logo Précis",
+    "reprise_from": "à partir de {{heure}}",
+    "reprise_tomorrow_at": "demain à {{heure}}",
+    "reprise_day_at": "le {{date}} à {{heure}}"
   },
   "logs": {
     "nav": "Journal",
@@ -797,7 +823,7 @@
       "campaign_closed": "Les inscriptions à la bêta sont fermées.",
       "no_account": "Aucun compte Précis à cette adresse.",
       "invitation_revoked": "Cette invitation a été retirée.",
-      "enrollment_not_found": "Cette invitation n’existe plus.",
+      "enrollment_not_found": "Invitation introuvable.",
       "access_expired": "Cet accès est terminé.",
       "wave_full": "Toutes les places de cette vague sont prises.",
       "already_invited": "Cette adresse e-mail a déjà une invitation.",
@@ -820,7 +846,6 @@
       "campaign_not_found": "Programme introuvable.",
       "campaign_reopen_draft": "Un programme déjà ouvert ne peut pas repasser en brouillon.",
       "capacity_below_used": "La capacité ne peut pas être inférieure aux places déjà engagées.",
-      "enrollment_not_found": "Invitation introuvable.",
       "no_seat_to_restore": "Aucune place libre pour rétablir cette invitation.",
       "campaign_already_open": "Un autre programme est déjà ouvert. Fermez-le d’abord.",
       "previous_access_active": "L’accès à un programme précédent est encore en cours.",
@@ -1106,7 +1131,7 @@
     "install_for": "Installer sur {{browser}}",
     "download_for": "Télécharger pour {{browser}}",
     "menu_hint_install": "Téléchargement et étapes pas à pas",
-    "menu_hint_price": "Coût et crédits utilisés",
+    "menu_hint_price": "Coût et pages utilisées",
     "menu_hint_perms": "Accès demandés, données envoyées",
     "menu_hint_faq": "Réponses aux questions courantes",
     "fact_browser": "Navigateur",
@@ -1203,7 +1228,7 @@
       "browsers_q": "Quels navigateurs sont pris en charge ?",
       "browsers_a": "Google Chrome, Microsoft Edge, Brave, Opera et Vivaldi sur ordinateur, en version 120 ou plus récente. Les navigateurs mobiles ne permettent pas d'installer d'extension.",
       "account_q": "Faut-il un compte Précis ?",
-      "account_a": "Oui. L'extension utilise les crédits de votre compte. Vous pouvez en créer un gratuitement sur le site.",
+      "account_a": "Oui. L'extension utilise les pages de votre compte. Vous pouvez en créer un gratuitement sur le site.",
       "data_q": "Que deviennent mes données ?",
       "data_a": "Le texte et les images de la page ne sont envoyés que lorsque vous demandez la traduction. Nous ne vendons aucune donnée et n'affichons aucune publicité.",
       "uninstall_q": "Comment la désinstaller ?",
@@ -1230,7 +1255,7 @@
     "fact_access": "Accès",
     "fact_access_v": "Clé d'API personnelle",
     "fact_billing": "Facturation",
-    "fact_billing_v": "Crédits de votre compte Précis",
+    "fact_billing_v": "Pages de votre compte Précis",
     "fact_format": "Format",
     "fact_format_v": "HTTPS, JSON",
     "features_title": "Fonctions prévues",
@@ -1291,7 +1316,7 @@
       "title": "Nouveautés",
       "count_one": "{{count}} élément",
       "count_other": "{{count}} éléments",
-      "email": "E-mail"
+      "email": "Recevoir par e-mail"
     },
     "unsub": {
       "loading": "Vérification du lien…",
@@ -1337,9 +1362,18 @@
           "titre": "Votre document traduit, dans sa mise en page d’origine.",
           "lede": "Déposez un PDF, un Word, un PowerPoint ou un Excel : Précis le restitue dans l’une de 36 langues, polices, tableaux et images à leur place. Plus de remise en page, plus de copier-coller.",
           "pts": {
-            "1": { "t": "Le sens avant le mot à mot", "d": "Chaque phrase est traduite avec le contexte du document entier." },
-            "2": { "t": "Une forme intacte", "d": "Colonnes, tableaux, gras et italique restent là où vous les aviez mis." },
-            "3": { "t": "Un terme, une seule traduction", "d": "Le même libellé est traduit de la même façon d’un bout à l’autre." }
+            "1": {
+              "t": "Le sens avant le mot à mot",
+              "d": "Chaque phrase est traduite avec le contexte du document entier."
+            },
+            "2": {
+              "t": "Une forme intacte",
+              "d": "Colonnes, tableaux, gras et italique restent là où vous les aviez mis."
+            },
+            "3": {
+              "t": "Un terme, une seule traduction",
+              "d": "Le même libellé est traduit de la même façon d’un bout à l’autre."
+            }
           }
         },
         "scans": {
@@ -1348,9 +1382,18 @@
           "titre": "Scanné ou en image, il se traduit.",
           "lede": "Contrats numérisés, schémas, captures d’écran : Précis lit le texte de l’image et écrit la traduction à sa place, sur le même fond.",
           "pts": {
-            "1": { "t": "Documents scannés", "d": "Traduits comme un fichier natif." },
-            "2": { "t": "Schémas et graphiques", "d": "Légendes et étiquettes dans votre langue." },
-            "3": { "t": "Images traduites sur place", "d": "Le texte remplacé, l’image intacte." }
+            "1": {
+              "t": "Documents scannés",
+              "d": "Traduits comme un fichier natif."
+            },
+            "2": {
+              "t": "Schémas et graphiques",
+              "d": "Légendes et étiquettes dans votre langue."
+            },
+            "3": {
+              "t": "Images traduites sur place",
+              "d": "Le texte remplacé, l’image intacte."
+            }
           }
         },
         "extension": {
@@ -1359,9 +1402,18 @@
           "titre": "Lisez tout le web dans votre langue.",
           "lede": "Articles, fiches produits, documentations : l’extension traduit la page que vous lisez, sur place, texte des images compris. Sans changer d’onglet, sans copier-coller.",
           "pts": {
-            "1": { "t": "Gratuite au quotidien", "d": "Jusqu’à 30 pages par jour, sans abonnement." },
-            "2": { "t": "Images comprises", "d": "Le texte des images de la page est traduit lui aussi." },
-            "3": { "t": "Dans vos navigateurs", "d": "Chrome, Edge, Brave, Opera et Vivaldi." }
+            "1": {
+              "t": "Gratuite au quotidien",
+              "d": "Jusqu’à 30 pages par jour, sans abonnement."
+            },
+            "2": {
+              "t": "Images comprises",
+              "d": "Le texte des images de la page est traduit lui aussi."
+            },
+            "3": {
+              "t": "Dans vos navigateurs",
+              "d": "Chrome, Edge, Brave, Opera et Vivaldi."
+            }
           }
         },
         "api": {
@@ -1370,9 +1422,18 @@
           "titre": "Précis, directement dans vos outils.",
           "lede": "Bientôt, une API pour confier vos documents à Précis depuis vos propres logiciels : même qualité, même mise en page, sans passer par le site.",
           "pts": {
-            "1": { "t": "Des traductions qui partent seules", "d": "Automatisez les envois récurrents." },
-            "2": { "t": "Le même rendu que sur le site", "d": "Le même moteur, sans compromis." },
-            "3": { "t": "Là où vous travaillez", "d": "Intranet, gestion documentaire, applications métier." }
+            "1": {
+              "t": "Des traductions qui partent seules",
+              "d": "Automatisez les envois récurrents."
+            },
+            "2": {
+              "t": "Le même rendu que sur le site",
+              "d": "Le même moteur, sans compromis."
+            },
+            "3": {
+              "t": "Là où vous travaillez",
+              "d": "Intranet, gestion documentaire, applications métier."
+            }
           }
         },
         "visionneuse": {
@@ -1381,9 +1442,18 @@
           "titre": "Vous vérifiez, vous décidez, vous téléchargez.",
           "lede": "Chaque page s’affiche à côté de son original. Un logo, une signature ou une photo ne devait pas être traduit ? Un clic, et l’image d’origine revient.",
           "pts": {
-            "1": { "t": "Côte à côte", "d": "L’original et la traduction, page par page, avec zoom." },
-            "2": { "t": "Remettre l’original", "d": "Image par image, et réversible à tout moment." },
-            "3": { "t": "Bientôt : le mode édition", "d": "Retouchez directement le texte traduit, pour tous vos documents." }
+            "1": {
+              "t": "Côte à côte",
+              "d": "L’original et la traduction, page par page, avec zoom."
+            },
+            "2": {
+              "t": "Remettre l’original",
+              "d": "Image par image, et réversible à tout moment."
+            },
+            "3": {
+              "t": "Bientôt : le mode édition",
+              "d": "Retouchez directement le texte traduit, pour tous vos documents."
+            }
           }
         }
       },
@@ -1445,9 +1515,18 @@
         "titre": "Restez informé",
         "texte": "À chaque nouvelle version, un court e-mail vous résume ce qui change. Désabonnement en un clic.",
         "pts": {
-          "1": { "t": "Nouvelles fonctionnalités", "d": "Ce que vous pouvez désormais faire avec Précis." },
-          "2": { "t": "Améliorations", "d": "Traductions plus fidèles, mise en page mieux conservée." },
-          "3": { "t": "Correctifs", "d": "Les problèmes résolus depuis la version précédente." }
+          "1": {
+            "t": "Nouvelles fonctionnalités",
+            "d": "Ce que vous pouvez désormais faire avec Précis."
+          },
+          "2": {
+            "t": "Améliorations",
+            "d": "Traductions plus fidèles, mise en page mieux conservée."
+          },
+          "3": {
+            "t": "Correctifs",
+            "d": "Les problèmes résolus depuis la version précédente."
+          }
         },
         "question": "Souhaitez-vous les recevoir ?",
         "non": "Non merci",
@@ -1472,5 +1551,14 @@
       "optin_done": "Vous recevrez les nouveautés",
       "cta": "Voir toutes les fonctionnalités"
     }
+  },
+  "retranslate": {
+    "title": "Traduire à nouveau",
+    "text": "« {{name}} » sera traduit à partir de l'original. Le document actuel reste dans Mes documents.",
+    "price": "Le prix est le même que pour un nouveau dépôt.",
+    "same_target": "C'est la langue de la traduction actuelle.",
+    "cancel": "Annuler",
+    "confirm": "Traduire",
+    "close": "Fermer"
   }
 }

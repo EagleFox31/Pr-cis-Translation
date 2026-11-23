@@ -910,8 +910,10 @@ button { font-family: inherit; cursor: pointer; border: none; }
 /* Lien d'action secondaire */
 .btn-ghost {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  white-space: nowrap; /* le libellé ne se coupe pas ; le badge passe dessous si la place manque */
   padding: 14px 8px;
   font-size: 15px;
   font-weight: 600;

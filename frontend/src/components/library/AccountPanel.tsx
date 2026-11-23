@@ -67,7 +67,10 @@ export default function AccountPanel({ user, refreshKey, onClose }: AccountPanel
   // Bêta d'abord (elle expire avant le forfait), sauf si le client a choisi son
   // forfait : même préférence que la case de la zone de traduction.
   const enrollment = useBeta(refreshKey).data?.enrollment ?? null;
-  const betaActive = enrollment?.state === 'active';
+  // Bêta échue (état ou date passée) : retirée de la liste, sans barre.
+  const betaExpiree = !!enrollment && (enrollment.state === 'expired'
+    || (!!enrollment.expires_at && new Date(enrollment.expires_at).getTime() <= Date.now()));
+  const betaActive = enrollment?.state === 'active' && !betaExpiree;
   const [betaFirst, setBetaFirst] = useBetaPreference();
   const surBeta = betaActive && betaFirst;
   const candidatures = useBetaProgram().program?.applications_open === true;
@@ -86,8 +89,14 @@ export default function AccountPanel({ user, refreshKey, onClose }: AccountPanel
   }, [ouvert]);
   const jour = (iso?: string | null) => {
     const d = iso ? new Date(iso) : null;
-    return !d || Number.isNaN(d.getTime()) ? '—'
-      : d.toLocaleDateString(i18n.language, { day: 'numeric', month: 'short', year: 'numeric' });
+    if (!d || Number.isNaN(d.getTime())) return '—';
+    // Mois en toutes lettres, année seulement si ce n'est pas l'année en cours.
+    const texte = d.toLocaleDateString(i18n.language, {
+      day: 'numeric', month: 'long',
+      ...(d.getFullYear() !== new Date().getFullYear() && { year: 'numeric' }),
+    });
+    // Usage français : « 1er décembre », pas « 1 décembre ».
+    return i18n.language.startsWith('fr') && d.getDate() === 1 ? texte.replace(/^1(?=\s)/, '1er') : texte;
   };
 
   // Une seule date au replié : renouvellement (gratuit) ou expiration.
@@ -107,11 +116,13 @@ export default function AccountPanel({ user, refreshKey, onClose }: AccountPanel
   const qBeta = enrollment && fmtBeta ? enrollment.formats[fmtBeta] : null;
   const actif = surBeta && enrollment && qBeta
     ? { nom: `${t('account.beta_name')} · ${t(`beta.formats.${fmtBeta}`)}`,
-        dispo: qBeta.remaining, total: qBeta.limit, illimite: false, date: expireBeta }
-    : { nom: nomForfait, dispo: restantes, total, illimite, date: dateForfait };
+        dispo: qBeta.remaining, total: qBeta.limit, unite: qBeta.unit, illimite: false, date: expireBeta }
+    : { nom: nomForfait, dispo: restantes, total, unite: 'pages', illimite, date: dateForfait };
+  const qte = (cle: string, valeur: number) =>
+    t(cle, { count: valeur, n: valeur.toLocaleString(i18n.language) });
   const pret = surBeta ? !!qBeta : !!usage;
 
-  const ligneBeta = enrollment && (
+  const ligneBeta = enrollment && !betaExpiree && (
     <li key="beta" className={betaActive ? undefined : 'off'}>
       <label>
         <input type="radio" name="bal-src" checked={surBeta} disabled={!betaActive}
@@ -128,7 +139,7 @@ export default function AccountPanel({ user, refreshKey, onClose }: AccountPanel
         {betaActive && <input type="radio" name="bal-src" checked={!surBeta}
           onChange={() => setBetaFirst(false)} />}
         <b>{nomForfait}</b>
-        <span className="meta tab">{illimite ? t('account.unlimited') : usage ? `${restantes} / ${total}` : ''}</span>
+        <span className="meta tab">{illimite ? t('account.unlimited') : usage ? qte('account.qty_pages', restantes) : ''}</span>
       </label>
       {usage && (
         <small>
@@ -165,7 +176,7 @@ export default function AccountPanel({ user, refreshKey, onClose }: AccountPanel
           <span className="plan">{actif.nom}</span>
           {pret && (
             <span className="sum tab">
-              {actif.illimite ? t('account.unlimited') : <><b>{actif.dispo}</b> / {actif.total}</>}
+              {actif.illimite ? t('account.unlimited') : qte(`account.balance_${actif.unite}`, actif.dispo)}
             </span>
           )}
           <ChevronDown className="chev" size={18} strokeWidth={2} aria-hidden="true" />

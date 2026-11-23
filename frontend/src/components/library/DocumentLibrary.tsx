@@ -62,6 +62,8 @@ interface DocumentLibraryProps {
   onPaid?: () => void;
   /** Relance la traduction d'un document en erreur. */
   onRetry?: (doc: DocMeta) => void;
+  /** « Traduire à nouveau » un document terminé. */
+  onRetranslate?: (doc: DocMeta) => void;
   /** Pause / Annuler une traduction en cours. */
   onStop?: (doc: DocMeta, mode: StopMode) => Promise<void>;
   /** La liste est en cours de lecture (premier chargement). */
@@ -74,7 +76,7 @@ interface DocumentLibraryProps {
 
 export default function DocumentLibrary({
   isOpen, onClose, documents, onPreview, onDelete, onClearAll,
-  getBlob, getOriginalBlob, onPaid, onRetry, onStop,
+  getBlob, getOriginalBlob, onPaid, onRetry, onRetranslate, onStop,
   loading: enChargement = false, erreur: enErreur = false, onRefresh,
 }: DocumentLibraryProps) {
   const { t } = useTranslation();
@@ -324,6 +326,7 @@ export default function DocumentLibrary({
                     onDownload={handleDownload}
                     onDelete={onDelete}
                     onRetry={onRetry}
+                    onRetranslate={onRetranslate}
                     onStop={onStop}
                     selection={selection ? { cochee: selection.has(doc.id), onBasculer: () => basculer(doc.id) } : undefined}
                     onArchive={() => setArchiveOuverte(o => (o === doc.id ? null : doc.id))}

@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
-  Download, Loader2, CheckCircle2, ArrowRight, Lock,
-  Maximize2, Minimize2, Flag, FileDown, Pause, X,
+  Download, Loader2, CheckCircle2, Lock,
+  Maximize2, Minimize2, Flag, FileDown, Languages, Pause, X,
   RectangleVertical, MoveHorizontal, SquareSplitHorizontal, CopyPlus,
 } from 'lucide-react';
 
@@ -48,6 +48,8 @@ interface ViewerToolbarProps {
   onDownload: () => void;
   /** Récupérer le fichier d'origine tel qu'il a été déposé. */
   onDownloadOriginal?: () => void;
+  /** « Traduire à nouveau » ce document (langue au choix). */
+  onRetranslate?: () => void;
   /** Essai : quitter l'aperçu pour les tarifs (ils sont SOUS la surcouche). */
   onUnlock?: () => void;
   onToggleFocus?: () => void;
@@ -79,6 +81,7 @@ export default function ViewerToolbar({
   onBack,
   onDownload,
   onDownloadOriginal,
+  onRetranslate,
   onUnlock,
   onToggleFocus,
   onStop,
@@ -189,32 +192,20 @@ export default function ViewerToolbar({
         )}
       </div>
 
-      {/* Fil du document : source → traduction */}
+      {/* Fil du document : nom d'origine et langue d'arrivée */}
       {(sourceFilename || translatedFilename) ? (
         <div className="docbar-fil" style={{
           display: 'flex', alignItems: 'center', gap: '7px',
           borderLeft: '1px solid var(--color-border-secondary)', paddingLeft: '12px', marginLeft: '6px',
           flex: 1, overflow: 'hidden', minWidth: 0,
         }}>
-          {sourceFilename && (
-            <span style={{
-              fontSize: '12px', color: 'var(--color-text-secondary)',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '130px',
-            }} title={sourceFilename}>
-              {sourceFilename}
-            </span>
-          )}
-          {sourceFilename && translatedFilename && (
-            <ArrowRight size={13} strokeWidth={2} style={{ flexShrink: 0, opacity: 0.4 }} />
-          )}
-          {translatedFilename && (
-            <span style={{
-              fontSize: '12px', fontWeight: 600, color: 'var(--color-text-primary)',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '150px',
-            }} title={translatedFilename}>
-              {translatedFilename}
-            </span>
-          )}
+          {/* Nom d'origine seul : le nom traduit n'apprend rien et se faisait couper. */}
+          <span style={{
+            fontSize: '12px', fontWeight: 600, color: 'var(--color-text-primary)',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, maxWidth: '280px',
+          }} title={translatedFilename ? `${sourceFilename || ''} → ${translatedFilename}` : sourceFilename}>
+            {sourceFilename || translatedFilename}
+          </span>
           {targetLang && (
             <span style={{
               fontSize: '10px', fontWeight: 700, letterSpacing: '0.03em',
@@ -333,6 +324,18 @@ export default function ViewerToolbar({
         >
           {copyBusy ? <Loader2 size={15} strokeWidth={2.2} className="ui-spin" /> : <CopyPlus size={15} strokeWidth={2.2} />}
           <span className="docbar-libelle">{t('admin_docs.create_copy', 'Créer ma copie')}</span>
+        </button>
+      )}
+
+      {onRetranslate && (
+        <button
+          onClick={onRetranslate}
+          className="tb-btn ghost"
+          aria-label={t('library.retranslate')}
+          title={t('library.retranslate')}
+          style={{ display: 'flex', alignItems: 'center', padding: '6px' }}
+        >
+          <Languages size={15} strokeWidth={2.2} />
         </button>
       )}
 

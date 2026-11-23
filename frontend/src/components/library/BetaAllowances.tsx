@@ -18,7 +18,7 @@ export default function BetaAllowances({ enrollment, compact = false }: { enroll
         const quota = enrollment.formats[format];
         return (
           <li key={format} title={left(quota.unit, quota.remaining, quota.limit)}>
-            <span role="img" aria-label={t(`beta.formats.${format}`)}><FileTypeIcon name={'.' + format} size={15} /></span>{n(quota.remaining)}/{n(quota.limit)}
+            <span role="img" aria-label={t(`beta.formats.${format}`)}><FileTypeIcon name={'.' + format} size={15} /></span>{t(`account.qty_${quota.unit}`, { count: quota.remaining, n: n(quota.remaining) })}
           </li>
         );
       })}
