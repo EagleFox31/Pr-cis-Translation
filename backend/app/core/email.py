@@ -31,8 +31,10 @@ from email.mime.text import MIMEText
 from email.utils import formatdate, formataddr, make_msgid
 from pathlib import Path
 
-from app.core.email_content import (MARQUE, normaliser_langue, textes,
-                                    textes_invitation)
+from app.core.email_content import (MARQUE, date_longue, normaliser_langue,
+                                    textes, textes_invitation,
+                                    textes_invitation_beta,
+                                    textes_nouveautes, textes_rappel_libres)
 
 logger = logging.getLogger("email_service")
 
@@ -240,6 +242,85 @@ def _html_alerte(*, titre: str, resume: str, niveau: str, bandeau: str,
                   corps=corps, pied=pied)
 
 
+def _sections_nouveautes(t: dict, elements: list[dict]) -> str:
+    """Nouveautés / Améliorations / Correctifs, chaque section omise si vide."""
+    m, esc, html = MARQUE, _html.escape, []
+    for type_ in ("nouveaute", "amelioration", "correctif"):
+        lignes = [e for e in elements if e["type"] == type_]
+        if not lignes:
+            continue
+        html.append(
+            f'<p style="margin:0 0 8px 0;font-size:11px;font-weight:700;'
+            f'letter-spacing:1px;text-transform:uppercase;color:{m["bleu"]}">'
+            f'{t[type_]}</p>'
+            '<table role="presentation" width="100%" cellpadding="0" '
+            'cellspacing="0" style="margin:0 0 14px 0">')
+        for e in lignes:
+            html.append(
+                f'<tr><td style="padding:0 0 10px 0;font-size:14px;line-height:1.55;'
+                f'color:{m["gris"]}"><strong style="color:{m["encre"]};'
+                f'font-weight:600">{esc(e["titre"])}.</strong> {esc(e["resume"])}'
+                '</td></tr>')
+        html.append("</table>")
+    return "\n".join(html)
+
+
+def _message_nouveautes(destinataire: str, langue: str, elements: list[dict], *,
+                        version: str, date_version: str,
+                        jeton: str) -> MIMEMultipart:
+    """Compose l'e-mail de version. `elements` : éléments du catalogue déjà
+    traduits (`catalogue.elements(langue)`), filtrés par l'appelant.
+
+    Deux liens de désabonnement : la PAGE (lien visible, qui confirme avant
+    d'agir) et l'API (en-tête `List-Unsubscribe`, que Gmail et Outlook
+    appellent en POST pour leur propre bouton « Se désabonner »)."""
+    t = textes_nouveautes(langue)
+    esc = _html.escape
+    page = f"{FRONTEND_URL}/fonctionnalites"
+    desab_page = f"{FRONTEND_URL}/desabonnement?jeton={jeton}"
+    desab_api = f"{FRONTEND_URL}/api/nouveautes/desabonnement?jeton={jeton}"
+    intro = t["intro"].format(version=version, date=date_longue(date_version, langue))
+
+    corps = (_titre(t["titre"]) + "\n" + _para(intro) + "\n"
+             + _sections_nouveautes(t, elements) + "\n"
+             + _bouton(t["bouton"], esc(page)) + "\n"
+             + _petit(t["note"], marge=10))
+    pied = _petit(f'{t["pied"]} <a href="{esc(desab_page)}" style="color:'
+                  f'{MARQUE["gris"]};text-decoration:underline">{t["desabonner"]}</a>',
+                  marge=0)
+    html = _carte(lang=langue, niveau="info", bandeau=t["bandeau"],
+                  corps=corps, pied=pied)
+
+    lignes = [t["titre"], "", intro, ""]
+    for type_ in ("nouveaute", "amelioration", "correctif"):
+        choix = [e for e in elements if e["type"] == type_]
+        if choix:
+            lignes.append(t[type_].upper())
+            lignes += [f"- {e['titre']}. {e['resume']}" for e in choix]
+            lignes.append("")
+    lignes += [f"{t['bouton']} : {page}", "", t["pied"],
+               f"{t['desabonner']} : {desab_page}"]
+    texte = "\n".join(lignes)
+
+    msg = MIMEMultipart("related")
+    _expediteur(msg)
+    msg["To"] = destinataire
+    msg["Subject"] = t["sujet"].format(version=version)
+    msg["Reply-To"] = SMTP_REPLY_TO
+    msg["List-Unsubscribe"] = f"<{desab_api}>"
+    msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+    msg["X-Auto-Response-Suppress"] = "All"
+
+    alt = MIMEMultipart("alternative")
+    alt.attach(MIMEText(texte, "plain", "utf-8"))
+    alt.attach(MIMEText(html, "html", "utf-8"))
+    msg.attach(alt)
+    logo = _logo()
+    if logo is not None:
+        msg.attach(logo)
+    return msg
+
+
 def _logo() -> MIMEImage | None:
     """Le logo en pièce jointe INLINE, ou None s'il est introuvable.
 
@@ -365,12 +446,58 @@ def _message_alerte(destinataires: list[str], subject: str, body: str, *,
     return msg
 
 
+# ── Envoi avec reprise ────────────────────────────────────────────────────────
+# Un serveur SMTP a des ratés passagers (connexion coupée, délai dépassé, « 421
+# réessayez plus tard »). Un seul essai, c'était un code de connexion ou une
+# alerte support perdus pour une seconde de panne. On réessaie donc deux fois,
+# après une courte attente, mais SEULEMENT si l'erreur est passagère : un refus
+# définitif (adresse inconnue, identifiants faux, codes 5xx) ne change pas en
+# réessayant. L'échec final est laissé à l'appelant, qui le note en
+# `logger.error` — donc dans le journal d'erreurs de l'admin.
+_REPRISES = (2, 5)   # secondes d'attente avant chaque nouvel essai
+_DELAI_SMTP = 20     # secondes au plus par essai (60 par défaut chez aiosmtplib)
+
+
+def _passagere(exc: Exception) -> bool:
+    """Vrai si un nouvel essai a une chance d'aboutir."""
+    import aiosmtplib
+    if isinstance(exc, aiosmtplib.SMTPRecipientsRefused):
+        return all(400 <= r.code < 500 for r in exc.recipients)
+    if isinstance(exc, aiosmtplib.SMTPResponseException):
+        return 400 <= exc.code < 500
+    return True   # réseau : connexion refusée ou coupée, délai dépassé
+
+
+async def _envoyer(msg) -> None:
+    """Envoie `msg` par SMTP ; réessaie les échecs passagers, lève le dernier."""
+    import asyncio
+
+    import aiosmtplib
+
+    for essai in range(len(_REPRISES) + 1):
+        try:
+            await aiosmtplib.send(
+                msg, hostname=SMTP_HOST, port=SMTP_PORT,
+                sender=SMTP_FROM or None, username=SMTP_USER or None,
+                password=SMTP_PASSWORD or None,
+                start_tls=(SMTP_PORT != 465), use_tls=(SMTP_PORT == 465),
+                timeout=_DELAI_SMTP,
+            )
+            return
+        except Exception as exc:
+            if essai == len(_REPRISES) or not _passagere(exc):
+                raise
+            logger.warning("Envoi à %s : essai %d échoué (%s), nouvel essai dans %d s",
+                           msg["To"], essai + 1, exc, _REPRISES[essai])
+            await asyncio.sleep(_REPRISES[essai])
+
+
 async def send_plain(to: list[str] | str, subject: str, body: str, *,
                      titre: str | None = None, resume: str | None = None,
                      niveau: str = "info", bandeau: str = "Alerte",
                      details: list[tuple[str, str]] | None = None,
                      citation: tuple[str, str] | None = None,
-                     bouton: tuple[str, str] | None = None) -> None:
+                     bouton: tuple[str, str] | None = None) -> bool:
     """Alerte interne (support, solde IA, journal d'erreurs).
 
     `body` est la version TEXTE ; la version HTML reprend la carte Précis
@@ -388,22 +515,21 @@ async def send_plain(to: list[str] | str, subject: str, body: str, *,
         logger.info("[DEV] Alerte → %s | %s", ", ".join(destinataires), subject)
         return
 
-    import aiosmtplib
 
     msg = _message_alerte(destinataires, subject, body, titre=titre,
                           resume=resume, niveau=niveau, bandeau=bandeau,
                           details=details, citation=citation, bouton=bouton)
     try:
-        await aiosmtplib.send(
-            msg, hostname=SMTP_HOST, port=SMTP_PORT,
-            sender=SMTP_FROM or None, username=SMTP_USER or None, password=SMTP_PASSWORD or None,
-            start_tls=(SMTP_PORT != 465), use_tls=(SMTP_PORT == 465),
-        )
+        await _envoyer(msg)
         logger.info("Alerte envoyée à %s", ", ".join(destinataires))
+        return True
     except Exception as exc:
         # Une alerte qui échoue ne doit jamais casser l'appelant (souvent un
-        # thread de traitement) : on la note et on passe.
-        logger.warning("Alerte e-mail non envoyée : %s", exc)
+        # thread de traitement). Mais elle ne passe plus inaperçue : en
+        # `error`, elle atterrit dans le journal d'erreurs de l'admin.
+        logger.error("Alerte e-mail non envoyée à %s (%s) : %s",
+                     ", ".join(destinataires), subject, exc)
+        return False
 
 
 async def send_verification_email(email: str, code: str, token: str,
@@ -422,18 +548,9 @@ async def send_verification_email(email: str, code: str, token: str,
                     email, langue, code, token)
         return
 
-    import aiosmtplib
 
     try:
-        await aiosmtplib.send(
-            msg,
-            hostname=SMTP_HOST,
-            port=SMTP_PORT,
-            sender=SMTP_FROM or None, username=SMTP_USER or None,
-            password=SMTP_PASSWORD or None,
-            start_tls=(SMTP_PORT != 465),
-            use_tls=(SMTP_PORT == 465),
-        )
+        await _envoyer(msg)
         logger.info("Vérification envoyée à %s (%s)", email, langue)
     except Exception as exc:
         # Le serveur SMTP est injoignable, ou refuse. L'exception BRUTE
@@ -467,6 +584,90 @@ async def send_invitation_email(destinataire: str, inviteur: str,
                     destinataire, inviteur_email, langue)
         return
 
+
+    try:
+        await _envoyer(msg)
+        logger.info("Invitation envoyée à %s (%s)", destinataire, langue)
+    except Exception as exc:
+        logger.error("Échec invitation à %s : %s", destinataire, exc)
+        raise EmailIndisponible(
+            "L'envoi de l'e-mail a échoué. Réessayez dans un instant.") from exc
+
+
+async def send_nouveautes_email(destinataire: str, langue: str,
+                                elements: list[dict], *, version: str,
+                                date_version: str, jeton: str) -> None:
+    """Envoie l'e-mail de version à UN abonné.
+
+    Lève `EmailIndisponible` si le serveur refuse : le script d'envoi s'arrête
+    alors, et une relance reprend là où il s'est arrêté."""
+    msg = _message_nouveautes(destinataire, langue, elements, version=version,
+                              date_version=date_version, jeton=jeton)
+
+    if not EMAIL_ENABLED or not SMTP_HOST:
+        logger.info("[DEV] Nouveautés %s → %s | langue=%s",
+                    version, destinataire, langue)
+        return
+
+
+    try:
+        await _envoyer(msg)
+        logger.info("Nouveautés %s envoyées à %s (%s)", version, destinataire, langue)
+    except Exception as exc:
+        logger.error("Échec nouveautés à %s : %s", destinataire, exc)
+        raise EmailIndisponible(
+            "L'envoi de l'e-mail a échoué. Réessayez dans un instant.") from exc
+
+
+def _message_rappel_libres(destinataire: str, langue: str,
+                           documents: list[tuple[str, str]]) -> MIMEMultipart:
+    """Rappel avant suppression. `documents` : (nom du fichier, date ISO de
+    suppression). Les noms viennent de l'utilisateur : échappés dans le HTML."""
+    t = textes_rappel_libres(langue)
+    esc = _html.escape
+    url = FRONTEND_URL
+    lignes = [(t["colonne"].format(date=date_longue(iso, langue)), esc(nom))
+              for nom, iso in documents]
+    corps = (_titre(t["titre"]) + _para(t["sous_titre"]) + _details(lignes)
+             + _bouton(t["bouton"], esc(url)) + _petit(t["note"], marge=0))
+    html = _carte(lang=langue, niveau="info", bandeau=t["bandeau"],
+                  corps=corps, pied=_petit(t["pied"], marge=0))
+    liste = "\n".join(f"- {nom} : {date_longue(iso, langue)}"
+                       for nom, iso in documents)
+    texte = t["texte_brut"].format(liste=liste, url=url)
+
+    msg = MIMEMultipart("related")
+    _expediteur(msg)
+    msg["To"] = destinataire
+    msg["Subject"] = t["sujet"]
+    msg["Reply-To"] = SMTP_REPLY_TO
+    msg["Auto-Submitted"] = "auto-generated"
+    msg["X-Auto-Response-Suppress"] = "All"
+
+    alt = MIMEMultipart("alternative")
+    alt.attach(MIMEText(texte, "plain", "utf-8"))
+    alt.attach(MIMEText(html, "html", "utf-8"))
+    msg.attach(alt)
+
+    logo = _logo()
+    if logo is not None:
+        msg.attach(logo)
+    return msg
+
+
+async def send_rappel_libres_email(destinataire: str, langue: str,
+                                   documents: list[tuple[str, str]]) -> None:
+    """Envoie le rappel avant suppression des traductions en aperçu.
+
+    Lève `EmailIndisponible` si le serveur refuse : la purge ne compte alors
+    pas le rappel comme envoyé, et réessaie le lendemain."""
+    msg = _message_rappel_libres(destinataire, langue, documents)
+
+    if not EMAIL_ENABLED or not SMTP_HOST:
+        logger.info("[DEV] Rappel aperçu → %s | %d document(s)",
+                    destinataire, len(documents))
+        return
+
     import aiosmtplib
 
     try:
@@ -475,8 +676,97 @@ async def send_invitation_email(destinataire: str, inviteur: str,
             sender=SMTP_FROM or None, username=SMTP_USER or None, password=SMTP_PASSWORD or None,
             start_tls=(SMTP_PORT != 465), use_tls=(SMTP_PORT == 465),
         )
-        logger.info("Invitation envoyée à %s (%s)", destinataire, langue)
+        logger.info("Rappel aperçu envoyé à %s", destinataire)
     except Exception as exc:
-        logger.error("Échec invitation à %s : %s", destinataire, exc)
+        logger.error("Échec du rappel aperçu à %s : %s", destinataire, exc)
+        raise EmailIndisponible(
+            "L'envoi de l'e-mail a échoué. Réessayez dans un instant.") from exc
+
+
+# ── Invitation à la bêta ──────────────────────────────────────────────────────
+_FORMATS_BETA = (("pdf", "PDF", "pages"), ("pptx", "PowerPoint", "slides"),
+                 ("docx", "Word", "words"), ("xlsx", "Excel", "sheets"))
+
+
+def _quantite(n: int, unite: str, t: dict, langue: str) -> str:
+    chiffre = f"{n:,}".replace(",", " " if langue == "fr" else ",")
+    un, plusieurs = t["unites"][unite]
+    return f"{chiffre} {un if n == 1 else plusieurs}"
+
+
+def _lignes_quotas(limites: dict, langue: str) -> list[str]:
+    t = textes_invitation_beta(langue)
+    lignes = []
+    for fmt, nom, unite in _FORMATS_BETA:
+        quantite = _quantite(int(limites.get(fmt, 0)), unite, t, langue)
+        if fmt == "xlsx" and limites.get("xlsx_words"):
+            quantite = t["excel_mots"].format(
+                feuilles=quantite, mots=_quantite(int(limites["xlsx_words"]), "words", t, langue))
+        lignes.append(t["ligne"].format(format=nom, quantite=quantite))
+    return lignes
+
+
+def _message_invitation_beta(destinataire: str, langue: str, *, limites: dict,
+                             jours: int, date_limite: str | None,
+                             fin_acces: str | None = None) -> MIMEMultipart:
+    """Invitation bêta. `date_limite` : date ISO (AAAA-MM-JJ) avant laquelle
+    se connecter, ou None. `fin_acces` : date ISO de fin quand l'accès est déjà
+    ouvert (candidature acceptée) ; le mail le dit au lieu d'inviter à
+    l'activer. Aucun texte saisi par un utilisateur n'y entre."""
+    t = textes_invitation_beta(langue)
+    url = f"{FRONTEND_URL.rstrip('/')}/login"
+    lignes = _lignes_quotas(limites, langue)
+    if fin_acces:
+        sous_titre = t["sous_titre_actif"].format(date=date_longue(fin_acces, langue))
+        rappel, pied = "", t["pied_actif"]
+    else:
+        sous_titre = t["sous_titre"].format(jours=jours)
+        rappel = t["date_limite"].format(date=date_longue(date_limite, langue)) if date_limite else ""
+        pied = t["pied"]
+    corps = (_titre(t["titre"]) + _para(sous_titre)
+             + _atouts(lignes) + (_para(rappel) if rappel else "")
+             + _bouton(t["bouton"], url)
+             + _petit(t["lien"].format(url=url), marge=8)
+               .replace("text-align:justify", "text-align:left;word-break:break-all"))
+    html = _carte(lang=langue, niveau="info", bandeau=t["bandeau"],
+                  corps=corps, pied=_petit(pied, marge=0))
+    liste = "\n".join(f"- {l}" for l in lignes)
+    texte = (f"{t['titre']}.\n\n{sous_titre}\n{liste}\n" + (f"\n{rappel}\n" if rappel else "")
+             + "\n" + t["ligne"].format(format=t["bouton"], quantite=url) + f"\n\n{pied}")
+
+    msg = MIMEMultipart("related")
+    _expediteur(msg)
+    msg["To"] = destinataire
+    msg["Subject"] = t["sujet"]
+    msg["Reply-To"] = SMTP_REPLY_TO
+    msg["X-Auto-Response-Suppress"] = "All"
+    alt = MIMEMultipart("alternative")
+    alt.attach(MIMEText(texte, "plain", "utf-8"))
+    alt.attach(MIMEText(html, "html", "utf-8"))
+    msg.attach(alt)
+    logo = _logo()
+    if logo is not None:
+        msg.attach(logo)
+    return msg
+
+
+async def send_invitation_beta_email(destinataire: str, langue: str, *, limites: dict,
+                                     jours: int, date_limite: str | None = None,
+                                     fin_acces: str | None = None) -> None:
+    """Envoie l'invitation bêta dans la langue du compte.
+
+    Lève `EmailIndisponible` si l'envoi échoue : l'invitation, elle, reste
+    valable ; l'admin peut renvoyer le mail."""
+    langue = langue if langue in ("fr", "en") else "fr"
+    msg = _message_invitation_beta(destinataire, langue, limites=limites,
+                                   jours=jours, date_limite=date_limite, fin_acces=fin_acces)
+    if not EMAIL_ENABLED or not SMTP_HOST:
+        logger.info("[DEV] Invitation bêta → %s | langue=%s", destinataire, langue)
+        return
+    try:
+        await _envoyer(msg)
+        logger.info("Invitation bêta envoyée à %s (%s)", destinataire, langue)
+    except Exception as exc:
+        logger.error("Échec de l'invitation bêta à %s : %s", destinataire, exc)
         raise EmailIndisponible(
             "L'envoi de l'e-mail a échoué. Réessayez dans un instant.") from exc

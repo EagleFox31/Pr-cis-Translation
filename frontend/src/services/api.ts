@@ -80,11 +80,28 @@ export async function authFetch(path: string, init: RequestInit = {}): Promise<R
       ...authHeader(),
     },
   });
-  let res = await send();
-  if (res.status === 401 && _refreshToken) {
-    const t = await refreshAccessToken();
-    if (t) res = await send();
+  // Les échecs vont au Journal, comme ceux de `request()` : un aperçu admin
+  // tombé en erreur réseau ne laissait aucune trace.
+  const method = init.method || 'GET';
+  const signaler = async (message: string, context: Record<string, unknown>, stack?: string) => {
+    const { reportClientError } = await import('../lib/errorReporting');
+    reportClientError(message, { component: 'api', stack, context: { path, method, ...context } });
+  };
+  let res: Response;
+  try {
+    res = await send();
+    if (res.status === 401 && _refreshToken) {
+      const t = await refreshAccessToken();
+      if (t) res = await send();
+    }
+  } catch (netErr) {
+    // Abandon volontaire (page quittée, requête remplacée) : pas une panne.
+    if ((netErr as Error)?.name !== 'AbortError') {
+      signaler(`Réseau échoué : ${method} ${path}`, { kind: 'network' }, (netErr as Error)?.stack);
+    }
+    throw netErr;
   }
+  if (res.status >= 500) signaler(`API ${res.status} : ${method} ${path}`, { status: res.status });
   return res;
 }
 
@@ -183,6 +200,7 @@ const api = {
   get: (path: string) => request('GET', path),
   post: (path: string, body?: unknown, headers?: Record<string, string>) =>
     request('POST', path, body, headers),
+  put: (path: string, body?: unknown) => request('PUT', path, body),
   patch: (path: string, body?: unknown) => request('PATCH', path, body),
   // DELETE avec corps facultatif : certaines routes (purge du journal) ciblent
   // une LISTE d'éléments, pas une ressource unique dans l'URL.

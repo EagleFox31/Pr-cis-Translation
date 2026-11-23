@@ -25,7 +25,7 @@ from app.core.database import get_db
 from app.core.security import optional_auth, require_admin
 from app.models import ErrorLog, LEVELS, STATUS_HANDLED, STATUS_NEW, User
 from app.rate_limit import rate_limit_decorator
-from app.services.error_log import log_error, maybe_alert_admins
+from app.services.error_log import log_error
 
 router = APIRouter(prefix="/api/logs", tags=["Journal"])
 

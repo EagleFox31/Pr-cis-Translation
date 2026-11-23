@@ -26,6 +26,15 @@ const EMAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
 const SEPARATEURS = /[\s,;]+/;
 const LIEN_APP = window.location.origin;
 
+type Renvoi = { code: 'renvoi_limite' | 'renvoi_trop_tot'; emails: string[]; minutes: number | null };
+
+/** Refus de renvoi (429) : le serveur nomme les adresses déjà invitées par ce compte. */
+function renvoi(data: unknown): Renvoi | null {
+  const d = (data as { detail?: Partial<Renvoi> } | null)?.detail;
+  return d && typeof d === 'object' && Array.isArray(d.emails)
+    && (d.code === 'renvoi_limite' || d.code === 'renvoi_trop_tot') ? d as Renvoi : null;
+}
+
 const field: React.CSSProperties = {
   width: '100%', padding: '11px 12px', borderRadius: '10px', fontSize: '14px',
   outline: 'none', border: '1.5px solid var(--gray-200)', background: 'var(--gray-50)',
@@ -121,6 +130,14 @@ export default function InviteModal() {
         t('invite.sent_body', { count: all.length,
           defaultValue: '{{count}} invitation(s) en route.' }));
       close();
+    } else if (res?.status === 429 && renvoi(res.data)) {
+      const d = renvoi(res.data)!;
+      showToast('error', t('invite.resend_title', 'Déjà invité'),
+        d.code === 'renvoi_limite'
+          ? t('invite.resend_limit_body', { emails: d.emails.join(', '),
+              defaultValue: 'Vous avez déjà invité {{emails}} plusieurs fois cette semaine.' })
+          : t('invite.resend_wait_body', { emails: d.emails.join(', '), count: d.minutes ?? 1,
+              defaultValue: 'Invitation déjà envoyée à {{emails}}. Réessayez dans {{count}} min.' }));
     } else if (res?.status === 429) {
       showToast('error', t('invite.limit_title', 'Limite atteinte'),
         t('invite.limit_body', 'Vous avez atteint le nombre d’invitations du jour. Réessayez demain.'));

@@ -19,6 +19,8 @@ export interface AnalyseImages {
   incomplet: boolean;
   /** Lecture des images impossible pour le moment. */
   indisponible: boolean;
+  /** Langue probable du document ('en', 'fr'…), absente si incertaine. */
+  langue?: string | null;
 }
 
 export const formatAvecImages = (ext: string) => FORMATS_AVEC_IMAGES.includes(ext);

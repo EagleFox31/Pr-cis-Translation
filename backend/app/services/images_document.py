@@ -53,6 +53,9 @@ ENTREES_MAX = 10_000
 OCTETS_ZIP_MAX = 128 * 1024 * 1024
 VECTORIELLES = (".emf", ".wmf", ".svg", ".emz", ".wmz")
 _MEDIA = {"docx": "word", "pptx": "ppt", "xlsx": "xl"}
+# Formats dont la traduction des images est proposée en fin de travail : ceux
+# dont le rendu à la demande pose la table d'images (pas le xlsx).
+IMAGES_PROPOSABLES = ("pdf", "docx", "pptx")
 _RELS_DIAPO = re.compile(r"^ppt/slides/_rels/slide(\d+)\.xml\.rels$")
 CACHE_MAX = 32
 
@@ -492,3 +495,45 @@ def traduire_images(data: bytes, ext: str, traduire, dossier: str, budget: int |
         else:
             rapport["inchangees"] += 1
     return table, rapport
+
+
+# ── Proposition en fin de travail (option D1, retours 18/11 §3) ──────────────
+# Les images sont lues et traduites pendant la traduction du texte, sans rien
+# débiter : le résultat ne sert qu'à remplir le cache et à compter les images
+# à texte. Le client décide à la fin ; le cache rend alors le clic immédiat.
+
+def chemin_proposition(dossier: str) -> str:
+    return os.path.join(dossier, "proposition.json")
+
+
+def lire_proposition(dossier: str) -> dict | None:
+    try:
+        with open(chemin_proposition(dossier), "rb") as f:
+            return json.loads(f.read().decode("utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def analyse_complete(data: bytes, ext: str) -> Analyse:
+    """Détection sans délai serré : toutes les images sont examinées."""
+    return detecter(lister(data, ext), delai_s=600.0)
+
+
+def proposer(data: bytes, ext: str, traduire, dossier: str,
+             langue: str | None = None) -> dict:
+    """Lit et traduit les images à texte (cache), sans débit ; écrit et renvoie
+    `{etat, n, total}` : `n` images à texte remplaçables sur `total` lues."""
+    analyse = analyse_complete(data, ext)
+    if analyse.indisponible:
+        prop = {"etat": "aucune", "n": 0, "total": 0}
+    else:
+        table, _ = traduire_images(data, ext, traduire, dossier, None,
+                                   analyse=analyse, langue=langue)
+        prop = {"etat": "pret", "n": len(table), "total": analyse.analysees}
+    try:
+        os.makedirs(dossier, exist_ok=True)
+        _ecrire_atomiquement(chemin_proposition(dossier),
+                             json.dumps(prop).encode("utf-8"))
+    except OSError as e:
+        logger.warning("Proposition d'images non écrite : %s", e)
+    return prop

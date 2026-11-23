@@ -354,6 +354,13 @@ class JobManager:
         job = self.get(job_id)
         return job.get("arret") if job else None
 
+    def marquer_pause_limite(self, job_id: str) -> None:
+        """La pause qui suit vient de la limite d'aperçu, pas de l'utilisateur."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is not None:
+                job["pause_limite"] = True
+
     def verifier_arret(self, job_id: str) -> None:
         """Point de contrôle : lève `ArretDemande` si un arrêt est demandé."""
         mode = self.arret_demande(job_id)
@@ -369,7 +376,8 @@ class JobManager:
         if job:
             job["state"] = mode
             job["finished_at"] = time.time()
-            job["q"].put({"type": "stopped", "mode": mode})
+            job["q"].put({"type": "stopped", "mode": mode,
+                          "limite": bool(job.get("pause_limite"))})
 
     # ── Report en base ───────────────────────────────────────────────────
     def _document_id(self, job_id: str) -> str | None:
@@ -430,17 +438,43 @@ class JobManager:
         doc_id = self._document_id(job_id)
         if not doc_id:
             return
+        with self._lock:
+            pause_limite = bool((self._jobs.get(job_id) or {}).get("pause_limite"))
 
         async def _maj(db):
-            from app.models import Document
+            nonlocal status, pause_limite
+            from sqlalchemy import select
+            from app.models import Document, User
+            # Ordre unique des verrous : compte, puis document (un
+            # remboursement verrouille ensuite le compte).
+            uid = (await db.execute(select(Document.user_id)
+                                    .where(Document.id == doc_id))).scalar_one_or_none()
+            if uid:
+                await db.execute(select(User.id).where(User.id == uid).with_for_update())
             doc = await db.get(Document, doc_id, with_for_update=True)
             # Disparu ou déjà REPRIS par un autre job (worker d'un processus
             # précédent qui finit tard) : sa facturation appartient désormais
             # à la reprise ; rembourser ou refacturer ici compterait deux fois.
             if doc is None or doc.status == "resumed":
                 return
-            from app.services.documents import pages_faites_du_document, reglages_de
-            deja = int(reglages_de(doc).get("deja") or 0)
+            from app.services.documents import (pages_faites_du_document,
+                                                pages_selectionnees, reglages_de)
+            reglages = reglages_de(doc)
+            deja = int(reglages.get("deja") or 0)
+            plafond = int(reglages.get("plafond") or 0)
+            if status == "done" and plafond > 0:
+                # Garde-fou : un document plafonné ne se termine jamais au-delà
+                # de son plafond ; il reste en pause à la limite d'aperçu.
+                # Les pages que l'utilisateur a choisi de laisser vides ne
+                # comptent pas : sautées, elles n'ont rien à traduire.
+                from app.services import ocr_pages
+                from app.services.documents import _selection_du_document
+                sel = pages_selectionnees(doc)
+                visees = sorted(sel) if sel else range(1, (doc.page_count or 0) + 1)
+                choix = _selection_du_document(doc)
+                vides = ocr_pages.pages_vides(choix[0]) if choix else set()
+                if any(p not in vides for p in list(visees)[plafond:]):
+                    status, pause_limite = "paused", True
             if status in STATUTS_ARRET or (status == "error" and deja > 0):
                 # Pause, annulation, ou échec d'une REPRISE (« Interrompue » et
                 # non « Échec », sinon les pages payées par le document repris
@@ -456,6 +490,22 @@ class JobManager:
                 faites = pages_faites_du_document(doc)
                 doc.pages_done = faites
                 await refund_unfinished(db, doc_id, max(0, faites - deja))
+                if doc.pages_libres:
+                    # Pages d'aperçu non traduites : rendues au plafond de 24 h.
+                    from app.models import LibreGrant
+                    from app.services.documents import borner_libres_a_l_arret
+                    rendues = borner_libres_a_l_arret(doc)
+                    gid = reglages_de(doc).get("libre_grant")
+                    attribution = await db.get(LibreGrant, gid) if rendues and gid else None
+                    if attribution is not None:
+                        attribution.pages = max(0, attribution.pages - rendues)
+                if status == "paused" and pause_limite:
+                    # Carte « en pause : limite d'aperçu » (jamais pour une
+                    # pause demandée par l'utilisateur).
+                    import json
+                    marque = reglages_de(doc)
+                    marque["pause_limite"] = True
+                    doc.reglages = json.dumps(marque)
                 return
             doc.status = status
             if translated_path:
@@ -510,9 +560,27 @@ class JobManager:
                 visees = pages_selectionnees(doc)
                 if visees:
                     exclues &= visees
+                # Pages libres (non débitées) : hors de la base du
+                # remboursement ; une page non facturable parmi elles cesse
+                # d'être à payer et sort de la zone libre (mémorisée, pour
+                # que la zone ne glisse pas sur une page payée ni à la
+                # clôture rejouée).
+                libres = doc.pages_libres or 0
+                if exclues and libres:
+                    import json
+                    from app.services.documents import pages_libres_du_document
+                    blanches_libres = exclues & pages_libres_du_document(doc)
+                    exclues -= blanches_libres
+                    if blanches_libres:
+                        r = reglages_de(doc)
+                        r["hors_libres"] = sorted(
+                            {int(p) for p in r.get("hors_libres") or []} | blanches_libres)
+                        doc.reglages = json.dumps(r)
+                        doc.pages_libres = libres - len(blanches_libres)
                 if exclues:
                     await refund_unfinished(
-                        db, doc_id, max(0, (doc.page_count or 0) - len(exclues) - deja))
+                        db, doc_id,
+                        max(0, (doc.page_count or 0) - len(exclues) - deja - libres))
 
         try:
             _dans_une_boucle_jetable(_maj)

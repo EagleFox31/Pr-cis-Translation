@@ -1,6 +1,6 @@
 import type { LegalDoc } from './types';
 
-export const LEGAL_UPDATED = '6 novembre 2026';
+export const LEGAL_UPDATED = '18 novembre 2026';
 
 export const LEGAL_FR: LegalDoc[] = [
   {
@@ -23,7 +23,7 @@ export const LEGAL_FR: LegalDoc[] = [
       {
         heading: 'Hébergement',
         paragraphs: [
-          'Le service est hébergé par Amazon Web Services, Inc., 410 Terry Avenue North, Seattle, WA 98109, États-Unis. Les serveurs de Précis fonctionnent sur Amazon EC2.',
+          'Le service est hébergé par OVH Hosting Inc. (OVHcloud), 800-1801 McGill College, Montréal (Québec) H3A 2N4, Canada. Les serveurs de Précis sont situés dans le centre de données OVHcloud de Beauharnois (Québec, Canada).',
         ],
       },
       {
@@ -79,8 +79,8 @@ export const LEGAL_FR: LegalDoc[] = [
         paragraphs: [
           'Précis propose une offre gratuite de 5 pages par mois, une offre Starter de 100 pages par mois et une offre Pro de 500 pages par mois. Le programme bêta dispose de quotas propres et d\'une durée limitée, précisés lors de l\'inscription au programme.',
           'Les prix en vigueur sont affichés sur le site avant tout paiement. Ils ne figurent pas dans ces conditions, car ils peuvent évoluer.',
-          'L\'offre gratuite et le programme bêta sont financés en partie par une mention promotionnelle de Précis, intégrée à l\'aperçu des traductions. Elle s\'affiche pour les comptes gratuits et pour les bêta-testeurs ; un compte payant qui participe au programme bêta la voit uniquement sur les traductions réalisées avec ses crédits bêta. Cette mention ne fait appel à aucune régie publicitaire et n\'utilise aucune de vos données.',
-          'Les traductions réalisées avec les pages gratuites se consultent en aperçu. Toutes les autres, qu\'elles proviennent d\'une offre payante, de pages achetées à l\'unité ou de crédits bêta, peuvent être téléchargées.',
+          'Sans forfait ni solde, vous pouvez quand même traduire. Les pages ainsi traduites se consultent uniquement en aperçu, avec une mention promotionnelle de Précis intégrée à l\'image. Cette mention ne fait appel à aucune régie publicitaire et n\'utilise aucune de vos données.',
+          'Toute page traduite avec un crédit vous appartient, qu\'il provienne des pages offertes de l\'offre gratuite, d\'une offre payante, de pages achetées à l\'unité ou de crédits bêta : son aperçu est net et elle peut être téléchargée. Un document qui contient encore des pages traduites sans crédit se télécharge une fois ces pages payées, ou sans elles.',
         ],
       },
       {
@@ -204,7 +204,7 @@ export const LEGAL_FR: LegalDoc[] = [
         ],
         list: [
           'DeepSeek : reçoit le texte de vos documents afin de le traduire ;',
-          'Amazon Web Services : hébergement ;',
+          'OVHcloud : hébergement, au Canada ;',
           'Campay, Fapshi et Paddle : paiements ;',
           'Cloudflare Turnstile : vérification anti-robot ;',
           'Google : connexion avec Google, si vous la choisissez ;',
@@ -252,6 +252,17 @@ export const LEGAL_FR: LegalDoc[] = [
         ],
       },
       {
+        heading: 'E-mails « Nouveautés »',
+        paragraphs: [
+          'Recevoir par e-mail les nouveautés de Précis est facultatif : rien n\'est envoyé sans votre accord, et le service fonctionne de la même façon sans.',
+        ],
+        list: [
+          'Données utilisées : votre adresse e-mail, votre choix d\'abonnement et la date de votre dernière consultation des nouveautés, pour ne vous montrer que ce qui est nouveau.',
+          'Conservation : tant que le compte est actif ; la date de consultation est simplement remplacée à chaque visite.',
+          'Désinscription : par le lien présent dans chaque e-mail, ou par l\'interrupteur « E-mail » de la ligne « Nouveautés » de votre panneau de compte, à tout moment.',
+        ],
+      },
+      {
         heading: 'Vos droits',
         paragraphs: [
           'Conformément à la réglementation applicable à la protection des données à caractère personnel, vous pouvez demander l\'accès à vos données, leur rectification, leur suppression et vous opposer à certains traitements. La suppression de votre compte s\'obtient sur demande par e-mail.',
@@ -261,7 +272,7 @@ export const LEGAL_FR: LegalDoc[] = [
       {
         heading: 'Pas de vente de données, pas de publicité ciblée',
         paragraphs: [
-          'Nous ne vendons pas vos données et ne faisons appel à aucune régie publicitaire. Les aperçus de l\'offre gratuite et du programme bêta portent une mention promotionnelle de Précis, identique pour tous : elle n\'utilise aucune donnée personnelle ni aucun traceur.',
+          'Nous ne vendons pas vos données et ne faisons appel à aucune régie publicitaire. Les aperçus des pages traduites sans crédit portent une mention promotionnelle de Précis, identique pour tous : elle n\'utilise aucune donnée personnelle ni aucun traceur.',
         ],
       },
       {
@@ -285,7 +296,7 @@ export const LEGAL_FR: LegalDoc[] = [
       {
         heading: 'Ce que nous utilisons',
         paragraphs: [
-          'Précis n\'utilise que ce qui est nécessaire au fonctionnement et à la sécurité du service. Nous n\'utilisons ni cookie publicitaire ni mesure d\'audience (la mention promotionnelle des aperçus gratuits et bêta est intégrée à l\'image et ne dépose aucun cookie) : aucun bandeau de consentement n\'est donc affiché.',
+          'Précis n\'utilise que ce qui est nécessaire au fonctionnement et à la sécurité du service. Nous n\'utilisons ni cookie publicitaire ni mesure d\'audience (la mention promotionnelle des aperçus sans crédit est intégrée à l\'image et ne dépose aucun cookie) : aucun bandeau de consentement n\'est donc affiché.',
         ],
       },
       {

@@ -48,10 +48,16 @@ jobs:
           persist-credentials: false
       - name: Check staged host deploy script
         run: bash -n scripts/staging/aws-ssm-compose.sh
+      - name: Check VPS deploy script (disk guard, idempotence, rollback)
+        run: |
+          bash -n deploy/vps/remote-deploy.sh
+          bash scripts/ci/test-vps-remote-deploy.sh
       - name: Validate ZIP-to-SSM staging importer syntax
         run: |
           python3 -m py_compile scripts/staging/import-env-to-ssm.py
           python3 -m unittest discover -s scripts/ci -p test_env_import.py
+      - name: Release WhatsApp announcement (format, idempotence, no secret in logs)
+        run: python3 -m unittest discover -s scripts/ci -p test_release_announcement.py
       - name: Verify production metadata and reviewed OIDC migration
         run: |
           python3 -m pip install PyYAML==6.0.2
@@ -145,6 +151,22 @@ jobs:
           pip install -r requirements.txt
           pip install -r requirements-test.txt
 
+      # ~120 Mo de paquets : le miroir Ubuntu est parfois tombé à ~100 ko/s
+      # (20 min, 2026-11-18). On met en cache les .deb téléchargés, pas les
+      # fichiers installés : apt-get install s'exécute toujours, scripts de
+      # post-installation compris. Clé hebdomadaire : les mises à jour du
+      # miroir entrent dans le cache une fois par semaine au plus tard.
+      - name: Semaine (clé du cache apt)
+        id: semaine
+        run: echo "valeur=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache des paquets apt
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-archives
+          key: apt-${{ runner.os }}-noble-libreoffice-${{ steps.semaine.outputs.valeur }}
+          restore-keys: apt-${{ runner.os }}-noble-libreoffice-
+
       - name: LibreOffice et polices
         # `test_apercu_progressif` et `test_ole_apercu` convertissent réellement
         # des documents. Une garde qui les sauterait ne garderait pas l'aperçu,
@@ -152,11 +174,22 @@ jobs:
         # décoratives : sans elles, la conversion substitue et la mesure de
         # densité d'encre des moteurs devient fausse.
         run: |
+          archives="$HOME/apt-archives"
+          mkdir -p "$archives/partial"
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
+            -o Dir::Cache::Archives="$archives" \
+            -o APT::Keep-Downloaded-Packages=true \
+            -o Acquire::Retries=3 \
             libreoffice-writer libreoffice-impress libreoffice-calc \
             fonts-liberation fonts-dejavu-core \
             tesseract-ocr tesseract-ocr-fra tesseract-ocr-eng tesseract-ocr-osd
+          # Retire les .deb remplacés par une version plus récente du miroir.
+          sudo apt-get autoclean -o Dir::Cache::Archives="$archives"
+          # apt laisse partial/ et lock en root:700 ; le cache doit pouvoir les lire.
+          sudo rm -rf "$archives/partial" "$archives/lock"
+          sudo chown -R "$(id -u):$(id -g)" "$archives"
+          echo "Paquets en cache : $(ls "$archives"/*.deb 2>/dev/null | wc -l)"
           soffice --version
 
       - name: Rehearse upgrade from the deployed schema with existing data

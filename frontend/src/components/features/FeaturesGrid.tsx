@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  Sparkles, LayoutTemplate, ScanText, ShieldCheck, Users, Languages,
+  Sparkles, LayoutTemplate, ScanText, ShieldCheck, BookCheck, Languages,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -14,7 +14,7 @@ const features: { key: string; Icon: LucideIcon; badge?: boolean }[] = [
   { key: 'format', Icon: LayoutTemplate },
   { key: 'ocr', Icon: ScanText },
   { key: 'security', Icon: ShieldCheck },
-  { key: 'human', Icon: Users },
+  { key: 'method', Icon: BookCheck },
   { key: 'languages', Icon: Languages },
 ];
 

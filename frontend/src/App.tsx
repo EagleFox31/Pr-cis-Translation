@@ -8,13 +8,15 @@ import Home from './pages/Home';
 import './beta.css';
 import ToastContainer from './components/ui/Toast';
 import { authReturnTo } from './lib/authReturn';
-import { SPLASH_ATTENDU } from './lib/splash';
+import { SPLASH_ATTENDU, signalerFinSplash } from './lib/splash';
 import { pages, avecReprise } from './lib/routes';
 
 // Fenêtres d'assistance et d'invitation : un seul hôte pour toute l'appli
 // (accueil, administration, intégrations), chargé après le premier rendu.
 const SupportModal = lazy(avecReprise(() => import('./components/support/SupportModal')));
 const InviteModal = lazy(avecReprise(() => import('./components/invite/InviteModal')));
+// Visite d'accueil et « depuis votre dernière visite » : chargées à la demande.
+const NouveautesModal = lazy(avecReprise(() => import('./components/nouveautes/NouveautesModal')));
 
 // Hors accueil, chaque page est chargée à sa première ouverture : un visiteur
 // ne télécharge pas l'administration, la connexion ou la page carte d'office.
@@ -33,6 +35,8 @@ const ExtensionPage = lazy(pages.extension);
 const ApiPage = lazy(pages.api);
 const ExtensionAutoriserPage = lazy(pages.extensionAutoriser);
 const ExtensionConnectePage = lazy(pages.extensionConnecte);
+const NouveautesPage = lazy(pages.fonctionnalites);
+const DesabonnementPage = lazy(pages.desabonnement);
 
 /** Redirige vers /home si déjà connecté ( pages auth ). */
 function GuestRoute({ children }: { children: React.ReactNode }) {
@@ -72,7 +76,7 @@ function MainApp() {
       <AuthProvider>
         <AnimatePresence mode="wait">
           {showSplash && (
-            <SplashScreen key="splash" onComplete={() => setShowSplash(false)} />
+            <SplashScreen key="splash" onComplete={() => { setShowSplash(false); signalerFinSplash(); }} />
           )}
         </AnimatePresence>
         <Suspense fallback={null}>
@@ -91,6 +95,8 @@ function MainApp() {
           <Route path="/extension" element={<ExtensionPage />} />
           <Route path="/extension/autoriser" element={<ExtensionAutoriserPage />} />
           <Route path="/extension/connecte" element={<ExtensionConnectePage />} />
+          <Route path="/fonctionnalites" element={<NouveautesPage />} />
+          <Route path="/desabonnement" element={<DesabonnementPage />} />
           <Route path="/integrations/api" element={<ApiPage />} />
           <Route path="/mentions-legales" element={<LegalPage slug="mentions-legales" />} />
           <Route path="/conditions" element={<LegalPage slug="conditions" />} />
@@ -99,7 +105,7 @@ function MainApp() {
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
         </Suspense>
-        <Suspense fallback={null}><SupportModal /><InviteModal /></Suspense>
+        <Suspense fallback={null}><SupportModal /><InviteModal /><NouveautesModal /></Suspense>
         <ToastContainer />
       </AuthProvider>
     </BrowserRouter>

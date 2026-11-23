@@ -18,9 +18,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import ADMIN_ALERT_EMAIL, logger
+from app.config import logger
 from app.core.database import get_db
 from app.core.email import FRONTEND_URL, send_plain
+from app.services.alertes_admin import destinataires
 from app.core.security import require_admin, require_auth
 from app.models import (CATEGORIES, STATUS_OPEN, SupportTicket, TICKET_HANDLED,
                         User)
@@ -53,11 +54,7 @@ async def _notify_admins(db: AsyncSession, ticket: SupportTicket) -> None:
     faire échouer la création du ticket : le ticket est déjà en base, c'est lui
     qui compte."""
     try:
-        rows = (await db.execute(
-            select(User.email).where(User.plan == "admin")
-        )).scalars().all()
-        recipients = [e for e in rows if e] or (
-            [ADMIN_ALERT_EMAIL] if ADMIN_ALERT_EMAIL else [])
+        recipients = await destinataires(db)
         if not recipients:
             return
         body = (f"Nouveau ticket ({ticket.category}) de "

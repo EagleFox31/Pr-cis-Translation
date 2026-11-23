@@ -155,6 +155,7 @@ function FooterSection() {
     { to: '/mentions-legales', label: t('footer.legal') },
     { to: '/conditions', label: t('footer.terms') },
     { to: '/confidentialite', label: t('footer.privacy') },
+    { to: '/fonctionnalites', label: t('nouveautes.footer_link') },
     { to: '/extension', label: t('extension_page.footer_link') },
     { to: '/cookies', label: t('footer.cookies') },
   ];

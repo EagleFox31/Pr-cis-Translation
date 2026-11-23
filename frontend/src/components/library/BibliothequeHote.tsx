@@ -20,6 +20,19 @@ export interface DemandeBibliotheque {
   bibliotheque: { action: 'apercu' | 'relance'; docId: string };
 }
 
+/** Admin : ouvrir dans l'aperçu de l'accueil le document d'un autre compte
+ *  (lecture seule, par les routes `/api/admin/documents/{id}/…`). */
+export interface DemandeApercuAdmin {
+  apercuAdmin: {
+    docId: string;
+    nom: string;
+    /** Document d'un autre compte, pas encore une copie : « Créer ma copie ». */
+    copiable: boolean;
+    /** Page où ramène le bouton Retour (console admin, recherche comprise). */
+    retour: string;
+  };
+}
+
 // Le fichier d'origine demandé par le tiroir pour l'aperçu : l'accueil le
 // reprend au lieu de le télécharger une seconde fois (une promesse ne passe
 // pas par l'état de navigation).
@@ -35,7 +48,7 @@ export default function BibliothequeHote({ isOpen, onClose }: { isOpen: boolean;
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { refreshUser } = useAuth();
-  const { documents, refresh, getBlob, getOriginalBlob, deleteDocument, clearAll } = useDocumentLibrary();
+  const { documents, charge, erreur, refresh, getBlob, getOriginalBlob, deleteDocument, clearAll } = useDocumentLibrary();
 
   const versAccueil = useCallback((action: 'apercu' | 'relance', docId: string) => {
     const state: DemandeBibliotheque = { bibliotheque: { action, docId } };
@@ -58,6 +71,9 @@ export default function BibliothequeHote({ isOpen, onClose }: { isOpen: boolean;
       isOpen={isOpen}
       onClose={onClose}
       documents={documents}
+      loading={!charge}
+      erreur={erreur}
+      onRefresh={refresh}
       onPreview={(req) => {
         sourceEnAttente = { docId: req.docId, source: req.source };
         versAccueil('apercu', req.docId);

@@ -1,0 +1,14 @@
+/* Ligne « Nouveautés » du panneau de compte — maquette docs/maquettes/nouveautes/panneau-compte.html */
+.news { display: flex; align-items: center; height: 52px; padding: 0 12px 0 8px; border-bottom: 1px solid var(--gray-200); }
+.news__entree { flex: 1; min-width: 0; height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border: 0; border-radius: 9px; background: none; font: inherit; font-size: 13px; font-weight: 600; color: var(--gray-900); cursor: pointer; text-align: left; }
+.news__entree:hover { background: var(--gray-50); }
+.news__entree:focus-visible, .news__mail:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: -2px; }
+.news__ic { color: var(--gray-500); flex: none; }
+.news__cnt { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--blue-light); color: var(--blue); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; display: inline-grid; place-items: center; }
+.news__chev { margin-left: auto; color: var(--gray-300); flex: none; }
+.news__mail { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 4px 0 12px; margin-left: 4px; border: 0; border-left: 1px solid var(--gray-200); border-radius: 0; background: none; font: inherit; font-size: 12px; color: var(--gray-500); cursor: pointer; flex: none; }
+.news__mail:hover { color: var(--gray-700); }
+.news__mail:disabled { cursor: progress; }
+.news__mail .ui-switch { pointer-events: none; }
+.news__mail[aria-checked="true"] .ui-switch { background: var(--blue); }
+.news__mail[aria-checked="true"] .ui-switch::after { transform: translateX(12px); }

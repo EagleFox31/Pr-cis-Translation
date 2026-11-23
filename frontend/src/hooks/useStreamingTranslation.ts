@@ -41,6 +41,10 @@ export type PageStatus =
 export interface StreamingState {
   /** Droit de CE document, confirmé par le serveur après réservation. */
   canReadClear: boolean;
+  /** Pages traduites en aperçu sans être payées (mode libre). */
+  pagesLibres: number;
+  /** Numéros de ces pages libres : l'aperçu les voile une à une. */
+  pagesLibresNumeros: number[];
   /** Document enregistré pour cette traduction (réponse de `/api/translate`) :
    *  permet d'agir sur ses pages illisibles avant même la fin. */
   documentId: string | null;
@@ -82,6 +86,8 @@ export interface StreamingState {
 
 const EMPTY: StreamingState = {
   canReadClear: false,
+  pagesLibres: 0,
+  pagesLibresNumeros: [],
   documentId: null,
   ocrPages: 0,
   isTranslating: false,
@@ -245,6 +251,8 @@ export function useStreamingTranslation(deviceSignals = true) {
           if (typeof useBeta === 'boolean') formData.append('use_beta', useBeta ? '1' : '0');
           if (resumeOf) formData.append('resume_of', resumeOf);
           if (images) formData.append('images', '1');
+          // Choix explicite après un 402 « limite d'aperçu » : traduire jusqu'à
+          // la limite, le serveur met le document en pause tout seul.
 
           // `authHeader()` est INDISPENSABLE ici, pas décoratif : le backend lit
           // l'utilisateur via `optional_auth`. Sans token il voit un visiteur
@@ -265,6 +273,7 @@ export function useStreamingTranslation(deviceSignals = true) {
             const deviceLimit = err.reason === 'free_limit_device';
             const detail = err.reason === 'beta_inactive' ? t('beta.inactive_error')
               : deviceLimit ? t('story.free_limit_device')
+              : err.detail === 'stockage_requis' ? t('library.storage_required')
               : betaError ? t('beta.translation_error') : err.detail || err.error || t('story.error_default');
             const is402 = startRes.status === 402;
             // 402 « crédits insuffisants » : le serveur dit COMBIEN de pages
@@ -281,10 +290,15 @@ export function useStreamingTranslation(deviceSignals = true) {
             }));
             throw new Error(detail);
           }
-          const { job_id, document_id, ocr_pages, can_download, images: imagesAcceptees } = await startRes.json();
+          const { job_id, document_id, ocr_pages, can_download, read_clear, pages_libres,
+            pages_libres_numeros, images: imagesAcceptees } = await startRes.json();
           setState((s) => ({
             ...s,
-            canReadClear: can_download === true,
+            // Pages payées en clair, même s'il reste des pages libres : le
+            // serveur filigrane celles-ci page par page.
+            canReadClear: (read_clear ?? can_download) === true,
+            pagesLibres: typeof pages_libres === 'number' ? pages_libres : 0,
+            pagesLibresNumeros: Array.isArray(pages_libres_numeros) ? pages_libres_numeros : [],
             documentId: typeof document_id === 'string' ? document_id : null,
             ocrPages: typeof ocr_pages === 'number' ? ocr_pages : 0,
           }));

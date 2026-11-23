@@ -3,18 +3,22 @@
  *
  * Sert à diagnostiquer un rendu cassé : on retrouve le document d'un
  * utilisateur (par e-mail ou nom de fichier) et on télécharge son original et
- * sa traduction. Lecture seule, chaque téléchargement est journalisé côté
- * serveur.
+ * sa traduction, ou on les ouvre dans l'aperçu de l'accueil (« Aperçu »), d'où
+ * l'on peut en garder une copie dans sa propre bibliothèque. Le document du
+ * client n'est jamais modifié ; chaque lecture est journalisée côté serveur.
  */
 import { useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Download } from 'lucide-react';
+import { Download, Eye } from 'lucide-react';
 
 import { useAdminUrlParams } from '../hooks/useAdminUrlParams';
 import { useAdminDocuments, type AdminDocKind, type AdminDocument } from '../hooks/useAdminDocuments';
 import { showToast } from '../components/ui/Toast';
 import AdminShell from '../components/admin/AdminShell';
 import { UserLink } from '../components/admin/UserPanel';
+import { useAuth } from '../contexts/AuthContext';
+import type { DemandeApercuAdmin } from '../components/library/BibliothequeHote';
 import { AdminList, AdminToolbar, FileTypeIcon, RefreshButton } from '../components/admin/AdminParts';
 
 const URL_KEYS = ['q'] as const;
@@ -31,6 +35,24 @@ export default function AdminDocumentsPage() {
   const setQ = (v: string) => setValues({ q: v });
   const { items, total, loading, refresh, download } = useAdminDocuments(q);
   const [busy, setBusy] = useState<string | null>(null);
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // L'aperçu est celui de l'accueil : on y part avec la demande, et son bouton
+  // Retour ramène ici, recherche comprise. La copie n'est proposée que pour le
+  // document d'un autre compte (le serveur refuse de copier le sien).
+  const ouvrirApercu = (d: AdminDocument) => {
+    const state: DemandeApercuAdmin = {
+      apercuAdmin: {
+        docId: d.id,
+        nom: d.original_name,
+        copiable: !d.copie_de && !!d.user_email && d.user_email !== user?.email,
+        retour: location.pathname + location.search,
+      },
+    };
+    navigate('/home', { state });
+  };
 
   const onDownload = async (doc: AdminDocument, kind: AdminDocKind) => {
     const key = `${doc.id}:${kind}`;
@@ -98,7 +120,7 @@ export default function AdminDocumentsPage() {
           <tbody>
             {items.map((d) => (
               <tr key={d.id}>
-                <td className="admin-cell-clip" title={d.original_name}><FileTypeIcon name={d.original_name} />{d.original_name}</td>
+                <td className="admin-cell-clip" title={d.original_name}><FileTypeIcon name={d.original_name} />{d.copie_de && <><span className="admin-tag">{t('admin_docs.copy_tag', 'Copie')}</span> </>}{d.original_name}</td>
                 <td className="admin-cell-clip" title={d.user_email || ''}>{d.user_email ? <UserLink email={d.user_email} /> : '—'}</td>
                 <td className="admin-cell-meta">{d.source_lang} → {d.target_lang}</td>
                 <td className="admin-cell-meta"><span className={`admin-tag admin-tag--${d.status}`}>{t(`admin_docs.status_${d.status}`, d.status)}</span></td>
@@ -106,6 +128,14 @@ export default function AdminDocumentsPage() {
                 <td className="admin-cell-meta">{fmt(d.created_at)}</td>
                 <td>
                   <div className="admin-cell-actions">
+                    <button
+                      onClick={() => ouvrirApercu(d)}
+                      disabled={!d.has_translation}
+                      title={d.has_translation ? '' : t('admin_docs.absent', 'Fichier absent')}
+                      className="tb-btn ghost admin-btn"
+                    >
+                      <Eye size={13} strokeWidth={2.2} /> {t('admin_docs.preview', 'Aperçu')}
+                    </button>
                     {dlButton(d, 'original', d.has_original, t('admin_docs.original', 'Original'))}
                     {dlButton(d, 'translated', d.has_translation, t('admin_docs.translation', 'Traduction'))}
                   </div>

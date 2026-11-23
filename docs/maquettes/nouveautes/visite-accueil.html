@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visite d'accueil</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,400&family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="commun.css">
+<style>
+/* Maquette : ?profil=invite|gratuit|payant  ·  ?diapo=1..5 */
+.tour { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 1201;
+  width: min(var(--frame-max), calc(100vw - 48px)); height: min(620px, calc(100dvh - 48px));
+  display: grid; grid-template-columns: 56% 44%; background: #fff; border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-dialog); overflow: hidden; }
+.close { position: absolute; top: 14px; right: 14px; width: 44px; height: 44px; border: 0; border-radius: 10px; background: none; color: var(--gray-500); cursor: pointer; display: grid; place-items: center; z-index: 3; }
+.close:hover { background: var(--gray-100); color: var(--navy); }
+
+/* Illustration (gauche) */
+.stage { position: relative; background: var(--navy); overflow: hidden; --k: 1; }
+.stage::before { content: ""; position: absolute; inset: 0; background:
+  radial-gradient(80% 60% at 30% 20%, rgba(37,99,235,.22), transparent 70%),
+  linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px) 0 0 / 32px 32px,
+  linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px) 0 0 / 32px 32px; }
+.slot { position: absolute; inset: 0 0 48px; opacity: 0; transition: opacity .45s; pointer-events: none; }
+.slot.on { opacity: 1; }
+.scene { position: absolute; left: 50%; top: 50%; width: 540px; height: 460px; transform: translate(-50%, -50%) scale(var(--k)); font-family: var(--font-body); }
+.legend { position: absolute; left: 28px; right: 28px; bottom: 22px; display: flex; align-items: center; gap: 12px; font: 500 15px var(--font-body); color: #fff; }
+.legend b { font: 500 12px var(--font-mono); color: var(--gold-light); border: 1px solid rgba(240,217,138,.4); border-radius: 99px; padding: 5px 10px; }
+
+/* Contenu (droite) */
+.side { display: flex; flex-direction: column; padding: 30px 40px 26px; min-width: 0; min-height: 0; }
+.steps { display: flex; gap: 8px; margin-right: 48px; }
+.steps button { flex: 1 1 auto; white-space: nowrap; border: 0; background: none; padding: 10px 0 6px; cursor: pointer; text-align: left; font: 500 12px var(--font-body); color: var(--gray-500); min-height: 44px; }
+.steps button::before { content: ""; display: block; height: 3px; border-radius: 3px; background: var(--gray-200); margin-bottom: 8px; transition: background .3s; }
+.steps button.done::before, .steps button[aria-current]::before { background: var(--navy); }
+.steps button[aria-current] { color: var(--navy); font-weight: 600; }
+.copy { flex: 1; min-height: 0; overflow: auto; padding-top: 22px; }
+.kicker { display: flex; align-items: center; gap: 10px; font: 600 12px var(--font-body); letter-spacing: .12em; text-transform: uppercase; color: var(--blue); }
+.soon { font: 600 11px var(--font-body); letter-spacing: .06em; color: var(--navy); background: var(--gold-light); border-radius: 99px; padding: 6px 12px; }
+.copy h2 { font: 600 clamp(30px, 3.1vw, 42px)/1.08 var(--font-display); color: var(--navy); margin: 12px 0 14px; letter-spacing: -.01em; }
+.lede { font-size: 16px; line-height: 1.6; color: var(--gray-700); margin: 0 0 22px; }
+.points { list-style: none; margin: 0; padding: 0 0 16px; display: grid; gap: 14px; }
+.points li { display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: start; }
+.points .ic-sq { width: 34px; height: 34px; border-radius: 10px; background: var(--blue-light); color: var(--blue); display: grid; place-items: center; }
+.points li.later .ic-sq { background: #fff; border: 1px dashed var(--gray-300); color: var(--gray-500); }
+.points b { display: block; font-size: 14.5px; color: var(--navy); margin-bottom: 2px; }
+.points span { font-size: 13.5px; line-height: 1.5; color: var(--gray-500); }
+.actions { border-top: 1px solid var(--gray-100); padding-top: 18px; display: flex; align-items: center; gap: 12px; }
+.skip { background: none; border: 0; color: var(--gray-500); font: 500 14px var(--font-body); cursor: pointer; padding: 12px 4px; min-height: 44px; }
+.skip:hover { color: var(--navy); }
+.spacer { flex: 1; }
+.btn { white-space: nowrap; min-height: 48px; border-radius: 12px; font: 600 15px var(--font-body); padding: 0 20px; cursor: pointer; border: 1px solid var(--gray-200); background: #fff; color: var(--navy); display: inline-flex; align-items: center; gap: 8px; text-decoration: none; }
+.btn.icon { width: 48px; padding: 0; justify-content: center; }
+.btn.primary { background: var(--navy); border-color: var(--navy); color: #fff; }
+.btn.primary:hover { background: var(--navy-mid); }
+.btn small { font: 400 13px var(--font-body); opacity: .7; }
+.link { color: var(--blue); font: 500 14px var(--font-body); text-decoration: none; padding: 12px 4px; }
+.more { display: inline-block; margin-top: 2px; }
+.opt { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.opt label { font-size: 13.5px; line-height: 1.35; color: var(--gray-700); max-width: 190px; }
+[hidden] { display: none !important; }
+
+/* ——— Éléments communs des scènes ——— */
+.paper { position: absolute; background: var(--ivory); border-radius: 10px; box-shadow: 0 18px 40px rgba(0,0,0,.35); color: var(--navy); }
+.t, .ti { transition: opacity .22s, filter .22s; }
+.t.sw, .ti.sw { opacity: 0; filter: blur(3px); }
+.lp { position: absolute; z-index: 3; font: 500 12px var(--font-mono); letter-spacing: .06em; color: #fff; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18); border-radius: 99px; padding: 7px 12px; transition: opacity .3s; }
+.lp em { font-style: normal; color: var(--gold-light); }
+.cur { position: absolute; width: 22px; height: 22px; transition: left .8s cubic-bezier(.4,0,.2,1), top .8s cubic-bezier(.4,0,.2,1); z-index: 5; }
+.cur.clk { animation: clk .35s; }
+@keyframes clk { 50% { transform: scale(.8); } }
+.chip { position: absolute; font: 600 12px var(--font-body); border-radius: 99px; padding: 7px 12px; display: inline-flex; align-items: center; gap: 6px; opacity: 0; transform: translateY(4px); transition: opacity .3s, transform .3s; white-space: nowrap; }
+.chip.gold { background: var(--gold-light); color: var(--navy); }
+.chip.white { background: #fff; color: var(--navy); box-shadow: 0 6px 16px rgba(0,0,0,.18); }
+.sweep { position: absolute; left: -8px; right: -8px; top: 0; height: 2px; background: var(--gold-light); opacity: 0; }
+@keyframes sweep { 0% { top: 0; opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
+
+/* 1 — Traduction */
+.s1 .file { position: absolute; left: 180px; top: -70px; width: 180px; padding: 14px 16px; background: #fff; border-radius: 12px; display: flex; gap: 10px; align-items: center; font: 600 13px var(--font-body); color: var(--navy); opacity: 0; transition: top .9s cubic-bezier(.2,.8,.2,1), opacity .4s; box-shadow: 0 18px 40px rgba(0,0,0,.35); }
+.s1 .file i { width: 30px; height: 36px; border-radius: 4px; background: #b4232a; color: #fff; font: 700 10px/36px var(--font-body); font-style: normal; text-align: center; }
+.s1[data-step="0"] .file { top: 190px; opacity: 1; }
+.s1 .page { left: 100px; top: 16px; width: 330px; height: 428px; padding: 26px 24px; opacity: 0; transform: scale(.96); transition: opacity .5s, transform .5s; }
+.s1:not([data-step="0"]):not([data-step="-1"]) .page { opacity: 1; transform: none; }
+.s1 .page h4 { font: 600 24px/1.15 var(--font-display); margin: 0 0 8px; min-height: 28px; }
+.s1 .page p { font-size: 12.5px; line-height: 1.5; color: var(--gray-700); margin: 0 0 16px; min-height: 38px; }
+.s1 table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 18px; outline: 2px dashed transparent; outline-offset: 5px; transition: outline-color .3s; }
+.s1 th { text-align: left; background: var(--navy); color: #fff; font-weight: 600; padding: 7px 10px; }
+.s1 td { padding: 7px 10px; border-bottom: 1px solid var(--gray-200); }
+.s1 td + td, .s1 th + th { text-align: right; }
+.s1 .fig { outline: 2px dashed transparent; outline-offset: 5px; transition: outline-color .3s; }
+.s1 .bars { height: 92px; border-radius: 6px; background: var(--blue-light); display: flex; align-items: flex-end; gap: 14px; padding: 12px 22px 0; }
+.s1 .bars i { flex: 1; background: var(--blue); border-radius: 3px 3px 0 0; }
+.s1 .fig span { display: block; font-size: 11.5px; color: var(--gray-500); margin-top: 7px; font-style: italic; }
+.s1[data-step="3"] table, .s1[data-step="3"] .fig { outline-color: var(--gold); }
+.s1[data-step="2"] .sweep { animation: sweep 2s ease-in-out; }
+.s1 .lp { left: 444px; top: 16px; opacity: 0; }
+.s1:not([data-step="0"]):not([data-step="-1"]) .lp { opacity: 1; }
+.s1 .keep { left: 352px; top: 300px; z-index: 3; }
+.s1[data-step="3"] .keep { opacity: 1; transform: none; }
+
+/* 2 — Scans et images */
+.s2 .scan { left: 56px; top: 14px; width: 390px; height: 420px; padding: 24px 26px; transform: rotate(-1.5deg); background: #efe7d6; background-image: repeating-linear-gradient(0deg, rgba(90,70,30,.035) 0 1px, transparent 1px 3px); color: #2b2a26; }
+.s2 h4 { font: italic 600 23px var(--font-display); margin: 0 0 4px; }
+.s2 .sub { font: 500 11px var(--font-mono); color: #6b6455; margin-bottom: 14px; }
+.s2 .dia { position: relative; height: 270px; }
+.s2 svg { position: absolute; inset: 0; }
+.s2 .lbl { position: absolute; font: 600 13px var(--font-body); background: #efe7d6; padding: 3px 7px; border-radius: 3px; white-space: nowrap; outline: 2px dashed transparent; outline-offset: 2px; transition: outline-color .25s, opacity .22s, filter .22s; }
+.s2[data-step="1"] .lbl { outline-color: var(--blue); }
+.s2[data-step="1"] .sweep { animation: sweep 2s ease-in-out; }
+.s2 .note { font: 500 12px var(--font-mono); border-top: 1px dashed #b9ae95; padding-top: 10px; }
+.s2 .lp { left: 456px; top: 14px; }
+.s2 .found { left: 300px; top: 404px; } .s2[data-step="1"] .found { opacity: 1; transform: none; }
+
+/* 3 — Extension */
+.s3 .win { left: 14px; top: 44px; width: 512px; height: 350px; overflow: hidden; }
+.s3 .bar { height: 36px; background: var(--gray-200); display: flex; gap: 6px; align-items: center; padding: 0 10px; border-radius: 10px 10px 0 0; }
+.s3 .bar b { width: 9px; height: 9px; border-radius: 9px; background: var(--gray-300); }
+.s3 .url { flex: 1; margin: 0 8px; height: 22px; border-radius: 11px; background: #fff; font: 400 11.5px/22px var(--font-mono); color: var(--gray-500); padding-left: 12px; }
+.s3 .ext { width: 24px; height: 24px; border-radius: 6px; background: var(--navy); color: var(--gold-light); font: 600 15px/24px var(--font-display); text-align: center; }
+.s3 .art { padding: 22px 26px; display: grid; grid-template-columns: 1fr 150px; gap: 20px; }
+.s3 .art small { font: 600 11px var(--font-body); letter-spacing: .1em; text-transform: uppercase; color: var(--blue); }
+.s3 .art h4 { font: 600 22px/1.15 var(--font-display); margin: 6px 0 10px; min-height: 76px; }
+.s3 .art p { font-size: 12.5px; line-height: 1.55; color: var(--gray-700); margin: 0; min-height: 58px; }
+.s3 .img { position: relative; height: 170px; border-radius: 8px; overflow: hidden; }
+.s3 .img svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.s3 .img .cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 9px 10px 10px; background: rgba(13,27,62,.82); color: #fff; font: 600 14px/1.15 var(--font-display); text-align: center; }
+.s3 .pop { position: absolute; top: 42px; right: 8px; width: 214px; background: #fff; border-radius: 12px; padding: 14px; box-shadow: 0 14px 30px rgba(0,0,0,.25); opacity: 0; transform: translateY(-6px); transition: opacity .3s .5s, transform .3s .5s; font-size: 12px; color: var(--gray-700); }
+.s3 .pop b { display: block; font: 600 16px var(--font-display); color: var(--navy); margin-bottom: 8px; }
+.s3 .pop .sel { border: 1px solid var(--gray-200); border-radius: 8px; padding: 7px 10px; margin: 6px 0 10px; color: var(--navy); font-weight: 600; }
+.s3 .pop .go { background: var(--navy); color: #fff; border-radius: 8px; padding: 8px; text-align: center; font-weight: 600; }
+.s3[data-step="1"] .pop { opacity: 1; transform: none; }
+.s3[data-step="2"] .pop { opacity: 0; transition-delay: .7s, .7s; }
+.s3 .lp { left: 14px; top: 4px; }
+.s3 .quota { left: 290px; top: 408px; } .s3[data-step="4"] .quota { opacity: 1; transform: none; }
+.s3 .imgok { left: 340px; top: 408px; } .s3[data-step="3"] .imgok { opacity: 1; transform: none; }
+
+/* 4 — API */
+.s4 .code { position: absolute; left: 0; top: 110px; width: 270px; background: #0a1430; border: 1px solid rgba(255,255,255,.1); border-radius: 12px; overflow: hidden; font: 400 13px/1.85 var(--font-mono); color: rgba(255,255,255,.8); box-shadow: 0 18px 40px rgba(0,0,0,.35); }
+.s4 .code header { padding: 8px 14px; font-size: 11.5px; color: rgba(255,255,255,.55); border-bottom: 1px solid rgba(255,255,255,.08); }
+.s4 .code div.ln { padding: 0 14px; opacity: 0; transition: opacity .25s; white-space: nowrap; }
+.s4 .code .k { color: var(--gold-light); } .s4 .code .s { color: #9ec5ff; }
+.s4 .code .ln.r { padding: 4px 14px 10px; }
+.s4[data-step="0"] .ln.a, .s4[data-step="1"] .ln.a, .s4[data-step="2"] .ln.a { opacity: 1; }
+.s4[data-step="0"] .ln.a:nth-of-type(2) { transition-delay: .3s; } .s4[data-step="0"] .ln.a:nth-of-type(3) { transition-delay: .6s; } .s4[data-step="0"] .ln.a:nth-of-type(4) { transition-delay: .9s; }
+.s4[data-step="2"] .ln.r { opacity: 1; transition-delay: .8s; }
+.s4 .wire { position: absolute; left: 270px; top: 200px; width: 100px; height: 2px; background: rgba(255,255,255,.18); }
+.s4 .wire i { position: absolute; left: 0; top: -4px; width: 10px; height: 10px; border-radius: 10px; background: var(--gold-light); opacity: 0; }
+.s4[data-step="1"] .wire i { animation: pkt 1.4s ease-in-out; }
+@keyframes pkt { 0% { left: 0; opacity: 1; } 100% { left: 90px; opacity: 1; } }
+.s4 .node { position: absolute; left: 292px; top: 172px; width: 56px; height: 56px; border-radius: 16px; background: var(--ivory); color: var(--navy); font: 600 32px/56px var(--font-display); text-align: center; box-shadow: 0 18px 40px rgba(0,0,0,.35); transition: transform .3s; }
+.s4[data-step="1"] .node { transform: scale(1.08); }
+.s4 .lab { position: absolute; left: 276px; top: 236px; width: 88px; text-align: center; font: 500 11px var(--font-mono); color: rgba(255,255,255,.6); }
+.s4 .doc { left: 376px; top: 90px; width: 164px; height: 220px; padding: 18px 16px; opacity: 0; transform: translateX(-24px); transition: opacity .5s .3s, transform .5s .3s; }
+.s4[data-step="2"] .doc { opacity: 1; transform: none; }
+.s4 .doc h5 { hyphens: manual; font: 600 16px/1.15 var(--font-display); margin: 0 0 10px; }
+.s4 .doc i { display: block; height: 6px; border-radius: 3px; background: var(--gray-300); margin-bottom: 7px; }
+.s4 .doc .sig { margin-top: 18px; display: flex; justify-content: space-between; font-size: 11px; color: var(--gray-500); }
+.s4 .fname { position: absolute; left: 370px; top: 322px; white-space: nowrap; font: 500 12px var(--font-mono); color: rgba(255,255,255,.75); opacity: 0; transition: opacity .3s .8s; }
+.s4[data-step="2"] .fname { opacity: 1; }
+.s4 .soonc { left: 0; top: 380px; opacity: 1; transform: none; }
+
+/* 5 — Visionneuse */
+.s5 .vw { position: absolute; left: 0; top: 0; width: 540px; height: 440px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 14px; }
+.s5 .tb { display: flex; justify-content: space-between; font: 500 12px var(--font-mono); color: rgba(255,255,255,.7); margin-bottom: 10px; }
+.s5 .heads { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; font: 500 11.5px var(--font-mono); letter-spacing: .08em; color: var(--gold-light); margin-bottom: 8px; }
+.s5 .pages { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.s5 .pp { position: relative; height: 350px; padding: 14px; box-shadow: 0 10px 24px rgba(0,0,0,.3); }
+.s5 .logo { height: 58px; padding: 0 12px; border-radius: 6px; background: var(--navy); color: var(--gold-light); display: grid; place-items: center; font: italic 600 19px var(--font-display); margin-bottom: 14px; outline: 2px solid transparent; outline-offset: 3px; transition: outline-color .3s; }
+.s5 .pp h5 { font: 600 18px var(--font-display); margin: 0 0 6px; }
+.s5 .pp p { font-size: 12px; line-height: 1.5; color: var(--gray-700); margin: 0 0 12px -4px; padding: 2px 4px; border-radius: 4px; outline: 2px dashed transparent; transition: outline-color .3s; }
+.s5 .ph { position: relative; height: 112px; border-radius: 6px; overflow: hidden; }
+.s5 .ph svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.s5[data-step="1"] .tr .logo { outline-color: var(--blue); }
+.s5 .tool { right: 22px; top: 128px; z-index: 3; } .s5[data-step="1"] .tool { opacity: 1; transform: none; }
+.s5 .okc { right: 22px; top: 128px; z-index: 3; } .s5[data-step="2"] .okc { opacity: 1; transform: none; transition-delay: .3s; }
+.s5[data-step="3"] .tr p { outline-color: var(--blue); }
+.s5 .caret { display: inline-block; width: 2px; height: 14px; background: var(--blue); vertical-align: -2px; margin-left: 1px; opacity: 0; }
+.s5[data-step="3"] .caret { animation: blink 1s steps(1) infinite; }
+@keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+.s5 .edit { right: 22px; top: 252px; } .s5[data-step="3"] .edit { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) { .stage *, .stage *::before, .stage *::after { animation: none !important; transition: none !important; } }
+
+/* Tablette / mobile : illustration au-dessus, hauteur fixe */
+@media (max-width: 900px) {
+  .tour { left: 0; top: 0; transform: none; grid-template-columns: 1fr; grid-template-rows: minmax(300px, 46dvh) 1fr; width: 100vw; height: 100dvh; border-radius: 0; box-shadow: none; }
+  .veil { background: #fff; }
+  .slot { inset: 48px 0 34px; }
+  .legend { left: 16px; right: 16px; bottom: 10px; font-size: 13px; }
+  .side { padding: 14px 20px 18px; }
+  .steps { margin-right: 0; } .steps button { font-size: 0; padding-top: 12px; }
+  .close { color: #fff; } .close:hover { background: rgba(255,255,255,.12); color: #fff; }
+  .copy h2 { font-size: 28px; } .lede { font-size: 15px; margin-bottom: 16px; }
+  .btn small { display: none; }
+  .actions { flex-wrap: wrap; } .opt { width: 100%; } .opt label { max-width: none; }
+}
+</style>
+</head>
+<body>
+<div class="backdrop-page" aria-hidden="true"><header class="navbar"><div class="nav-inner">
+  <a class="nav-logo" href="#"><img src="../../../frontend/public/Logo.png" alt=""><span>récis</span></a>
+  <nav class="nav-links"><a href="#">Accueil</a><a href="#">Fonctionnalités</a><a href="#">Fonctionnement</a><a href="#">Tarifs</a><a href="#">À Propos</a></nav>
+  <div class="nav-right"><div class="lang-toggle"><b class="on">FR</b><b>EN</b></div><button class="avatar">M</button></div>
+</div></header><div class="ghost-hero"></div><div class="ghost-row"><i style="width:60%"></i><i></i><i style="width:85%"></i></div></div>
+<div class="veil"></div>
+
+<svg width="0" height="0" style="position:absolute"><symbol id="cur" viewBox="0 0 24 24"><path d="M4 2l15 11-7 1-3 7z" fill="#fff" stroke="#0d1b3e" stroke-width="1.6" stroke-linejoin="round"/></symbol></svg>
+
+<div class="tour" role="dialog" aria-modal="true" aria-roledescription="visite" aria-labelledby="titre">
+  <button class="close" aria-label="Fermer la visite"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+
+  <div class="stage" id="stage" aria-hidden="true">
+    <!-- 1 Traduction -->
+    <div class="slot"><div class="scene s1">
+      <div class="file"><i>PDF</i>rapport-annuel.pdf</div>
+      <div class="paper page">
+        <span class="sweep"></span>
+        <h4><span class="t" data-fr="Rapport annuel 2025" data-en="Annual Report 2025" data-es="Informe anual 2025" data-de="Jahresbericht 2025">Rapport annuel 2025</span></h4>
+        <p><span class="t" data-fr="Une croissance portée par nos nouveaux marchés, en Europe comme en Afrique." data-en="Growth driven by our new markets, in Europe and in Africa alike." data-es="Un crecimiento impulsado por nuestros nuevos mercados, en Europa y en África." data-de="Wachstum dank unserer neuen Märkte, in Europa wie in Afrika.">Une croissance portée par nos nouveaux marchés, en Europe comme en Afrique.</span></p>
+        <table>
+          <tr><th><span class="t" data-fr="Région" data-en="Region" data-es="Región" data-de="Region">Région</span></th><th><span class="t" data-fr="Ventes" data-en="Sales" data-es="Ventas" data-de="Umsatz">Ventes</span></th></tr>
+          <tr><td><span class="t" data-fr="Europe" data-en="Europe" data-es="Europa" data-de="Europa">Europe</span></td><td>42 %</td></tr>
+          <tr><td><span class="t" data-fr="Afrique" data-en="Africa" data-es="África" data-de="Afrika">Afrique</span></td><td>31 %</td></tr>
+        </table>
+        <div class="fig"><div class="bars"><i style="height:38%"></i><i style="height:62%"></i><i style="height:90%"></i></div>
+          <span class="t" data-fr="Figure 1 — Croissance par région" data-en="Figure 1 — Growth by region" data-es="Figura 1 — Crecimiento por región" data-de="Abbildung 1 — Wachstum nach Region">Figure 1 — Croissance par région</span></div>
+      </div>
+      <span class="lp">FR</span>
+      <span class="chip gold keep">✓ Mise en page intacte</span>
+    </div></div>
+
+    <!-- 2 Scans et images -->
+    <div class="slot"><div class="scene s2">
+      <div class="paper scan">
+        <span class="sweep"></span>
+        <h4><span class="t" data-fr="Schéma de l’installation" data-en="Installation diagram" data-es="Esquema de la instalación" data-de="Anlagenschema">Schéma de l’installation</span></h4>
+        <div class="sub">SCAN_0042.JPG · 300 DPI</div>
+        <div class="dia">
+          <svg viewBox="0 0 358 270" fill="none" stroke="#2b2a26" stroke-width="2"><rect x="14" y="70" width="70" height="110" rx="6"/><path d="M14 120h70" stroke-dasharray="4 4"/><path d="M84 150h70"/><circle cx="180" cy="150" r="26"/><path d="M168 138l24 12-24 12z" fill="#2b2a26"/><path d="M206 150h50"/><path d="M256 136v28l30-28v28z"/><path d="M286 150h60"/><path d="M340 140l10 10-10 10"/><path d="M180 124V70h80"/><circle cx="276" cy="70" r="15"/><path d="M276 70l8-7"/></svg>
+          <span class="lbl t" style="left:4px;top:194px" data-fr="Réservoir" data-en="Tank" data-es="Depósito" data-de="Behälter">Réservoir</span>
+          <span class="lbl t" style="left:150px;top:190px" data-fr="Pompe" data-en="Pump" data-es="Bomba" data-de="Pumpe">Pompe</span>
+          <span class="lbl t" style="left:244px;top:180px" data-fr="Vanne" data-en="Valve" data-es="Válvula" data-de="Ventil">Vanne</span>
+          <span class="lbl t" style="left:206px;top:26px" data-fr="Manomètre" data-en="Pressure gauge" data-es="Manómetro" data-de="Manometer">Manomètre</span>
+        </div>
+        <div class="note"><span class="t" data-fr="Pression max. : 6 bar — vérifier chaque mois" data-en="Max. pressure: 6 bar — check monthly" data-es="Presión máx.: 6 bar — revisar cada mes" data-de="Max. Druck: 6 bar — monatlich prüfen">Pression max. : 6 bar — vérifier chaque mois</span></div>
+      </div>
+      <span class="lp">FR</span>
+      <span class="chip white found">5 zones de texte repérées</span>
+    </div></div>
+
+    <!-- 3 Extension -->
+    <div class="slot"><div class="scene s3">
+      <span class="lp">EN</span>
+      <div class="paper win">
+        <div class="bar"><b></b><b></b><b></b><span class="url">globalnews.com/climate</span><span class="ext">P</span></div>
+        <div class="art">
+          <div>
+            <small><span class="t" data-en="Environment" data-fr="Environnement">Environment</span></small>
+            <h4><span class="t" data-en="Climate summit reaches a historic agreement" data-fr="Le sommet sur le climat aboutit à un accord historique">Climate summit reaches a historic agreement</span></h4>
+            <p><span class="t" data-en="Delegates from 190 countries agreed on new targets to cut emissions by 2035." data-fr="Les délégués de 190 pays ont adopté de nouveaux objectifs de réduction des émissions d’ici 2035.">Delegates from 190 countries agreed on new targets to cut emissions by 2035.</span></p>
+          </div>
+          <div class="img"><svg viewBox="0 0 150 170" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><defs><linearGradient id="sky3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8743b"/><stop offset=".6" stop-color="#f6c27a"/></linearGradient></defs><rect width="150" height="170" fill="url(#sky3)"/><circle cx="104" cy="44" r="17" fill="#fff1c9"/><path d="M0 104 L34 70 L52 86 L78 56 L112 92 L132 78 L150 92 V170 H0Z" fill="#7b5a4a"/><path d="M78 56 L88 67 L82 66 L76 72 L70 64Z M34 70 L41 77 L36 76 L30 79Z" fill="#fff"/><path d="M0 118 C30 112 60 124 90 116 C115 110 135 118 150 114 V170 H0Z" fill="#2f6fae"/><path d="M14 128 h22 M58 134 h30 M104 126 h24" stroke="#9cc3e6" stroke-width="2" stroke-linecap="round"/></svg><span class="cap ti" data-en="Global warming limit: +1.5 °C" data-fr="Limite du réchauffement : +1,5 °C">Global warming limit: +1.5 °C</span></div>
+        </div>
+        <div class="pop"><b>Précis</b>Traduire cette page en<div class="sel">Français ▾</div><div class="go">Traduire</div></div>
+      </div>
+      <span class="chip gold imgok">✓ Image traduite aussi</span>
+      <span class="chip gold quota">Gratuit · 30 pages par jour</span>
+      <svg class="cur"><use href="#cur"/></svg>
+    </div></div>
+
+    <!-- 4 API -->
+    <div class="slot"><div class="scene s4">
+      <div class="code"><header>votre-application</header>
+        <div class="ln a"><span class="k">POST</span> /documents</div>
+        <div class="ln a">fichier: <span class="s">"contrat.pdf"</span></div>
+        <div class="ln a">langue: <span class="s">"de"</span></div>
+        <div class="ln r">→ <span class="k">200</span> statut: <span class="s">"traduit"</span></div>
+      </div>
+      <div class="wire"><i></i></div>
+      <div class="node">P</div><div class="lab">PRÉCIS</div>
+      <div class="paper doc"><h5><span class="t" data-fr="Contrat de prestation" data-de="Dienstleistungs&shy;vertrag">Contrat de prestation</span></h5><i></i><i style="width:85%"></i><i></i><i style="width:70%"></i><i></i><i style="width:60%"></i>
+        <div class="sig"><span class="t" data-fr="Le client" data-de="Der Kunde">Le client</span><span class="t" data-fr="Le prestataire" data-de="Der Anbieter">Le prestataire</span></div></div>
+      <div class="fname">contrat-de.pdf · FR → <span style="color:var(--gold-light)">DE</span></div>
+      <span class="chip gold soonc">Bientôt disponible</span>
+    </div></div>
+
+    <!-- 5 Visionneuse -->
+    <div class="slot"><div class="scene s5">
+      <div class="vw">
+        <div class="tb"><span>‹ Page 2 / 8 ›</span><span>Zoom 100 %</span></div>
+        <div class="heads"><span>ORIGINAL · FR</span><span>TRADUCTION · EN</span></div>
+        <div class="pages">
+          <div class="paper pp"><div class="logo">Maison Lumière</div><h5>Notre collection</h5><p>Des luminaires dessinés et fabriqués à la main, dans notre atelier lyonnais.</p><div class="ph"><svg viewBox="0 0 200 112" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect width="200" height="112" fill="#e9dcc0"/><rect y="88" width="200" height="24" fill="#b88f4a"/><rect y="88" width="200" height="3" fill="#9c7638"/><path d="M60 0 V34 M140 0 V22" stroke="#3a3326" stroke-width="1.5"/><path d="M60 38 L48 88 H72 Z M140 26 L126 88 H154 Z" fill="#fff6dc" opacity=".55"/><path d="M42 50 Q60 26 78 50 Z" fill="#0d1b3e"/><path d="M120 38 Q140 10 160 38 Z" fill="#c9a84c"/><circle cx="60" cy="51" r="4" fill="#fff6dc"/><circle cx="140" cy="39" r="4" fill="#fff6dc"/><rect x="88" y="66" width="10" height="22" rx="4" fill="#5b6f5a"/><path d="M93 66 C90 56 84 52 80 50 M93 66 C96 56 102 52 106 50" stroke="#4d7a52" stroke-width="2" fill="none"/></svg></div></div>
+          <div class="paper pp tr"><div class="logo"><span class="ti" data-en="House of Light" data-fr="Maison Lumière">House of Light</span></div><h5>Our collection</h5><p>Lamps designed and handmade in our Lyon workshop.<span class="caret"></span></p><div class="ph"><svg viewBox="0 0 200 112" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect width="200" height="112" fill="#e9dcc0"/><rect y="88" width="200" height="24" fill="#b88f4a"/><rect y="88" width="200" height="3" fill="#9c7638"/><path d="M60 0 V34 M140 0 V22" stroke="#3a3326" stroke-width="1.5"/><path d="M60 38 L48 88 H72 Z M140 26 L126 88 H154 Z" fill="#fff6dc" opacity=".55"/><path d="M42 50 Q60 26 78 50 Z" fill="#0d1b3e"/><path d="M120 38 Q140 10 160 38 Z" fill="#c9a84c"/><circle cx="60" cy="51" r="4" fill="#fff6dc"/><circle cx="140" cy="39" r="4" fill="#fff6dc"/><rect x="88" y="66" width="10" height="22" rx="4" fill="#5b6f5a"/><path d="M93 66 C90 56 84 52 80 50 M93 66 C96 56 102 52 106 50" stroke="#4d7a52" stroke-width="2" fill="none"/></svg></div>
+            <span class="chip white tool">↶ Remettre l’original</span>
+            <span class="chip gold okc">✓ Original rétabli</span>
+            <span class="chip white edit">Bientôt · mode édition</span>
+          </div>
+        </div>
+      </div>
+      <svg class="cur"><use href="#cur"/></svg>
+    </div></div>
+
+    <div class="legend"><b id="lgN">1/5</b><span id="lgT"></span></div>
+  </div>
+
+  <div class="side">
+    <nav class="steps" id="steps" aria-label="Étapes de la visite"></nav>
+    <div class="copy" aria-live="polite">
+      <div class="kicker"><span id="kicker"></span><span id="soon" class="soon" hidden>Bientôt</span></div>
+      <h2 id="titre"></h2>
+      <p class="lede" id="lede"></p>
+      <ul class="points" id="points"></ul>
+      <a class="link more" id="all" href="page.html" hidden>Découvrir toutes les fonctionnalités →</a>
+    </div>
+    <div class="actions">
+      <div class="opt" id="opt" hidden><button class="switch" role="switch" aria-checked="false" aria-labelledby="lab"></button><label id="lab">Recevoir les prochaines nouveautés par e-mail</label></div>
+      <button class="skip" id="skip">Passer la visite</button>
+      <span class="spacer"></span>
+      <button class="btn icon" id="prev" aria-label="Diapositive précédente"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg></button>
+      <button class="btn primary" id="next"><span>Suivant</span><small id="nextName"></small><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
+      <a class="btn primary" id="cta" href="#" hidden></a>
+    </div>
+  </div>
+</div>
+
+<script>
+const IC = {
+  doc: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
+  layout: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/>',
+  repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
+  scan: '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/>',
+  image: '<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>',
+  chart: '<path d="M3 3v18h18"/><path d="M7 16v-5"/><path d="M12 16V8"/><path d="M17 16v-3"/>',
+  gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/>',
+  globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20"/>',
+  zap: '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
+  plug: '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
+  columns: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
+  pen: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+};
+/* Libellés courts pour la barre d'étapes (une ligne), libellés complets dans le sur-titre */
+const D = [
+  { k: 'Traduction', s: 'Traduction', t: 'Votre document traduit, dans sa mise en page d’origine.',
+    p: 'Déposez un PDF, un Word, un PowerPoint ou un Excel : Précis le restitue dans l’une de 36 langues, polices, tableaux et images à leur place. Plus de remise en page, plus de copier-coller.',
+    pts: [['doc', 'Le sens avant le mot à mot', 'Chaque phrase est traduite avec le contexte du document entier.'],
+          ['layout', 'Une forme intacte', 'Colonnes, tableaux, gras et italique restent là où vous les aviez mis.'],
+          ['repeat', 'Un terme, une seule traduction', 'Le même libellé est traduit de la même façon d’un bout à l’autre.']] },
+  { k: 'Scans et images', s: 'Scans', t: 'Scanné ou en image, il se traduit.',
+    p: 'Contrats numérisés, schémas, captures d’écran : Précis lit le texte de l’image et écrit la traduction à sa place, sur le même fond.',
+    pts: [['scan', 'Documents scannés', 'Traduits comme un fichier natif.'],
+          ['chart', 'Schémas et graphiques', 'Légendes et étiquettes dans votre langue.'],
+          ['image', 'Images traduites sur place', 'Le texte remplacé, l’image intacte.']] },
+  { k: 'Extension navigateur', s: 'Extension', t: 'Lisez tout le web dans votre langue.',
+    p: 'Articles, fiches produits, documentations : l’extension traduit la page que vous lisez, sur place, texte des images compris. Sans changer d’onglet, sans copier-coller.',
+    pts: [['gift', 'Gratuite au quotidien', 'Jusqu’à 30 pages par jour, sans abonnement.'],
+          ['image', 'Images comprises', 'Le texte des images de la page est traduit lui aussi.'],
+          ['globe', 'Dans vos navigateurs', 'Chrome, Edge, Brave, Opera et Vivaldi.']] },
+  { k: 'Intégration API', s: 'API', soon: true, t: 'Précis, directement dans vos outils.',
+    p: 'Bientôt, une API pour confier vos documents à Précis depuis vos propres logiciels : même qualité, même mise en page, sans passer par le site.',
+    pts: [['zap', 'Des traductions qui partent seules', 'Automatisez les envois récurrents.'],
+          ['layout', 'Le même rendu que sur le site', 'Le même moteur, sans compromis.'],
+          ['plug', 'Là où vous travaillez', 'Intranet, gestion documentaire, applications métier.']] },
+  { k: 'Visionneuse', s: 'Visionneuse', t: 'Vous vérifiez, vous décidez, vous téléchargez.',
+    p: 'Chaque page s’affiche à côté de son original. Un logo, une signature ou une photo ne devait pas être traduit ? Un clic, et l’image d’origine revient.',
+    pts: [['columns', 'Côte à côte', 'L’original et la traduction, page par page, avec zoom.'],
+          ['undo', 'Remettre l’original', 'Image par image, et réversible à tout moment.'],
+          ['pen', 'Bientôt : le mode édition', 'Retouchez directement le texte traduit, pour tous vos documents.', true]] },
+];
+/* Scénario : d = durée (ms), c = légende, l = langue du texte, li = langue des images, w = délai avant changement,
+   p = pastille de langue, cur = position du curseur, clk = clic */
+const SEQ = [
+  [ { d: 1700, c: 'Vous déposez votre PDF', l: 'fr' },
+    { d: 1500, c: 'Le document original, en français', p: 'FR' },
+    { d: 2800, c: 'Précis le traduit en anglais', l: 'en', p: 'FR <em>→ EN</em>' },
+    { d: 2300, c: 'Tableau, figure, mise en page : rien ne bouge' },
+    { d: 1900, c: 'En espagnol…', l: 'es', p: 'FR <em>→ ES</em>' },
+    { d: 2100, c: '… ou en allemand : 36 langues au choix', l: 'de', p: 'FR <em>→ DE</em>' } ],
+  [ { d: 1800, c: 'Un schéma scanné, en français', l: 'fr', p: 'FR' },
+    { d: 2300, c: 'Précis repère le texte dans l’image' },
+    { d: 2600, c: 'Et écrit la traduction à sa place, sur le même fond', l: 'en', p: 'FR <em>→ EN</em>' },
+    { d: 1900, c: 'En espagnol…', l: 'es', p: 'FR <em>→ ES</em>' },
+    { d: 2100, c: '… ou en allemand', l: 'de', p: 'FR <em>→ DE</em>' } ],
+  [ { d: 1600, c: 'Vous lisez une page en anglais', l: 'en', li: 'en', p: 'EN', cur: [280, 300] },
+    { d: 1900, c: 'Un clic sur l’extension Précis', cur: [497, 62], clk: 1 },
+    { d: 2700, c: 'La page passe en français, sur place', l: 'fr', w: 700, p: 'EN <em>→ FR</em>', cur: [430, 199], clk: 1 },
+    { d: 2000, c: 'Le texte de l’image aussi', li: 'fr', cur: [430, 264] },
+    { d: 2200, c: 'Gratuit : jusqu’à 30 pages par jour' } ],
+  [ { d: 2000, c: 'Votre logiciel envoie le contrat', l: 'fr' },
+    { d: 1600, c: 'Précis le traduit, mise en page comprise' },
+    { d: 3000, c: 'Il revient en allemand, prêt à l’emploi', l: 'de', w: 500 } ],
+  [ { d: 2000, c: 'L’original et sa traduction, côte à côte', li: 'en', cur: [500, 420] },
+    { d: 2000, c: 'Ce logo n’aurait pas dû être traduit…', cur: [400, 120] },
+    { d: 2400, c: 'Un clic : l’image d’origine revient', li: 'fr', w: 250, cur: [440, 168], clk: 1 },
+    { d: 2800, c: 'Bientôt : retouchez le texte vous-même', cur: [372, 262] } ],
+];
+const q = new URLSearchParams(location.search);
+const profil = q.get('profil') || 'gratuit';
+const FIN = { invite: 'Créer mon compte gratuit', gratuit: 'Voir les forfaits', payant: 'Traduire un document' }[profil];
+const reduit = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const $ = id => document.getElementById(id);
+const svg = n => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[n]}</svg>`;
+const scenes = [...document.querySelectorAll('.scene')];
+let i = Math.min(4, Math.max(0, (+q.get('diapo') || 1) - 1)), T = [];
+const later = (f, ms) => T.push(setTimeout(f, ms));
+
+function langue(sc, sel, l, gap, wait) {
+  sc.querySelectorAll(sel).forEach((e, n) => {
+    const v = e.dataset[l]; if (v == null || v === e.textContent) return;
+    if (!gap) { e.textContent = v; return; }
+    later(() => { e.classList.add('sw'); later(() => { e.textContent = v; e.classList.remove('sw'); }, 220); }, wait + n * gap);
+  });
+}
+function etape(n, k) {
+  const sc = scenes[n], st = SEQ[n][k], vite = k === 0 || reduit;
+  sc.dataset.step = k;
+  $('lgN').textContent = `${k + 1}/${SEQ[n].length}`; $('lgT').textContent = st.c;
+  if (st.l) langue(sc, '.t', st.l, vite ? 0 : 130, st.w || 0);
+  if (st.li) langue(sc, '.ti', st.li, vite ? 0 : 1, st.w || 0);
+  if (st.p) { const lp = sc.querySelector('.lp'); if (lp) lp.innerHTML = st.p; }
+  const c = sc.querySelector('.cur');
+  if (c && st.cur) { c.style.left = st.cur[0] + 'px'; c.style.top = st.cur[1] + 'px'; if (st.clk && !reduit) later(() => { c.classList.remove('clk'); void c.offsetWidth; c.classList.add('clk'); }, 820); }
+}
+function jouer(n) {
+  T.forEach(clearTimeout); T = [];
+  const S = SEQ[n];
+  if (reduit) { S.forEach((_, k) => etape(n, k)); etape(n, S.length - 1); return; }
+  let k = 0; const run = () => { etape(n, k); later(() => { k = (k + 1) % S.length; run(); }, S[k].d); };
+  scenes[n].dataset.step = '-1'; requestAnimationFrame(() => requestAnimationFrame(run));
+}
+function ajuster() {
+  const r = document.querySelector('.slot').getBoundingClientRect();
+  $('stage').style.setProperty('--k', Math.min(1.15, (r.width - (innerWidth <= 900 ? 16 : 40)) / 540, (r.height - (innerWidth <= 900 ? 16 : 30)) / 460).toFixed(3));
+}
+D.forEach((d, n) => { const b = document.createElement('button'); b.textContent = d.s; b.setAttribute('aria-label', `${n + 1}. ${d.k}`); b.onclick = () => go(n); $('steps').append(b); });
+function go(n) {
+  i = n; const d = D[n], last = n === 4;
+  document.querySelectorAll('.slot').forEach((s, m) => s.classList.toggle('on', m === n));
+  [...$('steps').children].forEach((b, m) => { b.classList.toggle('done', m < n); m === n ? b.setAttribute('aria-current', 'step') : b.removeAttribute('aria-current'); });
+  $('kicker').textContent = `${String(n + 1).padStart(2, '0')} — ${d.k}`; $('soon').hidden = !d.soon;
+  $('titre').textContent = d.t; $('lede').textContent = d.p;
+  $('points').innerHTML = d.pts.map(([ic, b, s, l]) => `<li${l ? ' class="later"' : ''}><span class="ic-sq">${svg(ic)}</span><div><b>${b}</b><span>${s}</span></div></li>`).join('');
+  $('prev').hidden = n === 0; $('next').hidden = last; $('skip').hidden = last;
+  $('nextName').textContent = last ? '' : `· ${D[n + 1].s}`;
+  $('cta').hidden = !last; $('cta').textContent = FIN; $('all').hidden = !last;
+  $('opt').hidden = !(last && profil !== 'invite');
+  jouer(n);
+}
+$('next').onclick = () => go(Math.min(4, i + 1));
+$('prev').onclick = () => go(Math.max(0, i - 1));
+document.addEventListener('keydown', e => { if (e.key === 'ArrowRight') go(Math.min(4, i + 1)); if (e.key === 'ArrowLeft') go(Math.max(0, i - 1)); });
+addEventListener('resize', ajuster); ajuster();
+go(i);
+</script>
+</body>
+</html>

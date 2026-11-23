@@ -114,9 +114,7 @@ class AbuseApplicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.submit(b)).status_code, 409)
         invited = await self.fx.invite_tester(a)
         self.assertEqual(invited["email"], a.email)
-        blocked = await self.client.post("/api/admin/beta/invitations",
-            headers=self.fx.admin_headers, json={"email": b.email})
-        self.assertEqual(blocked.status_code, 409)
+        self.assertEqual(await self.fx.invite_status(b.email), "already_invited")
         async with self.fx.sessions() as db:
             self.assertEqual((await db.get(User, a.id)).email, a.email)
             self.assertEqual((await db.get(User, b.id)).email, b.email)
@@ -139,8 +137,8 @@ class AbuseApplicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(beta_abuse.canonical_mailbox(a.email), beta_abuse.canonical_mailbox(b.email))
         # invite_tester() uppercases the address, and "ß".upper() is "SS".
         invited = await self.client.post("/api/admin/beta/invitations",
-            json={"email": a.email, "primary_format": "xlsx"}, headers=self.fx.admin_headers)
-        self.assertEqual(invited.status_code, 201, invited.text)
+            json={"emails": [a.email], "primary_format": "xlsx"}, headers=self.fx.admin_headers)
+        self.assertEqual(invited.json()["results"][0]["status"], "invited", invited.text)
         foreign = await self.client.post("/api/beta/activate", headers=self.fx.headers(b))
         self.assertEqual(foreign.status_code, 404, "ß and ss are two mailboxes")
         own = await self.client.post("/api/beta/activate", headers=self.fx.headers(a))

@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { motion, useTransform } from 'motion/react';
 import { useScrollProgress } from '../../lib/useScrollProgress';
 import { useEffect, useRef } from 'react';
-import { Check, Minus, X } from 'lucide-react';
+import { Check, Lock, Minus, X } from 'lucide-react';
 import TranslationSection from '../upload/TranslationSection';
 import type { TranslateConfig } from '../upload/TranslationSection';
 import ViewerToolbar from '../preview/ViewerToolbar';
@@ -36,6 +36,7 @@ interface StorySectionProps {
   rideau?: boolean;
   onRideauChange?: (actif: boolean) => void;
   isTrialMode: boolean;
+  pagesVoilees?: number[];
   targetLang?: string;
   isTranslating: boolean;
   pageStatuses: Record<number, PageStatus>;
@@ -57,6 +58,8 @@ interface StorySectionProps {
   creditsNeeded?: number | null;
   /** Ouvre le paiement à la page pour `n` pages. */
   onBuyPages?: (pages: number) => void;
+  /** Achat des pages libres d'un document déjà traduit (ligne sous l'aperçu). */
+  onBuyLibres?: (pages: number) => void;
   /** Pages déjà couvertes par le solde, si on peut ne traduire qu'elles. */
   pagesCovered?: number | null;
   /** Motif du refus à afficher au-dessus de l'achat (pages offertes refusées
@@ -66,6 +69,10 @@ interface StorySectionProps {
   onTranslateCovered?: () => void;
   /** Pages du manque dues aux images demandées. */
   imagesNeeded?: number | null;
+  /** Pages traduites en aperçu mais non payées (mode libre). */
+  pagesLibres?: number;
+  /** Numéros des pages d'aperçu non payées : cadenas sur leur vignette. */
+  pagesNonPayees?: number[];
   /** Relance du document sans ses images. */
   onTranslateWithoutImages?: () => void;
   /** Mode agrandi (focus) actif ? */
@@ -77,10 +84,14 @@ interface StorySectionProps {
   onToggleFocus?: () => void;
   /** Pause / Annuler la traduction affichée (barre d'aperçu). */
   onStop?: (mode: StopMode) => Promise<void>;
+  /** Admin regardant le document d'un client : « Créer ma copie ». */
+  onCopy?: () => void;
+  copyBusy?: boolean;
   onZoomChange: (z: number) => void;
   onPageChange: (p: number) => void;
   onDownload: () => void;
   onDownloadOriginal?: () => void;
+  onRetranslate?: () => void;
   onPagesLoaded: (n: number) => void;
   onLibraryOpen?: () => void;
   /** Bandeau sous la barre d'aperçu (images traduites d'un document de la bibliothèque). */
@@ -106,6 +117,7 @@ export default function StorySection({
   rideau = false,
   onRideauChange,
   isTrialMode,
+  pagesVoilees,
   targetLang,
   isTranslating,
   pageStatuses,
@@ -118,10 +130,13 @@ export default function StorySection({
   limitReached = false,
   creditsNeeded = null,
   onBuyPages,
+  onBuyLibres,
   pagesCovered = null,
   creditsReason = null,
   onTranslateCovered,
   imagesNeeded = null,
+  pagesLibres = 0,
+  pagesNonPayees,
   onTranslateWithoutImages,
   focus = false,
   onStartTranslate,
@@ -129,10 +144,13 @@ export default function StorySection({
   onUnlock,
   onToggleFocus,
   onStop,
+  onCopy,
+  copyBusy,
   onZoomChange,
   onPageChange,
   onDownload,
   onDownloadOriginal,
+  onRetranslate,
   onPagesLoaded,
   onLibraryOpen,
   imagesPanel,
@@ -409,6 +427,7 @@ export default function StorySection({
                   {Array.from({ length: numPages }).map((_, i) => {
                     const pageNo = i + 1;
                     const status = pageStatuses[pageNo];
+                    const nonPayee = !!pagesNonPayees?.includes(pageNo);
                     // Pendant la traduction, « Page traduite » ne s'affiche que si l'aperçu
                     // MONTRE la traduction (`readyPages`), pas sur le seul statut
                     // de page : un lot échoué laissait une page « terminée » en
@@ -443,6 +462,7 @@ export default function StorySection({
                           illisible ? t(`viewer.scan.thumb_${illisible.choix ?? 'pending'}`)
                           : horsSel ? t(`viewer.scan.thumb_hs_${horsSel.choix ?? 'pending'}`)
                           : blanche ? t('viewer.scan.thumb_blanche')
+                          : isReady && nonPayee ? t('story.page_ready_unpaid')
                           : isReady ? t('story.page_ready', 'Page traduite')
                           : status === 'ocr' ? t('story.page_ocr')
                           : status === 'ocr_attente' ? t('story.page_ocr_waiting')
@@ -511,12 +531,13 @@ export default function StorySection({
                               style={{
                                 position: 'absolute', top: '3px', right: '3px',
                                 width: '16px', height: '16px', borderRadius: '50%',
-                                background: '#16a34a', color: '#fff',
+                                // Page d'aperçu non payée : cadenas, absente du fichier téléchargé.
+                                background: nonPayee ? '#64748b' : '#16a34a', color: '#fff',
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 boxShadow: '0 0 0 2px #fff',
                               }}
                             >
-                              <Check size={11} strokeWidth={3.2} />
+                              {nonPayee ? <Lock size={9} strokeWidth={3} /> : <Check size={11} strokeWidth={3.2} />}
                             </span>
                           )}
                           {/* Voile « en cours » sur la vignette active du travail */}
@@ -567,12 +588,14 @@ export default function StorySection({
                     onBack={onBack}
                     onDownload={onDownload}
                     onDownloadOriginal={onDownloadOriginal}
+                    onRetranslate={onRetranslate}
                     onUnlock={onUnlock}
                     onToggleFocus={onToggleFocus}
                     onStop={onStop}
+                    onCopy={onCopy}
+                    copyBusy={copyBusy}
                   />
                   {imagesPanel}
-
                   <div className="scroll" id="scroll">
                     <DocumentPreview
                       sourceFile={selectedFile}
@@ -596,6 +619,7 @@ export default function StorySection({
                       onZoomAjuste={onZoomAjuste}
                       rideau={rideau}
                       isTrialMode={isTrialMode}
+                      pagesVoilees={pagesVoilees}
                       previewLoading={previewRendering}
                       fileMissing={fileMissing}
                       // Présentation : cadres 16:9 avant même le premier PDF.
@@ -619,6 +643,11 @@ export default function StorySection({
                       imagesNeeded={imagesNeeded}
                       onTranslateWithoutImages={onTranslateWithoutImages}
                       onUnlock={onUnlock}
+                      // Pages d'aperçu non payées : dites dans le bas de la page
+                      // traduite. Règlement possible une fois la traduction
+                      // finie (avant, le serveur le refuse : 409).
+                      pagesLibres={pagesLibres}
+                      onBuyLibres={onBuyLibres && !isTranslating ? () => onBuyLibres(pagesLibres) : undefined}
                       scanPages={scanPages}
                     />
                   </div>

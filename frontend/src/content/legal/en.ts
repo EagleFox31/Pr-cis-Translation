@@ -1,6 +1,6 @@
 import type { LegalDoc } from './types';
 
-export const LEGAL_UPDATED = 'November 6, 2026';
+export const LEGAL_UPDATED = 'November 18, 2026';
 
 export const LEGAL_EN: LegalDoc[] = [
   {
@@ -23,7 +23,7 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'Hosting',
         paragraphs: [
-          'The service is hosted by Amazon Web Services, Inc., 410 Terry Avenue North, Seattle, WA 98109, United States. Précis servers run on Amazon EC2.',
+          'The service is hosted by OVH Hosting Inc. (OVHcloud), 800-1801 McGill College, Montréal (Québec) H3A 2N4, Canada. Précis servers are located in the OVHcloud data centre in Beauharnois (Québec, Canada).',
         ],
       },
       {
@@ -79,8 +79,8 @@ export const LEGAL_EN: LegalDoc[] = [
         paragraphs: [
           'Précis offers a free plan of 5 pages per month, a Starter plan of 100 pages per month and a Pro plan of 500 pages per month. The beta program has its own quotas and a limited duration, stated when you join the program.',
           'Current prices are shown on the site before any payment. They are not listed in these terms because they may change.',
-          'The free plan and the beta programme are partly funded by a promotional mention of Précis, included in translation previews. It is shown to free accounts and to beta testers; a paid account taking part in the beta programme only sees it on translations made with its beta credits. This mention involves no advertising network and uses none of your data.',
-          'Translations made with free pages can be viewed as a preview. All others, whether they come from a paid plan, pages bought one by one or beta credits, can be downloaded.',
+          'Without a plan or balance, you can still translate. Pages translated this way can only be viewed as a preview, with a promotional mention of Précis built into the image. This mention involves no advertising network and uses none of your data.',
+          'Every page translated with a credit belongs to you, whether the credit comes from the free plan\'s offered pages, a paid plan, pages bought one by one or beta credits: its preview is clear and it can be downloaded. A document that still contains pages translated without credit can be downloaded once those pages are paid for, or without them.',
         ],
       },
       {
@@ -202,7 +202,7 @@ export const LEGAL_EN: LegalDoc[] = [
         paragraphs: ['To run Précis, we rely on the following service providers.'],
         list: [
           'DeepSeek: receives the text of your documents in order to translate it;',
-          'Amazon Web Services: hosting;',
+          'OVHcloud: hosting, in Canada;',
           'Campay, Fapshi and Paddle: payments;',
           'Cloudflare Turnstile: anti-bot check;',
           'Google: sign-in with Google, if you choose it;',
@@ -250,6 +250,17 @@ export const LEGAL_EN: LegalDoc[] = [
         ],
       },
       {
+        heading: '“What\'s new” emails',
+        paragraphs: [
+          'Receiving Précis news by email is optional: nothing is sent without your consent, and the service works the same way without it.',
+        ],
+        list: [
+          'Data used: your email address, your subscription choice and the date you last viewed the news, so that only what is new is shown to you.',
+          'Retention: as long as the account is active; the viewing date is simply replaced on each visit.',
+          'Unsubscribing: through the link included in every email, or with the “Email” switch on the “What\'s new” row of your account panel, at any time.',
+        ],
+      },
+      {
         heading: 'Your rights',
         paragraphs: [
           'Under the applicable personal data protection rules, you may request access to your data, its correction or its deletion, and object to certain processing. Your account can be deleted on request by e-mail.',
@@ -259,7 +270,7 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'No sale of data, no targeted advertising',
         paragraphs: [
-          'We do not sell your data and we use no advertising network. Previews on the free plan and the beta programme carry a promotional mention of Précis, identical for everyone: it uses no personal data and no tracker.',
+          'We do not sell your data and we use no advertising network. Previews of pages translated without credit carry a promotional mention of Précis, identical for everyone: it uses no personal data and no tracker.',
         ],
       },
       {
@@ -283,7 +294,7 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'What we use',
         paragraphs: [
-          'Précis only uses what is necessary for the service to work and to stay secure. We use no advertising cookies and no audience measurement (the promotional mention on free and beta previews is part of the image and sets no cookie), so no consent banner is displayed.',
+          'Précis only uses what is necessary for the service to work and to stay secure. We use no advertising cookies and no audience measurement (the promotional mention on previews without credit is part of the image and sets no cookie), so no consent banner is displayed.',
         ],
       },
       {

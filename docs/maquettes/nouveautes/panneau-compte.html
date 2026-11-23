@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panneau du compte</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,400&family=DM+Mono:wght@400&family=DM+Sans:wght@400;500;600;700&family=Pinyon+Script&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="commun.css">
+<style>
+body { overflow: hidden; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 100vw); background: #fff; z-index: 1201; box-shadow: -12px 0 40px rgba(13,27,62,.18); display: flex; flex-direction: column; }
+/* Identité */
+.p-head { display: flex; align-items: center; gap: 12px; padding: 14px 12px 14px 20px; border-bottom: 1px solid var(--gray-200); }
+.p-head .av { width: 36px; height: 36px; border-radius: 50%; background: var(--navy); color: #fff; font-size: 14px; font-weight: 700; display: grid; place-items: center; flex: none; }
+.p-head .who { flex: 1; min-width: 0; line-height: 1.35; }
+.p-head .who b { display: block; font-size: 14px; font-weight: 600; color: var(--navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p-head .who span { display: block; font-size: 12.5px; color: var(--gray-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iconbtn { width: 40px; height: 40px; display: grid; place-items: center; border: 0; background: none; color: var(--gray-500); border-radius: 9px; cursor: pointer; flex: none; transition: background .15s, color .15s; }
+.iconbtn:hover { background: var(--gray-100); color: var(--gray-900); }
+.iconbtn:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: 0; }
+/* Solde */
+.bal { padding: 10px 20px 12px; border-bottom: 1px solid var(--gray-200); }
+.bal .l { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--gray-700); }
+.bal .l .plan { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--gray-500); }
+.bal .l b { font-weight: 600; color: var(--gray-900); }
+.bal .l a { margin-left: auto; font-size: 13px; font-weight: 600; color: var(--blue); text-decoration: none; display: inline-flex; align-items: center; gap: 2px; position: relative; }
+.bal .l a::after { content: ""; position: absolute; inset: -12px -8px; }
+.bal .l a:hover { text-decoration: underline; }
+.bal .bar { margin-top: 8px; height: 4px; border-radius: 4px; background: var(--gray-100); overflow: hidden; }
+.bal .bar i { display: block; height: 100%; width: 60%; background: var(--navy); border-radius: 4px; }
+/* Nouveautés */
+.news { display: flex; align-items: center; height: 52px; padding: 0 12px 0 8px; border-bottom: 1px solid var(--gray-200); }
+.news > a { flex: 1; min-width: 0; height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-radius: 9px; text-decoration: none; color: var(--gray-900); font-size: 13px; font-weight: 600; }
+.news > a:hover { background: var(--gray-50); }
+.news > a .ic { color: var(--gray-500); }
+.news > a .cnt { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--blue-light); color: var(--blue); font-size: 11px; font-weight: 700; display: inline-grid; place-items: center; }
+.news > a .chev { margin-left: auto; color: var(--gray-300); }
+.news .mailopt { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 4px 0 12px; margin-left: 4px; border-left: 1px solid var(--gray-200); background: none; border-top: 0; border-right: 0; border-bottom: 0; cursor: pointer; font-size: 12px; color: var(--gray-500); border-radius: 0; }
+.news .mailopt:hover { color: var(--gray-700); }
+.news .mailopt .switch { width: 32px; height: 20px; }
+.news .mailopt .switch::after { width: 14px; height: 14px; }
+.news .mailopt .switch::before { display: none; }
+.news .mailopt[aria-checked="true"] .switch { background: var(--blue); }
+.news .mailopt[aria-checked="true"] .switch::after { transform: translateX(12px); }
+/* Documents */
+.docs { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.docs-head { display: flex; align-items: center; gap: 8px; padding: 14px 12px 8px 20px; }
+.docs-head h2 { margin: 0; font-size: 15px; font-weight: 700; color: var(--navy); }
+.docs-head .n { font-size: 13px; color: var(--gray-500); }
+.docs-head .iconbtn { margin-left: auto; }
+.find { position: relative; margin: 0 20px 8px; }
+.find .ic { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--gray-500); pointer-events: none; }
+.find input { width: 100%; height: 36px; padding: 0 12px 0 34px; border: 1px solid var(--gray-200); border-radius: 10px; background: var(--gray-50); font: inherit; font-size: 13px; color: var(--gray-900); }
+.find input::placeholder { color: var(--gray-500); }
+.find input:hover { border-color: var(--gray-300); }
+.find input:focus { outline: none; border-color: var(--blue-bright); background: #fff; box-shadow: 0 0 0 3px var(--blue-light); }
+.list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 8px; margin: 0; list-style: none; overscroll-behavior: contain; }
+.doc { position: relative; display: flex; align-items: center; gap: 4px; border-radius: 10px; }
+.doc:hover, .doc:focus-within { background: var(--gray-50); }
+.doc .open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 10px 8px 10px 12px; min-height: 60px; background: none; border: 0; border-radius: 10px; cursor: pointer; text-align: left; color: inherit; }
+.doc .open:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: -2px; }
+.ft { width: 36px; height: 36px; border-radius: 9px; background: var(--gray-100); color: var(--gray-700); display: grid; place-items: center; flex: none; }
+.doc .t { flex: 1; min-width: 0; }
+.doc .t b { display: flex; font-size: 13.5px; font-weight: 600; color: var(--gray-900); white-space: nowrap; min-width: 0; }
+.doc .t b .base { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.doc .t b .ext { flex: none; }
+.doc .t span { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--gray-500); white-space: nowrap; overflow: hidden; }
+.doc .t span i { font-style: normal; color: var(--gray-300); }
+.doc .t b .base, .doc .t b .ext { display: block; font-size: inherit; color: inherit; }
+.doc .lang { font-family: var(--font-mono); font-size: 11.5px; color: var(--gray-700); }
+.doc .t .st { font-weight: 600; display: block; min-width: 0; text-overflow: ellipsis; }
+.doc .t .st svg { display: inline-block; vertical-align: -1px; margin-right: 4px; }
+.doc .st--run { color: var(--gray-700); }
+.doc .st--err { color: #b91c1c; }
+.doc .prog { display: block; height: 3px; margin-top: 6px; border-radius: 3px; background: var(--gray-200); overflow: hidden; }
+.doc .prog i { display: block; height: 100%; background: var(--navy); }
+.acts { display: flex; align-items: center; gap: 2px; padding-right: 6px; flex: none; }
+.acts .iconbtn { width: 36px; height: 36px; }
+.acts .hov { opacity: 0; transition: opacity .15s; }
+.doc:hover .acts .hov, .doc:focus-within .acts .hov { opacity: 1; }
+.acts .pill { position: relative; height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--gray-200); background: #fff; color: var(--gray-700); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.acts .pill::after { content: ""; position: absolute; inset: -7px 0; }
+.acts .pill:hover { border-color: var(--gray-300); color: var(--gray-900); }
+.menu { position: absolute; right: 8px; top: calc(100% - 6px); z-index: 10; min-width: 200px; padding: 6px; margin: 0; list-style: none; background: #fff; border: 1px solid var(--gray-200); border-radius: 12px; box-shadow: 0 12px 32px rgba(13,27,62,.16); }
+.menu[hidden] { display: none; }
+.menu button { width: 100%; display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 0 10px; border: 0; background: none; border-radius: 8px; font-size: 13px; color: var(--gray-700); cursor: pointer; text-align: left; }
+.menu button .ic { color: var(--gray-500); }
+.menu button:hover, .menu button:focus-visible { background: var(--gray-100); color: var(--gray-900); outline: none; }
+.menu hr { border: 0; border-top: 1px solid var(--gray-200); margin: 6px 4px; }
+.menu .danger, .menu .danger .ic { color: #b91c1c; }
+.menu .danger:hover { background: #fef2f2; color: #b91c1c; }
+.doc[hidden] { display: none; }
+.doc .t b .when { margin-left: auto; padding-left: 12px; flex: none; font-size: 12px; font-weight: 500; color: var(--gray-500); }
+.doc .t b .when.tab { color: var(--gray-700); font-weight: 600; }
+.doc .t > span:not(.prog) { min-height: 18px; }
+@media (hover: hover) and (min-width: 521px) {
+  .doc:not(.doc--quick) .open { padding-right: 14px; }
+  .doc:not(.doc--quick) .acts { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); padding: 0 2px 0 6px; border-radius: 10px; background: var(--gray-50); box-shadow: -18px 0 14px -6px var(--gray-50); opacity: 0; pointer-events: none; transition: opacity .15s; }
+  .doc:not(.doc--quick):hover .acts, .doc:not(.doc--quick):focus-within .acts, .doc:has(.menu:not([hidden])) .acts { opacity: 1; pointer-events: auto; }
+  .doc:has(.menu:not([hidden])) .acts .hov { opacity: 1; }
+  .doc:not(.doc--quick):hover .when, .doc:not(.doc--quick):focus-within .when { visibility: hidden; }
+}
+.doc:has(.menu:not([hidden])) { z-index: 20; }
+/* Action prioritaire : lien discret à la place de la date, même rythme que les autres lignes */
+.doc--quick .acts .pill { height: 22px; padding: 0 2px; border: 0; border-radius: 6px; background: none; color: var(--blue); font-size: 12.5px; font-weight: 600; gap: 4px; }
+.doc--quick .acts .pill::after { inset: -11px -6px; }
+.doc--quick .acts .pill:hover { color: var(--blue-bright); text-decoration: underline; text-underline-offset: 3px; }
+.doc--quick .acts .pill:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: 2px; }
+@media (hover: hover) and (min-width: 521px) {
+  .doc--quick .open { padding-right: 150px; }
+  .doc--quick .acts { position: absolute; right: 4px; top: 10px; height: 20px; padding-right: 10px; transition: padding .18s ease; }
+  .doc--quick .acts .more { width: 0; padding: 0; margin-left: -2px; overflow: hidden; transition: width .18s ease, margin .18s ease, opacity .15s; }
+  .doc--quick:hover .acts, .doc--quick:focus-within .acts, .doc--quick:has(.menu:not([hidden])) .acts { padding-right: 0; }
+  .doc--quick:hover .acts .more, .doc--quick:focus-within .acts .more, .doc--quick:has(.menu:not([hidden])) .acts .more { width: 36px; margin-left: 6px; opacity: 1; }
+  .doc--quick .menu { top: 30px; }
+}
+.nomatch { padding: 24px 20px; text-align: center; font-size: 13px; color: var(--gray-500); }
+.nomatch[hidden] { display: none; }
+/* Vide */
+.empty { flex: 1; display: grid; place-content: center; justify-items: center; text-align: center; padding: 24px 40px 48px; }
+.empty[hidden] { display: none; }
+.empty .ill { width: 56px; height: 56px; border-radius: 14px; background: var(--gray-100); color: var(--gray-500); display: grid; place-items: center; margin-bottom: 16px; }
+.empty b { font-size: 15px; font-weight: 600; color: var(--navy); }
+.empty p { margin: 6px 0 0; font-size: 13px; line-height: 1.5; color: var(--gray-500); max-width: 30ch; }
+.empty small { margin-top: 14px; font-family: var(--font-mono); font-size: 11.5px; color: var(--gray-500); letter-spacing: .02em; }
+/* Pied */
+.p-foot { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 6px 8px; border-top: 1px solid var(--gray-200); }
+.p-foot a, .p-foot button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; height: 50px; padding: 0 4px; border: 0; background: none; border-radius: 9px; font: inherit; font-size: 12px; line-height: 1.2; color: var(--gray-700); text-decoration: none; cursor: pointer; white-space: nowrap; }
+.p-foot a .ic, .p-foot button .ic { color: var(--gray-500); }
+.p-foot a:hover, .p-foot button:hover { background: var(--gray-100); color: var(--gray-900); }
+@media (hover: none), (max-width: 520px) {
+  .acts .hov { opacity: 1; }
+  .acts .hov.dl { display: none; }
+}
+@media (max-width: 520px) {
+  .drawer { width: 100vw; height: 100dvh; box-shadow: none; }
+  .p-head { padding: 10px 6px 10px 16px; }
+  .iconbtn, .acts .iconbtn { width: 44px; height: 44px; }
+  .bal { padding: 10px 16px 12px; }
+  .news { height: 56px; padding: 0 6px 0 4px; }
+  .news > a, .news .mailopt { height: 44px; }
+  .docs-head { padding: 12px 6px 6px 16px; }
+  .find { margin: 0 16px 8px; }
+  .find input { height: 44px; font-size: 16px; }
+  .list { padding: 0 4px 8px; }
+  .doc .open { min-height: 64px; padding-left: 12px; }
+  .acts { padding-right: 0; }
+  .acts .pill { height: 36px; }
+  .menu button { min-height: 44px; }
+  .p-foot { padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); }
+}
+</style>
+</head>
+<body>
+<div class="backdrop-page" aria-hidden="true"><header class="navbar">
+  <div class="nav-inner">
+    <a class="nav-logo" href="#" aria-label="Précis, accueil"><img src="../../../frontend/public/Logo.png" alt=""><span>récis</span></a>
+    <nav class="nav-links" aria-label="Navigation principale">
+      <a href="#">Accueil</a><a href="#">Fonctionnalités</a><a href="#">Fonctionnement</a><a href="#">Tarifs</a><a href="#">À Propos</a>
+    </nav>
+    <div class="nav-right">
+      <div class="lang-toggle" aria-label="Langue"><b class="on">FR</b><b>EN</b></div>
+      <button class="avatar" aria-label="Mon compte">M</button>
+      <button class="burger" aria-label="Ouvrir le menu"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></svg></button>
+    </div>
+  </div>
+</header>
+<div class="ghost-hero"></div>
+  <div class="ghost-row"><i style="width:60%"></i><i></i><i style="width:85%"></i><i style="width:40%"></i></div>
+</div>
+<div class="veil"></div>
+
+<aside class="drawer" role="dialog" aria-modal="true" aria-label="Mon compte et mes documents">
+  <header class="p-head">
+    <span class="av" aria-hidden="true">M</span>
+    <div class="who"><b>Marie Exemple</b><span>marie@exemple.fr</span></div>
+    <button class="iconbtn" aria-label="Fermer"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+  </header>
+  <div class="bal">
+    <div class="l"><span class="plan">Essai</span><span><b class="tab">3</b> pages offertes restantes</span><a href="#">Forfaits<svg class="ic" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a></div>
+    <div class="bar" role="progressbar" aria-label="Pages offertes restantes" aria-valuenow="3" aria-valuemin="0" aria-valuemax="5"><i></i></div>
+  </div>
+  <div class="news">
+    <a href="page.html#fonctionnalites"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></svg>Nouveautés<span class="cnt tab" aria-label="3 non vues">3</span><span class="chev"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></span></a>
+    <button class="mailopt" role="switch" aria-checked="true" aria-label="M'avertir des nouveautés par e-mail"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg><span>E-mail</span><span class="switch" aria-hidden="true"></span></button>
+  </div>
+  <section class="docs" aria-labelledby="docs-t">
+    <div class="docs-head">
+      <h2 id="docs-t">Mes documents</h2><span class="n tab" id="docs-n">8</span>
+      <button class="iconbtn more" aria-label="Options de la liste" aria-haspopup="menu" aria-expanded="false" aria-controls="mall"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
+    </div>
+    <div class="menu" id="mall" role="menu" hidden style="top:52px;right:16px"><button class="danger"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Tout effacer</button></div>
+    <label class="find" id="find"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg><input type="search" placeholder="Rechercher un document" aria-label="Rechercher un document"></label>
+    <ul class="list" id="list"><li class="doc" data-name="rapport_annuel_2025_version_finale_relue.pdf"><button class="open" title="Rapport_annuel_2025_version_finale_relue.pdf" aria-label="Aperçu de Rapport_annuel_2025_version_finale_relue.pdf"><span class="ft" title="PDF"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M2 13v-1h6v1"/><path d="M5 12v6"/><path d="M4 18h2"/></svg></span><span class="t"><b><span class="base">Rapport_annuel_2025_version_finale_relue</span><span class="ext">.pdf</span><span class="when tab">39 %</span></b><span><span class="st st--run">Traduction en cours</span><i>·</i><span class="tab">7/18</span></span><span class="prog" role="progressbar" aria-label="Traduction en cours" aria-valuenow="7" aria-valuemin="0" aria-valuemax="18"><i style="width:39%"></i></span></span></button><div class="acts"><button class="iconbtn hov more" aria-label="Actions pour Rapport_annuel_2025_version_finale_relue.pdf" aria-haspopup="menu" aria-expanded="false" aria-controls="m0"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button><div class="menu" id="m0" role="menu" hidden><button><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="14" y="3" width="5" height="18" rx="1"/><rect x="5" y="3" width="5" height="18" rx="1"/></svg>Mettre en pause</button><button><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>Annuler la traduction</button><hr><button class="danger"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Supprimer</button></div></div></li><li class="doc" data-name="contrat_de_prestation_signé.docx"><button class="open" title="Contrat_de_prestation_signé.docx" aria-label="Aperçu de Contrat_de_prestation_signé.docx"><span class="ft" title="Word"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg></span><span class="t"><b><span class="base">Contrat_de_prestation_signé</span><span class="ext">.docx</span><span class="when">il y a 2 h</span></b><span><span class="lang">→ FR</span><i>·</i><span class="tab">6 p.</span></span></span></button><div class="acts"><button class="iconbtn hov dl" aria-label="Télécharger Contrat_de_prestation_signé.docx" title="Télécharger"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg></button><button class="iconbtn hov more" aria-label="Actions pour Contrat_de_prestation_signé.docx" aria-haspopup="menu" aria-expanded="false" aria-controls="m1"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button><div class="menu" id="m1" role="menu" hidden><button><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>Aperçu</button><button><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>Télécharger</button><hr><button class="danger"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Supprimer</button></div></div></li><li class="doc" data-name="présentation_lancement_produit.pptx"><button class="open" title="Présentation_lancement_produit.pptx" aria-label="Aperçu de Présentation_lancement_produit.pptx"><span class="ft" title="PowerPoint"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/></svg></span><span class="t"><b><span class="base">Présentation_lancement_produit</span><span class="ext">.pptx</span><span class="when">hier</span></b><span><span class="lang">→ DE</span><i>·</i><span class="tab">24 p.</span></span></span></button><div class="acts"><button class="iconbtn hov dl" aria-label="Télécharger Présentation_lancement_produit.pptx" title="Télécharger"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg></button><button class="iconbtn hov more" aria-label="Actions pour Présentation_lancement_produit.pptx" aria-haspopup="menu" aria-expanded="false" aria-controls="m2"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button><div class="menu" id="m2" role="menu" hidden><button><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>Aperçu</button><button><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>Télécharger</button><hr><button class="danger"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Supprimer</button></div></div></li><li class="doc doc--quick" data-name="budget_prévisionnel_t1.xlsx"><button class="open" title="Budget_prévisionnel_T1.xlsx" aria-label="Aperçu de Budget_prévisionnel_T1.xlsx"><span class="ft" title="Excel"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><line x1="3" x2="21" y1="9" y2="9"/><line x1="3" x2="21" y1="15" y2="15"/><line x1="9" x2="9" y1="9" y2="21"/><line x1="15" x2="15" y1="9" y2="21"/></svg></span><span class="t"><b><span class="base">Budget_prévisionnel_T1</span><span class="ext">.xlsx</span></b><span><span class="lang">→ FR</span><i>·</i><span class="tab">3 p.</span><i>·</i><span>3 nov.</span></span></span></button><div class="acts"><button class="pill" title="Réglez les pages de ce document pour le télécharger"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Débloquer</button><button class="iconbtn hov more" aria-label="Actions pour Budget_prévisionnel_T1.xlsx" aria-haspopup="menu" aria-expanded="false" aria-controls="m3"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button><div class="menu" id="m3" role="menu" hidden><button><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>Aperçu</button><hr><button class="danger"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Supprimer</button></div></div></li><li class="doc doc--quick" data-name="notice_installation_machine_v3.pdf"><button class="open" title="Notice_installation_machine_v3.pdf" aria-label="Aperçu de Notice_installation_machine_v3.pdf"><span class="ft" title="PDF"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M2 13v-1h6v1"/><path d="M5 12v6"/><path d="M4 18h2"/></svg></span><span class="t"><b><span class="base">Notice_installation_machine_v3</span><span class="ext">.pdf</span></b><span><span class="st st--err"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Échec de la traduction</span></span></span></button><div class="acts"><button class="pill"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Réessayer</button><button class="iconbtn hov more" aria-label="Actions pour Notice_installation_machine_v3.pdf" aria-haspopup="menu" aria-expanded="false" aria-controls="m4"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button><div class="menu" id="m4" role="menu" hidden><button><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>Aperçu</button><hr><button class="danger"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Supprimer</button></div></div></li><li class="doc" data-name="compte_rendu_réunion_équipe.docx"><button class="open" title="Compte_rendu_réunion_équipe.docx" aria-label="Aperçu de Compte_rendu_réunion_équipe.docx"><span class="ft" title="Word"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg></span><span class="t"><b><span class="base">Compte_rendu_réunion_équipe</span><span class="ext">.docx</span><span class="when">28 oct.</span></b><span><span class="lang">→ ES</span><i>·</i><span class="tab">4 p.</span></span></span></button><div class="acts"><button class="iconbtn hov dl" aria-label="Télécharger Compte_rendu_réunion_équipe.docx" title="Télécharger"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg></button><button class="iconbtn hov more" aria-label="Actions pour Compte_rendu_réunion_équipe.docx" aria-haspopup="menu" aria-expanded="false" aria-controls="m5"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button><div class="menu" id="m5" role="menu" hidden><button><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>Aperçu</button><button><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>Télécharger</button><hr><button class="danger"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Supprimer</button></div></div></li><li class="doc" data-name="article_recherche_climat.pdf"><button class="open" title="Article_recherche_climat.pdf" aria-label="Aperçu de Article_recherche_climat.pdf"><span class="ft" title="PDF"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M2 13v-1h6v1"/><path d="M5 12v6"/><path d="M4 18h2"/></svg></span><span class="t"><b><span class="base">Article_recherche_climat</span><span class="ext">.pdf</span><span class="when">21 oct.</span></b><span><span class="lang">→ FR</span><i>·</i><span class="tab">9 p.</span></span></span></button><div class="acts"><button class="iconbtn hov dl" aria-label="Télécharger Article_recherche_climat.pdf" title="Télécharger"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg></button><button class="iconbtn hov more" aria-label="Actions pour Article_recherche_climat.pdf" aria-haspopup="menu" aria-expanded="false" aria-controls="m6"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button><div class="menu" id="m6" role="menu" hidden><button><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>Aperçu</button><button><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>Télécharger</button><hr><button class="danger"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Supprimer</button></div></div></li><li class="doc" data-name="notes_de_lecture.txt"><button class="open" title="Notes_de_lecture.txt" aria-label="Aperçu de Notes_de_lecture.txt"><span class="ft" title="Texte"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg></span><span class="t"><b><span class="base">Notes_de_lecture</span><span class="ext">.txt</span><span class="when">14 oct.</span></b><span><span class="lang">→ EN</span><i>·</i><span class="tab">2 p.</span></span></span></button><div class="acts"><button class="iconbtn hov dl" aria-label="Télécharger Notes_de_lecture.txt" title="Télécharger"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg></button><button class="iconbtn hov more" aria-label="Actions pour Notes_de_lecture.txt" aria-haspopup="menu" aria-expanded="false" aria-controls="m7"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button><div class="menu" id="m7" role="menu" hidden><button><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>Aperçu</button><button><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>Télécharger</button><hr><button class="danger"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Supprimer</button></div></div></li></ul>
+    <p class="nomatch" id="nomatch" hidden>Aucun document ne correspond.</p>
+    <div class="empty" id="empty" hidden>
+      <span class="ill"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2a2 2 0 0 1 1.414.586l4 4A2 2 0 0 1 21 8v7a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path d="M15 2v4a2 2 0 0 0 2 2h4"/><path d="M5 7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 1.732-1"/></svg></span>
+      <b>Aucun document pour l'instant</b>
+      <p>Vos documents traduits apparaîtront ici après chaque traduction.</p>
+      <small>PDF · DOCX · PPTX · XLSX · TXT</small>
+    </div>
+  </section>
+  <footer class="p-foot">
+    <a href="#"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></svg>Inviter des proches</a>
+    <a href="#"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m14.83 14.83 4.24 4.24"/><path d="m9.17 14.83-4.24 4.24"/><circle cx="12" cy="12" r="4"/></svg>Aide &amp; support</a>
+    <button class="out"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg>Déconnexion</button>
+  </footer>
+</aside>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  var list = document.getElementById('list');
+  if (q.get('vide') === '1') {
+    list.remove(); document.getElementById('find').remove();
+    document.querySelector('.docs-head .more').remove(); document.getElementById('docs-n').remove();
+    document.getElementById('empty').hidden = false;
+  }
+  function closeAll(except) {
+    document.querySelectorAll('.menu').forEach(function (m) { if (m !== except) m.hidden = true; });
+    document.querySelectorAll('[aria-haspopup=menu]').forEach(function (b) { if (!except || b.getAttribute('aria-controls') !== except.id) b.setAttribute('aria-expanded', 'false'); });
+  }
+  document.querySelectorAll('[aria-haspopup=menu]').forEach(function (b) {
+    b.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var m = document.getElementById(b.getAttribute('aria-controls')), open = m.hidden;
+      closeAll(m); m.hidden = !open; b.setAttribute('aria-expanded', String(open));
+      if (open) m.querySelector('button').focus();
+    });
+  });
+  document.addEventListener('click', function () { closeAll(null); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeAll(null); });
+  var sw = document.querySelector('.mailopt');
+  sw.addEventListener('click', function () { sw.setAttribute('aria-checked', String(sw.getAttribute('aria-checked') !== 'true')); });
+  var input = document.querySelector('.find input');
+  if (input) input.addEventListener('input', function () {
+    var v = input.value.trim().toLowerCase(), shown = 0;
+    list.querySelectorAll('.doc').forEach(function (li) { var ok = li.dataset.name.indexOf(v) !== -1; li.hidden = !ok; if (ok) shown++; });
+    document.getElementById('nomatch').hidden = shown > 0;
+  });
+  if (q.get('menu') === '1') { var b = list.querySelectorAll('.more')[1]; b.click(); }
+})();
+</script>
+</body>
+</html>

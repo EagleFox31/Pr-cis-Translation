@@ -71,7 +71,8 @@ class Cloture(unittest.TestCase):
             await db.commit()
 
     # -- Préparation -------------------------------------------------------
-    def document(self, page_count, lignes=(), reglages=None, beta_units=0, statuts=None):
+    def document(self, page_count, lignes=(), reglages=None, beta_units=0, statuts=None,
+                 pages_libres=0):
         """Document traduit, ses consommations réservées et le statut OCR des pages."""
         dossier = os.path.join(self.dir, uuid.uuid4().hex[:8])
         os.makedirs(dossier)
@@ -84,7 +85,8 @@ class Cloture(unittest.TestCase):
                 doc = Document(user_id=self.user_id, original_name="scan.pdf", source_lang="fr",
                                target_lang="en", original_path=os.path.join(dossier, "original.pdf"),
                                size_bytes=1, status="translating", page_count=page_count,
-                               reglages=json.dumps(reglages or {}))
+                               reglages=json.dumps(reglages or {}),
+                               pages_libres=pages_libres)
                 db.add(doc)
                 await db.flush()
                 for kind, pages in lignes:
@@ -167,6 +169,30 @@ class Cloture(unittest.TestCase):
                                   statuts={5: "illisible"})
         self.cloturer(doc, trad)
         self.assertEqual(self.etat(doc)[0], {KIND_PLAN: 2})
+
+    def libres(self, doc_id):
+        async def lire():
+            from app.services.documents import pages_libres_du_document
+            async with session() as db:
+                doc = await db.get(Document, doc_id)
+                return doc.pages_libres, pages_libres_du_document(doc)
+        return lancer(lire())
+
+    def test_pages_libres_hors_base_du_remboursement(self):
+        # 7 pages : 5 payées, 6 et 7 libres ; la page 2 (payée) est blanche.
+        doc, trad = self.document(7, [(KIND_PLAN, 5)], pages_libres=2, statuts={2: "blanche"})
+        self.cloturer(doc, trad)
+        self.cloturer(doc, trad)
+        self.assertEqual(self.etat(doc)[0], {KIND_PLAN: 4})
+        self.assertEqual(self.libres(doc), (2, {6, 7}))
+
+    def test_page_blanche_libre_sort_de_la_zone_sans_la_decaler(self):
+        # 7 pages : 4 payées, 5 à 7 libres ; la page 6 (libre) est blanche.
+        doc, trad = self.document(7, [(KIND_PLAN, 4)], pages_libres=3, statuts={6: "blanche"})
+        self.cloturer(doc, trad)
+        self.cloturer(doc, trad)
+        self.assertEqual(self.etat(doc)[0], {KIND_PLAN: 4})
+        self.assertEqual(self.libres(doc), (2, {5, 7}))
 
     def test_beta_pages_rendues(self):
         doc, trad = self.document(3, reglages={"beta": True}, beta_units=3,

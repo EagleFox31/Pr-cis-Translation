@@ -48,6 +48,8 @@ class BetaEnrollment(Base):
     activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Last time the invitation mail actually left; None until it does.
+    mailed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class BetaUsage(Base):

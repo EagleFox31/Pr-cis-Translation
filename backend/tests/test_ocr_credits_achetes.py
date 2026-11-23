@@ -89,6 +89,9 @@ async def trial_offer_on_scan():
                             created_at=racine.compte_ancien())
                 db.add(user)
                 await db.commit()
+                # Refus d'avant le mode libre : plafond libre a 0.
+                from app.services import anti_abus
+                anti_abus.LIBRE_MAX_PAGES = 0
                 response, soumis = await _envoyer(user, db, dossier, "")
                 assert soumis == []
                 return response.status_code, json.loads(bytes(response.body))
