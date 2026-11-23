@@ -76,9 +76,14 @@ async def _lifespan(_app: FastAPI):
     surveillance_solde = asyncio.create_task(solde_ia.surveiller())
     from app.services.beta_abuse import cleanup_loop
     nettoyage_beta = asyncio.create_task(cleanup_loop())
+    # Journal d'erreurs : erreurs corrigées par cette version marquées
+    # traitées, puis purge quotidienne du traité expiré.
+    from app.services import error_log_menage
+    menage_journal = asyncio.create_task(error_log_menage.entretenir())
     _afficher_banniere()
     yield
     surveillance_solde.cancel()
+    menage_journal.cancel()
     nettoyage_beta.cancel()
     try:
         await nettoyage_beta
