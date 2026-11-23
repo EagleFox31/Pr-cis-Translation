@@ -188,7 +188,7 @@ def _ajouter_polices(eng, data, doc):
 def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                               pages=None, partial_path=None, on_event=None,
                               debug=False, cache_path=None, engine=None,
-                              arret=None, images=None, lecteur_ocr=None,
+                              arret=None, images=None, lecteur_ocr=None, avant_page=None,
                               pages_vides=None, pages_originales=None,
                               signaler_illisibles=False,
                               pages_non_incluses=None):
@@ -323,6 +323,12 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                                  "done": human, "total": total})
                 continue
 
+            # Limite d'aperçu : contrôlée devant toute page de la sélection,
+            # avant la lecture OCR et le cache. Une page déjà traduite (cache
+            # partagé entre comptes) au-delà du plafond serait sinon livrée
+            # sans être ni payée ni comptée.
+            if avant_page is not None:
+                avant_page(human)
             page_src, page_idx = src, page_num
             lecture = lecteur_ocr(human, src, page_num) if lecteur_ocr else None
             if lecture is not None:

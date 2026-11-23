@@ -35,7 +35,8 @@ from app.rate_limit import verify_api_key
 from app.services.documents import acces_archive
 from app.services.documents import (build_job_paths, cap_pages_for_plan,
                                     count_pages, pages_avec_texte, pages_faites,
-                                    reglages_de, translation_path_for)
+                                    pages_selectionnees, reglages_de,
+                                    translation_path_for)
 from app.services import usage
 from app.services import anti_abus
 from app.services import beta
@@ -57,6 +58,13 @@ router = APIRouter(tags=["Traduction"])
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
+def _selection_normale(pages, nb_pages: int):
+    """Sélection comparable : None pour « tout le document »."""
+    if not pages or set(pages) == set(range(1, nb_pages + 1)):
+        return None
+    return set(pages)
+
 
 @router.options("/api/translate")
 async def translate_options():
@@ -193,7 +201,8 @@ def _analyse_images(file_bytes: bytes, ext: str):
     images = lister_images(file_bytes, ext) if ext in IMAGES_PROPOSABLES else []
     total = sum(1 for i in images if not i.exclusion)
     pages = count_pages(file_bytes, ext)
-    return {"pages": pages, "images": total, "analysees": 0, "total": total,
+    from app.services.langue_document import langue_du_document
+    return {"pages": pages, "langue": langue_du_document(file_bytes, ext), "images": total, "analysees": 0, "total": total,
             "incomplet": False, "indisponible": False, "apercus": []}
 
 
@@ -243,6 +252,10 @@ async def translate_endpoint(
     # l'utilisateur après un 402 `need_credits`. Sans lui, un solde insuffisant
     # refuse le document entier — jamais de troncature silencieuse.
     covered_only: str = Form(""),
+    # « Traduire jusqu'à la limite » : choix explicite après un 402 où l'aperçu
+    # du jour ne suffit pas. Le document s'arrête en pause à la limite et se
+    # reprend plus tard (docs/etude-apercu-pages-libres.md, Retour 4).
+    jusqu_limite: str = Form(""),
     # Ancienne option « traduire aussi les images » : ignorée depuis l'option D1
     # (images proposées après la traduction), gardée pour les anciens clients.
     images: str = Form(""),  # noqa: ARG001
@@ -264,6 +277,7 @@ async def translate_endpoint(
     verify_api_key(x_api_key)
     # Appel direct (tests) : le défaut est l'objet `Form`, pas une chaîne.
     resume_of = resume_of if isinstance(resume_of, str) else ""
+    jusqu_limite = jusqu_limite if isinstance(jusqu_limite, str) else ""
 
     quality = qualite_autorisee(quality, precise, current_user)
 
@@ -361,6 +375,7 @@ async def translate_endpoint(
         raise HTTPException(400, "La sélection contient une page absente du document.")
     beta_cost = None
     budget = None       # pages traduisibles d'un scan partiellement couvert
+    plafond = None      # pages de la sélection traduites avant la pause (limite d'aperçu)
     if beta_mode:
         if pages_set and any(p < 1 or p > nb_pages for p in pages_set):
             raise HTTPException(400, "La sélection contient une page absente du document.")
@@ -428,6 +443,7 @@ async def translate_endpoint(
     # (docs/etude-traduction-libre.md, règle a).
     doc_is_paid = False
     pages_libres = 0
+    deja_libres = 0
 
     # Signaux anti-abus des pages OFFERTES : lus et enregistrés AVANT le verrou
     # (écritures courtes, validées tout de suite pour qu'un refus ne les perde
@@ -468,6 +484,8 @@ async def translate_endpoint(
     # le cache est partagé par fichier entre comptes, la remise, elle, ne vaut
     # que pour ce qu'on a soi-même payé.
     deja_payees = 0
+    faites_reprise = 0      # pages déjà traduites par le document repris
+    libres_reprises = 0     # dont pages d'aperçu (libres), non payées
     reprise = None
     if resume_of and not debug_mode:
         reprise = await db.get(Document, resume_of, with_for_update=True)
@@ -482,7 +500,11 @@ async def translate_endpoint(
                 or reprise.target_lang != target_lang
                 or os.path.basename(os.path.dirname(reprise.original_path or "")) != file_hash
                 or reglages_de(reprise).get("qsuffix", qsuffix) != qsuffix
-                or bool(reglages_de(reprise).get("precise")) != (quality == "precise")):
+                or bool(reglages_de(reprise).get("precise")) != (quality == "precise")
+                # Même sélection : le cache d'une autre sélection a pu être
+                # rempli par un autre document, il ne prouve rien pour celui-ci.
+                or _selection_normale(pages_selectionnees(reprise), nb_pages)
+                != _selection_normale(pages_set, nb_pages)):
             reprise = None
         else:
             _job_dir, _lang_dir = build_job_paths(file_hash, target_lang)
@@ -492,16 +514,23 @@ async def translate_endpoint(
                       + int(reglages_de(reprise).get("deja") or 0))
             if await beta.office_billed(db, reprise.id):
                 payees = total      # DOCX/XLSX bêta payé et écrit : tout est dû
-            deja_payees = min(payees, pages_faites(
+            faites_reprise = pages_faites(
                 translation_path_for(_lang_dir, ext, pages_set, qsuffix),
-                ext, pages_set, total))
+                ext, pages_set, total)
+            deja_payees = min(payees, faites_reprise)
+            # Pages d'aperçu déjà traduites par le document repris : déjà
+            # comptées au plafond, jamais retraduites ni recomptées.
+            libres_reprises = max(0, min(reprise.pages_libres or 0,
+                                         faites_reprise - deja_payees))
             # Consommé : une seconde reprise du même document paiera plein
             # tarif. Annulé avec la transaction si la reprise est refusée.
             # Sans remise, le document garde son statut d'arrêt : rien n'a été
             # transmis à la reprise.
-            if deja_payees > 0:
+            if deja_payees > 0 or libres_reprises > 0:
                 reprise.status = "resumed"
     beta_charge = None
+    libres_nouvelles = 0
+    reglages_libres: dict = {}
     if beta_mode:
         enrollment = await beta.active_enrollment(db, locked, lock=True)
         if enrollment is None:
@@ -546,24 +575,50 @@ async def translate_endpoint(
         # la proposition faite en fin de traduction.
         a_couvrir = needed
         # Mode libre : ce que le solde ne couvre pas est traduit en aperçu, dans
-        # la limite du plafond ; la sélection reste entière.
+        # la limite du plafond ; la sélection reste entière. Une reprise garde
+        # en aperçu les pages libres déjà traduites par le document repris.
         libre_actif = False
         libre_limite = False
-        if (mode_libre and couvert is not None and a_couvrir > couvert
-                and deja_payees == 0 and not resume_of):
-            libres = needed - couvert
-            deja_libres = await anti_abus.libre_used(db, locked.id, machine_id)
-            if deja_libres + libres > anti_abus.LIBRE_MAX_PAGES:
-                # Au-delà du plafond : encart « crédits insuffisants » habituel.
-                libre_limite = True
-            else:
-                pages_libres = libres
+        limite_info: dict = {}
+        if mode_libre and couvert is not None and a_couvrir > couvert:
+            plafond_jour = anti_abus.LIBRE_MAX_PAGES
+            if plafond_jour is not None:
+                deja_libres = await anti_abus.libre_used(db, locked.id, machine_id)
+            # Sur le reste à faire : d'abord les pages payées et les libres
+            # reprises, puis de nouvelles pages d'aperçu tant que le plafond
+            # le permet.
+            acquises = max(libres_reprises, couvert)
+            nouvelles = max(0, a_couvrir - acquises if plafond_jour is None
+                            else min(a_couvrir - acquises, plafond_jour - deja_libres))
+            traduites = acquises + nouvelles
+            if traduites < a_couvrir:
+                heure_reprise = await anti_abus.libre_reprise(
+                    db, locked.id, machine_id,
+                    min(a_couvrir - acquises, anti_abus.LIBRE_MAX_PAGES))
+                # Le document avancerait d'au moins une page avant la pause :
+                # « traduire jusqu'à la limite » est possible.
+                avance = deja_payees + traduites > faites_reprise
+                limite_info = {"libre_used": deja_libres, "libre_max": anti_abus.LIBRE_MAX_PAGES,
+                               "libre_needed": a_couvrir - acquises,
+                               "libre_reprise": heure_reprise.isoformat() if heure_reprise else None,
+                               "pause_possible": avance}
+                if jusqu_limite == "1" and avance:
+                    # Traduit jusqu'à la limite, puis pause : le job s'arrête
+                    # après les `plafond` premières pages de la sélection.
+                    plafond = deja_payees + traduites
+                else:
+                    libre_limite = True     # encart « limite d'aperçu atteinte »
+            if not libre_limite:
+                pages_libres = traduites - couvert
                 libre_actif = True
                 needed = couvert
         if not libre_actif and couvert is not None and a_couvrir > couvert:
             # Pas de reprise tronquée : une autre sélection nommerait un
             # autre cache, et les pages payées ne seraient pas retrouvées.
-            partiel = ext in ("pdf", "pptx") and couvert > 0 and deja_payees == 0
+            # Ni sur un document en pause qui a des pages d'aperçu : il serait
+            # consommé et son aperçu perdu.
+            partiel = (ext in ("pdf", "pptx") and couvert > 0 and deja_payees == 0
+                       and libres_reprises == 0)
             if not (covered_only == "1" and partiel):
                 if refus_offert:
                     return avec_cookie(JSONResponse(status_code=402, content={
@@ -583,7 +638,7 @@ async def translate_endpoint(
                     "pages_missing": a_couvrir - couvert,
                     "partial_possible": partiel,
                     "trial": gratuit and reste_plan > 0,
-                    "libre_limit": libre_limite,
+                    "libre_limit": libre_limite, **limite_info,
                 }))
         if not libre_actif and couvert is not None and needed > couvert:
             visees = sorted(pages_set) if pages_set else range(1, nb_pages + 1)
@@ -601,11 +656,26 @@ async def translate_endpoint(
         if pages_libres and pages_set:
             # La limite du forfait a pu couper la sélection : les pages libres
             # ne comptent que celles qui seront traduites.
-            pages_libres = min(pages_libres, max(0, len(pages_set) - needed))
-        if pages_libres:
+            pages_libres = min(pages_libres, max(0, len(pages_set) - deja_payees - needed))
+        total_sel = len(pages_set) if pages_set else nb_pages
+        if plafond is not None and plafond >= total_sel:
+            plafond = None
+        # Libres reprises encore non couvertes : déjà comptées au plafond.
+        libres_nouvelles = max(0, pages_libres - max(0, libres_reprises - needed))
+        if libres_nouvelles:
             # Compté pour le plafond après la borne : seules les pages qui
-            # seront traduites.
-            anti_abus.record_libre(db, locked, machine_id, pages_libres)
+            # seront traduites. L'attribution est gardée sur le document : une
+            # pause rend au plafond les pages libres non traduites.
+            attribution = anti_abus.record_libre(db, locked, machine_id, libres_nouvelles)
+            reglages_libres["libre_grant"] = attribution.id
+        if plafond is not None:
+            # Heure à laquelle l'aperçu permet de continuer (le reste, ou une
+            # tranche pleine) : affichée sur la carte du document en pause.
+            await db.flush()
+            heure = await anti_abus.libre_reprise(
+                db, locked.id, machine_id, min(total_sel - plafond, anti_abus.LIBRE_MAX_PAGES))
+            reglages_libres["plafond"] = plafond
+            reglages_libres["reprise_apercu"] = heure.isoformat() if heure else None
         if budget is not None and pages_set and len(pages_set) <= budget:
             budget = None       # la limite du forfait a suffi à tout couvrir
             needed = min(needed, len(pages_set))
@@ -675,7 +745,7 @@ async def translate_endpoint(
         job_args = (job_id, file_bytes, original_path, output_path,
                     output_filename, partial_path, translation_path, target_lang,
                     pages_set, debug_mode,
-                    images_actives, current_user.id, budget)
+                    images_actives, current_user.id, budget, plafond)
     elif ext == "pptx":
         # PPTX → moteur progressif slide par slide (comme le PDF v2).
         # Si compte admin : 5 slides traduites en parallèle.
@@ -736,7 +806,8 @@ async def translate_endpoint(
                                           # Document dont les images à texte
                                           # seront proposées en fin de travail.
                                           "images": bool(images_actives),
-                                          **({"budget": budget} if budget else {})})
+                                          **({"budget": budget} if budget else {}),
+                                          **reglages_libres})
     except Exception:
         # Rien ne sera soumis : le job ouvert plus haut resterait « pending »
         # en mémoire, sans document ni worker, jusqu'au ménage.
@@ -768,6 +839,19 @@ async def translate_endpoint(
                "read_clear": doc_is_paid}
     if pages_libres:
         reponse["pages_libres"] = pages_libres
+        # Numéros des pages libres (les DERNIÈRES de la sélection, comme
+        # `pages_libres_du_document`) : l'aperçu les voile une à une.
+        visees = sorted(pages_set) if pages_set else list(range(1, nb_pages + 1))
+        if plafond:
+            visees = visees[:plafond]
+        reponse["pages_libres_numeros"] = visees[-pages_libres:]
+        # Ce qu'il reste d'aperçu sur 24 h, annoncé sous l'aperçu.
+        if anti_abus.LIBRE_MAX_PAGES is not None:
+            reponse["libre_restant"] = max(0, anti_abus.LIBRE_MAX_PAGES - deja_libres - libres_nouvelles)
+    if plafond:
+        # Pause automatique après `plafond` pages ; reprise possible à cette heure.
+        reponse["plafond"] = plafond
+        reponse["reprise_apercu"] = reglages_libres.get("reprise_apercu")
     if scans:
         reponse["ocr_pages"] = len(scans)
         reponse["ocr_review_required"] = True
@@ -814,7 +898,8 @@ async def translation_events(job_id: str, token: str = ""):
                                if etat == "done" else
                                {"type": "error", "message": job.get("error")}
                                if etat == "error" else
-                               {"type": "stopped", "mode": etat})
+                               {"type": "stopped", "mode": etat,
+                                "limite": bool(job.get("pause_limite"))})
                         yield f"data: {json.dumps(fin, ensure_ascii=False)}\n\n"
                         break
                     yield ": keepalive\n\n"

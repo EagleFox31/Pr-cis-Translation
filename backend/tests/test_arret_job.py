@@ -85,8 +85,17 @@ async def run():
        not issubclass(ArretDemande, Exception))
     jobs.arreter(jid, "cancelled")
     evt = jobs.get(jid)["q"].get_nowait()
-    ok("le flux reçoit « stopped »", evt == {"type": "stopped", "mode": "cancelled"}, str(evt))
+    ok("le flux reçoit « stopped »",
+       evt == {"type": "stopped", "mode": "cancelled", "limite": False}, str(evt))
     ok("arrêt d'un job fini refusé", not jobs.demander_arret(jid, "paused"))
+    jobs.forget(jid)
+    # Pause à la limite d'aperçu : le flux le dit, pour un message dédié.
+    jid = jobs.create()
+    jobs.marquer_pause_limite(jid)
+    jobs.arreter(jid, "paused")
+    evt = jobs.get(jid)["q"].get_nowait()
+    ok("« stopped » d'une pause à la limite porte limite=True",
+       evt == {"type": "stopped", "mode": "paused", "limite": True}, str(evt))
     jobs.forget(jid)
     jid = jobs.create()
     ok("un job pris par un worker démarre", jobs.demarrer(jid) is True)

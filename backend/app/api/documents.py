@@ -245,20 +245,25 @@ def _render_or_404(doc: Document, ext: str,
                             detail="Le rendu du document a échoué. Réessayez dans quelques instants.")
 
 
-async def _traduction(db: AsyncSession, doc: Document) -> tuple[str | None, set[int] | None]:
+async def _traduction(db: AsyncSession, doc: Document,
+                      avec_libres: bool = False) -> tuple[str | None, set[int] | None]:
     """(traduction à livrer, pages livrables : None si elle est complète).
 
     Un document arrêté avant la fin (interrompu, en pause, annulé) n'a pas de
     `translated_path` mais ses pages traduites sont payées : il les reçoit, au
     plus autant qu'il en a payé, le reste en langue d'origine. Ce rendu
     partiel n'est jamais mis en cache : le cache est indexé par le fichier,
-    partagé entre comptes, et un autre document y prendrait d'autres pages."""
+    partagé entre comptes, et un autre document y prendrait d'autres pages.
+    `avec_libres` (aperçu seulement) : ses pages d'aperçu s'y ajoutent ; elles
+    sont filigranées par `pages_filigranees`, jamais téléchargées."""
     if doc.translated_path:
         return doc.translated_path, None
     if doc.status not in STATUTS_REPRENABLES:
         return None, None
     payees = (await usage.pages_payees(db, doc.id)
               + int(reglages_de(doc).get("deja") or 0))
+    if avec_libres:
+        payees += doc.pages_libres or 0
     partielle = await run_in_threadpool(traduction_partielle_du_document, doc, payees)
     return partielle or (None, None)
 
@@ -333,6 +338,18 @@ def _suivi_scan(doc: Document) -> dict:
             "pages_relues": len(en_cours)}
 
 
+def _pause_apercu(doc: Document) -> dict:
+    """Document arrêté par la limite d'aperçu (lancé « jusqu'à la limite » et
+    arrivé au plafond) : heure où la tranche d'aperçu suivante (le reste, au
+    plus la limite) redevient disponible sans achat. Vide sinon, y compris
+    pour une pause manuelle."""
+    reglages = reglages_de(doc)
+    if (doc.status != "paused" or "reprise_apercu" not in reglages
+            or not reglages.get("pause_limite")):
+        return {}
+    return {"limite_apercu": True, "reprise_apercu": reglages.get("reprise_apercu")}
+
+
 def _doc_response(doc: Document, user: User) -> dict:
     fin = acces_jusqu_au(user, doc)
     return {
@@ -340,6 +357,8 @@ def _doc_response(doc: Document, user: User) -> dict:
         "id": doc.id,
         "paid": doc.paid,
         "pages_libres": doc.pages_libres or 0,
+        "pages_libres_numeros": sorted(pages_libres_du_document(doc)),
+        **_pause_apercu(doc),
         "original_name": doc.original_name,
         "source_lang": doc.source_lang,
         "target_lang": doc.target_lang,
@@ -668,7 +687,7 @@ async def preview_document(
     # montrait original/original et n'avançait plus. On sert désormais le PDF
     # PARTIEL du job (les pages déjà traduites), ou « rien encore » — jamais
     # l'original déguisé en traduction. `X-Render` dit au client de redemander.
-    trad, livrables = await _traduction(db, doc)
+    trad, livrables = await _traduction(db, doc, avec_libres=True)
     if not trad:
         job = jobs.for_document(doc.id)
         etat = job.get("state") if job else None

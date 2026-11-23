@@ -354,6 +354,13 @@ class JobManager:
         job = self.get(job_id)
         return job.get("arret") if job else None
 
+    def marquer_pause_limite(self, job_id: str) -> None:
+        """La pause qui suit vient de la limite d'aperçu, pas de l'utilisateur."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is not None:
+                job["pause_limite"] = True
+
     def verifier_arret(self, job_id: str) -> None:
         """Point de contrôle : lève `ArretDemande` si un arrêt est demandé."""
         mode = self.arret_demande(job_id)
@@ -369,7 +376,8 @@ class JobManager:
         if job:
             job["state"] = mode
             job["finished_at"] = time.time()
-            job["q"].put({"type": "stopped", "mode": mode})
+            job["q"].put({"type": "stopped", "mode": mode,
+                          "limite": bool(job.get("pause_limite"))})
 
     # ── Report en base ───────────────────────────────────────────────────
     def _document_id(self, job_id: str) -> str | None:
@@ -430,8 +438,11 @@ class JobManager:
         doc_id = self._document_id(job_id)
         if not doc_id:
             return
+        with self._lock:
+            pause_limite = bool((self._jobs.get(job_id) or {}).get("pause_limite"))
 
         async def _maj(db):
+            nonlocal status, pause_limite
             from sqlalchemy import select
             from app.models import Document, User
             # Ordre unique des verrous : compte, puis document (un
@@ -446,8 +457,24 @@ class JobManager:
             # à la reprise ; rembourser ou refacturer ici compterait deux fois.
             if doc is None or doc.status == "resumed":
                 return
-            from app.services.documents import pages_faites_du_document, reglages_de
-            deja = int(reglages_de(doc).get("deja") or 0)
+            from app.services.documents import (pages_faites_du_document,
+                                                pages_selectionnees, reglages_de)
+            reglages = reglages_de(doc)
+            deja = int(reglages.get("deja") or 0)
+            plafond = int(reglages.get("plafond") or 0)
+            if status == "done" and plafond > 0:
+                # Garde-fou : un document plafonné ne se termine jamais au-delà
+                # de son plafond ; il reste en pause à la limite d'aperçu.
+                # Les pages que l'utilisateur a choisi de laisser vides ne
+                # comptent pas : sautées, elles n'ont rien à traduire.
+                from app.services import ocr_pages
+                from app.services.documents import _selection_du_document
+                sel = pages_selectionnees(doc)
+                visees = sorted(sel) if sel else range(1, (doc.page_count or 0) + 1)
+                choix = _selection_du_document(doc)
+                vides = ocr_pages.pages_vides(choix[0]) if choix else set()
+                if any(p not in vides for p in list(visees)[plafond:]):
+                    status, pause_limite = "paused", True
             if status in STATUTS_ARRET or (status == "error" and deja > 0):
                 # Pause, annulation, ou échec d'une REPRISE (« Interrompue » et
                 # non « Échec », sinon les pages payées par le document repris
@@ -463,6 +490,22 @@ class JobManager:
                 faites = pages_faites_du_document(doc)
                 doc.pages_done = faites
                 await refund_unfinished(db, doc_id, max(0, faites - deja))
+                if doc.pages_libres:
+                    # Pages d'aperçu non traduites : rendues au plafond de 24 h.
+                    from app.models import LibreGrant
+                    from app.services.documents import borner_libres_a_l_arret
+                    rendues = borner_libres_a_l_arret(doc)
+                    gid = reglages_de(doc).get("libre_grant")
+                    attribution = await db.get(LibreGrant, gid) if rendues and gid else None
+                    if attribution is not None:
+                        attribution.pages = max(0, attribution.pages - rendues)
+                if status == "paused" and pause_limite:
+                    # Carte « en pause : limite d'aperçu » (jamais pour une
+                    # pause demandée par l'utilisateur).
+                    import json
+                    marque = reglages_de(doc)
+                    marque["pause_limite"] = True
+                    doc.reglages = json.dumps(marque)
                 return
             doc.status = status
             if translated_path:
