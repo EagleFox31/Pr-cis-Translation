@@ -9,6 +9,7 @@ from pathlib import Path
 from collections import defaultdict
 
 from engines import runtags        # contrat des balises de runs (et sa réparation)
+from engines.pptx import debordement
 from engines import incorpores     # objets incorporés (Excel, Word, PowerPoint)
 
 NAMESPACES = {
@@ -91,6 +92,187 @@ def _is_numeric(val: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+# ── Unités de traduction d'un paragraphe ────────────────────────────────────
+# Un « porteur » est ce qui part sous UNE balise [[i]] : un run, ou plusieurs
+# runs qu'un saut de ligne manuel sépare au milieu d'une même phrase. Le même
+# calcul sert à l'extraction et à la réinjection : les deux côtés voient donc
+# toujours les mêmes porteurs, dans le même ordre.
+
+_A = NAMESPACES["a"]
+_SYMBOLES = "-✀-➿■-◿←-⇿•"
+_RE_SYMBOLES_SEULS = re.compile(rf"^[\s{_SYMBOLES}]*$")
+_RE_PREFIXE_SYMBOLE = re.compile(rf"^\s*[{_SYMBOLES}](?:[\s{_SYMBOLES}])*")
+_RE_MARQUEUR = re.compile(r"^\s*(?:[-–—*•]|\d+[.)]|[A-Za-z][.)])\s")
+_FIN_PHRASE = tuple(".:;!?")
+_ATTRS_NEUTRES = ("lang", "altLang", "dirty", "err", "noProof", "smtClean", "bmk")
+
+
+def _est_symbole(texte: str) -> bool:
+    """Run fait seulement de pictogrammes (coche Wingdings, flèche, puce) :
+    rien à traduire, il reste tel quel comme un segment verrouillé en TAO."""
+    return bool(texte.strip()) and bool(_RE_SYMBOLES_SEULS.match(texte))
+
+
+def _cle_rpr(r_elem) -> bytes:
+    """Mise en forme d'un run, hors attributs sans effet visible (langue…)."""
+    rpr = r_elem.find(f"{{{_A}}}rPr")
+    if rpr is None:
+        return b""
+    copie = etree.fromstring(etree.tostring(rpr))
+    for att in _ATTRS_NEUTRES:
+        copie.attrib.pop(att, None)
+    return etree.tostring(copie)
+
+
+def _segments(p_elem) -> list[dict]:
+    """Runs porteurs de texte d'un paragraphe, avec leur ligne visuelle."""
+    segs, ligne = [], 0
+    for enfant in p_elem:
+        if enfant.tag == f"{{{_A}}}br":
+            ligne += 1
+            continue
+        if enfant.tag != f"{{{_A}}}r":
+            continue
+        t_elems = enfant.findall(f"{{{_A}}}t")
+        src = "".join(t.text for t in t_elems if t.text)
+        if not src.strip() or _est_symbole(src):
+            continue
+        m = _RE_PREFIXE_SYMBOLE.match(src)
+        pre = m.group(0) if m else ""
+        segs.append({"r": enfant, "t": t_elems, "src": src, "pre": pre,
+                     "ligne": ligne, "rpr": _cle_rpr(enfant)})
+    return segs
+
+
+def _seul_sur_sa_ligne(segs, s) -> bool:
+    return sum(1 for x in segs if x["ligne"] == s["ligne"]) == 1
+
+
+def _porteurs(p_elem) -> list[list[dict]]:
+    """Regroupe les lignes qu'un saut manuel coupe au milieu d'une phrase.
+
+    memoQ / Trados gardent le <a:br/> DANS le segment : la phrase se traduit
+    entière. Sans cela chaque ligne part seule (« Toyota » / « Service
+    Advisor Program » / « Deployment Guide ») et le modèle les traduit sans
+    contexte. On ne fusionne que deux lignes consécutives, seules sur leur
+    ligne, de même mise en forme, quand la première ne finit pas une phrase
+    et que la seconde ne commence pas une puce ou une numérotation.
+    """
+    segs = _segments(p_elem)
+    groupes = []
+    for s in segs:
+        if groupes:
+            a = groupes[-1][-1]
+            if (s["ligne"] == a["ligne"] + 1 and not s["pre"]
+                    and _seul_sur_sa_ligne(segs, a) and _seul_sur_sa_ligne(segs, s)
+                    and s["rpr"] == a["rpr"]
+                    and not a["src"].rstrip().endswith(_FIN_PHRASE)
+                    and not _RE_MARQUEUR.match(s["src"])):
+                groupes[-1].append(s)
+                continue
+        groupes.append([s])
+    return groupes
+
+
+def _texte_porteur(groupe: list[dict]) -> str:
+    if len(groupe) == 1:
+        s = groupe[0]
+        return s["src"][len(s["pre"]):]
+    return runtags.joindre_lignes([s["src"][len(s["pre"]):] for s in groupe])
+
+
+def _sans_doubles_espaces(nouveau: str, source: str) -> str:
+    """Contrôle QA « espaces doubles » : on n'en crée pas là où la source
+    n'en avait pas."""
+    if re.search(r"\S {2,}\S", source):
+        return nouveau
+    return re.sub(r"(?<=\S) {2,}(?=\S)", " ", nouveau)
+
+
+def _textes_segments(groupe: list[dict], traduit: str) -> list[str]:
+    """Texte final de chaque run d'un porteur (préfixe symbole remis, lignes
+    redécoupées aux proportions de la source, espaces de bord conservés)."""
+    if len(groupe) == 1:
+        s = groupe[0]
+        return [_sans_doubles_espaces(s["pre"] + traduit, s["src"])]
+    coeurs = [s["src"][len(s["pre"]):] for s in groupe]
+    lignes = runtags.decouper_lignes(traduit, [len(c.strip()) for c in coeurs])
+    sortie = []
+    for s, coeur, ligne in zip(groupe, coeurs, lignes):
+        tete = coeur[:len(coeur) - len(coeur.lstrip())]
+        queue = coeur[len(coeur.rstrip()):]
+        sortie.append(_sans_doubles_espaces(s["pre"] + tete + ligne + queue, s["src"]))
+    return sortie
+
+
+def _ecrire_segments(segs: list[dict], textes: list[str]):
+    """Écrit les textes dans les runs ; à la jonction de deux runs d'une même
+    ligne, pas d'espace + espace que la source n'avait pas."""
+    prec = None
+    for s, nouveau in zip(segs, textes):
+        if (prec is not None and prec[0]["ligne"] == s["ligne"]
+                and prec[1].endswith(" ") and nouveau.startswith(" ")
+                and not (prec[0]["src"].endswith(" ") and s["src"].startswith(" "))):
+            nouveau = nouveau[1:]
+        if s["t"]:
+            s["t"][0].text = nouveau
+            for extra in s["t"][1:]:
+                extra.text = ""
+        prec = (s, nouveau)
+
+
+def _est_espace_reserve(p_elem) -> bool:
+    for anc in p_elem.iterancestors():
+        if anc.tag == f"{{{NAMESPACES['p']}}}sp":
+            return anc.find(".//p:nvPr/p:ph", namespaces=NAMESPACES) is not None
+    return False
+
+
+def _cle_ppr(p_elem) -> bytes:
+    ppr = p_elem.find(f"{{{_A}}}pPr")
+    return b"" if ppr is None else etree.tostring(ppr)
+
+
+def _fusions_paragraphes(paragraphs) -> dict[int, list[int]]:
+    """Libellés coupés en paragraphes courts dans une même forme (bandeau
+    « Appointment » / « Preparation ») : le texte part entier, puis revient
+    sur les mêmes paragraphes. Conditions strictes : tout le bloc de texte est
+    UN libellé (2–3 paragraphes d'une ligne, ≤ 3 mots chacun, ≤ 6 au total,
+    même mise en forme, sans puce ni fin de phrase), hors espace réservé.
+    Renvoie {indice du premier paragraphe: [indices du groupe]}.
+    """
+    index = {id(p): i for i, p in enumerate(paragraphs)}
+    par_bloc = defaultdict(list)
+    for p in paragraphs:
+        parent = p.getparent()
+        if parent is not None and etree.QName(parent).localname == "txBody":
+            par_bloc[id(parent)].append(p)
+    fusions = {}
+    for ps in par_bloc.values():
+        if not 2 <= len(ps) <= 3 or len(ps) != len(ps[0].getparent().findall(f"{{{_A}}}p")):
+            continue
+        segs = []
+        for p in ps:
+            groupes = _porteurs(p)
+            if (len(groupes) != 1 or len(groupes[0]) != 1
+                    or p.find(f"{{{_A}}}br") is not None or groupes[0][0]["pre"]):
+                break
+            segs.append(groupes[0][0])
+        else:
+            mots = [len(s["src"].split()) for s in segs]
+            ppr = {_cle_ppr(p) for p in ps}
+            cle_ppr = next(iter(ppr))
+            if (max(mots) <= 3 and sum(mots) <= 6
+                    and len({s["rpr"] for s in segs}) == 1 and len(ppr) == 1
+                    and b"buChar" not in cle_ppr and b"buAutoNum" not in cle_ppr
+                    and not any(s["src"].rstrip().endswith(_FIN_PHRASE) for s in segs[:-1])
+                    and not any(_RE_MARQUEUR.match(s["src"]) for s in segs[1:])
+                    and not _est_espace_reserve(ps[0])):
+                idx = [index[id(p)] for p in ps]
+                fusions[idx[0]] = idx
+    return fusions
 
 
 def _auto_refresh_powerpoint(pptx_path: str) -> bool:
@@ -186,6 +368,8 @@ class PPTXTranslatorEngine:
         # Parties partagées déjà extraites pour CE document (chemins de
         # fichiers). Remis à zéro avec le dossier temporaire.
         self._parts_vues: set[str] = set()
+        # Mesure des zones de texte ORIGINALES, par fichier XML (étape c).
+        self._sources_debord: dict[str, dict] = {}
         # PPTX d'origine du dossier temporaire : les objets incorporés se
         # relèvent et se réinjectent depuis lui (chemin progressif, diapo à diapo).
         self._source: str | None = None
@@ -262,6 +446,7 @@ class PPTXTranslatorEngine:
             shutil.rmtree(self.temp_dir, ignore_errors=True)
             self.temp_dir = None
         self._parts_vues.clear()
+        self._sources_debord.clear()
 
     def _extract_zip(self, pptx_path):
         """Décompresse le PPTX (archive ZIP) dans le dossier temporaire."""
@@ -271,6 +456,7 @@ class PPTXTranslatorEngine:
         self._source = str(pptx_path)
         # Nouveau document : les parties partagées sont à revoir.
         self._parts_vues.clear()
+        self._sources_debord.clear()
 
     def _part_deja_vue(self, chemin) -> bool:
         """Cette partie PARTAGÉE a-t-elle déjà été extraite ? (et la marque)"""
@@ -492,7 +678,11 @@ class PPTXTranslatorEngine:
 
     def _process_xml_element(self, root, slide_num, data_store, element_types_used, id_prefix, filters):
         paragraphs = root.xpath(".//a:p", namespaces=NAMESPACES)
+        fusions = _fusions_paragraphes(paragraphs)
+        suivants = {i for g in fusions.values() for i in g[1:]}
         for p_idx, p_elem in enumerate(paragraphs):
+            if p_idx in suivants:
+                continue        # porté par le premier paragraphe du libellé
             shape_type = "SmartArt (Diagram)" if "diag" in id_prefix else ("Chart" if "chart" in id_prefix else ("Slide Layout" if "layout" in id_prefix else "unknown"))
             if "diag" not in id_prefix and "chart" not in id_prefix and "layout" not in id_prefix:
                 parent = p_elem.getparent()
@@ -511,19 +701,21 @@ class PPTXTranslatorEngine:
             if shape_type == "SmartArt (Diagram)" and not filters.get("smartarts"): continue
             if shape_type == "Chart" and not filters.get("tables"): continue
 
-            # Extraction par run <a:r> pour préserver la mise en forme (gras,
-            # italique, taille…). Les sauts de ligne <a:br/> sont des siblings
-            # des runs et restent intacts dans le XML.
-            runs = p_elem.xpath("a:r", namespaces=NAMESPACES)
-            tagged_parts = []
-            valid_idx = 0
-
-            for r_elem in runs:
-                t_elems = r_elem.xpath("a:t", namespaces=NAMESPACES)
-                r_text = "".join(t.text for t in t_elems if t.text)
-                if r_text.strip():
-                    tagged_parts.append(f"[[{valid_idx}]]{r_text}[[/{valid_idx}]]")
-                    valid_idx += 1
+            # Extraction par porteur (run, ou lignes d'une même phrase coupée
+            # par un saut manuel) pour préserver la mise en forme. Les <a:br/>
+            # restent intacts dans le XML.
+            if p_idx in fusions:
+                segs = [_porteurs(paragraphs[i])[0][0] for i in fusions[p_idx]]
+                groupes = [segs]
+            else:
+                groupes = _porteurs(p_elem)
+            tagged_parts = [f"[[{i}]]{_texte_porteur(g)}[[/{i}]]"
+                            for i, g in enumerate(groupes)]
+            valid_idx = len(groupes)
+            # Paragraphe fait seulement de pictogrammes : rien à traduire.
+            if not groupes and any(_est_symbole("".join(t.text or "" for t in r.findall(f"{{{_A}}}t")))
+                                   for r in p_elem.findall(f"{{{_A}}}r")):
+                continue
 
             # Fallback : paragraphes sans <a:r> mais avec des <a:t> directs
             if not tagged_parts:
@@ -692,45 +884,102 @@ class PPTXTranslatorEngine:
         """
         tree = etree.parse(str(xml_path))
         root = tree.getroot()
-        modified = False
+        etat = self._etat_debord(xml_path, root) if id_prefix == "p" else None
+        modified = self._injecter_racine(root, slide_num, id_prefix,
+                                         translation_map, num_alt)
+        if modified and etat:
+            debordement.ajuster(root, etat)
+        if modified:
+            with open(xml_path, "wb") as f:
+                f.write(etree.tostring(tree, encoding="utf-8", xml_declaration=True))
+        return modified
 
+    def _etat_debord(self, xml_path, root):
+        """Mesure de l'ORIGINAL de la diapositive, prise une seule fois : la
+        passe de cohérence réinjecte dans un fichier déjà traduit, qui ne dit
+        plus si l'original tenait dans ses zones."""
+        cle = str(xml_path)
+        if cle not in self._sources_debord:
+            self._sources_debord[cle] = debordement.etat_source(root)
+        return self._sources_debord[cle]
+
+    def debordements(self, slide_num: int, translation_map: dict) -> dict:
+        """{identifiant: ratio} des paragraphes dont la zone déborderait plus
+        que l'original avec cette traduction (ratio = place disponible / place
+        demandée, < 1). Simulation en mémoire : rien n'est écrit."""
+        path = self._slide_path(slide_num)
+        if not path.exists():
+            return {}
+        root = etree.parse(str(path)).getroot()
+        etat = self._etat_debord(path, root)
+        if not etat:
+            return {}
+        # Les éléments restent référencés par `paras` : lxml rend donc les
+        # mêmes objets Python après l'injection (un `id()` seul ne tiendrait pas).
+        paras = root.xpath(".//a:p", namespaces=NAMESPACES)
+        rang = {p: i for i, p in enumerate(paras)}
+        self._injecter_racine(root, slide_num, "p", translation_map, ())
+        out = {}
+        for ratio, paras in debordement.excedents(root, etat):
+            for p in paras:
+                elem_id = f"slide{slide_num}_p_p{rang[p]}"
+                if elem_id in translation_map:
+                    out[elem_id] = ratio
+        return out
+
+    def _injecter_racine(self, root, slide_num, id_prefix, translation_map, num_alt):
+        modified = False
         paragraphs = root.xpath(".//a:p", namespaces=NAMESPACES)
-        for p_idx, p_elem in enumerate(paragraphs):
+
+        def _id(p_idx):
             elem_id = f"slide{slide_num}_{id_prefix}_p{p_idx}"
             if elem_id not in translation_map:
                 for n in num_alt:
                     candidat = f"slide{n}_{id_prefix}_p{p_idx}"
                     if candidat in translation_map:
-                        elem_id = candidat
-                        break
-            if elem_id in translation_map:
+                        return candidat
+            return elem_id
+
+        # Libellé coupé en paragraphes : traduit d'un bloc sous l'identité du
+        # premier. Une traduction plus ancienne qui nomme encore les suivants
+        # se réinjecte paragraphe par paragraphe, comme avant.
+        fusions = {i: g for i, g in _fusions_paragraphes(paragraphs).items()
+                   if not any(_id(j) in translation_map for j in g[1:])}
+        suivants = {i for g in fusions.values() for i in g[1:]}
+        for p_idx, p_elem in enumerate(paragraphs):
+            if p_idx in suivants:
+                continue
+            elem_id = _id(p_idx)
+            if elem_id in translation_map and p_idx in fusions:
+                segs = [_porteurs(paragraphs[i])[0][0] for i in fusions[p_idx]]
+                traduit = runtags.repartir([_texte_porteur(segs)],
+                                           translation_map[elem_id])[0]
+                for s, nouveau in zip(segs, _textes_segments(segs, traduit)):
+                    _ecrire_segments([s], [nouveau])
+                modified = True
+            elif elem_id in translation_map:
                 translated_text = translation_map[elem_id]
 
                 # Réinjection par run <a:r> — même parcours que l'extraction
                 runs = p_elem.xpath("a:r", namespaces=NAMESPACES)
                 if runs:
-                    # On relève d'abord les runs PORTEURS et leur texte source,
-                    # dans l'ordre : c'est le contrat que la traduction doit
-                    # honorer, et `runtags` le fait honorer coûte que coûte.
-                    porteurs = []          # [(r_elem, t_elems, texte_source)]
-                    for r_elem in runs:
-                        t_elems = r_elem.xpath("a:t", namespaces=NAMESPACES)
-                        r_text = "".join(t.text for t in t_elems if t.text)
-                        if r_text.strip():
-                            porteurs.append((r_elem, t_elems, r_text))
+                    # On relève d'abord les PORTEURS et leur texte source, dans
+                    # l'ordre : c'est le contrat que la traduction doit honorer,
+                    # et `runtags` le fait honorer coûte que coûte.
+                    porteurs = _porteurs(p_elem)
 
                     # Le code précédent ne remplaçait QUE les runs présents dans
                     # la réponse. Un run oublié par le modèle gardait donc son
                     # texte SOURCE, et la diapositive affichait la traduction
                     # collée à l'original (« DAY 2 OF TRAINING° JOUR DE
                     # FORMATION »). `repartir` rend toujours un texte PAR RUN.
-                    textes = runtags.repartir([p[2] for p in porteurs],
+                    textes = runtags.repartir([_texte_porteur(g) for g in porteurs],
                                               translated_text)
-                    for (_r, t_elems, _src), nouveau in zip(porteurs, textes):
-                        if t_elems:
-                            t_elems[0].text = nouveau
-                            for extra_t in t_elems[1:]:
-                                extra_t.text = ""
+                    segs, finaux = [], []
+                    for g, nouveau in zip(porteurs, textes):
+                        segs += g
+                        finaux += _textes_segments(g, nouveau)
+                    _ecrire_segments(segs, finaux)
                     modified = True
                 else:
                     # Fallback : pas de runs, injection directe dans les <a:t>
@@ -752,10 +1001,6 @@ class PPTXTranslatorEngine:
                     # s'affichait telle quelle dans le graphique.
                     v_node.text = runtags.sans_balises(translation_map[elem_id])
                     modified = True
-
-        if modified:
-            with open(xml_path, "wb") as f:
-                f.write(etree.tostring(tree, encoding="utf-8", xml_declaration=True))
         return modified
 
     # ── Méthodes pour le pipeline PROGRESSIF (slide par slide) ──────────────

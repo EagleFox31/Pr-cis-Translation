@@ -1,257 +1,53 @@
-# PASSATION — 12/11/2026
-**Chantier actif = G Nouveautés** (OCR en pause : `C:/Users/IBRAH/Documents/Projets/Precis-Translator-ocr/PASSATION-OCR.md`, branche `fix/ocr-robustesse-documents`, prochaine étape cause A+2bis découpe `blocs()`).
+# PASSATION — 19/11/2026
+
 ## 1. Objectif en cours
-**Mission G, branche `feat/nouveautes`** (non poussée, dernier commit 30850b2) : G.10 → G.12c faits, commités et validés par l'utilisateur (« tout est ok on peut continuer », 12/11) ; reste push + PR. Push + PR seulement sur accord (GitHub : erreur de certificat `SEC_E_UNTRUSTED_ROOT`).
-Mission F terminée (PR #75). En attente de fusion par l'utilisateur : #70, puis #71, puis #75, puis E.4b.
+Corriger les défauts PPTX du PowerPoint de Gerold (R6/R7) selon `docs/etude-pptx-qualite-gerold.md`. On est dans le worktree `Precis-Translator-pptx-qualite`, sur la branche `fix/pptx-qualite`. Rien n'est poussé : on attend la validation locale de l'utilisateur.
+
 ## 2. Fait
-- Branche `feat/lettres-dessinees-visionneuse` @ **05634d1** (non poussée) : tout le travail local sauf `feat/journal-purge-auto` 7558685. Banc public : 50 images de documents dans `backend/translations/_banc_public/` (`docs/etude-banc-public.md`).
+- a02225c (étapes a, b, e) dans `engines/pptx/engine.py` et `engines/runtags.py` :
+  - un titre coupé par des sauts de ligne manuels est traduit en une seule unité, puis recoupé en lignes équilibrées (`decouper_lignes` et `joindre_lignes`) ;
+  - un libellé court coupé en paragraphes est fusionné de la même façon ;
+  - un symbole seul n'est pas envoyé au modèle, et un préfixe symbole est conservé ;
+  - aucun espace double n'est créé.
+  - Tests : `tests/test_pptx_porteurs.py`.
+- cef7439 (étape d) :
+  - `runtags.traductions_majoritaires` : pour un même original d'au moins deux mots, la majorité stricte (≥ 2) l'emporte ; en cas d'égalité, rien ne change.
+  - Elle est branchée dans `_coherence_document` (`app/services/translation_runner.py` ~l.549), avant la reprise des termes incohérents. Elle ne fait aucun appel au modèle et ne réinjecte que les diapositives touchées.
+  - L'étude, section (d), est mise à jour.
+- Preuves :
+  - test_pptx_porteurs 21 passés ;
+  - test_pptx_preview 38/38 ;
+  - test_runtags 41/41.
+  - Auparavant : reprise_pptx, apercu_progressif, contexte_traduction, ole_apercu, xlsx, rendu_structure, download_format, tous verts.
+
 ## 3. Décisions
-- Visite : même contenu pour tous ; seul le bouton final change (invité → /register, gratuit → /home#pricing, payant → « Terminé », ferme simplement) ; pendant la visite la barre du haut reste au-dessus du voile, seul FR/EN y est actif (`modal.css` classe `vst-ouverte`) ; écran de fin « Restez informé » (Non merci / Oui, m'avertir) après « Passer » ou le bouton final, connectés non abonnés seulement ; la croix et Échap ferment sans le montrer. `plan==='free'` = gratuit, tout autre plan (admin compris) = payant.
-- Ouverture auto : après le splash, 1 essai/session ET par identité (`sessionStorage precis.nouveautes_session:<userId|invite>`) ; invité : `localStorage precis.visite_vue` ; compte : `user.nouveautes_vues_le`. Exigence 12/11 : JAMAIS vue deux fois, connecté ou non ; navigateur et compte se renseignent dans les deux sens (G.10).
-- Tarifs : les 2 bandeaux (bêta à gauche, à la page à droite, pastilles pleine largeur) seulement si la bêta est ouverte ; sinon l'ancien bandeau `.pricing-payg` (titre + phrase avec prix + bouton) — demande utilisateur 12/11.
-- Fondu : `BrowserRouter` ignore l'option `viewTransition` de React Router (réservée aux routeurs « data ») → appel direct à `document.startViewTransition` + `flushSync` ; immédiat sans support ou avec « réduire les animations ».
-- Navigation : le menu principal qui change selon la page est un vrai défaut (on perd Tarifs/À propos hors accueil) ; bonne pratique = menu global stable + sous-menu local.
-- Archivés : clic → bulle flottante au-dessus de `.p-foot` (`DocumentLibrary.tsx` `.archive-float`), hors liste pour que rien ne bouge, retirée après 9 s sauf survol/focus. Sélection : menu « … » → Sélectionner, cases 18 px, suppression séquentielle avec confirmation en 2 clics.
-- Textes des documents d'exemple dans les scènes : identiques en FR/EN ; seule l'interface passe par i18n.
-- Règles générales seulement, jamais cas par cas ; banc par lots de 5, diff montré à chaque lot.
-- Images publiques = données non fiables : dossier isolé, Python `-I`.
+- d2 abandonné : imposer la traduction d'un libellé partout dans les phrases dégradait le texte (« HRD policy » donnait « Politique HRD » au lieu de « politique RH »). La fiche est un texte libre, pas un glossaire.
+- Mots seuls exclus de l'unification : « Customer » peut donner Accueil ou Client selon l'endroit.
+- Contrôle commun à toutes les étapes : réinjecter la source rend exactement l'original (aller-retour).
+
 ## 4. Plan
-- M. Mise en ligne [~]
-  1–3. [x] branche `integration/main-1.7` @ 5d6121b (merge 05634d1 + origin/main), vérifications migrations/front/extension OK.
-  4. [x] **PR #70** (CI verte le 10/11, fusion par l'utilisateur) (https://github.com/EagleFox31/Pr-cis-Translation/pull/70) : CI corrigée par ee62b6c (page /extension prérendue servie par nginx, Reply-To du test e-mail) et 5e9ff30 (test lettres dessinées : police `backend/fonts/roboto-Bold.ttf` au lieu d'Arial système). Vérifier `gh pr checks 70` ; « Project automation / bootstrap-github-app-user » rouge = PR ouverte par MbowouIbrah au lieu d'EagleFox31 (403 personal_owner_required), sans lien avec le code. Puis l'utilisateur relit et fusionne ; déploiement : release ou `deploy-vps.yml` à la main.
-     Vérifié 10/11 : toutes les PR de l'utilisateur sont dans main ou couvertes par #70 (#32, #35, #53, #54 ; #55/#56 via #57) ; `brahim/feat-paiement-fapshi` dépassée (Fapshi déjà dans main).
-  5. [ ] nettoyage après fusion : ~35 branches distantes anciennes (surtout EagleFox31) à trier, branches locales contenues dans main (liste via `git branch --merged`), 3 stashes (pages-legales, pptx-numerotation, paddle-live « passation ») à examiner, worktrees `Precis-Translator-{extension,invitations,visionneuse}` + 3 worktrees kilo détachés (`~/.local/share/kilo/worktree-pool`) — demander avant de supprimer.
-- C. Connexion de l'extension par le site [~] (branche `feat/connexion-extension-site`, étude `docs/etude-connexion-extension.md`) — à finir AVANT le Publish Edge
-  1–5. [x] étude, backend (migration 0023, tests 33/33 + 57/57), pages site, extension (PKCE), revue `docs/revues/connexion-*`.
-  6. [ ] CI de #71 verte (vérifié 10/11) ; l'utilisateur fusionne #70 puis #71 (re-cibler #71 sur `main` si GitHub ne le fait pas) ; `deploy-vps.yml` (migration 0023 au déploiement) ; refaire le parcours de connexion sur `precis-translator.trigenys.com`.
-- N. [x] 3 commits locaux sur `feat/connexion-extension-site` non poussés (5e20aa2, c47084d, 595c2f4) ← accord pour les pousser dans #71.
-- F. Fluidité/responsive [x] (étude `docs/etude-fluidite-responsive.md`, revue `docs/revues/fluidite-responsive.md`, PR #75).
-- G. Nouveautés [~] (étude `docs/etude-nouveautes.md` fait foi, fiche `docs/integration-nouveautes.md` ; confirmer chaque étape avec l'utilisateur)
-  0–9. [x] maquettes, catalogue, migration 0024, API, e-mail, pages `/fonctionnalites` + `/desabonnement`, visite (`components/nouveautes/`), ligne du panneau compte (`NouveautesLigne.tsx`), refonte panneau + archivés (registre `docs/revues/panneau-compte.md`), RGPD, vérifs 11/11, retours du 12/11 (commits 6e7ca0c → 2afa9c7).
-  10. [x] visite jamais vue deux fois, dans les 2 sens (Playwright : invité, navigateur→compte, compte→navigateur neuf) : `pages/Home.tsx:602-660` ; compte non vu + `localStorage precis.visite_vue` présent → `marquerVu()` sans rouvrir ; visite vue avec un compte ou compte déjà vu → poser `localStorage precis.visite_vue` (`NouveautesModal.tsx:11,59`). Seule limite : invité sur un navigateur neuf la voit une fois.
-  10–11 commités : ca95db1 (visite), 7e1bf06 + 4929199 (tarifs).
-  11. [x] piste E (`PricingCards.tsx` `.pricing-duo`, `BetaOffer.tsx`, CSS `.pricing-strip*` dans `index.css`, `pricing-grid--with-beta` retiré de `beta.css`) ; sans bêta = ancien bandeau. Playwright 1280/375 bêta ouverte (simulée via `page.route('**/api/beta/program')` `applications_open: True`) et fermée : pas de débordement ni d'erreur JS.
-  12. [x] navigation piste B (étude `docs/etude-navigation-tarifs.md`) : `AppBar` unique partout (`Navbar.tsx` supprimé), 2ᵉ rangée intégrations/légal/admin, repli mesuré `navbar/useRepli.ts`, `--nav-total`. Contrôle Playwright `scratchpad/nav/chevauchement.py [--balayage]` : 342 + 2 432 situations, 0 défaut ; lint OK.
-  12b. [x] 0a148c8 : Nouveautés retiré du menu (reste via panneau compte + bloc Qui sommes-nous) ; liens vers d'autres pages après un trait, fléchés ↗ (barre `.nav-sep`/`.nav-ailleurs`, menu ☰ `.mm-sep`) ; fondu 0,25 s au changement de page (`avecFondu` dans `AppBar.tsx`, aussi sur la 2ᵉ rangée et le logo). Contrôle 342 + 2 432 situations, 0 défaut ; lint + build OK.
-  12c. [x] e1fa21e + 30850b2 : bouton flottant rond bleu en bas à droite, aligné sur le cadre de la barre (`right: max(--frame-pad, calc((100% - --frame-max)/2 + --frame-pad))`, `index.css` `.retour-haut`) : accueil = « Revenir en haut » hors section hero et aperçu fermé (`Home.tsx`) ; autres pages = « Accueil » (icône maison, `AppBar.tsx` quand pas de `section`). /extension sur téléphone : onglet Installation retiré (il était vide), ouverture sur Tarif, 3 onglets icône au-dessus du libellé (`ExtensionPage.tsx` `onglets`/`vue`, `extension-page.css` ≤480 px). Vérifs 12/11 : front tsc/lint/build OK, extension typecheck + 62/62 + build OK, backend compileall OK + catalogue 8/8 ; tests backend avec base NON lancés (Docker arrêté → `precis-test-pg` 5433 indisponible).
-  13. [x] 12/11 : tests backend Nouveautés 23/23 + 24/24 + 8/8, poussé, **PR #76** (base `perf/fluidite-responsive`, empilée sur #75). Ordre de fusion : #70 → #71 → #75 → #76.
-- E. Publication Edge Add-ons [~] (textes prêts : `docs/fiches-boutiques-extension.md`)
-  1–4. [x] ZIP corrigé (`extension/package.mjs:70`, domaine `precis-translator.trigenys.com`), compte Partner Center `contact@trigenys.com`, extension créée, Public 241 marchés, Properties remplies.
-  4b. [ ] Après C.6 : Partner Center → renvoyer `extension/precis-translator-1.0.0.zip` (connexion par le site) + mettre à jour l'étape 2 des descriptions FR/EN et les notes de certification (`docs/fiches-boutiques-extension.md` §2, §9).
-  5. [ ] Compte de test Précis avec crédits (créé sur le site, crédits ajoutés sans paiement réel), puis Publish ; notes de certification : §5 permissions + §9 ; fournir un compte de test Précis avec crédits. Submit (examen ≤ 7 jours ouvrés).
-  6. [ ] Captures 1280×800 (§8, conseillées) — proposé de les produire automatiquement.
-  7. [ ] Après validation : `VITE_EXTENSION_ID_EDGE` / `VITE_EXTENSION_URL_EDGE`, rebuild site, vérifier `/extension`. Committer le correctif package.mjs (push seulement après accord).
-- .13h [~] banc public (reprise demandée 10/11) : lot 0 jugé **mauvais** (planches `backend/translations/_banc_public/sorties/lot0/`). Correctifs proposés, ordre recommandé A → B → C : **A** ne pas fusionner des lignes empilées quand chacune a un texte en face sur la même rangée (étiquette/valeur de formulaire ; cause : `blocs()` de 57263ca) ; **B** texte clair sur bandeau foncé : garder/repeindre le bandeau, taille correcte (« SPÉCIFI-CATIONS ») ; **C** consigne traducteur : noms de société et chiffres intacts + contrôle des chiffres (« 199o », « ROPER STARCH MONDIAL ») ; fantômes devant les cases à cocher à revoir après A. Puis lots 1 → 9, test des 50, rapport final.
-- .14 [ ] essai utilisateur dans l'interface (4S à retraduire).
-- 6.16.4 [ ] secrets prod `SMTP_*` + `ADMIN_ALERT_EMAIL` ; 6.11.7 [ ] recette Docker (attend 3 documents réels) ; 6.4 [~] TEAM-GP ; 6.9, 6.12, 6.5, 6.14 [ ].
-**Fait hors plan** : carte compacte `/extension` commitée (6ea558a). Signalé non traité : bordures latérales épaisses `.ext-notes` (l.62) et `.api-chantier` (l.182).
-**Hors plan** : page `/extension` étape 2 : rendre `edge://extensions` copiable au clic + adresse selon le navigateur (un lien direct est impossible, bloqué par les navigateurs) — proposé, non validé ; `doc.paid` non recalculé après `refund_unfinished` ; `budget_<job>.json` jamais purgés ; Spacemail limité par jour (→ Amazon SES si volume) ; limites images : texte coloré sur dégradé, `_couleur()`, marge intérieure 6 %, glossaire inter-images, « S » orné sur « Trier » (PDF) ; règle d'admission du banc admet des schémas à lettres seules (A, B…) — gardés, ils testent « laisser tel quel ».
+1. [x] (a) + R6 sauts de ligne et libellés coupés
+2. [x] (b) symboles
+3. [x] (e) espaces doubles
+4. [x] (d) cohérence : même original, majorité
+5. [x] (c) débordement de zone : `engines/pptx/debordement.py` (mesure par largeurs Arial, `ajuster` avec un plancher de 80 %), `engine.py` (`_inject_in_xml`, `debordements`), `translation_runner._compacter_slide` (retraduction plus courte). Tests : `tests/test_pptx_debordement.py`.
+5b. [x] Réduction de police écrite dans le texte (`sz`), avec repli `normAutofit` si la taille vient du masque ; marge de 3 % sur la largeur.
+   - Reste pour l'étape 6 : « Caractéristiques » (diapositive 6) et « Entretien Rappel d'entretien… » (diapositive 10) ne tiennent pas, même à 80 % : il faut la retraduction plus courte.
+   - Bandeau « Niveaux de certification » : `wrap=none` + `spAutoFit`. Il est sur une ligne dans PowerPoint ; seul LibreOffice le coupe.
+6. [ ] ← Rejouer Gerold (`original.pptx` → nouvelle traduction) et montrer seulement les cas qui changent.
+7. [ ] Rapport à l'utilisateur. Push/PR seulement après sa validation locale.
+
+**Hors plan** : la même règle de débordement pour XLSX (accord de l'utilisateur ; branche à part).
+
 ## 5. Pièges / contexte
-- Interdits : `backend/.env` en LIVE (Fapshi, Spacemail) → ne jamais valider un paiement réel ; ne pas afficher les `.env` (`grep -c` seulement) ; jamais de clé dans un fichier suivi ; ne jamais tester `POST /api/auth/login` avec une adresse inconnue.
-- venv : `C:/Users/IBRAH/Documents/Projets/Precis_Translator_backup_2026-06-10_13-10/backend/venv/Scripts/python.exe`, toujours `PYTHONUTF8=1 NO_PROXY='*'` (proxy Windows mort), lancé depuis `backend/`. Chemins `C:/...` pour cv2. Le `backend/venv` local est vide (mis de côté en `venv_vide_1549`).
-- Compte démo local : `demo-gratuit@example.com` / `Demo-Precis-2026` via `POST /api/auth/login-password` (6 docs : 2 archivés, 1 échec, 1 pause) ; ses Nouveautés sont déjà vues. Vérif navigateur : `scratchpad/verif.py` (panneau), `verif5.py` (défilement /extension). API sur 127.0.0.1 (pas localhost : IPv6).
-- Banc public : `NO_PROXY='*' $P -I -X utf8 tests/banc_images.py --banc _banc_public --lot N [--live]`. Banc interne : `$P tests/banc_images.py --lot N` (lots 0–3).
-- 1 à 2 processus Python à la fois maximum (erreurs mémoire).
-- Lancer l'app : `npm run stop` puis `scripts/dev.py`. Uvicorn orphelin sur 8000 → tuer par PID, y compris les workers `multiprocessing` du `--reload`. Les copies ocr/extension servent aussi 8000/3000 (sans Nouveautés → 404 `/api/nouveautes/abonnement`) : vérifier quel dossier sert les ports. Actuellement 8000 et 3000 servis par CE dossier (base migrée 0024) ; les arrêter avant de reprendre l'OCR.
-- Tests Nouveautés : scripts `PYTHONUTF8=1 $P tests/test_*.py` depuis `backend/` ; `test_nouveautes_catalogue.py` est pytest → `PYTHONPATH=. python -m pytest -q` (pytest absent du venv, présent dans le Python système). Captures panneau : `py -X utf8 scratchpad/captures.py <out> <axe.min.js>` (Playwright = Python 3.14 utilisateur, donc sans `-I`).
-- Tests backend : Postgres 5433 (`precis-test-pg`), jamais la base dev 5432. Front : `npx tsc --noEmit -p . ; npm run lint --silent ; npm run build --silent`. Extension : `npm run -s typecheck && npm test && npm run -s build`.
-- Base dev (5432) stampée avec les anciens ids `0020_extension_usage`/`0021_extension_textes_vus` : après bascule sur la branche, créer la table de `0020_orchestrator_events` puis `alembic stamp 0022_extension_textes_vus` (ou `verifier_migrations.py --base` pour le diagnostic).
-- Prod = VPS OVH (`deploy-vps.yml`, déclenché par une release ou à la main) ; fusionner dans main ne déploie pas seul.
-- Fichiers CRLF : éditer avec Edit, jamais `sed -i`. Remote `origin` = EagleFox31. `gh pr list` fonctionne.
-- Playwright connecté sans vraie connexion : `localStorage precis_tokens` factice + `page.route("**/api/**")` simulé (sauf `/api/pricing` et `/api/beta/program` en `continue_`, `/api/beta/me` → 404) ; bouton du tiroir = `nav button[title]` (« Mon compte »).
-
-## 2026-11-07 03:42 — Consolidation des 7 PR ouvertes
-
-- **Doublons** : PR empilées. #32 et #35 ⊂ #53 ⊂ #54 ⊂ #55 et #56. Seules #55 (extension), #56 (3 commits OCR) et #52 (inbox orchestrateur, indépendante) portent du travail propre.
-- **Branche** : `integration/pr-consolidation`, fusions dans l'ordre #55, #56, #52 ; PR #57 vers `main`.
-- **Corrigé** : migration de #52 renommée `0020_orchestrator_events` (down_revision `0019_extension_avance`) ; sinon deux têtes Alembic et `upgrade head` en échec au déploiement. Conflits d'import (`api/extension.py`) et de routeurs (`app/__init__.py`) résolus en gardant les deux côtés.
-- **Vérifié en local** : une seule tête Alembic, compilation Python, JSON valides, `npm run lint` et `npm run build` OK. Suites backend complètes : CI de la PR #57.
-- **Reste** : fusionner #57 une fois la CI verte, fermer #32/#35/#53/#54/#55/#56/#52 comme intégrées, fusionner la PR Release Please, puis lancer manuellement le workflow de déploiement AWS.
-
-## 2026-11-07 04:00 — Relecture de la PR #57 en attente, audit SEO/GEO
-
-- **État** : PR #57 (`integration/pr-consolidation`) ouverte, CI 7 vertes / 2 en cours / 0 échec au dernier relevé. Rien fusionné sur `main`, aucune PR fermée.
-- **Verrou** : le commanditaire relit #57 avant toute fusion. Ne pas fusionner sans son accord explicite.
-- **Audit SEO/GEO du site en ligne** : bases correctes (title, description, canonical, OG, JSON-LD, robots, sitemap). Manques : sitemap d'une seule URL, toutes les routes servent le même `<head>` avec canonical `/home`, pas de hreflang ni d'URL anglaise, pas de `llms.txt`, pas de compression gzip/brotli, ~800 Ko de JS. Les nouvelles pages des PR (`/extension`, pages légales) ne sont pas dans `frontend/public/sitemap.xml`.
-- **Prochaine étape** : après accord, fusionner #57, fermer les 7 PR intégrées, fusionner la PR Release Please, déclencher le déploiement AWS manuel, puis traiter le SEO/GEO dans une PR séparée.
-
-## 2026-11-07 04:10 — Correctifs SEO / GEO (branche feat/seo-geo)
-
-- Branche `feat/seo-geo`, partie de `integration/pr-consolidation` (PR #57, toujours en attente de relecture : ne pas fusionner sans accord).
-- Source unique des pages publiques : `frontend/seo/site.json`. `frontend/scripts/prerender.mjs` (lancé par `npm run build`) écrit `dist/<route>.html`, `sitemap.xml` et `llms.txt` ; `frontend/public/sitemap.xml` supprimé.
-- `frontend/nginx.conf` : `gzip_proxied any` (Caddy ajoute `Via`), `try_files $uri $uri.html`, redirection `/index`.
-- `scripts/ci/verify_public_seo.py` étendu ; job CI `seo` lance le prérendu avant nginx.
-- Vérifié localement : build + lint OK, contrôle SEO PASS sur nginx 1.27 (sources et vrai `dist`), JS 802 Ko → 294 Ko en gzip.
-- Non traité : hreflang / URL anglaises (routage i18n à concevoir), FAQ structurée sur `/home` (aucune FAQ visible sur la page React).
-- `public-https-verification` échouera contre la production tant que cette branche n'est pas déployée.
-
-## 2026-11-07 04:29 — Pages d'intention SEO/GEO (branche feat/seo-intent-pages)
-
-- Branche `feat/seo-intent-pages`, partie de `feat/seo-geo` (PR #58). Plan venant de la session « expert-seo-geo », vérifié contre le code avant exécution.
-- P0 : nœud `SoftwareApplication` complété (`offers` gratuit, `featureList`, `inLanguage`) ; `url` de l'Organization → `https://www.trigenys.com` (trigenys.com n'expose pas de JSON-LD, l'`@id` local est gardé).
-- P1 : 9 pages statiques sans JavaScript, décrites dans `frontend/seo/pages/*.json` et déclarées dans `site.json` (`source: "content"`) : `/traduire-pdf`, `/traduire-word`, `/traduire-powerpoint`, `/traduire-excel`, `/traduire-anglais-francais`, `/traduire-francais-anglais`, `/tarifs`, `/confidentialite-documents`, `/comparatif`. Blocs réutilisables (étapes, limites, avant/après, confidentialité) dans `site.json`. FAQPage par page, date `verified`, sources citées pour le comparatif.
-- `verify_public_seo.py` : contrat prix/limites contre le backend, pages de contenu sans script, FAQ visible, lien vers `/home`, `offers`/`featureList`.
-- Vérifié : build + lint OK, prérendu idempotent (octets identiques), contrôle SEO PASS sur nginx 1.27, test de mutation du contrat, rendu mobile sans défilement horizontal de page.
-- À décider : landing `comparison.row_data_precis` (« Supprimées sous 24h ») et `row_ocr_other` contredisent la politique / les faits concurrents. P2 (annuaires, Product Hunt, AlternativeTo, fiche store, article) à créer en issues après accord.
-- Ordre de fusion après accord : #57 → #58 → cette PR. Aucune fusion faite.
-
-## 2026-11-07 10:29 — Issues P2 SEO hors site et synchronisation du board
-
-- Issues activées sur le dépôt (`gh repo edit --enable-issues`, réversible) avec l'accord de l'utilisateur.
-- Créées avec métadonnées `appfactory-project` intégrées (P2, phase Release) : #60 annuaires, #61 Product Hunt, #62 AlternativeTo (S), #63 fiches Chrome/Edge, #64 article de lancement (Documentation). Script idempotent (saute un titre existant).
-- Board : #61 à #63 manquaient (runs annulés par la concurrence du workflow réutilisable) ; resynchronisées via `workflow_dispatch`, les 5 sont en Backlog avec les bons champs. Leçon ajoutée dans `docs/engineering/lessons-learned.md`.
-- PR ouvertes, rien fusionné : #57 (consolidation), #58 (feat/seo-geo), #59 (feat/seo-intent-pages, base #58).
-- Après accord : fusionner #57 → #58 → #59, fermer #32/#35/#52/#53/#54/#55/#56, fusionner la PR Release Please, déployer sur AWS, vérifier la production (`public-https-verification.yml`).
-- Toujours à décider : textes de la landing `comparison.row_data_precis` et `row_ocr_other`.
-
-## 2026-11-07 21:49 — Ré-épinglage appfactory v1.4.0 (PR #65)
-
-- PR #65 (`chore/repin-appfactory-v1.4.0`, base main) : `project-automation.yml` passe de `14d51168` à v1.4.0 `0523510` (concurrence par issue/PR, corrige la perte de syncs en rafale). Testée par `workflow_dispatch` depuis la branche sur #62 : succès, aucun doublon. Non fusionnée.
-- Côté appfactory : PR EagleFox31/appfactory-project-automation#148 (épinglage documenté, test anti-SHA défectueux, LESSON-2026-017), non fusionnée.
-
-## 2026-11-09 08:15 — Audit SEO à froid de la production
-
-- Prod mesurée : sitemap 1 URL, `/extension`, `/tarifs`, `/llms.txt` en 404, pas de gzip. Aucun des travaux #57/#58/#59 n'est en ligne.
-- Estimation : prod ~20/100 ; après déploiement ~45/100 (technique fort, autorité quasi nulle, contenu FR seulement).
-- Prochaine étape inchangée : accord de fusion #57 → #58 → #59 (+ #65, appfactory#148), puis déploiement et Search Console.
-
-## 2026-11-09 09:49 — Fusion, release 1.7.0, déploiement bloqué
-- **Fait** : #59 → #58 → #57 (squash 3bfbdc2) et #65 fusionnées dans main, CI verte ; #32, #35, #52–#56 fermées (renvoi vers #57). Tests de #57 stabilisés (490a598 : `with TestClient`, unicité PPTX par id d'élément).
-- **Release** : v1.7.0 publiée via #66 (PR ouverte à la main : Actions n'a pas le droit de créer des PR ; titre « chore: » de #57 corrigé par `BEGIN_COMMIT_OVERRIDE`).
-- **Verrou** : le job `deploy-production` (reusable-aws-ssm-compose-deploy @9496878) exige ≥ 75 USD de crédits AWS Free Plan ; seuil non atteint, prod toujours sur l'ancienne version. L'utilisatrice vérifie AWS (Billing → Free Tier).
-- **Prochaine étape** : une fois AWS débloqué, `gh workflow run aws-production-deploy.yml --ref main`, vérifier prod (sitemap 15 URL, /extension, /tarifs, /llms.txt, gzip, public-https-verification), puis renvoyer `https://precis-translator.trigenys.com/sitemap.xml` dans Search Console (propriété domaine `sc-domain:trigenys.com`, déjà vérifiée).
-- **Ouvert** : appfactory#148 (non fusionnée, sans accord) ; texte landing « Supprimées sous 24h ».
-
-## 2026-11-09 10:23 — Piste migration vers le VPS OVH
-- Déploiement AWS toujours bloqué (crédits Free Plan < 75 USD). Option étudiée : migrer Précis sur le VPS OVH `ubuntu@15.235.90.215` (infos consignées dans le CLAUDE.md global, section « Infrastructure partagée »).
-- Inventaire en lecture seule : 2 vCPU, 3,7 Go RAM (~2 Go disponibles), swap 2 Go, 16 Go disque libres ; Docker + Compose, Caddy systemd ; 9 conteneurs déjà présents (WAHA ~430 Mo).
-- Prochaine étape : accord explicite avant toute modification du VPS ; puis compose Précis avec limites mémoire, site Caddy, dump/restore Postgres depuis EC2, bascule DNS, EC2 gardé en secours.
-
-## 2026-11-09 11:02 — Migration vers le VPS OVH (stack prête, bascule DNS en attente)
-- Export EC2 : workflow jetable (OIDC + SSM), archive chiffrée RSA/AES, branche et artefact supprimés. Base 43 Ko, 13 tables.
-- VPS : `~/precis-translation/{releases,app-<sha>,current,shared/backend.env (600),migration-ec2}`, projet compose `precis-translation`, overlay `deploy/vps/` (PR #68). Relais `edge` sur 127.0.0.1:8090.
-- Restauration : comptes identiques ; migrations 0014→0020 appliquées. Mémoire : backend ~390 Mo / 1 Go.
-- Reste : installer `deploy/vps/precis-translator.caddy` dans `/etc/caddy/sites/` + reload **après** la bascule DNS (A `precis-translator` 13.36.127.47 → 15.235.90.215, Spaceship, TTL 1800) ; vérifier prod ; resoumettre le sitemap GSC ; EC2 en repli quelques jours.
-- Déploiement CI vers le VPS : nécessite une clé SSH dédiée en secret GitHub (création refusée par le garde-fou, décision utilisateur).
-
-## 2026-11-09 11:20 — Précis en production sur le VPS
-- DNS basculé (A `precis-translator` → 15.235.90.215), site `/etc/caddy/sites/precis-translator.caddy` installé, certificat obtenu (tls-alpn-01).
-- Vérifié via le VPS : 8 routes clés OK, sitemap 15 URLs, gzip, IP client réelle transmise jusqu'au backend, `X-Forwarded-For` falsifié ignoré.
-- GSC : sitemap resoumis, lu le 9 nov. 2026, 15 pages découvertes.
-- EC2 (i-0ce97ff971dd343b2) intact, en repli quelques jours puis à arrêter (coûts).
-- Reste : fusion PR #68 ; déploiement CI vers le VPS (clé SSH dédiée en secret GitHub, accord utilisateur requis) ; texte landing « Supprimées sous 24h » ; appfactory#148 (confirmation).
-- Redéploiement manuel : `git archive` → `~/precis-translation/releases/`, extraire dans `app-<sha>`, lien `current` + `backend/.env` → `shared/backend.env`, puis `docker compose -p precis-translation --env-file backend/.env -f docker-compose.yml -f docker-compose.https.yml -f deploy/vps/docker-compose.vps.yml up -d --build`.
-
-## 2026-11-09 11:57 — Déploiement CI vers le VPS
-- Clé `precis-deploy-ci` dans `~/.ssh/authorized_keys` du VPS avec `restrict,command="/home/ubuntu/precis-translation/bin/deploy.sh"` (copie de `deploy/vps/remote-deploy.sh`) ; sauvegarde `authorized_keys.bak-precis-deploy`. Privée seulement dans le secret GitHub `PRECIS_VPS_SSH_KEY` ; variables `PRECIS_VPS_TARGET`, `PRECIS_VPS_KNOWN_HOSTS`.
-- `deploy-vps.yml` (dispatch + appel depuis `release.yml`) ; job EC2 seulement si `vars.PRECIS_DEPLOY_TARGET=aws`.
-- Testé avec la clé CI : shell refusé, `déployé : 7630ad91a314`, rejeu no-op. PR #68 CI 8/8 verte, **non fusionnée**.
-- Prochaine étape : fusionner #68 (et #67), lancer `deploy-vps.yml` sur main pour valider le chemin GitHub → VPS. Si le script change : réinstaller `bin/deploy.sh` à la main (volontairement hors du flux de déploiement).
-
-## 2026-11-09 12:08 — Chemin GitHub → VPS validé
-- #68 fusionnée (`be46d55`), #67 fusionnée. Pas de release déclenchée (commits `ci`/`docs`).
-- `deploy-vps.yml` lancé sur main (run 42605991292) : succès, `déployé : 865e40a045f0`, contrôles publics OK.
-- Vérifié : /health 200, /tarifs 200, sitemap 15 URLs ; `current -> app-865e40a045f0`, 3 versions gardées ; conteneur db non recréé (données conservées).
-- Restant : arrêter l'EC2 i-0ce97ff971dd343b2 après quelques jours de stabilité ; supprimer ensuite `~/precis-translation/migration-ec2` et `~/.ssh/authorized_keys.bak-precis-deploy` sur le VPS.
-
-## 2026-11-10 14:33 — Sync Project des PR collaborateurs (403 broker) corrigée
-- Cause : le broker AppFactory n'acceptait que le propriétaire comme acteur ; les PR/issues d'Ibrahim (`MbowouIbrah`) échouaient en 403 `personal_owner_required`.
-- Correctif broker : appfactory-project-automation #153 ajoute `EagleFox31/Pr-cis-Translation/.github/workflows/project-automation.yml@refs/heads/main` à `DELEGATED_CALLER_WORKFLOW_REFS` (Workers Builds déployé).
-- Correctif Précis : #72 saute la sync pour les PR qui ne ciblent pas `main` (le broker les refuse par conception : le workflow de la branche de base y est modifiable par le contributeur).
-- Preuve : run 42788870679 (PR #70 d'Ibrahim vers `main`) rejoué → `bootstrap-github-app-user` et `sync-github-app-user` verts.
-- Règle d'équipe : les PR ciblent `main` (sinon ni sync Project ni CI complète). #71 (empilée sur `integration/main-1.7`) sera synchronisée une fois rebasée sur `main` après fusion de #70.
-- Restant : fermer appfactory-project-automation#52 (validation faite) ; EC2 i-0ce97ff971dd343b2 à arrêter après stabilité.
-
-## 2026-11-10 15:01 — Conflit PASSATION de #70/#71 résolu
-- #71 retargetée sur `main`. #73 avait mis #70 et #71 en conflit : la branche d'Ibrahim réécrivait `PASSATION.md` et supprimait le journal daté.
-- Résolution poussée sur `integration/main-1.7` (55779b5) puis `feat/connexion-extension-site` (c6d7e10) : état d'Ibrahim (sections 1 à 5) + journal daté complet. #70 et #71 : MERGEABLE.
-- Leçon ajoutée dans `docs/engineering/lessons-learned.md`.
-- Restant : CI de #70/#71 à surveiller ; relecture puis fusion de #70 ; EC2 i-0ce97ff971dd343b2 à arrêter après stabilité.
-
-## 2026-11-15 22:30 — Release 1.8.0 livrée sur le VPS
-- Fusionnées (merge commits) : #70 eac8aba, #71 407acac, #75 8f264a8, #76 dfe86e5. Puis #78 (Release Please monte aussi `VERSION` de `nouveautes.py` et `frontend/seo/fonctionnalites.json`) et #77 (release 1.8.0, tag v1.8.0).
-- PR de release : ouverte à la main (Actions ne peut pas créer de PR) ; le push du bot ne déclenche pas la CI, lancer `gh workflow run ci.yml --ref release-please--branches--main--components--precis-translator`.
-- Premier déploiement en échec : disque du VPS plein (399 Mo libres). Prod restée sur 865e40a, intacte. Libéré avec accord : `docker builder prune`, images orphelines (~4 Go). Relance du job : succès.
-- Prod : `current -> app-9ffd5b41154b`, API `version 1.8.0`, migration `0024_nouveautes`, db non recréée, `/health` `/tarifs` `/sitemap.xml` 200.
-- `shared/backend.env` : ajout de `SMTP_FROM` et `SMTP_REPLY_TO` (fournies par Ibrahim, pas des secrets) ; sauvegarde `backend.env.bak-20261115-2126` ; sauvegarde DB `backups/pre-release-20261115-2047.dump`.
-- Restant : disque VPS à 83 % (images inutilisées ~10 Go à revoir) ; garder une copie chiffrée de `shared/backend.env` hors VPS ; EC2 i-0ce97ff971dd343b2 à arrêter ; Ibrahim doit `git pull` avant de repousser.
-
-## 2026-11-15 22:44 — Garde-fou disque et faux retour arrière du déploiement VPS
-- `deploy/vps/remote-deploy.sh` : refus avant toute écriture sous `PRECIS_MIN_FREE_GB` Go libres (défaut 5, chemins `PRECIS_DISK_PATHS`, défaut `$BASE /var/lib/docker`), code 73, propose `docker builder prune` sans le lancer.
-- Échec de build : lien `current` restauré, santé vérifiée, plus de `up --build` de l'ancienne version (cause du faux « intervention requise » de la 1.8.0). Retour arrière complet seulement après échec de `up`/santé.
-- Test : `bash scripts/ci/test-vps-remote-deploy.sh` (doublures, sans Docker), branché dans le job CI `production-deploy`.
-- Restant : VPS non touché. Après fusion, réinstaller à la main `bin/deploy.sh` depuis `deploy/vps/remote-deploy.sh` (hors du flux de déploiement, voir 2026-11 ci-dessus), sinon le garde-fou n'est pas actif. Pour changer le seuil : `environment="PRECIS_MIN_FREE_GB=…"` dans `authorized_keys` (exige `PermitUserEnvironment`) ou wrapper `bin/deploy.sh`.
-
-## 2026-11-18 12:30 — Envoi des mails via Spacemail, release 1.9.0 livrée sur le VPS
-- Mails en spam : expéditeur `@trigenys.com` envoyé par le SMTP Gmail, donc SPF/DKIM non alignés et DMARC en échec. `shared/backend.env` passe au SMTP Spacemail (`mail.spacemail.com:587`, DKIM `spacemail._domainkey`). Sauvegarde `backend.env.bak-20261116-0801`. Mot de passe écrit sans guillemets (avec guillemets : échec AUTH). Réception réelle à confirmer par Ibrahim.
-- Fusionnées (squash) : #80 bbcd8e7, #81 4f1a4a2, #82 69f9745, #84 27e945c, #83 8b80d03. #85 visait `feat/retours-clients` (empilée sur #83) : sa fusion n'a pas touché `main`. Portée par #86 (2e58586, conflit `Home.tsx` résolu côté #85).
-- Release 1.9.0 : Actions ne peut pas créer la PR, ouverte à la main (#87, label `autorelease: pending`, corps au format Release Please), CI lancée à la main, fusion a639837, tag v1.9.0.
-- Prod : `current -> app-a63983796251`, API `version 1.9.0`, migrations jusqu'à `0027_traduction_libre`, db non recréée, `/health` `/tarifs` `/sitemap.xml` et le ZIP de l'extension en 200. Disque 71 %. Sauvegarde DB `backups/pre-release-1.9.0-20261118-1102.dump`.
-- Annonce envoyée à la main au groupe WhatsApp TRIGENYS GROUP (WAHA `trigenys-test`). #88 automatise l'envoi après chaque déploiement : poser `NOTIFY_API_KEY` et les variables `NOTIFY_*` avant de fusionner.
-- Issues #60 à #64 (lancement) assignées : #63 à Ibrahim et au propriétaire, les autres au propriétaire.
-- Restant : réinstaller `bin/deploy.sh` sur le VPS (garde-fou disque de #80) ; vérifier la cible de base des PR empilées avant fusion ; EC2 i-0ce97ff971dd343b2 à arrêter ; copie chiffrée de `shared/backend.env` hors VPS.
-
-## 2026-11-18 12:32 — Garde-fou disque actif sur le VPS
-- `bin/deploy.sh` réinstallé depuis `current/deploy/vps/remote-deploy.sh` (sha256 a1ad52b7…, identique à `main`). Sauvegarde `bin/deploy.sh.bak-20261118-1131`.
-- Preuves : redéployer `a63983796251` est un no-op (« déjà en service », `current` inchangé). Dans une base temporaire avec `PRECIS_MIN_FREE_GB=999` : refus, code 73, sans aucune modification. Prod toujours en 1.9.0.
-
-## 2026-11-18 12:51 — Catalogue des nouveautés 1.8.0 et 1.9.0 (date du 9 novembre)
-- Cause : catalogue `backend/app/content/nouveautes.py` non alimenté en 1.8.0 ni en 1.9.0, d'où la date du 9 novembre dans le panneau « Nouveautés ».
-- Branche `fix/catalogue-nouveautes-1-9` : 9 entrées FR/EN (dont « Aperçu des documents clients », admin), `DATE_VERSION` 2026-11-18, `frontend/seo/fonctionnalites.json` régénéré.
-- Garde-fou : `test_version_avec_fonctionnalites_publiee_au_catalogue` (CHANGELOG « Features » ⇒ élément public plus récent que la version précédente). Leçon ajoutée dans `docs/engineering/lessons-learned.md`.
-- Suite : release 1.9.1 (commit `fix:`), déploiement VPS, vérifier la date du 18 novembre dans l'app. E-mail aux abonnés : seulement via `backend/scripts/envoyer_nouveautes.py`, à la main, non lancé.
-
-## 2026-11-18 13:18 — Hébergeur corrigé (#92), catalogue en CI (#91), Product Hunt prêt
-- #92 fusionnée : mentions légales, politique de confidentialité et pages SEO indiquent OVHcloud (OVH Hosting Inc., Beauharnois, Canada) au lieu d'AWS. Entité et adresse à confirmer sur la facture OVHcloud. Kit Product Hunt : `docs/lancement-product-hunt.md` (date et compte qui publie : au propriétaire).
-- #91 : première CI rouge, `test_nouveautes_api.py` codait en dur 19 éléments. Attentes dérivées du catalogue (9408b45), CI relancée.
-- Suite : fusionner #91 (vérifier `baseRefName`), ouvrir la PR Release Please 1.9.1 à la main (label `autorelease: pending`, CI via `gh workflow run ci.yml --ref <branche>`), fusionner, suivre deploy-vps, vérifier en prod la date du 18 novembre, la page /confidentialite-documents et les mentions légales.
-
-## 2026-11-18 12:42 — Lancement : fiches boutiques de l'extension (#63)
-
-- PR #89 (passation 1.9.0, leçon PR empilée, garde-fou disque) fusionnée : main = 6aa3a60.
-- Date « 9 novembre » affichée dans l'app : `DATE_VERSION` de `backend/app/content/nouveautes.py` = date de la nouveauté la plus récente (test du catalogue). Les fonctions 1.8.0 et 1.9.0 (traduction libre #85, aperçu des pages non payées) n'ont jamais été ajoutées au catalogue. À faire : entrées FR/EN datées 2026-11-18, `frontend/seo/fonctionnalites.json`, contrôle « feat sans entrée au catalogue », leçon, release 1.9.1. Reporté par l'utilisateur (« D'abord les issues »).
-- Issues de lancement : #63 stores, #64 article, #62 AlternativeTo, #60 annuaires, #61 Product Hunt (en dernier). Toutes sauf #63 attendent #59 en prod.
-- #63 : textes, permissions et déclarations déjà prêts dans `docs/fiches-boutiques-extension.md`. Ajouté sur la branche `docs/extension-store-assets` : vignettes 440×280 FR/EN (`docs/boutiques/`, PNG RGB 24 bits) et leur source HTML. Archive vérifiée : `npm run package` → `precis-translator-1.0.0.zip`, aucun `localhost`.
-- Reste #63 : captures 1280×800 (besoin d'un compte connecté dans l'extension), comptes éditeur Chrome (5 $, à payer par le propriétaire) et Edge (gratuit), envoi, puis variables `VITE_EXTENSION_*` et liens `/extension` + JSON-LD.
-
-## 2026-11-18 12:44 — #63 confiée à Ibrahim
-
-- Captures 1280×800, comptes éditeur et envoi : Ibrahim (consignes en commentaire sur #63). PR #90 (vignettes, fiche) ouverte, à fusionner.
-- Prochaines étapes côté session : catalogue des nouveautés 1.9.0 + release 1.9.1 ; #64/#62/#60/#61 après #59 en prod.
-
-## 2026-11-18 12:24 — Annonce WhatsApp automatique des releases
-
-- Branche `feat/release-whatsapp-notify` : job `announce-release` dans `release.yml` (après `deploy-vps` ou `deploy-production` réussi), script `scripts/ci/release_announcement.py` + émetteur générique `scripts/ci/waha_notify.py`, tests `scripts/ci/test_release_announcement.py` (branchés dans `ci.yml`).
-- Idempotence : statut de commit `release/whatsapp-announcement` sur le SHA de release.
-- À poser avant la prochaine release : variables `NOTIFY_SESSION`, `NOTIFY_CHAT_ID`, secret `NOTIFY_API_KEY` (cf. `docs/deploiement.md`). Sans elles : no-op.
-- Piste : extraire `waha_notify.py` en action réutilisable dans appfactory-project-automation quand un 2e dépôt en aura besoin.
-
-## 2026-11-18 14:16 — PR #90, #88, #91 fusionnées ; garde-fou catalogue corrigé avant la release 1.10.0
-
-- Fusionnées en squash : #91 (catalogue 1.8/1.9, b04c0d4), #90 (vignettes boutiques, 6e956f5), #88 (annonce WhatsApp, ee5aa87). Conflits uniquement dans PASSATION.md : entrées des branches ajoutées en fin.
-- CI #88 : « Suites backend » bloquée 20 min sur l'apt LibreOffice (runner) ; annulée puis relancée, verte.
-- Release Please propose **1.10.0** (feat #88), pas 1.9.1. Le garde-fou du catalogue la bloquait (feature d'outillage seule, même date que 1.9.0) : corrigé sur `fix/garde-fou-catalogue-interne` (`ecart_catalogue()` + cas limites, `PORTEES_INTERNES`).
-- Config NOTIFY présente : variables `NOTIFY_SESSION`, `NOTIFY_CHAT_ID`, secret `NOTIFY_API_KEY` ; l'annonce WhatsApp partira à la release 1.10.0.
-- Suite : fusionner ce correctif, ouvrir la PR Release Please 1.10.0 à la main (label `autorelease: pending`), CI, fusion, vérifier déploiement VPS + prod (nouveautés au 18 novembre, pages légales OVHcloud, API 1.10.0) et l'annonce WhatsApp.
-
-## 2026-11-18 14:58 — Release 1.10.0 en cours (PR #94)
-
-- #93 fusionnée (garde-fou catalogue : outillage seul et release le même jour acceptés ; main = 3c94e3d).
-- PR #94 « chore(main): release 1.10.0 » ouverte à la main (label `autorelease: pending`). CI : tout vert sauf « Suites backend » relancée.
-- Cause des lenteurs CI du jour : l'étape « LibreOffice et polices » télécharge ~120 Mo depuis le miroir Ubuntu à ~100 ko/s (20 min ; log du job 134808707042). Correctif prévu sur `ci/cache-apt-libreoffice` : mettre en cache les paquets apt.
-- Suite : CI verte sur #94 → fusion → release.yml (tag v1.10.0, deploy-vps, announce-release WhatsApp) → vérifier en prod nouveautés au 18 novembre, pages légales OVHcloud, API 1.10.0.
-
-## 2026-11-18 15:08 — Release 1.10.0 livrée en prod
-
-- #94 fusionnée (main = 196843c) ; run release.yml 44320540047 vert : tag, deploy-vps, announce-release (« Annonce 1.10.0 envoyée », issue : sent).
-- Prod vérifiée : `/api/nouveautes` → version 1.10.0, date_version 2026-11-18 ; /confidentialite-documents et mentions légales citent OVHcloud, plus aucune mention d'Amazon.
-- Aucune PR ouverte. Reste : cache apt pour l'étape « LibreOffice et polices » (branche locale `ci/cache-apt-libreoffice`, non poussée) ; entité et adresse OVH à confirmer sur la facture ; URL Product Hunt à ajouter à #61 après le lancement.
-
-## 2026-11-18 15:28 — Cache apt de la CI
-
-- Branche `ci/cache-apt-libreoffice` : cache des .deb de l'étape « LibreOffice et polices » (ci.yml), leçon ajoutée. Vérification : deux runs de la PR (le premier remplit le cache, le second doit l'utiliser).
-
-## 2026-11-21 10:50 — Déploiement des mises à jour d'Ibrahim (#97, #96)
-- #97 (mail d'invitation bêta) fusionnée telle quelle : verte, sans conflit.
-- #96 corrigée avant fusion : migration `0028_admin_recaps` renumérotée `0029_admin_recaps` (parente `0028_beta_mailed_at` de #97, sinon deux têtes Alembic) ; `test_reprise_reglages` attend le nouveau champ `images` des réglages ; élément catalogue `images-proposees-apres-traduction` (21/11) et instantané SEO régénéré.
-- Ensuite : PR de release à la main (Actions ne peut pas l'ouvrir), puis vérification de la prod.
+- Fichiers Gerold : `C:/Users/IBRAH/AppData/Local/Temp/claude/6d6c80c79a7942fb/1158bb8f-57e3-42af-8146-b3911ec69fb7/scratchpad/gerold/{original,traduit}.pptx`.
+- Scripts d'analyse dans `C:/Users/IBRAH/AppData/Local/Temp/claude/6d6c80c79a7942fb/34e53c1c-5d86-4eb3-bd86-a334927c8f09/scratchpad/` :
+  - `verif.py` : diff des extractions et aller-retour ;
+  - `termes.py` : incohérences.
+- Python : il n'y a pas de venv dans le worktree. Utiliser `/c/Users/IBRAH/Documents/Projets/Precis_Translator_backup_2026-06-10_13-10/backend/venv/Scripts/python.exe -X utf8` (pytest y est installé).
+- Beaucoup de tests sont des scripts avec `main()` : les lancer avec `python -X utf8 tests/x.py`, pas avec pytest.
+- Les tests qui ont besoin de la base exigent `backend/.env` :
+  - copier celui du dépôt principal ;
+  - lancer les tests ;
+  - puis `rm .env`, car il est ignoré par git et ne doit pas rester.
+- Commits : ne mentionner l'IA nulle part et ne pas ajouter de trailer.
