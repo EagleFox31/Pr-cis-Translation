@@ -42,7 +42,8 @@ COOKIE_DAYS = 365
 LINK_DAYS = 60
 GRANT_DAYS = 35
 MACHINE_OTHER_ACCOUNTS = 2
-IP_PAGES_24H = 30
+# Plafond de pages offertes par adresse IP sur 24 h : None = aucune limite.
+IP_PAGES_24H: int | None = None
 NEW_ACCOUNT_HOURS = 24
 # Mode libre : pages traduites en aperçu sans solde. Plafond par compte et par
 # appareil sur 24 h ; None = aperçu illimité (décision du 22/11/2026).
@@ -207,7 +208,7 @@ async def free_risk(db, user, signals: DeviceSignals, machine_id: str, known: bo
         FreeGrant.created_at >= month))
     if (accounts or 0) >= MACHINE_OTHER_ACCOUNTS:
         return "device"
-    if signals.ip_hash:
+    if IP_PAGES_24H is not None and signals.ip_hash:
         recent = await db.scalar(select(func.coalesce(func.sum(FreeGrant.pages), 0)).where(
             FreeGrant.ip_hash == signals.ip_hash,
             FreeGrant.created_at >= now - timedelta(hours=24)))

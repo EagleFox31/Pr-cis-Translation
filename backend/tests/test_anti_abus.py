@@ -257,7 +257,16 @@ class RisqueTests(BaseTests):
             await self.attribuer(db, await self.compte(db), machine="m1")
             self.assertIsNone(await self.risque(db, await self.compte(db), machine="m1"))
 
+    async def test_sans_plafond_ip_par_defaut(self):
+        self.assertIsNone(anti_abus.IP_PAGES_24H)
+        async with self.sessions() as db:
+            await self.attribuer(db, await self.compte(db), machine="x", ip="ip-7", pages=500)
+            user = await self.compte(db)
+            self.assertIsNone(await self.risque(db, user, signaux(ip="ip-7"), machine="y", needed=50))
+
     async def test_velocite_ip_sur_24h(self):
+        self.addCleanup(setattr, anti_abus, "IP_PAGES_24H", anti_abus.IP_PAGES_24H)
+        anti_abus.IP_PAGES_24H = 30
         async with self.sessions() as db:
             await self.attribuer(db, await self.compte(db), machine="x", ip="ip-9", pages=28)
             user = await self.compte(db)
