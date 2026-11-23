@@ -819,7 +819,7 @@
       "no_account": "No Précis account uses this address.",
       "invitation_revoked": "This invitation has been withdrawn.",
       "access_expired": "This access has ended.",
-      "enrollment_not_found": "Invitation not found.",
+      "enrollment_not_found": "This invitation no longer exists.",
       "wave_full": "All places in this wave are taken.",
       "already_invited": "This email address already has an invitation.",
       "email_unverified": "Please verify your email address first.",

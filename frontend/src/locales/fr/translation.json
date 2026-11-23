@@ -818,7 +818,7 @@
       "campaign_closed": "Les inscriptions à la bêta sont fermées.",
       "no_account": "Aucun compte Précis à cette adresse.",
       "invitation_revoked": "Cette invitation a été retirée.",
-      "enrollment_not_found": "Invitation introuvable.",
+      "enrollment_not_found": "Cette invitation n’existe plus.",
       "access_expired": "Cet accès est terminé.",
       "wave_full": "Toutes les places de cette vague sont prises.",
       "already_invited": "Cette adresse e-mail a déjà une invitation.",
