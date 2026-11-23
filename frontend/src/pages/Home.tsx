@@ -16,6 +16,7 @@ import AboutSection from '../components/about/AboutSection';
 import { showToast } from '../components/ui/Toast';
 import PaymentModal from '../components/payment/LazyPaymentModal';
 import { useTelechargementLibres } from '../components/library/TelechargementLibres';
+import FenetreRetraduire from '../components/library/FenetreRetraduire';
 import DocumentLibrary from '../components/library/DocumentLibrary';
 import { useAuth } from '../contexts/AuthContext';
 import { useDocumentLibrary, STATUTS_REPRENABLES, type DocMeta } from '../hooks/useDocumentLibrary';
@@ -39,6 +40,9 @@ export default function Home() {
   const [isAnnual, setIsAnnual] = useState(false);
   const [activeSection, setActiveSection] = useState('hero');
   const [showPreview, setShowPreview] = useState(false);
+  // Lu à la fin d'une traduction : l'aperçu ouvert annonce déjà l'état.
+  const apercuOuvert = useRef(false);
+  apercuOuvert.current = showPreview;
   const [currentPage, setCurrentPage] = useState(1);
   const [numPages, setNumPages] = useState(1);
   const [zoom, setZoom] = useState(1.0);
@@ -268,7 +272,8 @@ export default function Home() {
           });
           // Le serveur a déjà appliqué le budget choisi (Bêta, forfait ou
           // pages achetées) : le nom du forfait ne décrit pas cette livraison.
-          showToast('success', t('story.success_done'), result.filename);
+          // Aperçu ouvert : la barre d'outils dit déjà « Traduction terminée ».
+          if (!apercuOuvert.current) showToast('success', t('story.success_done'), result.filename);
         })
         .catch(() => {
           // L'erreur est déjà dans stream.error (et stream.limitReached pour
@@ -376,6 +381,32 @@ export default function Home() {
       });
     },
     [getOriginalBlob, deleteDocument, handleStartTranslate, t],
+  );
+
+  // ---- Traduire à nouveau : un document terminé, depuis son original -------
+  // Rien n'est supprimé : c'est un nouveau dépôt, au prix d'un nouveau dépôt,
+  // sans avoir à redonner le fichier. Mêmes réglages, langue au choix.
+  const [aRetraduire, setARetraduire] = useState<DocMeta | null>(null);
+  const handleRetranslate = useCallback(
+    async (doc: DocMeta, targetLang: string) => {
+      setARetraduire(null);
+      const blob = await getOriginalBlob(doc.id);
+      if (!blob || blob.size === 0) {
+        showToast('error', t('story.retry_unavailable_title'), t('story.retry_unavailable_hint'));
+        return;
+      }
+      setShowLibrary(false);
+      handleStartTranslate({
+        file: new File([blob], doc.originalName),
+        targetLang,
+        pages: doc.reglages?.pages ?? '',
+        debug: false,
+        precise: doc.reglages?.precise ?? false,
+        beta: doc.reglages ? doc.reglages.beta : undefined,
+        images: doc.reglages?.qsuffix?.includes('_img') ?? false,
+      });
+    },
+    [getOriginalBlob, handleStartTranslate, t],
   );
 
   // ---- Demande venue du tiroir d'une autre page (admin, intégrations) -------
@@ -582,8 +613,14 @@ export default function Home() {
   // Pages encore libres après un règlement : l'aperçu en cours se met à jour
   // sans attendre une nouvelle traduction.
   const [libresReglees, setLibresReglees] = useState<Record<string, number>>({});
+  // Voile tel qu'il était au règlement, gardé tant que l'aperçu montre l'ancien
+  // rendu (filigrané) : le lever tout de suite découvrait le filigrane le
+  // temps que le nouveau rendu arrive.
+  const voileCourant = useRef<{ blob: Blob | null; doc: boolean; pages?: number[] }>({ blob: null, doc: false });
+  const [voileGarde, setVoileGarde] = useState<typeof voileCourant.current | null>(null);
   const noterReglement = useCallback((id: string, libres: number) => {
     setLibresReglees((m) => ({ ...m, [id]: libres }));
+    setVoileGarde(voileCourant.current.blob ? { ...voileCourant.current } : null);
     // Pages réglées : l'aperçu filigrané en cache est périmé ; plus aucune
     // page libre, la lecture en clair est acquise.
     const { biblio, flux } = versRendu.current;
@@ -598,12 +635,27 @@ export default function Home() {
     telecharger: telechargerLibres, acheterLibres, fenetre: fenetreLibres,
   } = useTelechargementLibres(rafraichirSolde, noterReglement);
   const docCourant = libraryDocId ?? stream.documentId;
+  // Un document repris depuis « Mes documents » est aussi celui du flux : la
+  // fin du flux est plus fraîche que la liste, qui ne se recharge qu'ensuite.
+  const docBiblio = libraryDocId ? documents.find((doc) => doc.id === libraryDocId) : undefined;
+  // Document affiché, terminé et ouvrable : « Traduire à nouveau » dans l'aperçu.
+  const docAffiche = docCourant && !adminDoc ? documents.find((doc) => doc.id === docCourant) : undefined;
+  const docRetraduisible = docAffiche && !['translating', 'resumed', 'error', ...STATUTS_REPRENABLES].includes(docAffiche.status)
+    && !docAffiche.archive
+    && !stream.isTranslating ? docAffiche : undefined;
+  const fluxDuDoc = !libraryDocId || libraryDocId === stream.documentId;
   const pagesLibresAffichees = docCourant && docCourant in libresReglees
     ? libresReglees[docCourant]
-    : libraryDocId
-      ? documents.find((doc) => doc.id === libraryDocId)?.pagesLibres
-        ?? (libraryDocId === stream.documentId ? stream.pagesLibres : 0)
-      : stream.pagesLibres;
+    : fluxDuDoc && stream.pagesLibres
+      ? stream.pagesLibres
+      : docBiblio?.pagesLibres ?? (fluxDuDoc ? stream.pagesLibres : 0);
+  // Numéros des pages libres affichées : les DERNIÈRES de la liste du
+  // serveur (un règlement partiel paie les premières), aucune après achat.
+  const numerosLibres = fluxDuDoc && stream.pagesLibresNumeros.length
+    ? stream.pagesLibresNumeros
+    : docBiblio?.pagesLibresNumeros ?? (fluxDuDoc ? stream.pagesLibresNumeros : []);
+  const pagesNonPayees = pagesLibresAffichees ? numerosLibres.slice(-pagesLibresAffichees) : [];
+  const pagesVoilees = isTrialFor(user) && pagesLibresAffichees ? pagesNonPayees : undefined;
 
   const handleDownload = useCallback(async () => {
     if (adminDoc) {
@@ -867,6 +919,8 @@ export default function Home() {
   // Le partiel du flux est TOUJOURS un PDF (le backend le convertit avant de
   // le servir), y compris pour un PPTX.
   const previewTranslatedIsPdf = translatedBlob ? translatedIsPdf : true;
+  voileCourant.current = { blob: previewTranslatedBlob, doc: isTrialMode, pages: pagesVoilees };
+  const garde = voileGarde && voileGarde.blob === previewTranslatedBlob ? voileGarde : null;
   const effectiveNumPages = stream.totalPages ?? numPages;
 
   // ---- Raccourcis clavier + souris de l'aperçu (simples) ----
@@ -877,6 +931,8 @@ export default function Home() {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      // Une fenêtre ouverte par-dessus l'aperçu garde ses touches (Échap la ferme, elle seule).
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       switch (e.key) {
         case 'ArrowLeft':  setCurrentPage((p) => Math.max(1, p - 1)); break;
         case 'ArrowRight': setCurrentPage((p) => Math.min(effectiveNumPages, p + 1)); break;
@@ -939,6 +995,13 @@ export default function Home() {
       {/* Paiement à la page : achat des crédits nécessaires à la traduction
           courante (402). Une fois payé, on REJOUE la traduction telle quelle. */}
       {fenetreLibres}
+      {aRetraduire && (
+        <FenetreRetraduire
+          doc={aRetraduire}
+          onConfirm={(langue) => handleRetranslate(aRetraduire, langue)}
+          onClose={() => setARetraduire(null)}
+        />
+      )}
       <PaymentModal
         open={payPages !== null}
         onClose={() => setPayPages(null)}
@@ -984,6 +1047,7 @@ export default function Home() {
         getOriginalBlob={getOriginalBlob}
         onPaid={() => { refresh(); refreshUser(); }}
         onRetry={handleRetry}
+        onRetranslate={setARetraduire}
         onStop={handleLibraryStop}
       />
 
@@ -1002,7 +1066,8 @@ export default function Home() {
           currentPage={currentPage}
           numPages={effectiveNumPages}
           zoom={zoom}
-          isTrialMode={isTrialMode}
+          isTrialMode={garde ? garde.doc : isTrialMode}
+          pagesVoilees={garde ? garde.pages : pagesVoilees}
           targetLang={targetLang}
           isTranslating={stream.isTranslating || !!suiviBiblio}
           pageStatuses={suiviBiblio?.etats ?? stream.pageStatuses}
@@ -1019,6 +1084,7 @@ export default function Home() {
           pagesCovered={stream.imagesNeeded ? null : stream.pagesCovered}
           imagesNeeded={stream.imagesNeeded}
           pagesLibres={pagesLibresAffichees}
+          pagesNonPayees={pagesNonPayees}
           onBuyLibres={docCourant && translatedFilename
             ? () => { void acheterLibres(docCourant, translatedFilename); } : undefined}
           onTranslateWithoutImages={() => {
@@ -1047,13 +1113,14 @@ export default function Home() {
           onPageChange={setCurrentPage}
           onDownload={handleDownload}
           onDownloadOriginal={selectedFile || adminDoc ? handleDownloadOriginal : undefined}
+          onRetranslate={docRetraduisible ? () => setARetraduire(docRetraduisible) : undefined}
           onPagesLoaded={setNumPages}
           onLibraryOpen={() => setShowLibrary(true)}
           scanPages={pagesIllisibles}
           imagesPanel={(
             <>
               <ScanPagesNotice
-                key={docIdPages ?? ''}
+                key={`pages-${docIdPages ?? ''}`}
                 pages={pagesIllisibles.pages}
                 enCours={pagesIllisibles.enCours}
                 provisoire={pagesIllisibles.provisoire}
@@ -1061,7 +1128,7 @@ export default function Home() {
               />
               {docImages && !suiviBiblio && !adminDoc ? (
                 <DocumentImagesPanel
-                  key={docImages}
+                  key={`images-${docImages}`}
                   docId={docImages}
                   load={getDocumentImages}
                   setOriginal={setImageOriginal}

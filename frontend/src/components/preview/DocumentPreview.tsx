@@ -23,6 +23,7 @@ interface DocumentPreviewProps {
   onZoomAjuste?: (zoom: number) => void;
   rideau?: boolean;
   isTrialMode: boolean;
+  pagesVoilees?: number[];
   onPagesLoaded?: (numPages: number) => void;
   /** La page courante est-elle déjà traduite (streaming page par page) ? */
   translatedPageReady?: boolean;
@@ -54,6 +55,9 @@ interface DocumentPreviewProps {
   onTranslateWithoutImages?: () => void;
   /** Essai : quitter l'aperçu pour les tarifs. */
   onUnlock?: () => void;
+  /** Pages d'aperçu non payées du document, et leur règlement. */
+  pagesLibres?: number;
+  onBuyLibres?: () => void;
   /** Pages illisibles du scan : carte de décision sur la page traduite. */
   scanPages?: PagesIllisiblesVue;
 }
@@ -74,6 +78,7 @@ export default function DocumentPreview({
   onZoomAjuste,
   rideau,
   isTrialMode,
+  pagesVoilees,
   onPagesLoaded,
   translatedPageReady = true,
   translatedPageStatus,
@@ -90,6 +95,8 @@ export default function DocumentPreview({
   imagesNeeded,
   onTranslateWithoutImages,
   onUnlock,
+  pagesLibres,
+  onBuyLibres,
   scanPages,
 }: DocumentPreviewProps) {
   const { t } = useTranslation();
@@ -164,6 +171,7 @@ export default function DocumentPreview({
       onZoomAjuste={onZoomAjuste}
       rideau={rideau}
       isTrialMode={isTrialMode}
+      pagesVoilees={pagesVoilees}
       onPagesLoaded={onPagesLoaded}
       translatedPageReady={translatedPageReady}
       translatedPageStatus={translatedPageStatus}
@@ -180,6 +188,8 @@ export default function DocumentPreview({
       imagesNeeded={imagesNeeded}
       onTranslateWithoutImages={onTranslateWithoutImages}
       onUnlock={onUnlock}
+      pagesLibres={pagesLibres}
+      onBuyLibres={onBuyLibres}
       scanPages={scanPages}
     />
     </Suspense>

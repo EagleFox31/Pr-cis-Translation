@@ -76,6 +76,9 @@ interface PdfViewerProps {
   /** Rideau de comparaison : UN panneau, la traduction par-dessus l'original. */
   rideau?: boolean;
   isTrialMode: boolean;
+  /** Pages libres (traduites, non payées) : voilées une à une, même quand le
+   *  reste du document se lit en clair. */
+  pagesVoilees?: number[];
   onPagesLoaded?: (numPages: number) => void;
   className?: string;
   /** La page courante est-elle traduite (streaming) ? Sinon on affiche un
@@ -104,6 +107,9 @@ interface PdfViewerProps {
   onTranslateWithoutImages?: () => void;
   /** Essai : quitter l'aperçu pour les tarifs. */
   onUnlock?: () => void;
+  /** Pages d'aperçu non payées du document, et leur règlement. */
+  pagesLibres?: number;
+  onBuyLibres?: () => void;
   /** Fichier disparu du serveur : `translation` = la traduction seule,
    *  `all` = l'original aussi. Remplace le message d'attente. */
   fileMissing?: 'translation' | 'all' | null;
@@ -125,7 +131,8 @@ export default function PdfViewer({
   ajustement = null,
   onZoomAjuste,
   rideau = false,
-  isTrialMode,
+  isTrialMode: voileDocument,
+  pagesVoilees,
   onPagesLoaded,
   className,
   translatedPageReady = true,
@@ -141,11 +148,15 @@ export default function PdfViewer({
   imagesNeeded,
   onTranslateWithoutImages,
   onUnlock,
+  pagesLibres = 0,
+  onBuyLibres,
   fileMissing = null,
   formatHint = 'portrait',
   scanPages,
 }: PdfViewerProps) {
-  const { t } = useTranslation();
+  // Voile : document entier non payé, OU page affichée libre (non payée).
+  const isTrialMode = voileDocument || !!pagesVoilees?.includes(currentPage);
+  const { t, i18n } = useTranslation();
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   // True quand le canevas traduit affiche RÉELLEMENT la page courante.
   const [translatedShown, setTranslatedShown] = useState(false);
@@ -672,12 +683,14 @@ export default function PdfViewer({
                   <span style={{ fontSize: '12.5px', color: 'var(--gray-600)', lineHeight: 1.55,
                                  textAlign: 'justify', textAlignLast: 'center', hyphens: 'auto',
                                  marginTop: '-4px' }}>
-                    {creditsReason ?? t('preview.credits_needed', { count: creditsNeeded })}
-                    {imagesNeeded ? ` ${t('preview.credits_images', { count: imagesNeeded })}` : ''}
-                    {' '}
-                    {t(imagesNeeded && onTranslateWithoutImages ? 'preview.credits_hint_images'
-                      : pagesCovered && onTranslateCovered ? 'preview.credits_hint_covered'
-                      : 'preview.credits_hint_buy')}
+                    <>
+                      {creditsReason ?? t('preview.credits_needed', { count: creditsNeeded })}
+                      {imagesNeeded ? ` ${t('preview.credits_images', { count: imagesNeeded })}` : ''}
+                      {' '}
+                      {t(imagesNeeded && onTranslateWithoutImages ? 'preview.credits_hint_images'
+                        : pagesCovered && onTranslateCovered ? 'preview.credits_hint_covered'
+                        : 'preview.credits_hint_buy')}
+                    </>
                   </span>
                   <button
                     onClick={() => onBuyPages(creditsNeeded)}
@@ -757,10 +770,10 @@ export default function PdfViewer({
               canevas, aucune couche « nette » à aligner (c'était la source du
               décalage). Sans curseur : voile plein, rien n'est lisible. */}
           {isTrialMode && translatedShown && (
+            // Pas de fondu : le cadre porte le voile (son ombre). Un fondu
+            // depuis l'opacité 0 découvrait toute la page à l'entrée du curseur.
             cursorPos ? (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
+              <div
                 style={{
                   position: 'absolute',
                   width: '190px',
@@ -807,12 +820,20 @@ export default function PdfViewer({
               }}
             >
               <Lock size={12} strokeWidth={2.2} style={{ flexShrink: 0 }} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
-                {t(sansSurvol ? 'preview.trial_touch' : 'preview.trial_hover')}
+              {/* Page d'aperçu non payée : ce qu'elle est et ce qu'il reste à
+                  régler. Sinon (essai sans compte) : comment la lire. */}
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}
+                    title={t(sansSurvol ? 'preview.trial_touch' : 'preview.trial_hover')}>
+                {!voileDocument && pagesLibres > 0
+                  ? t('preview.libre_footer', { count: pagesLibres })
+                  : t(sansSurvol ? 'preview.trial_touch' : 'preview.trial_hover')}
               </span>
               <a
                 href="#pricing"
-                onClick={(e) => { if (onUnlock) { e.preventDefault(); onUnlock(); } }}
+                onClick={(e) => {
+                  const acheter = pagesLibres > 0 && onBuyLibres ? onBuyLibres : onUnlock;
+                  if (acheter) { e.preventDefault(); acheter(); }
+                }}
                 style={{ color: '#93c5fd', textDecoration: 'underline', flexShrink: 0 }}
               >
                 {t('preview.trial_buy')}
