@@ -1,8 +1,12 @@
+import { lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
 import { Loader2, AlertTriangle } from 'lucide-react';
-import PdfViewer from './PdfViewer';
+import type { Ajustement } from './ViewerToolbar';
 import { usePdfPreview } from '../../hooks/usePdfPreview';
+import type { PagesIllisiblesVue } from '../../hooks/usePagesIllisibles';
+
+const PdfViewer = lazy(() => import('./PdfViewer'));
 
 interface DocumentPreviewProps {
   sourceFile?: File | null;
@@ -14,7 +18,12 @@ interface DocumentPreviewProps {
   translatedExt?: string;
   currentPage: number;
   zoom: number;
+  /** Ajustement du zoom (voir PdfViewer) et rideau de comparaison. */
+  ajustement?: Ajustement;
+  onZoomAjuste?: (zoom: number) => void;
+  rideau?: boolean;
   isTrialMode: boolean;
+  pagesVoilees?: number[];
   onPagesLoaded?: (numPages: number) => void;
   /** La page courante est-elle déjà traduite (streaming page par page) ? */
   translatedPageReady?: boolean;
@@ -24,13 +33,33 @@ interface DocumentPreviewProps {
   targetLabel?: string;
   /** true = chargement en cours (ne PAS afficher la démo). */
   previewLoading?: boolean;
+  /** Fichier disparu du serveur (cf. PdfViewer). */
+  fileMissing?: 'translation' | 'all' | null;
+  /** Format des cadres tant qu'aucun PDF n'est chargé. */
+  formatHint?: 'landscape' | 'portrait';
   /** Manque de crédits (402) : pages à régler pour ce document. Affiché dans le
    *  panneau traduit, à la place du message de progression. */
   creditsNeeded?: number | null;
   /** Ouvre le paiement à la page pour `n` pages. */
   onBuyPages?: (pages: number) => void;
+  /** Pages déjà couvertes par le solde, si on peut ne traduire qu'elles. */
+  pagesCovered?: number | null;
+  /** Motif du refus à afficher au-dessus de l'achat (pages offertes refusées
+   *  par l'anti-abus). `null` = manque de crédits ordinaire. */
+  creditsReason?: string | null;
+  /** Relance en ne traduisant que les pages couvertes. */
+  onTranslateCovered?: () => void;
+  /** Pages du manque dues aux images demandées. */
+  imagesNeeded?: number | null;
+  /** Relance du document sans ses images. */
+  onTranslateWithoutImages?: () => void;
   /** Essai : quitter l'aperçu pour les tarifs. */
   onUnlock?: () => void;
+  /** Pages d'aperçu non payées du document, et leur règlement. */
+  pagesLibres?: number;
+  onBuyLibres?: () => void;
+  /** Pages illisibles du scan : carte de décision sur la page traduite. */
+  scanPages?: PagesIllisiblesVue;
 }
 
 /**
@@ -45,16 +74,30 @@ export default function DocumentPreview({
   translatedExt,
   currentPage,
   zoom,
+  ajustement,
+  onZoomAjuste,
+  rideau,
   isTrialMode,
+  pagesVoilees,
   onPagesLoaded,
   translatedPageReady = true,
   translatedPageStatus,
   sourceLabel,
   targetLabel,
   previewLoading,
+  fileMissing,
+  formatHint,
   creditsNeeded,
   onBuyPages,
+  pagesCovered,
+  creditsReason,
+  onTranslateCovered,
+  imagesNeeded,
+  onTranslateWithoutImages,
   onUnlock,
+  pagesLibres,
+  onBuyLibres,
+  scanPages,
 }: DocumentPreviewProps) {
   const { t } = useTranslation();
   const { sourcePdf, translatedPdf, loading, error } = usePdfPreview(sourceFile, translatedBlob, ext, translatedExt);
@@ -110,22 +153,45 @@ export default function DocumentPreview({
     );
   }
 
+  // Visionneuse (et pdf.js) chargée à la 1re ouverture d'un aperçu seulement.
+  const attente = (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '300px', width: '100%', color: 'var(--color-text-secondary)' }}>
+      <Loader2 size={28} strokeWidth={2.2} className="animate-spin" aria-label={t('preview.loading')} />
+    </div>
+  );
+
   return (
+    <Suspense fallback={attente}>
     <PdfViewer
       sourceFile={sourcePdf}
       translatedBlob={translatedPdf}
       currentPage={currentPage}
       zoom={zoom}
+      ajustement={ajustement}
+      onZoomAjuste={onZoomAjuste}
+      rideau={rideau}
       isTrialMode={isTrialMode}
+      pagesVoilees={pagesVoilees}
       onPagesLoaded={onPagesLoaded}
       translatedPageReady={translatedPageReady}
       translatedPageStatus={translatedPageStatus}
       sourceLabel={sourceLabel}
       previewLoading={previewLoading}
+      fileMissing={fileMissing}
+      formatHint={formatHint}
       targetLabel={targetLabel}
       creditsNeeded={creditsNeeded}
       onBuyPages={onBuyPages}
+      pagesCovered={pagesCovered}
+      creditsReason={creditsReason}
+      onTranslateCovered={onTranslateCovered}
+      imagesNeeded={imagesNeeded}
+      onTranslateWithoutImages={onTranslateWithoutImages}
       onUnlock={onUnlock}
+      pagesLibres={pagesLibres}
+      onBuyLibres={onBuyLibres}
+      scanPages={scanPages}
     />
+    </Suspense>
   );
 }

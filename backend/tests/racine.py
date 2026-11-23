@@ -19,3 +19,33 @@ if _BACKEND not in sys.path:
 # montage noierait leur sortie, et c'est cette sortie qu'on lit pour savoir ce
 # qui a echoue.
 os.environ.setdefault("PRECIS_NO_BANNER", "1")
+
+# Aucune suite ne télécharge de police ni ne dépend des polices installées sur
+# la machine : le rendu doit être le même partout. Cache des polices vide.
+os.environ.setdefault("PRECIS_FONT_DOWNLOAD", "0")
+os.environ.setdefault("PRECIS_FONT_SYSTEM", "0")
+# Ni le catalogue pré-chargé sur ce poste : il varie d'une machine à l'autre.
+os.environ.setdefault("PRECIS_FONT_CATALOGUE", "0")
+# Ni le cache des images de l'extension : une image déjà vue d'une suite à
+# l'autre changerait le résultat (test_cache_images l'active dans un dossier temporaire).
+os.environ.setdefault("PRECIS_CACHE_IMAGES", "0")
+if "PRECIS_FONTS_CACHE" not in os.environ:
+    import atexit
+    import shutil
+    import tempfile
+    _cache_polices = tempfile.mkdtemp(prefix="polices_test_")
+    os.environ["PRECIS_FONTS_CACHE"] = _cache_polices
+    atexit.register(shutil.rmtree, _cache_polices, ignore_errors=True)
+
+
+def requete_test(adresse: str = "203.0.113.7"):
+    """Vraie `Request` Starlette minimale, pour appeler une route directement."""
+    from starlette.requests import Request
+    return Request({"type": "http", "method": "POST", "path": "/", "headers": [],
+                    "client": (adresse, 50000)})
+
+
+def compte_ancien():
+    """Date de création assez ancienne pour ne pas déclencher le garde « compte neuf »."""
+    from datetime import datetime, timedelta, timezone
+    return datetime.now(timezone.utc) - timedelta(days=3)

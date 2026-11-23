@@ -1,9 +1,11 @@
 import { useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { motion, useScroll, useTransform } from 'motion/react';
+import { motion, useTransform } from 'motion/react';
+import { useScrollProgress } from '../../lib/useScrollProgress';
 import { ArrowRight, LayoutTemplate, FileType2, Languages } from 'lucide-react';
 import DocumentDemo from './DocumentDemo';
 import LanguageMarquee from './LanguageMarquee';
+import { useBetaProgram } from '../../hooks/useBetaProgram';
 
 /** Légère marge : les lignes ne touchent pas tout à fait le bord, ce qui laisse
  *  aussi respirer les repères de coupe, qui débordent du mot. */
@@ -164,6 +166,7 @@ const PROOFS = [
 
 export default function HeroSection() {
   const { t, i18n } = useTranslation();
+  const betaOpen = useBetaProgram().program?.applications_open === true;
   const heroRef = useRef<HTMLElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
 
@@ -171,10 +174,7 @@ export default function HeroSection() {
   // n'ont ni la même longueur ni le même nombre de mots.
   useJustifiedLines(titleRef, [i18n.language]);
 
-  const { scrollYProgress } = useScroll({
-    target: heroRef,
-    offset: ['start start', 'end start'],
-  });
+  const scrollYProgress = useScrollProgress(heroRef, 'hero');
   // La grille de fond défile plus lentement que le contenu (profondeur), et le
   // hero s'estompe en sortant — la transition vers la section suivante est
   // continue au lieu d'être une coupure.
@@ -271,8 +271,15 @@ export default function HeroSection() {
               {t('hero.btn_start')}
               <ArrowRight size={18} strokeWidth={2.4} />
             </a>
-            <a href="#features" className="btn-ghost">
+            <a href="#pricing" className="btn-ghost">
               {t('hero.btn_how')}
+              {/* Signal discret : la Bêta se trouve dans les tarifs. */}
+              {betaOpen && (
+                <span className="btn-ghost__badge" title={t('hero.beta_badge_title')}>
+                  <span className="btn-ghost__pulse" aria-hidden="true" />
+                  {t('hero.beta_badge')}
+                </span>
+              )}
             </a>
           </motion.div>
 

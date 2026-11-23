@@ -1,0 +1,21 @@
+name: AWS production credit eligibility (read only; manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  free-plan:
+    uses: EagleFox31/appfactory-project-automation/.github/workflows/reusable-aws-free-plan-preflight.yml@94968781c914a28c539a37c9f22f30e3744c9471
+    with:
+      github_environment: production
+      appfactory_ref: 94968781c914a28c539a37c9f22f30e3744c9471
+      role_arn: arn:aws:iam::458018461157:role/precis-translation-staging-free-plan-read
+
+# No credentials are checked into GitHub. Requires a narrowly scoped OIDC
+# role name and AWS account ID are explicit, non-secret reviewed constants.\n# The protected staging environment is required on GitHub.
+# Fail closed if role is missing, plan is PAID, expired, or low on credits.
+# Does NOT create an EC2 instance, budgets, IAM roles, or dispatch SSM.

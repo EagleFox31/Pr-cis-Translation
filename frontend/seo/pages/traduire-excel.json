@@ -1,0 +1,34 @@
+{
+  "label": "Traduire un fichier Excel",
+  "title": "Traduire un fichier Excel (XLSX) · Précis Translator",
+  "description": "Traduisez le texte d'un classeur Excel XLSX dans 23 langues en gardant ses feuilles et ses tableaux. Comptage en mots, aperçu avant téléchargement.",
+  "h1": "Traduire un fichier Excel (XLSX)",
+  "answer": "Pour traduire un fichier Excel, déposez le classeur XLSX dans Précis Translator, choisissez la langue cible et récupérez un classeur traduit qui garde ses feuilles et la disposition de ses tableaux. Le classeur est compté en mots : une page par tranche de 500 mots entamée.",
+  "sections": [
+    "steps",
+    {
+      "heading": "Ce qui est conservé",
+      "list": [
+        "Les feuilles du classeur et leur ordre.",
+        "La disposition des cellules et des tableaux."
+      ]
+    },
+    "limits",
+    "privacy"
+  ],
+  "faq": [
+    {
+      "q": "Comment un fichier Excel est-il compté ?",
+      "a": "En mots : une page par tranche de 500 mots entamée."
+    },
+    {
+      "q": "Les anciens fichiers .xls sont-ils acceptés ?",
+      "a": "Non : enregistrez d'abord le classeur au format XLSX."
+    },
+    {
+      "q": "Puis-je vérifier avant de télécharger ?",
+      "a": "Oui, l'aperçu montre la traduction avant le téléchargement."
+    }
+  ],
+  "verified": "2026-11-07"
+}

@@ -18,8 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import expire_due_plans, require_admin
-from app.models import (ASSIGNABLE_PLANS, User, get_plan_priority,
-                        get_plan_storage)
+from app.models import (ASSIGNABLE_PLANS, EVENT_ADMIN, EVENT_EXPIRY, EVENT_RENEWAL,
+                        EVENT_SUBSCRIPTION, PlanEvent, User,
+                        get_plan_priority, get_plan_storage)
 
 router = APIRouter(prefix="/api/admin/users", tags=["Administration"])
 
@@ -52,8 +53,7 @@ async def list_users(
     await expire_due_plans(db)
     conds = []
     if q:
-        like = f"%{q}%"
-        conds.append(or_(User.email.ilike(like), User.name.ilike(like)))
+        conds.append(or_(User.email.icontains(q, autoescape=True), User.name.icontains(q, autoescape=True)))
 
     stmt = select(User).order_by(User.created_at.desc()).limit(limit).offset(offset)
     if conds:
@@ -101,6 +101,8 @@ async def change_plan(
     if target is None:
         raise HTTPException(status_code=404, detail="Compte introuvable.")
 
+    if target.plan != body.plan or target.plan_expires_at is not None:
+        db.add(PlanEvent(user_id=target.id, kind=EVENT_ADMIN, plan=body.plan))
     target.plan = body.plan
     # Un plan attribué par l'administration n'a pas d'échéance : garder celle
     # d'un abonnement acheté le ferait retomber au Gratuit à cette date.
@@ -113,3 +115,39 @@ async def change_plan(
     await db.commit()
     await db.refresh(target)
     return {"ok": True, "user": _serialize(target)}
+
+
+@router.get("/{user_id}/plan-history")
+async def plan_history(
+    user_id: str,
+    _admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Forfaits successifs d'un compte, du plus récent au plus ancien. La
+    dernière ligne est l'inscription (Gratuit), datée par la création du compte
+    (docs/etude-historique-forfaits.md)."""
+    target = await db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Compte introuvable.")
+    await expire_due_plans(db)
+    rows = (await db.execute(
+        select(PlanEvent).where(PlanEvent.user_id == user_id)
+        .order_by(PlanEvent.created_at.desc(), PlanEvent.id)
+    )).scalars().all()
+    items = [{
+        "kind": e.kind,
+        "plan": e.plan,
+        "months": e.months,
+        "at": e.created_at.isoformat(),
+        "expires_at": e.expires_at.isoformat() if e.expires_at else None,
+    } for e in rows]
+    items.append({"kind": "signup", "plan": "free", "months": None,
+                  "at": target.created_at.isoformat() if target.created_at else None,
+                  "expires_at": None})
+    return {
+        # L'inscription compte : c'est le premier forfait, Gratuit.
+        "subscriptions": 1 + sum(e.kind in (EVENT_SUBSCRIPTION, EVENT_ADMIN) for e in rows),
+        "expiries": sum(e.kind == EVENT_EXPIRY for e in rows),
+        "renewals": sum(e.kind == EVENT_RENEWAL for e in rows),
+        "items": items,
+    }

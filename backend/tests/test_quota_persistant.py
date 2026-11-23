@@ -23,6 +23,7 @@ import sys
 import uuid
 
 import racine  # noqa: F401  -- met backend/ sur le chemin
+from racine import compte_ancien
 
 import fitz                                              # noqa: E402
 from fastapi.testclient import TestClient                # noqa: E402
@@ -32,7 +33,7 @@ from sqlalchemy.ext.asyncio import (                     # noqa: E402
 from sqlalchemy.pool import NullPool                     # noqa: E402
 
 from app.core.database import DATABASE_URL               # noqa: E402
-from app.models import User, UsageRecord, KIND_PLAN      # noqa: E402
+from app.models import User, UsageRecord, KIND_PLAN, KIND_FREE_OFFER      # noqa: E402
 from app.core.security import create_access_token        # noqa: E402
 from app import config as cfg                            # noqa: E402
 from app import create_app                               # noqa: E402
@@ -70,11 +71,12 @@ async def run():
 
     comptes = {
         "libre": User(email=f"q-libre-{uuid.uuid4().hex[:8]}@example.com",
-                      plan="free", email_verified=True),
+                      plan="free", email_verified=True, created_at=compte_ancien()),
         "echec": User(email=f"q-echec-{uuid.uuid4().hex[:8]}@example.com",
-                      plan="free", email_verified=True),
+                      plan="free", email_verified=True, created_at=compte_ancien()),
         "credits": User(email=f"q-cred-{uuid.uuid4().hex[:8]}@example.com",
-                        plan="free", email_verified=True, page_credits=2),
+                        plan="free", email_verified=True, page_credits=2,
+                        created_at=compte_ancien()),
         "starter": User(email=f"q-start-{uuid.uuid4().hex[:8]}@example.com",
                         plan="starter", email_verified=True),
     }
@@ -93,7 +95,9 @@ async def run():
         deposes.append(data)
         return client.post("/api/translate", headers=entetes(u),
                            files={"file": ("doc.pdf", data, "application/pdf")},
-                           data={"target_lang": "en"})
+                           # Pages couvertes seules : sans solde, refus (402)
+                           # plutôt que le mode libre (testé à part).
+                           data={"target_lang": "en", "covered_only": "1"})
 
     def reste(client, u):
         return client.get("/api/auth/me/usage", headers=entetes(u)).json()
@@ -105,10 +109,10 @@ async def run():
         with TestClient(create_app()) as client:
             # ── Gratuit : supprimer ne rend pas l'offre ─────────────────────
             u = comptes["libre"]
-            ok("GRATUIT  le profil annonce 1 traduction offerte",
-               reste(client, u).get("free_translations_remaining") == 1,
+            ok("GRATUIT  le profil annonce 5 pages offertes",
+               reste(client, u).get("free_translations_remaining") == 5,
                str(reste(client, u)))
-            r1 = deposer(client, u)
+            r1 = deposer(client, u, n_pages=5)
             ok("GRATUIT  la traduction offerte passe", r1.status_code == 200,
                f"{r1.status_code} {r1.text[:120]}")
             ok("GRATUIT  le profil annonce 0 ensuite",
@@ -128,13 +132,13 @@ async def run():
 
             # ── Échec de traduction : l'offre est rendue ────────────────────
             u = comptes["echec"]
-            r = deposer(client, u)
+            r = deposer(client, u, n_pages=5)
             job_id = r.json().get("job_id")
             await asyncio.to_thread(jobs.sync_status, job_id, "error")
             ok("ÉCHEC  une traduction échouée rend l'offre du mois",
-               reste(client, u).get("free_translations_remaining") == 1)
+               reste(client, u).get("free_translations_remaining") == 5)
             await asyncio.to_thread(jobs.sync_status, job_id, "error")
-            r = deposer(client, u)
+            r = deposer(client, u, n_pages=5)
             ok("ÉCHEC  on peut donc relancer", r.status_code == 200,
                f"{r.status_code} {r.text[:120]}")
             r = deposer(client, u)
@@ -143,7 +147,10 @@ async def run():
 
             # ── Pages achetées : débitées, remboursées en cas d'échec ───────
             u = comptes["credits"]
-            deposer(client, u)                          # consomme l'offre
+            # Offre mensuelle déjà consommée : tester le débit des seuls crédits.
+            async with async_session() as db:
+                db.add(UsageRecord(user_id=u.id, kind=KIND_FREE_OFFER, pages=5))
+                await db.commit()
             r = deposer(client, u, n_pages=2)
             ok("CRÉDITS  2 pages achetées couvrent un document de 2 pages",
                r.status_code == 200, f"{r.status_code} {r.text[:120]}")

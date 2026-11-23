@@ -8,7 +8,7 @@ from unittest.mock import patch
 import racine  # noqa: F401
 import fitz
 from PIL import Image
-from app.services.ocr import OCRError, OCRUnavailable, prepare_scanned_pdf
+from app.services.ocr import OCRUnavailable, lire_page
 from engines.pdf.engine import PDFObjectEngine
 from engines.pdf.tagging import tag_paragraph
 
@@ -34,21 +34,31 @@ def scanned_pdf(rotated=False):
         return output.tobytes()
 
 
+def lire(octets, numero=1):
+    with fitz.open(stream=octets, filetype="pdf") as doc:
+        return lire_page(doc, numero)
+
+
+def verifier_fond_et_sceau(page):
+    pix = page.get_pixmap()
+    # Le sceau bleu en dehors du texte et le fond jaune restent visibles.
+    assert pix.pixel(480, 670)[2] > 180 and pix.pixel(480, 670)[0] < 100
+    assert pix.pixel(20, 20)[0] > 240 and pix.pixel(20, 20)[2] < 230
+
+
 def main():
     started = time.monotonic()
     original = scanned_pdf()
-    prepared, count = prepare_scanned_pdf(original, {1})
+    lecture = lire(original)
+    assert lecture.statut == "ok", lecture
+    prepared = lecture.pdf
     with fitz.open(stream=original, filetype="pdf") as before, fitz.open(stream=prepared, filetype="pdf") as after:
-        assert count == 1 and len(after) == 2
+        assert len(after) == 1
         assert not before[0].get_text().strip()
         assert "Congratulations" in after[0].get_text()
-        assert before[1].get_pixmap().samples == after[1].get_pixmap().samples
-        pix = after[0].get_pixmap()
-        # Le sceau bleu en dehors du texte et le fond jaune restent visibles.
-        assert pix.pixel(480, 670)[2] > 180 and pix.pixel(480, 670)[0] < 100
-        assert pix.pixel(20, 20)[0] > 240 and pix.pixel(20, 20)[2] < 230
-    rotated, _ = prepare_scanned_pdf(scanned_pdf(rotated=True), {1})
-    with fitz.open(stream=rotated, filetype="pdf") as doc:
+        verifier_fond_et_sceau(after[0])
+    rotated = lire(scanned_pdf(rotated=True))
+    with fitz.open(stream=rotated.pdf, filetype="pdf") as doc:
         assert "Congratulations" in doc[0].get_text(), "Sideways scans must be readable"
         assert doc[0].rect.height > doc[0].rect.width
     with tempfile.TemporaryDirectory() as tmp:
@@ -68,47 +78,53 @@ def main():
         with fitz.open(result) as doc:
             assert "Felicitations" in doc[0].get_text(), "OCR text must reach the translation renderer"
             assert "Congratulations" not in doc[0].get_text()
-            doc[0].get_pixmap().save(os.path.join(tmp, "render.png"))
-        # Le job conserve l'original et une source OCR distincte. La
-        # reouverture doit reutiliser cette source, meme sans rendu en cache.
+            verifier_fond_et_sceau(doc[0])
+        # Le job lit la page dans sa boucle et garde l'original intact. Le fond
+        # du scan doit survivre au travail et a la reouverture ; la page
+        # numerique hors selection reste a l'identique.
         from app.services.translation_runner import run_pdf_v2_job, render_translation_bytes
         from app.services.jobs import jobs
         original_path = os.path.join(tmp, "original.pdf")
-        translation_path = os.path.join(tmp, "pages_debug_ocrv1.json")
+        translation_path = os.path.join(tmp, "pages_debug_ocrv3.json")
         output_path = os.path.join(tmp, "output.pdf")
         job_id = jobs.create()
         run_pdf_v2_job(job_id, original, original_path, output_path, "scan.pdf",
                        os.path.join(tmp, "partial.pdf"), translation_path,
-                       "en", {1}, True, prepared)
+                       "en", {1}, True)
         assert os.path.isfile(output_path), "OCR job must render successfully"
         with open(original_path, "rb") as f:
             assert f.read() == original, "Never overwrite the original scan"
+        with fitz.open(output_path) as doc, fitz.open(stream=original, filetype="pdf") as before:
+            assert len(doc) == 2
+            # Hors selection : page d'origine, avec la seule mention « non incluse ».
+            from engines.pdf.stream import mention_non_incluse
+            assert doc[1].get_text() == before[1].get_text() + mention_non_incluse("en") + chr(10)
+            verifier_fond_et_sceau(doc[0])
         reopened = render_translation_bytes(original_path, translation_path, "pdf", "en")
         with fitz.open(stream=reopened, filetype="pdf") as doc:
             assert "Congratulations" in doc[0].get_text(), "Reopening must use the recognized source"
-        os.unlink(translation_path + ".source.pdf")
+            verifier_fond_et_sceau(doc[0])
+        # Ancienne traduction : scan entier prepare a l'envoi, jamais rendu sans lui.
+        ancienne = os.path.join(tmp, "pages_debug_ocrv1.json")
+        with open(ancienne, "w", encoding="utf-8") as f:
+            f.write('{"pages": []}')
         try:
-            render_translation_bytes(original_path, translation_path, "pdf", "en")
+            render_translation_bytes(original_path, ancienne, "pdf", "en")
         except FileNotFoundError:
             pass
         else:
             raise AssertionError("Missing OCR source must not silently return an untranslated scan")
     with fitz.open() as blank:
         blank.new_page()
+        assert lire(blank.tobytes()).statut == "blanche", "A blank page must not become a paid translation"
+    with patch("app.services.ocr_v2.detect.shutil.which", return_value=None):
         try:
-            prepare_scanned_pdf(blank.tobytes(), {1})
-        except OCRError:
-            pass
-        else:
-            raise AssertionError("A blank page must not become a paid translation")
-    with patch("app.services.ocr.shutil.which", return_value=None):
-        try:
-            prepare_scanned_pdf(original, {1})
+            lire(original)
         except OCRUnavailable:
             pass
         else:
             raise AssertionError("Missing OCR must fail explicitly")
-    print(f"PASS: real OCR, rotated scan, digital page preserved, colored background and seal, translated rendering, blank page rejected ({time.monotonic()-started:.2f}s)")
+    print(f"PASS: real OCR, rotated scan, digital page preserved, colored background and seal, translated rendering, blank page ({time.monotonic()-started:.2f}s)")
 
 
 if __name__ == "__main__":

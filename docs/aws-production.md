@@ -1,0 +1,47 @@
+# Précis production delivery
+
+Précis already runs at https://precis-translator.trigenys.com. Its application
+runtime is production and its EC2 lifecycle is persistent. GitHub and AppFactory
+now use the explicit `production` environment; historical staging deployments
+remain historical records.
+
+The same EC2 instance, stack, role ARNs, SecureString and Compose volumes remain
+in place. Their old `staging` substrings are resource identities, not another
+environment to create. No new instance or secret reimport is needed.
+
+AppFactory Project Automation manages the linked development Project through
+the existing owner OAuth broker. AppFactory's reusable Release Please workflow
+opens version PRs, updates the changelog/package version, tags and publishes
+GitHub Releases. Release PRs run the existing CI, including when the default
+GitHub token needs an explicit workflow-dispatch to start it. Publishing passes
+the exact released SHA to the reusable production deployment workflow.
+
+Existing AWS roles must trust this repository's production OIDC subject. Before
+the first migrated deployment, an AWS administrator can run the reviewed
+`scripts/ops/production_oidc.py --apply` from CloudShell. The script first checks
+the AWS account and both existing role trusts, refuses unrelated/broad trust,
+then changes only the environment suffix and verifies it. It never changes role
+permissions, servers, billing or application secrets. Its default is read-only.
+
+After that one-time migration, rerun failed production jobs. CI guards the
+logical environment and release-to-deployment SHA mapping against regressions.
+
+Initial release bootstrap is bounded to the existing deployed lineage at b022d2e689b241ffd1fb1db9e9a4cd8741bf7583. The first managed version is 1.2.0; later versions follow commits and the persisted manifest. This avoids scanning the unrelated initial repository history, which produced a GitHub GraphQL internal error during first adoption. Existing manual changelog entries are preserved.
+
+The production ZIP importer retains FAPSHI_API_USER, FAPSHI_API_KEY,
+FAPSHI_WEBHOOK_SECRET, FAPSHI_ENV and FAPSHI_FLOW. Earlier revisions
+silently omitted these five settings even when the uploaded ZIP contained
+them. An import success therefore did not prove Fapshi was configured.
+
+To repair an affected import without uploading the ZIP again, run the reviewed
+importer in an administrator CloudShell terminal:
+
+    python3 import-env-to-ssm.py --repair-fapshi --fapshi-env LIVE --apply
+
+The terminal prompts privately for the API user/key and an optional webhook
+secret. It reads the latest existing SecureString after prompting, updates only
+the supplied Fapshi settings, and preserves all other configuration. Select
+SANDBOX explicitly for a sandbox account. Without --apply, no AWS calls,
+prompts or writes occur. Reload the existing production service afterward;
+no payment is initiated by the repair.
+

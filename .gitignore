@@ -10,10 +10,13 @@ __pycache__/
 
 # Node
 node_modules/
+*.tsbuildinfo
 frontend/dist/
 
 # Données générées à l'exécution
 backend/translations/
+# Polices pré-chargées au build (scripts/precharger_polices.py)
+backend/fonts/catalogue/
 
 # NOTE — `backend/fonts/*.ttf` était ignoré ici. C'était une erreur, et elle
 # était SILENCIEUSE : sur 28 fichiers présents en local, 6 seulement étaient
@@ -35,6 +38,7 @@ backend/translations/
 # sorties traduites, caches) — volumineux et regenerables localement.
 backend/tests files/
 backend/tests/_generic_tmp/
+backend/tests/out_lettres_dessinees/
 *.bak
 *.old
 
@@ -44,3 +48,8 @@ backend/tests/_generic_tmp/
 # Volumineuses (plusieurs dizaines de Mo) et REGENERABLES : un « git add . »
 # les embarquerait sinon dans le dépôt, qui ne pèse que 11 Mo par ailleurs.
 .ocr_out/
+
+# Poids PP-OCRv6 (backend/scripts/telecharger_ppocr.py)
+backend/models/
+# ZIP d'installation manuelle de l'extension (npm run package)
+frontend/public/extension/

@@ -195,10 +195,11 @@ def test_numeros_figes(ok) -> None:
         eng = PPTXTranslatorEngine()
         eng._extract_zip(src)
         try:
-            # slide12.xml est 1re dans l'ordre d'affichage, slide3.xml 4e.
+            # slide12.xml est 1re dans l'ordre d'affichage, slide3.xml 4e :
+            # `only_slides` reçoit la POSITION, le numéro figé la reprend.
             for fichier, attendu in ((12, "1"), (3, "4")):
                 out = os.path.join(td, f"seule{fichier}.pptx")
-                eng.build_partial_pptx(out, NB_SLIDES, only_slides={fichier})
+                eng.build_partial_pptx(out, NB_SLIDES, only_slides={int(attendu)})
                 textes, champs = _numeros(out, fichier)
                 ok(f"NUMERO  slide{fichier}.xml isolée affiche {attendu}",
                    champs == 0 and textes[-1:] == [attendu],

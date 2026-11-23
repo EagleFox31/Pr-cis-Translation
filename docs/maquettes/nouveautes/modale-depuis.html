@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Depuis la dernière visite</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,400&family=DM+Mono:wght@400&family=DM+Sans:wght@400;500;600;700&family=Pinyon+Script&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="commun.css">
+<style>
+.dialog { width: min(460px, calc(100vw - 32px)); }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; padding: 4px; background: var(--gray-100); border-radius: 12px; }
+.seg [role=tab] { min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 0 8px; border: 0; border-radius: 9px; background: none; cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--gray-700); white-space: nowrap; }
+.seg [role=tab]:hover { color: var(--navy); }
+.seg [role=tab][aria-selected=true] { background: #fff; color: var(--navy); box-shadow: 0 1px 3px rgba(13,27,62,.12); }
+.seg [role=tab]:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.panes { height: 300px; margin: 14px 0 0; border: 1px solid var(--gray-200); border-radius: 12px; overflow: hidden; }
+.panes [role=tabpanel] { height: 100%; overflow-y: auto; padding: 4px 16px 8px; overscroll-behavior: contain; }
+.panes [role=tabpanel]:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.dom { display: flex; align-items: center; gap: 7px; margin: 12px 0 2px; font-size: 12px; font-weight: 700; color: var(--navy); }
+.dom .ic { color: var(--blue); }
+.panes ul { list-style: none; margin: 0; padding: 0; }
+.panes li { display: grid; grid-template-columns: 1fr auto; column-gap: 12px; padding: 9px 0 9px 23px; border-bottom: 1px solid var(--gray-100); }
+.panes ul:last-child li:last-child { border-bottom: 0; }
+.panes li b { font-size: 14px; color: var(--gray-900); line-height: 1.35; }
+.panes li time { grid-column: 2; grid-row: 1; font-size: 12px; color: var(--gray-500); white-space: nowrap; align-self: baseline; }
+.panes li span { grid-column: 1 / -1; font-size: 13px; color: var(--gray-500); line-height: 1.45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.optin { height: 60px; margin: 14px 0 0; border-top: 1px solid var(--gray-200); }
+.optin__row { width: 100%; height: 100%; display: flex; align-items: center; gap: 12px; padding: 0 4px; background: none; border: 0; border-radius: 10px; cursor: pointer; text-align: left; }
+.optin__row:hover { background: var(--gray-50); }
+.optin__row:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.optin__row > .ic { color: var(--blue); flex: none; }
+.optin__row span.t { flex: 1; min-width: 0; }
+.optin__row b { display: block; font-size: 14px; color: var(--gray-900); line-height: 1.35; }
+.optin__row small { display: block; font-size: 12.5px; color: var(--gray-500); line-height: 1.4; }
+.optin__row[aria-checked="true"] .switch { background: var(--blue); }
+.optin__row[aria-checked="true"] .switch::after { transform: translateX(16px); }
+.optin__done { height: 100%; margin: 0; display: flex; align-items: center; gap: 10px; padding: 0 4px; font-size: 14px; font-weight: 600; color: var(--navy); }
+.optin__done .ic { color: var(--blue); }
+.optin__done[hidden], .optin__row[hidden] { display: none; }
+.optin + .dialog__cta, .panes + .dialog__cta { margin-top: 16px; }
+@media (max-width: 520px) {
+  .seg [role=tab] { flex-direction: column; gap: 3px; min-height: 52px; font-size: 12.5px; padding: 4px; }
+  .seg .badge { padding: 0 7px; line-height: 16px; }
+  .panes { height: clamp(170px, calc(100dvh - 470px), 300px); }
+  .optin { height: auto; min-height: 58px; margin-top: 10px; }
+  .optin__row, .optin__done { min-height: 58px; padding: 6px 0; }
+  .optin__row { gap: 9px; padding: 0; }
+  .optin__row b { font-size: 13.5px; }
+  .optin__row small { font-size: 12px; }
+  .optin + .dialog__cta, .panes + .dialog__cta { margin-top: 12px; }
+  .panes [role=tabpanel] { padding: 2px 14px 8px; }
+  .panes li { padding-left: 0; }
+  .panes li span { white-space: normal; }
+}
+</style>
+</head>
+<body>
+<div class="backdrop-page" aria-hidden="true"><header class="navbar">
+  <div class="nav-inner">
+    <a class="nav-logo" href="#" aria-label="Précis, accueil"><img src="../../../frontend/public/Logo.png" alt=""><span>récis</span></a>
+    <nav class="nav-links" aria-label="Navigation principale">
+      <a href="#">Accueil</a><a href="#">Fonctionnalités</a><a href="#">Fonctionnement</a><a href="#">Tarifs</a><a href="#">À Propos</a>
+    </nav>
+    <div class="nav-right">
+      <div class="lang-toggle" aria-label="Langue"><b class="on">FR</b><b>EN</b></div>
+      <button class="avatar" aria-label="Mon compte">M</button>
+      <button class="burger" aria-label="Ouvrir le menu"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></svg></button>
+    </div>
+  </div>
+</header>
+<div class="ghost-hero"></div>
+  <div class="ghost-row"><i style="width:60%"></i><i></i><i style="width:85%"></i><i style="width:40%"></i></div>
+</div>
+<div class="veil"></div>
+
+<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="t">
+  <button class="dialog__x" aria-label="Fermer"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+  <div class="dialog__head"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg><h2 id="t">Depuis votre dernière visite</h2></div>
+  <p class="dialog__sub"><span class="tab">8</span> changements depuis le <span class="tab">20 octobre 2026</span>.</p>
+  <div class="seg" role="tablist" aria-label="Types de changements"><button role="tab" id="t-new" aria-selected="true" aria-controls="p-new" tabindex="0" data-anchor="fonctionnalites">Nouveautés<span class="badge badge--new tab" aria-label="3 éléments">3</span></button><button role="tab" id="t-imp" aria-selected="false" aria-controls="p-imp" tabindex="-1" data-anchor="ameliorations">Améliorations<span class="badge badge--imp tab" aria-label="2 éléments">2</span></button><button role="tab" id="t-fix" aria-selected="false" aria-controls="p-fix" tabindex="-1" data-anchor="correctifs">Correctifs<span class="badge badge--fix tab" aria-label="3 éléments">3</span></button></div>
+  <div class="panes"><div role="tabpanel" id="p-new" aria-labelledby="t-new" tabindex="0"><p class="dom"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/></svg>Extension navigateur</p><ul><li><b>Traduire depuis le navigateur</b><time class="tab" datetime="2026-11-09">nov. 2026</time><span>Une extension, avec sa page d'installation sur le site.</span></li></ul><p class="dom"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Compte</p><ul><li><b>Inviter un proche</b><time class="tab" datetime="2026-11-09">nov. 2026</time><span>Une invitation par e-mail, depuis votre compte.</span></li><li><b>Essai : cinq pages par mois</b><time class="tab" datetime="2026-10-21">oct. 2026</time><span>Cinq pages offertes chaque mois pendant l'essai.</span></li></ul></div><div role="tabpanel" id="p-imp" aria-labelledby="t-imp" tabindex="0" hidden><p class="dom"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>Documents</p><ul><li><b>PowerPoint : pause, reprise, annulation</b><time class="tab" datetime="2026-11-09">nov. 2026</time><span>Gardez la main sur une traduction longue.</span></li></ul><p class="dom"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/></svg>Visionneuse</p><ul><li><b>Navigation, zoom et vignettes</b><time class="tab" datetime="2026-11-09">nov. 2026</time><span>Page par page, zoom à la molette, vue de l'original.</span></li></ul></div><div role="tabpanel" id="p-fix" aria-labelledby="t-fix" tabindex="0" hidden><p class="dom"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>Documents</p><ul><li><b>Aperçu des diapositives plus fidèle</b><time class="tab" datetime="2026-11-09">nov. 2026</time><span>La prévisualisation PowerPoint correspond mieux au fichier.</span></li></ul><p class="dom"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Compte</p><ul><li><b>Période de facturation fiable</b><time class="tab" datetime="2026-10-21">oct. 2026</time><span>Le choix mensuel ou annuel fonctionne aussi au clavier.</span></li><li><b>Cartes de forfait allégées</b><time class="tab" datetime="2026-10-21">oct. 2026</time><span>Les cartes de forfait sont plus courtes.</span></li></ul></div></div>
+  <div class="optin" id="optin" aria-live="polite">
+    <button class="optin__row" role="switch" aria-checked="false" aria-labelledby="oi-l" aria-describedby="oi-h"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg><span class="t"><b id="oi-l">Recevoir les nouveautés par <span style="white-space:nowrap">e-mail</span></b><small id="oi-h">Un e-mail à chaque nouvelle version</small></span><span class="switch" aria-hidden="true"></span></button>
+    <p class="optin__done" hidden><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Vous recevrez les nouveautés</p>
+  </div>
+  <a class="dialog__cta" id="cta" href="page.html#fonctionnalites">Voir toutes les fonctionnalités <svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></a>
+</div>
+<script>
+(function () {
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role=tab]'));
+  var cta = document.getElementById('cta');
+  var optin = document.getElementById('optin'), row = optin.querySelector('.optin__row'), done = optin.querySelector('.optin__done');
+  if (new URLSearchParams(location.search).get('abonne') === '1') optin.remove();
+  row.addEventListener('click', function () {
+    row.setAttribute('aria-checked', 'true');
+    setTimeout(function () { row.hidden = true; done.hidden = false; }, 260);
+  });
+  function select(t, focus) {{
+    tabs.forEach(function (x) {{
+      var on = x === t;
+      x.setAttribute('aria-selected', String(on));
+      x.tabIndex = on ? 0 : -1;
+      document.getElementById(x.getAttribute('aria-controls')).hidden = !on;
+    }});
+    cta.href = 'page.html#' + t.dataset.anchor;
+    if (focus) t.focus();
+  }}
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') document.querySelector('.dialog').hidden = true; });
+  tabs.forEach(function (t, i) {
+    t.addEventListener('click', function () { select(t, false); });
+    t.addEventListener('keydown', function (e) {
+      var j = {ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1}[e.key];
+      if (j === undefined) return;
+      e.preventDefault();
+      select(tabs[(j + tabs.length) % tabs.length], true);
+    });
+  });
+})();
+</script>
+</body>
+</html>

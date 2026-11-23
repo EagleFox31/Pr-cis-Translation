@@ -36,6 +36,10 @@ _RACINE_JOB = re.compile(r"^[0-9a-f]{8,64}$")
 _SORTIE_JOB = re.compile(r"^(render|partial).*_[0-9a-f]{8}\.[a-z]+(\.tmp)?$")
 _RENDU_CACHE = re.compile(r"^(?P<trad>.+)\.render\.(?P<version>.+)\.pdf(\.tmp)?$")
 _TRADUCTION = re.compile(r"^(pages|translated).*\.json$")
+# Table des images traduites, gardée à côté d'une traduction (`<trad>.images.json`
+# et dossier `<trad>.images/`) : elle suit la traduction, jamais seule. Même
+# règle pour le dossier `<trad>.ocr/` (lecture des scans, page par page).
+_TABLE_IMAGES = re.compile(r"^(?P<trad>.+\.json)\.images\.json(\.tmp)?$")
 
 
 def _dans_magasin(path: str, magasin: str) -> bool:
@@ -104,6 +108,15 @@ def balayer_magasin(references: set[str], version_moteur: str,
                 cle = os.path.normcase(os.path.realpath(chemin))
                 if _SORTIE_JOB.match(f):
                     _effacer(chemin, compte, "sorties_job")
+                elif m := _TABLE_IMAGES.match(f):
+                    if not os.path.isfile(os.path.join(dossier, m["trad"])):
+                        _effacer(chemin, compte, "traductions")
+                elif (os.path.basename(dossier).endswith(".json.images")
+                      and not os.path.isfile(dossier[:-len(".images")])):
+                    _effacer(chemin, compte, "traductions")
+                elif (os.path.basename(dossier).endswith(".json.ocr")
+                      and not os.path.isfile(dossier[:-len(".ocr")])):
+                    _effacer(chemin, compte, "traductions")
                 elif m := _RENDU_CACHE.match(f):
                     trad = os.path.join(dossier, m["trad"])
                     if (m["version"] != version_moteur or f.endswith(".tmp")
@@ -120,6 +133,42 @@ def balayer_magasin(references: set[str], version_moteur: str,
                     _effacer(chemin, compte, "traductions")
         _elaguer_dossiers_vides(racine)
     return compte
+
+
+_MARQUE_BASE = ".base"
+
+
+def magasin_appartient_a(base: str, magasin: str = TRANSLATIONS_DIR) -> bool:
+    """Le magasin est-il celui de la base `base` ? Il le note à son premier
+    balayage (`.base`) et, ensuite, refuse tout balayage venu d'une autre.
+
+    Une suite de tests démarrée sur SA base, mais sur le magasin du poste, ne
+    voyait citée aucune racine du poste et les effaçait toutes (21/10/2026 :
+    les 15 documents de dev perdus). Pour rebrancher le magasin sur une autre
+    base volontairement : supprimer `.base`.
+    """
+    marque = os.path.join(magasin, _MARQUE_BASE)
+    try:
+        with open(marque, encoding="utf-8") as f:
+            return f.read().strip() == base
+    except FileNotFoundError:
+        pass
+    except OSError:
+        return False
+    try:
+        os.makedirs(magasin, exist_ok=True)
+        with open(marque, "w", encoding="utf-8") as f:
+            f.write(base)
+    except OSError:
+        return False
+    return True
+
+
+def identite_base(url: str) -> str:
+    """Ce qui désigne une base, sans le mot de passe (qui peut changer)."""
+    from sqlalchemy.engine import make_url
+    u = make_url(url)
+    return f"{u.get_backend_name()}://{u.host or ''}:{u.port or ''}/{u.database or ''}"
 
 
 def _elaguer_dossiers_vides(racine: str) -> None:
@@ -173,14 +222,31 @@ async def balayer_au_demarrage() -> None:
     import asyncio
     try:
         from sqlalchemy import select
+        from app.config import DATABASE_URL
         from app.core.database import async_session
         from app.models import Document
+        from app.services.jobs import STATUTS_REPRENABLES
         from engines.pdf.version import ENGINE_VERSION
+        if not magasin_appartient_a(identite_base(DATABASE_URL)):
+            logger.warning(
+                "Ménage du magasin ignoré : il appartient à une autre base "
+                f"(cf. {os.path.join(TRANSLATIONS_DIR, _MARQUE_BASE)})."
+            )
+            return
         async with async_session() as db:
             lignes = (await db.execute(
                 select(Document.original_path, Document.translated_path)
             )).all()
+            # Un document arrêté (interrompu, en pause, annulé) n'a pas de
+            # `translated_path` : sans
+            # ceci, ses pages traduites (et payées) partiraient au bout du
+            # délai de grâce, et la reprise les ferait payer une seconde fois.
+            interrompus = (await db.execute(
+                select(Document).where(Document.status.in_(STATUTS_REPRENABLES))
+            )).scalars().all()
+        from app.services.documents import chemin_traduction_du_document
         refs = {p for ligne in lignes for p in ligne if p}
+        refs |= {p for d in interrompus if (p := chemin_traduction_du_document(d))}
         compte = await asyncio.to_thread(balayer_magasin, refs, ENGINE_VERSION)
         apercus = await asyncio.to_thread(limiter_apercus)
     except Exception as e:

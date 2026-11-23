@@ -45,13 +45,38 @@ th{color:#6b7280;font-weight:600;font-size:11px;text-transform:uppercase}
   .avis{background:#1e1b0f;border-color:#a16207}
 }
 </style></head><body>
-<div id="nav"><div class="grp">Comptes</div>
+<div id="nav"><div class="grp">Administration</div>
+<a href="#get--api-admin-documents"><span class="m" style="color:#2563eb">GET</span>/api/admin/documents</a>
+<a href="#get--api-admin-documents-doc_id-original"><span class="m" style="color:#2563eb">GET</span>/api/admin/documents/{doc_id}/original</a>
+<a href="#get--api-admin-documents-doc_id-translated"><span class="m" style="color:#2563eb">GET</span>/api/admin/documents/{doc_id}/translated</a>
+<a href="#get--api-admin-users"><span class="m" style="color:#2563eb">GET</span>/api/admin/users</a>
+<a href="#post--api-admin-users-user_id-plan"><span class="m" style="color:#16a34a">POST</span>/api/admin/users/{user_id}/plan</a>
+<a href="#get--api-admin-users-user_id-plan-history"><span class="m" style="color:#2563eb">GET</span>/api/admin/users/{user_id}/plan-history</a>
+<div class="grp">Assistance</div>
+<a href="#post--api-support"><span class="m" style="color:#16a34a">POST</span>/api/support</a>
+<a href="#get--api-support"><span class="m" style="color:#2563eb">GET</span>/api/support</a>
+<a href="#delete--api-support"><span class="m" style="color:#dc2626">DELETE</span>/api/support</a>
+<a href="#post--api-support-handle"><span class="m" style="color:#16a34a">POST</span>/api/support/handle</a>
+<div class="grp">Bêta</div>
+<a href="#get--api-admin-beta"><span class="m" style="color:#2563eb">GET</span>/api/admin/beta</a>
+<a href="#patch--api-admin-beta-applications-application_id"><span class="m" style="color:#ca8a04">PATCH</span>/api/admin/beta/applications/{application_id}</a>
+<a href="#get--api-admin-beta-campaigns"><span class="m" style="color:#2563eb">GET</span>/api/admin/beta/campaigns</a>
+<a href="#post--api-admin-beta-campaigns"><span class="m" style="color:#16a34a">POST</span>/api/admin/beta/campaigns</a>
+<a href="#patch--api-admin-beta-campaigns-campaign_id"><span class="m" style="color:#ca8a04">PATCH</span>/api/admin/beta/campaigns/{campaign_id}</a>
+<a href="#patch--api-admin-beta-enrollments-enrollment_id"><span class="m" style="color:#ca8a04">PATCH</span>/api/admin/beta/enrollments/{enrollment_id}</a>
+<a href="#post--api-admin-beta-invitations"><span class="m" style="color:#16a34a">POST</span>/api/admin/beta/invitations</a>
+<a href="#post--api-beta-activate"><span class="m" style="color:#16a34a">POST</span>/api/beta/activate</a>
+<a href="#post--api-beta-applications"><span class="m" style="color:#16a34a">POST</span>/api/beta/applications</a>
+<a href="#get--api-beta-me"><span class="m" style="color:#2563eb">GET</span>/api/beta/me</a>
+<a href="#get--api-beta-program"><span class="m" style="color:#2563eb">GET</span>/api/beta/program</a>
+<div class="grp">Comptes</div>
 <a href="#post--api-auth-forgot-password"><span class="m" style="color:#16a34a">POST</span>/api/auth/forgot-password</a>
 <a href="#post--api-auth-google"><span class="m" style="color:#16a34a">POST</span>/api/auth/google</a>
 <a href="#post--api-auth-login"><span class="m" style="color:#16a34a">POST</span>/api/auth/login</a>
 <a href="#post--api-auth-login-password"><span class="m" style="color:#16a34a">POST</span>/api/auth/login-password</a>
 <a href="#post--api-auth-logout"><span class="m" style="color:#16a34a">POST</span>/api/auth/logout</a>
 <a href="#get--api-auth-me"><span class="m" style="color:#2563eb">GET</span>/api/auth/me</a>
+<a href="#get--api-auth-me-usage"><span class="m" style="color:#2563eb">GET</span>/api/auth/me/usage</a>
 <a href="#post--api-auth-refresh"><span class="m" style="color:#16a34a">POST</span>/api/auth/refresh</a>
 <a href="#post--api-auth-register"><span class="m" style="color:#16a34a">POST</span>/api/auth/register</a>
 <a href="#post--api-auth-register-password"><span class="m" style="color:#16a34a">POST</span>/api/auth/register-password</a>
@@ -66,11 +91,24 @@ th{color:#6b7280;font-weight:600;font-size:11px;text-transform:uppercase}
 <a href="#get--api-documents-doc_id-download"><span class="m" style="color:#2563eb">GET</span>/api/documents/{doc_id}/download</a>
 <a href="#get--api-documents-doc_id-original"><span class="m" style="color:#2563eb">GET</span>/api/documents/{doc_id}/original</a>
 <a href="#get--api-documents-doc_id-preview"><span class="m" style="color:#2563eb">GET</span>/api/documents/{doc_id}/preview</a>
+<div class="grp">Invitations</div>
+<a href="#post--api-invitations"><span class="m" style="color:#16a34a">POST</span>/api/invitations</a>
+<div class="grp">Journal</div>
+<a href="#get--api-logs"><span class="m" style="color:#2563eb">GET</span>/api/logs</a>
+<a href="#delete--api-logs"><span class="m" style="color:#dc2626">DELETE</span>/api/logs</a>
+<a href="#post--api-logs-client"><span class="m" style="color:#16a34a">POST</span>/api/logs/client</a>
+<a href="#get--api-logs-export"><span class="m" style="color:#2563eb">GET</span>/api/logs/export</a>
+<a href="#get--api-logs-group-fp"><span class="m" style="color:#2563eb">GET</span>/api/logs/group/{fp}</a>
+<a href="#post--api-logs-handle"><span class="m" style="color:#16a34a">POST</span>/api/logs/handle</a>
 <div class="grp">Paiements</div>
 <a href="#post--api-payments-collect"><span class="m" style="color:#16a34a">POST</span>/api/payments/collect</a>
+<a href="#get--api-payments-methods"><span class="m" style="color:#2563eb">GET</span>/api/payments/methods</a>
+<a href="#post--api-payments-plan"><span class="m" style="color:#16a34a">POST</span>/api/payments/plan</a>
+<a href="#post--api-payments-plan-quote"><span class="m" style="color:#16a34a">POST</span>/api/payments/plan/quote</a>
 <a href="#post--api-payments-quote"><span class="m" style="color:#16a34a">POST</span>/api/payments/quote</a>
 <a href="#get--api-payments-payment_id"><span class="m" style="color:#2563eb">GET</span>/api/payments/{payment_id}</a>
 <div class="grp">Service</div>
+<a href="#get--api-admin-ia"><span class="m" style="color:#2563eb">GET</span>/api/admin/ia</a>
 <a href="#get--api-pricing"><span class="m" style="color:#2563eb">GET</span>/api/pricing</a>
 <a href="#get--api-user-storage"><span class="m" style="color:#2563eb">GET</span>/api/user/storage</a>
 <a href="#get--health"><span class="m" style="color:#2563eb">GET</span>/health</a>
@@ -81,14 +119,354 @@ th{color:#6b7280;font-weight:600;font-size:11px;text-transform:uppercase}
 <a href="#post--api-translate"><span class="m" style="color:#16a34a">POST</span>/api/translate</a>
 <a href="#get--api-translate-events-job_id"><span class="m" style="color:#2563eb">GET</span>/api/translate/events/{job_id}</a>
 <a href="#get--api-translate-partial-job_id"><span class="m" style="color:#2563eb">GET</span>/api/translate/partial/{job_id}</a>
-<a href="#get--api-translate-result-job_id"><span class="m" style="color:#2563eb">GET</span>/api/translate/result/{job_id}</a></div>
+<a href="#get--api-translate-result-job_id"><span class="m" style="color:#2563eb">GET</span>/api/translate/result/{job_id}</a>
+<a href="#post--api-translate-job_id-mode"><span class="m" style="color:#16a34a">POST</span>/api/translate/{job_id}/{mode}</a></div>
 <main>
 <h1>Précis Translator API</h1>
-<p class="meta">Version 1.0.0 · 32 opérations</p>
+<p class="meta">Version 1.0.0 · 66 opérations</p>
 <div class="desc"><p>Traduction de documents à mise en forme préservée — PDF, PPTX, DOCX. Le texte est relevé avec sa géométrie et ses styles, traduit, puis réinjecté dans le document d&#x27;origine.</p></div>
 <div class="avis">Page <strong>générée</strong> depuis le schéma OpenAPI de
 l'application : <code>python scripts/docs_api.py</code>. Ne pas la modifier à la
 main — corriger la docstring ou la signature de la route, puis regénérer.</div>
+<h2 id="tag-Administration">Administration</h2>
+<section id="get--api-admin-documents">
+<h3><span class="badge" style="background:#2563eb">GET</span><code>/api/admin/documents</code></h3>
+<p class="resume">List Documents</p>
+<div class="desc"><p>Documents de tous les comptes, du plus récent au plus ancien. <code>q</code> filtre</p>
+<p>sur l&#x27;e-mail du propriétaire ou le nom du fichier (sous-chaîne insensible à</p>
+<p>la casse).</p></div>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>q</code></td><td>query</td><td>non</td><td>—</td></tr>
+<tr><td><code>limit</code></td><td>query</td><td>non</td><td>integer</td></tr>
+<tr><td><code>offset</code></td><td>query</td><td>non</td><td>integer</td></tr>
+</tbody></table>
+<h4>Exemple d'appel</h4><pre><code>curl -X GET \
+  &#x27;http://localhost:8000/api/admin/documents&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="get--api-admin-documents-doc_id-original">
+<h3><span class="badge" style="background:#2563eb">GET</span><code>/api/admin/documents/{doc_id}/original</code></h3>
+<p class="resume">Download Original</p>
+<div class="desc"><p>Octets d&#x27;origine du document, tels que déposés par son propriétaire.</p></div>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>doc_id</code></td><td>path</td><td>oui</td><td>string</td></tr>
+</tbody></table>
+<h4>Exemple d'appel</h4><pre><code>curl -X GET \
+  &#x27;http://localhost:8000/api/admin/documents/{doc_id}/original&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="get--api-admin-documents-doc_id-translated">
+<h3><span class="badge" style="background:#2563eb">GET</span><code>/api/admin/documents/{doc_id}/translated</code></h3>
+<p class="resume">Download Translated</p>
+<div class="desc"><p>Traduction rendue dans le format du document, comme la reçoit son</p>
+<p>propriétaire sur <code>/documents/{id}/download</code> (même nom <code>_TRADUIT</code>). Pas de</p>
+<p>contrôle de paiement : l&#x27;admin diagnostique, il ne consomme pas.</p>
+
+<p><code>translated_path</code> ne contient que la traduction stockée (JSON) : on la</p>
+<p>rend depuis l&#x27;original, ce qui est aussi ce qu&#x27;il faut pour reproduire un</p>
+<p>rendu cassé.</p></div>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>doc_id</code></td><td>path</td><td>oui</td><td>string</td></tr>
+</tbody></table>
+<h4>Exemple d'appel</h4><pre><code>curl -X GET \
+  &#x27;http://localhost:8000/api/admin/documents/{doc_id}/translated&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="get--api-admin-users">
+<h3><span class="badge" style="background:#2563eb">GET</span><code>/api/admin/users</code></h3>
+<p class="resume">List Users</p>
+<div class="desc"><p>Liste des comptes, du plus récent au plus ancien. <code>q</code> filtre sur l&#x27;e-mail</p>
+<p>ou le nom (sous-chaîne insensible à la casse).</p></div>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>q</code></td><td>query</td><td>non</td><td>—</td></tr>
+<tr><td><code>limit</code></td><td>query</td><td>non</td><td>integer</td></tr>
+<tr><td><code>offset</code></td><td>query</td><td>non</td><td>integer</td></tr>
+</tbody></table>
+<h4>Exemple d'appel</h4><pre><code>curl -X GET \
+  &#x27;http://localhost:8000/api/admin/users&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="post--api-admin-users-user_id-plan">
+<h3><span class="badge" style="background:#16a34a">POST</span><code>/api/admin/users/{user_id}/plan</code></h3>
+<p class="resume">Change Plan</p>
+<div class="desc"><p>Change le plan d&#x27;un compte. Le plan doit appartenir à la liste blanche —</p>
+<p>une valeur libre donnerait des droits fantômes, absents de la grille.</p>
+
+<p>L&#x27;admin ne peut PAS changer son PROPRE plan : se rétrograder soi-même, c&#x27;est</p>
+<p>perdre l&#x27;accès à cet écran et à tous les autres outils d&#x27;administration d&#x27;un</p>
+<p>seul clic, sans personne pour le rendre.</p></div>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>user_id</code></td><td>path</td><td>oui</td><td>string</td></tr>
+</tbody></table>
+<h4>Exemple d'appel</h4><pre><code>curl -X POST \
+  &#x27;http://localhost:8000/api/admin/users/{user_id}/plan&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{}&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="get--api-admin-users-user_id-plan-history">
+<h3><span class="badge" style="background:#2563eb">GET</span><code>/api/admin/users/{user_id}/plan-history</code></h3>
+<p class="resume">Plan History</p>
+<div class="desc"><p>Forfaits successifs d&#x27;un compte, du plus récent au plus ancien. La</p>
+<p>dernière ligne est l&#x27;inscription (Gratuit), datée par la création du compte</p>
+<p>(docs/etude-historique-forfaits.md).</p></div>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>user_id</code></td><td>path</td><td>oui</td><td>string</td></tr>
+</tbody></table>
+<h4>Exemple d'appel</h4><pre><code>curl -X GET \
+  &#x27;http://localhost:8000/api/admin/users/{user_id}/plan-history&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<h2 id="tag-Assistance">Assistance</h2>
+<section id="post--api-support">
+<h3><span class="badge" style="background:#16a34a">POST</span><code>/api/support</code></h3>
+<p class="resume">Create Ticket</p>
+<div class="desc"><p>Enregistre une demande d&#x27;assistance et alerte l&#x27;admin.</p></div>
+<h4>Exemple d'appel</h4><pre><code>curl -X POST \
+  &#x27;http://localhost:8000/api/support&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{}&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="get--api-support">
+<h3><span class="badge" style="background:#2563eb">GET</span><code>/api/support</code></h3>
+<p class="resume">List Tickets</p>
+<div class="desc"><p>Liste des tickets, du plus récent au plus ancien.</p></div>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>category</code></td><td>query</td><td>non</td><td>—</td></tr>
+<tr><td><code>status</code></td><td>query</td><td>non</td><td>—</td></tr>
+<tr><td><code>q</code></td><td>query</td><td>non</td><td>—</td></tr>
+<tr><td><code>limit</code></td><td>query</td><td>non</td><td>integer</td></tr>
+<tr><td><code>offset</code></td><td>query</td><td>non</td><td>integer</td></tr>
+</tbody></table>
+<h4>Exemple d'appel</h4><pre><code>curl -X GET \
+  &#x27;http://localhost:8000/api/support&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="delete--api-support">
+<h3><span class="badge" style="background:#dc2626">DELETE</span><code>/api/support</code></h3>
+<p class="resume">Delete Tickets</p>
+<div class="desc"><p>Supprime des tickets — REFUSÉ si l&#x27;un est encore <code>open</code> (409). On ne jette</p>
+<p>que ce qui a été traité.</p></div>
+<h4>Exemple d'appel</h4><pre><code>curl -X DELETE \
+  &#x27;http://localhost:8000/api/support&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{}&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="post--api-support-handle">
+<h3><span class="badge" style="background:#16a34a">POST</span><code>/api/support/handle</code></h3>
+<p class="resume">Handle Tickets</p>
+<div class="desc"><p>Marque des tickets comme traités, avec une note interne facultative.</p></div>
+<h4>Exemple d'appel</h4><pre><code>curl -X POST \
+  &#x27;http://localhost:8000/api/support/handle&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{}&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<h2 id="tag-Bêta">Bêta</h2>
+<section id="get--api-admin-beta">
+<h3><span class="badge" style="background:#2563eb">GET</span><code>/api/admin/beta</code></h3>
+<p class="resume">Dashboard</p>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>campaign_id</code></td><td>query</td><td>non</td><td>—</td></tr>
+</tbody></table>
+<h4>Exemple d'appel</h4><pre><code>curl -X GET \
+  &#x27;http://localhost:8000/api/admin/beta&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="patch--api-admin-beta-applications-application_id">
+<h3><span class="badge" style="background:#ca8a04">PATCH</span><code>/api/admin/beta/applications/{application_id}</code></h3>
+<p class="resume">Review</p>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>application_id</code></td><td>path</td><td>oui</td><td>string</td></tr>
+</tbody></table>
+<h4>Exemple d'appel</h4><pre><code>curl -X PATCH \
+  &#x27;http://localhost:8000/api/admin/beta/applications/{application_id}&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{}&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="get--api-admin-beta-campaigns">
+<h3><span class="badge" style="background:#2563eb">GET</span><code>/api/admin/beta/campaigns</code></h3>
+<p class="resume">List Campaigns</p>
+<h4>Exemple d'appel</h4><pre><code>curl -X GET \
+  &#x27;http://localhost:8000/api/admin/beta/campaigns&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+</tbody></table>
+</section>
+<section id="post--api-admin-beta-campaigns">
+<h3><span class="badge" style="background:#16a34a">POST</span><code>/api/admin/beta/campaigns</code></h3>
+<p class="resume">Create Campaign</p>
+<h4>Exemple d'appel</h4><pre><code>curl -X POST \
+  &#x27;http://localhost:8000/api/admin/beta/campaigns&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{}&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>201</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="patch--api-admin-beta-campaigns-campaign_id">
+<h3><span class="badge" style="background:#ca8a04">PATCH</span><code>/api/admin/beta/campaigns/{campaign_id}</code></h3>
+<p class="resume">Update Campaign</p>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>campaign_id</code></td><td>path</td><td>oui</td><td>string</td></tr>
+</tbody></table>
+<h4>Exemple d'appel</h4><pre><code>curl -X PATCH \
+  &#x27;http://localhost:8000/api/admin/beta/campaigns/{campaign_id}&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{}&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="patch--api-admin-beta-enrollments-enrollment_id">
+<h3><span class="badge" style="background:#ca8a04">PATCH</span><code>/api/admin/beta/enrollments/{enrollment_id}</code></h3>
+<p class="resume">Update Enrollment</p>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>enrollment_id</code></td><td>path</td><td>oui</td><td>string</td></tr>
+</tbody></table>
+<h4>Exemple d'appel</h4><pre><code>curl -X PATCH \
+  &#x27;http://localhost:8000/api/admin/beta/enrollments/{enrollment_id}&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{}&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="post--api-admin-beta-invitations">
+<h3><span class="badge" style="background:#16a34a">POST</span><code>/api/admin/beta/invitations</code></h3>
+<p class="resume">Invite</p>
+<h4>Exemple d'appel</h4><pre><code>curl -X POST \
+  &#x27;http://localhost:8000/api/admin/beta/invitations&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{}&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>201</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="post--api-beta-activate">
+<h3><span class="badge" style="background:#16a34a">POST</span><code>/api/beta/activate</code></h3>
+<p class="resume">Activate</p>
+<h4>Exemple d'appel</h4><pre><code>curl -X POST \
+  &#x27;http://localhost:8000/api/beta/activate&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+</tbody></table>
+</section>
+<section id="post--api-beta-applications">
+<h3><span class="badge" style="background:#16a34a">POST</span><code>/api/beta/applications</code></h3>
+<p class="resume">Apply</p>
+<h4>Exemple d'appel</h4><pre><code>curl -X POST \
+  &#x27;http://localhost:8000/api/beta/applications&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{}&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="get--api-beta-me">
+<h3><span class="badge" style="background:#2563eb">GET</span><code>/api/beta/me</code></h3>
+<p class="resume">Me</p>
+<h4>Exemple d'appel</h4><pre><code>curl -X GET \
+  &#x27;http://localhost:8000/api/beta/me&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+</tbody></table>
+</section>
+<section id="get--api-beta-program">
+<h3><span class="badge" style="background:#2563eb">GET</span><code>/api/beta/program</code></h3>
+<p class="resume">Program</p>
+<h4>Exemple d'appel</h4><pre><code>curl -X GET \
+  &#x27;http://localhost:8000/api/beta/program&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+</tbody></table>
+</section>
 <h2 id="tag-Comptes">Comptes</h2>
 <section id="post--api-auth-forgot-password">
 <h3><span class="badge" style="background:#16a34a">POST</span><code>/api/auth/forgot-password</code></h3>
@@ -175,6 +553,20 @@ main — corriger la docstring ou la signature de la route, puis regénérer.</d
 <div class="desc"><p>Profil de l&#x27;utilisateur connecté.</p></div>
 <h4>Exemple d'appel</h4><pre><code>curl -X GET \
   &#x27;http://localhost:8000/api/auth/me&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+</tbody></table>
+</section>
+<section id="get--api-auth-me-usage">
+<h3><span class="badge" style="background:#2563eb">GET</span><code>/api/auth/me/usage</code></h3>
+<p class="resume">Me Usage</p>
+<div class="desc"><p>Ce qu&#x27;il reste ce mois-ci : traductions offertes, pages du quota, pages</p>
+<p>achetées. Calculé par le même module que celui qui fait respecter les</p>
+<p>quotas, pour que l&#x27;affichage ne promette jamais ce que la route refuse.</p></div>
+<h4>Exemple d'appel</h4><pre><code>curl -X GET \
+  &#x27;http://localhost:8000/api/auth/me/usage&#x27; \
   -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
   -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
 <h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
@@ -427,6 +819,133 @@ main — corriger la docstring ou la signature de la route, puis regénérer.</d
 <tr><td><code>422</code></td><td>Validation Error</td></tr>
 </tbody></table>
 </section>
+<h2 id="tag-Invitations">Invitations</h2>
+<section id="post--api-invitations">
+<h3><span class="badge" style="background:#16a34a">POST</span><code>/api/invitations</code></h3>
+<p class="resume">Inviter</p>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>accept-language</code></td><td>header</td><td>non</td><td>—</td></tr>
+</tbody></table>
+<h4>Exemple d'appel</h4><pre><code>curl -X POST \
+  &#x27;http://localhost:8000/api/invitations&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{}&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<h2 id="tag-Journal">Journal</h2>
+<section id="get--api-logs">
+<h3><span class="badge" style="background:#2563eb">GET</span><code>/api/logs</code></h3>
+<p class="resume">List Groups</p>
+<div class="desc"><p>Liste REGROUPÉE par empreinte : une ligne par défaut distinct, avec son</p>
+<p>nombre d&#x27;occurrences et sa dernière apparition. Le brut se déplie via</p>
+<p><code>/group/{fingerprint}</code>.</p></div>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>source</code></td><td>query</td><td>non</td><td>—</td></tr>
+<tr><td><code>level</code></td><td>query</td><td>non</td><td>—</td></tr>
+<tr><td><code>status</code></td><td>query</td><td>non</td><td>—</td></tr>
+<tr><td><code>q</code></td><td>query</td><td>non</td><td>—</td></tr>
+<tr><td><code>user_email</code></td><td>query</td><td>non</td><td>—</td></tr>
+<tr><td><code>limit</code></td><td>query</td><td>non</td><td>integer</td></tr>
+<tr><td><code>offset</code></td><td>query</td><td>non</td><td>integer</td></tr>
+</tbody></table>
+<h4>Exemple d'appel</h4><pre><code>curl -X GET \
+  &#x27;http://localhost:8000/api/logs&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="delete--api-logs">
+<h3><span class="badge" style="background:#dc2626">DELETE</span><code>/api/logs</code></h3>
+<p class="resume">Delete Logs</p>
+<div class="desc"><p>Supprime des logs — REFUSÉ si l&#x27;un d&#x27;eux est encore <code>new</code> (409). On ne</p>
+<p>jette que ce qui a été consigné.</p></div>
+<h4>Exemple d'appel</h4><pre><code>curl -X DELETE \
+  &#x27;http://localhost:8000/api/logs&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{}&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="post--api-logs-client">
+<h3><span class="badge" style="background:#16a34a">POST</span><code>/api/logs/client</code></h3>
+<p class="resume">Ingest Client Error</p>
+<div class="desc"><p>Reçoit une erreur de l&#x27;interface. Jamais d&#x27;échec renvoyé au client : le</p>
+<p>but est de capter, pas d&#x27;ajouter une erreur à l&#x27;erreur.</p></div>
+<h4>Exemple d'appel</h4><pre><code>curl -X POST \
+  &#x27;http://localhost:8000/api/logs/client&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{}&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="get--api-logs-export">
+<h3><span class="badge" style="background:#2563eb">GET</span><code>/api/logs/export</code></h3>
+<p class="resume">Export Logs</p>
+<div class="desc"><p>Télécharge les logs filtrés en JSON — c&#x27;est le « consigner sous fichier »</p>
+<p>qui précède la suppression.</p></div>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>source</code></td><td>query</td><td>non</td><td>—</td></tr>
+<tr><td><code>level</code></td><td>query</td><td>non</td><td>—</td></tr>
+<tr><td><code>status</code></td><td>query</td><td>non</td><td>—</td></tr>
+<tr><td><code>q</code></td><td>query</td><td>non</td><td>—</td></tr>
+<tr><td><code>user_email</code></td><td>query</td><td>non</td><td>—</td></tr>
+</tbody></table>
+<h4>Exemple d'appel</h4><pre><code>curl -X GET \
+  &#x27;http://localhost:8000/api/logs/export&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="get--api-logs-group-fp">
+<h3><span class="badge" style="background:#2563eb">GET</span><code>/api/logs/group/{fp}</code></h3>
+<p class="resume">Group Occurrences</p>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>fp</code></td><td>path</td><td>oui</td><td>string</td></tr>
+<tr><td><code>limit</code></td><td>query</td><td>non</td><td>integer</td></tr>
+</tbody></table>
+<h4>Exemple d'appel</h4><pre><code>curl -X GET \
+  &#x27;http://localhost:8000/api/logs/group/{fp}&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="post--api-logs-handle">
+<h3><span class="badge" style="background:#16a34a">POST</span><code>/api/logs/handle</code></h3>
+<p class="resume">Mark Handled</p>
+<div class="desc"><p>Marque des logs (par id ou par empreinte) comme traités.</p></div>
+<h4>Exemple d'appel</h4><pre><code>curl -X POST \
+  &#x27;http://localhost:8000/api/logs/handle&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{}&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
 <h2 id="tag-Paiements">Paiements</h2>
 <section id="post--api-payments-collect">
 <h3><span class="badge" style="background:#16a34a">POST</span><code>/api/payments/collect</code></h3>
@@ -438,6 +957,56 @@ main — corriger la docstring ou la signature de la route, puis regénérer.</d
 <p>Le client interroge ensuite <code>GET /api/payments/{id}</code>.</p></div>
 <h4>Exemple d'appel</h4><pre><code>curl -X POST \
   &#x27;http://localhost:8000/api/payments/collect&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{}&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="get--api-payments-methods">
+<h3><span class="badge" style="background:#2563eb">GET</span><code>/api/payments/methods</code></h3>
+<p class="resume">Methods</p>
+<div class="desc"><p>Moyens de paiement de la zone du client, disponibles ou non.</p>
+
+<p>Tous sont listés : un moyen indisponible s&#x27;affiche grisé « pas encore</p>
+<p>disponible » plutôt que de disparaître, le client sait ce qui viendra.</p></div>
+<h4>Exemple d'appel</h4><pre><code>curl -X GET \
+  &#x27;http://localhost:8000/api/payments/methods&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+</tbody></table>
+</section>
+<section id="post--api-payments-plan">
+<h3><span class="badge" style="background:#16a34a">POST</span><code>/api/payments/plan</code></h3>
+<p class="resume">Buy Plan</p>
+<div class="desc"><p>Achète (ou renouvelle) un abonnement Starter / Pro.</p>
+
+<p>Même chemin que l&#x27;achat de pages : trace AVANT l&#x27;appel, invite sur le</p>
+<p>téléphone, puis <code>GET /{id}</code> jusqu&#x27;à l&#x27;issue. Le prix vient de</p>
+<p><code>pricing.py</code>, jamais du navigateur. Campay ne prélève pas de lui-même :</p>
+<p>chaque mois (ou année) est un nouveau paiement, qui prolonge l&#x27;échéance.</p></div>
+<h4>Exemple d'appel</h4><pre><code>curl -X POST \
+  &#x27;http://localhost:8000/api/payments/plan&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27; \
+  -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{}&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="post--api-payments-plan-quote">
+<h3><span class="badge" style="background:#16a34a">POST</span><code>/api/payments/plan/quote</code></h3>
+<p class="resume">Plan Quote</p>
+<div class="desc"><p>Prix d&#x27;un abonnement, tel qu&#x27;il sera encaissé par <code>POST /plan</code>.</p></div>
+<h4>Exemple d'appel</h4><pre><code>curl -X POST \
+  &#x27;http://localhost:8000/api/payments/plan/quote&#x27; \
   -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
   -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27; \
   -H &#x27;Content-Type: application/json&#x27; \
@@ -482,6 +1051,19 @@ main — corriger la docstring ou la signature de la route, puis regénérer.</d
 </tbody></table>
 </section>
 <h2 id="tag-Service">Service</h2>
+<section id="get--api-admin-ia">
+<h3><span class="badge" style="background:#2563eb">GET</span><code>/api/admin/ia</code></h3>
+<p class="resume">Etat Ia</p>
+<div class="desc"><p>Solde DeepSeek, dépense des 24 h, seuils d&#x27;alerte et jetons consommés</p>
+<p>depuis le démarrage. Relit le solde à la demande.</p></div>
+<h4>Exemple d'appel</h4><pre><code>curl -X GET \
+  &#x27;http://localhost:8000/api/admin/ia&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+</tbody></table>
+</section>
 <section id="get--api-pricing">
 <h3><span class="badge" style="background:#2563eb">GET</span><code>/api/pricing</code></h3>
 <p class="resume">Pricing</p>
@@ -603,7 +1185,7 @@ main — corriger la docstring ou la signature de la route, puis regénérer.</d
 <section id="get--api-translate-events-job_id">
 <h3><span class="badge" style="background:#2563eb">GET</span><code>/api/translate/events/{job_id}</code></h3>
 <p class="resume">Translation Events</p>
-<div class="desc"><p>SSE endpoint : émet les events de progression jusqu&#x27;à done/error.</p>
+<div class="desc"><p>SSE endpoint : émet les events de progression jusqu&#x27;à done/error/stopped.</p>
 
 <p>EventSource (navigateur) ne supporte pas les headers custom : le JWT passe</p>
 <p>donc en QUERY (<code>?token=</code>). S&#x27;appuyer sur le seul job_id laissait le flux</p>
@@ -660,6 +1242,30 @@ main — corriger la docstring ou la signature de la route, puis regénérer.</d
 </tbody></table>
 <h4>Exemple d'appel</h4><pre><code>curl -X GET \
   &#x27;http://localhost:8000/api/translate/result/{job_id}&#x27; \
+  -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
+  -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
+<h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>200</code></td><td>Successful Response</td></tr>
+<tr><td><code>422</code></td><td>Validation Error</td></tr>
+</tbody></table>
+</section>
+<section id="post--api-translate-job_id-mode">
+<h3><span class="badge" style="background:#16a34a">POST</span><code>/api/translate/{job_id}/{mode}</code></h3>
+<p class="resume">Translation Stop</p>
+<div class="desc"><p>DEMANDE de pause ou d&#x27;annulation d&#x27;une traduction, par son propriétaire.</p>
+
+<p>La réponse confirme la demande, pas l&#x27;état final. Un job encore en file</p>
+<p>s&#x27;arrête tout de suite ; un job en cours finit sa page (ou son lot) et</p>
+<p>s&#x27;arrête au point de contrôle suivant. Dans les deux cas le flux émet</p>
+<p><code>stopped</code>. Les pages traduites restent débitées, le reste est rendu ; le</p>
+<p>document se reprend sur le cache (« Reprendre » ne débite que le reste).</p></div>
+<h4>Paramètres</h4><table><thead><tr><th>Nom</th><th>Emplacement</th><th>Requis</th><th>Type</th></tr></thead><tbody>
+<tr><td><code>job_id</code></td><td>path</td><td>oui</td><td>string</td></tr>
+<tr><td><code>mode</code></td><td>path</td><td>oui</td><td>string</td></tr>
+<tr><td><code>x-api-key</code></td><td>header</td><td>non</td><td>string</td></tr>
+</tbody></table>
+<h4>Exemple d'appel</h4><pre><code>curl -X POST \
+  &#x27;http://localhost:8000/api/translate/{job_id}/{mode}&#x27; \
   -H &#x27;X-API-Key: &lt;cle&gt;&#x27; \
   -H &#x27;Authorization: Bearer &lt;jeton&gt;&#x27;</code></pre>
 <h4>Réponses</h4><table><thead><tr><th>Code</th><th>Description</th></tr></thead><tbody>

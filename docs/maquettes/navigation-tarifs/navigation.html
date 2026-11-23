@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette navigation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,400&family=DM+Mono:wght@400&family=DM+Sans:wght@400;500;600;700&family=Pinyon+Script&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../nouveautes/commun.css">
+<link rel="stylesheet" href="outils.css">
+<style>
+.site { position: relative; min-height: 640px; display: flex; flex-direction: column; }
+/* Barre du haut (reprend .navbar de commun.css, mais positionnée dans la scène) */
+.nb { position: relative; z-index: 20; background: #fff; border-bottom: 1px solid rgba(13,27,62,.08); box-shadow: var(--shadow-md); }
+.nb-in { height: 72px; padding: 0 24px; display: flex; align-items: center; gap: 24px; }
+.logo { display: flex; align-items: center; cursor: pointer; flex: none; background: none; border: 0; padding: 0; }
+.logo b { width: 38px; height: 38px; border-radius: 10px; background: var(--navy); color: var(--gold-light); font-family: var(--font-display); font-size: 26px; display: grid; place-items: center; }
+.logo span { font-family: 'Pinyon Script', cursive; font-size: 40px; line-height: 1; color: var(--navy); margin-left: 2px; }
+.links { display: flex; gap: 26px; margin: 0 auto; list-style: none; padding: 0; }
+.links > li { position: relative; }
+.links a, .links button.dd { font-size: 14px; font-weight: 500; color: var(--gray-700); text-decoration: none; padding: 6px 0; border: 0; border-bottom: 1.5px solid transparent; background: none; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.links a:hover, .links button.dd:hover { color: var(--blue); }
+.links .on, .links .on > button.dd { color: var(--blue); border-bottom-color: var(--blue); }
+.right { display: flex; align-items: center; gap: 12px; flex: none; margin-left: auto; }
+.links + .right { margin-left: 0; }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--navy); border: 1px solid var(--gray-200); border-radius: 100px; padding: 6px 12px; cursor: pointer; background: #fff; text-decoration: none; }
+.exit { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--gray-700); border: 1px solid var(--gray-200); border-radius: 9px; padding: 7px 12px; background: #fff; cursor: pointer; white-space: nowrap; }
+.av { width: 34px; height: 34px; border-radius: 50%; background: var(--blue); color: #fff; font-weight: 700; display: grid; place-items: center; font-size: 14px; flex: none; }
+.lang { display: flex; background: var(--gray-100); border-radius: 20px; padding: 3px; font-size: 11px; font-weight: 700; }
+.lang i { font-style: normal; padding: 5px 9px; border-radius: 20px; color: var(--gray-500); }
+.lang i:first-child { background: #fff; color: var(--navy); box-shadow: var(--shadow-sm); }
+.burger { display: none; width: 44px; height: 44px; border: 0; background: none; color: var(--navy); place-items: center; cursor: pointer; }
+.menu-btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--gray-200); background: #fff; border-radius: 9px; padding: 8px 12px; font-weight: 600; font-size: 13px; color: var(--navy); cursor: pointer; }
+.here { font-size: 13.5px; color: var(--gray-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.here b { color: var(--navy); font-weight: 600; }
+
+/* Menus déroulants (C) */
+.drop { display: none; position: absolute; top: calc(100% + 14px); left: -16px; min-width: 240px; background: #fff; border: 1px solid var(--gray-200); border-radius: 12px; box-shadow: var(--shadow-md); padding: 8px; z-index: 30; }
+.links > li:hover .drop, .links > li:focus-within .drop { display: block; }
+.links > li:hover::after { content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 16px; }
+.drop a { display: block; padding: 9px 12px; border-radius: 8px; border: 0 !important; color: var(--navy) !important; font-weight: 600; }
+.drop a small { display: block; font-weight: 400; color: var(--gray-500); font-size: 12px; }
+.drop a:hover, .drop a.cur { background: var(--gray-50); }
+.drop a.cur { box-shadow: inset 3px 0 0 var(--blue); }
+
+/* Sous-menu en 2e rangée (B) */
+.sub { border-top: 1px solid var(--gray-100); background: var(--gray-50); }
+.sub-in { display: flex; align-items: center; gap: 4px; padding: 0 24px; height: 44px; overflow-x: auto; scrollbar-width: none; }
+.sub-in strong { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--gray-500); margin-right: 10px; white-space: nowrap; }
+.sub-in a { font-size: 13.5px; font-weight: 500; color: var(--gray-700); text-decoration: none; padding: 0 12px; height: 44px; display: inline-flex; align-items: center; border-bottom: 2px solid transparent; white-space: nowrap; cursor: pointer; }
+.sub-in a.on { color: var(--navy); font-weight: 600; border-bottom-color: var(--blue); }
+
+/* Fil d'Ariane (A) */
+.crumbs { padding: 0 24px; height: 40px; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--gray-500); background: var(--gray-50); border-top: 1px solid var(--gray-100); overflow-x: auto; white-space: nowrap; }
+.crumbs a { color: var(--blue); text-decoration: none; cursor: pointer; font-weight: 500; }
+.crumbs a:hover { text-decoration: underline; }
+.crumbs b { color: var(--navy); font-weight: 600; }
+
+/* Grand menu (D) et panneau mobile */
+.panel { display: none; position: absolute; left: 0; right: 0; top: 72px; z-index: 40; background: #fff; border-bottom: 1px solid var(--gray-200); box-shadow: var(--shadow-dialog); padding: 24px; }
+.panel.open { display: block; }
+.panel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 20px 28px; }
+.panel h5 { margin: 0 0 6px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--gray-500); }
+.panel a { display: block; padding: 8px 10px; margin: 0 -10px; border-radius: 8px; color: var(--navy); font-weight: 500; font-size: 14.5px; text-decoration: none; cursor: pointer; min-height: 40px; }
+.panel a:hover { background: var(--gray-50); }
+.panel a.cur { background: var(--blue-light); color: var(--blue); font-weight: 600; }
+
+/* Contenu simulé */
+.page { flex: 1; padding: 40px 24px; max-width: 900px; width: 100%; margin: 0 auto; }
+.eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--blue); }
+.page h1 { font-family: var(--font-display); font-size: 44px; font-weight: 600; color: var(--navy); margin: 6px 0 18px; line-height: 1.1; }
+.page i.l { display: block; height: 12px; border-radius: 6px; background: var(--gray-100); margin: 12px 0; }
+.hero { background: var(--navy); color: #fff; padding: 56px 24px; }
+.hero h1 { color: #fff; margin: 0; }
+.foot { background: var(--navy); color: rgba(255,255,255,.7); padding: 22px 24px; font-size: 13px; display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.foot a { color: rgba(255,255,255,.85); cursor: pointer; text-decoration: none; }
+.foot a:hover { color: #fff; text-decoration: underline; }
+
+@container (max-width: 1000px) {
+  .links, .nb .exit span, .pill span, .here { display: none; }
+  .burger { display: grid; }
+  .nb-in { gap: 12px; padding: 0 16px; }
+  .sub-in, .crumbs { padding: 0 16px; }
+  .page { padding: 28px 16px; }
+  .page h1 { font-size: 34px; }
+  .panel { padding: 16px; max-height: 70vh; overflow: auto; }
+}
+@container (max-width: 420px) { .logo span, .lang { display: none; } }
+</style>
+</head>
+<body data-v="b">
+<div class="mq-bar">
+  <a class="mq-home" href="index.html">← Maquettes</a>
+  <div class="mq-group" role="group" aria-label="Piste">
+    <button data-v="actuel">Actuel</button>
+    <button data-v="a">A · Fil d’Ariane</button>
+    <button data-v="b">B · Menu fixe + sous-menu<span class="rec">★</span></button>
+    <button data-v="c">C · Menus déroulants</button>
+    <button data-v="d">D · Un seul bouton Menu</button>
+  </div>
+  <div class="mq-group" role="group" aria-label="Compte">
+    <button data-r="invite">Invité</button>
+    <button data-r="admin">Admin</button>
+  </div>
+  <div class="mq-group" role="group" aria-label="Largeur">
+    <button data-w="bureau">Bureau</button>
+    <button data-w="mobile">Mobile</button>
+  </div>
+</div>
+
+<div class="mq-note" id="note"></div>
+<div class="mq-stage"><div class="site" id="site"></div></div>
+
+<script>
+const ZONES = {
+  integ: { nom: 'Intégrations', pages: [['ext', 'Extension'], ['api', 'API']] },
+  nouv:  { nom: 'Nouveautés', pages: [['nouv', 'Nouveautés']] },
+  legal: { nom: 'Informations légales', pages: [['mentions', 'Mentions légales'], ['conditions', 'Conditions'], ['confid', 'Confidentialité'], ['cookies', 'Cookies']] },
+  admin: { nom: 'Administration', pages: [['comptes', 'Comptes'], ['docs', 'Documents'], ['assist', 'Assistance'], ['journal', 'Journal'], ['beta', 'Bêta']] },
+};
+const SECTIONS = [['hero', 'Accueil'], ['features', 'Fonctionnalités'], ['story', 'Fonctionnement'], ['pricing', 'Tarifs'], ['about', 'À propos']];
+const TITRES = Object.fromEntries([...Object.values(ZONES).flatMap(z => z.pages), ...SECTIONS]);
+const zoneDe = p => Object.keys(ZONES).find(k => ZONES[k].pages.some(x => x[0] === p)) || null;
+
+let etat = { v: 'b', page: 'hero', admin: false, mobile: false, panel: false };
+const lien = (id, txt, cls = '') => `<a data-go="${id}" class="${cls}">${txt}</a>`;
+const fleche = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>';
+const burger = `<button class="burger" data-panel aria-label="Menu"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>`;
+const droite = (extra = '') => `<div class="right">${extra}<span class="lang"><i>FR</i><i>EN</i></span><span class="av">I</span>${burger}</div>`;
+const logo = '<button class="logo" data-go="hero" title="Accueil"><b>P</b><span>récis</span></button>';
+const surAccueil = () => !zoneDe(etat.page);
+
+// Groupes du menu « complet » (panneau mobile des pistes B/C, grand menu D)
+function groupes() {
+  const g = [['Découvrir', [['features', 'Fonctionnalités'], ['story', 'Fonctionnement'], ['pricing', 'Tarifs'], ['about', 'À propos']]],
+    ['Intégrations', ZONES.integ.pages], ['Suivi', ZONES.nouv.pages]];
+  if (etat.admin) g.push(['Administration', ZONES.admin.pages]);
+  g.push(['Informations légales', ZONES.legal.pages]);
+  return g;
+}
+const panneau = gr => `<div class="panel${etat.panel ? ' open' : ''}"><div class="panel-grid">${gr.map(([t, ps]) =>
+  `<div><h5>${t}</h5>${ps.map(([id, txt]) => lien(id, txt, id === etat.page ? 'cur' : '')).join('')}</div>`).join('')}</div></div>`;
+
+// ---------- Pistes ----------
+function barreActuelle(avecRetour) {
+  const z = zoneDe(etat.page);
+  if (!z) {
+    const sec = [...SECTIONS]; if (etat.admin) sec.push(['comptes', 'Administration']);
+    const mob = [...sec, ['nouv', 'Fonctionnalités'], ['ext', 'Extension']];
+    return `<nav class="nb"><div class="nb-in">${logo}<ul class="links">${sec.map(([id, t]) => `<li>${lien(id, t, id === etat.page ? 'on' : '')}</li>`).join('')}</ul>
+      ${droite(`<a class="pill" data-go="ext">🧩 <span>Extension</span></a>`)}</div>${panneau([['Menu', mob]])}</nav>`;
+  }
+  const ps = ZONES[z].pages;
+  const sous = ps.length > 1 ? `<ul class="links">${ps.map(([id, t]) => `<li>${lien(id, t, id === etat.page ? 'on' : '')}</li>`).join('')}</ul>` : '';
+  const retour = avecRetour ? `<button class="exit" data-go="hero">← <span>Retour à l’accueil</span></button>` : '';
+  return `<nav class="nb"><div class="nb-in">${logo}${sous}${droite(retour)}</div>${panneau([[ZONES[z].nom, ps], ['', [['hero', '← Accueil']]]])}</nav>`;
+}
+const pisteActuel = () => barreActuelle(true);
+
+function pisteA() {
+  let html = barreActuelle(false);
+  const z = zoneDe(etat.page);
+  if (z) {
+    const zp = ZONES[z].pages;
+    const mid = zp.length > 1 ? `<span>›</span>${lien(zp[0][0], ZONES[z].nom)}` : '';
+    html += `<div class="crumbs">${lien('hero', 'Accueil')}${mid}<span>›</span><b>${TITRES[etat.page]}</b></div>`;
+  }
+  return html;
+}
+
+function principalFixe() {
+  const z = zoneDe(etat.page);
+  const items = [['features', 'Fonctionnalités', null], ['pricing', 'Tarifs', null], ['ext', 'Intégrations', 'integ'], ['nouv', 'Nouveautés', 'nouv'], ['about', 'À propos', null]];
+  if (etat.admin) items.push(['comptes', 'Administration', 'admin']);
+  return items.map(([id, t, zz]) => `<li>${lien(id, t, (zz ? zz === z : id === etat.page) ? 'on' : '')}</li>`).join('');
+}
+function pisteB() {
+  const z = zoneDe(etat.page);
+  let html = `<nav class="nb"><div class="nb-in">${logo}<ul class="links">${principalFixe()}</ul>${droite()}</div>`;
+  if (z && ZONES[z].pages.length > 1) html += `<div class="sub"><div class="sub-in"><strong>${ZONES[z].nom}</strong>${ZONES[z].pages.map(([id, t]) => lien(id, t, id === etat.page ? 'on' : '')).join('')}</div></div>`;
+  return html + panneau(groupes()) + '</nav>';
+}
+
+function pisteC() {
+  const z = zoneDe(etat.page);
+  const dd = (nom, zz, ps) => `<li class="${zz && (Array.isArray(zz) ? zz.includes(etat.page) : zz === z) ? 'on' : ''}"><button class="dd">${nom} ${fleche}</button><div class="drop">${ps.map(([id, t, d]) =>
+    `<a data-go="${id}" class="${id === etat.page ? 'cur' : ''}">${t}${d ? `<small>${d}</small>` : ''}</a>`).join('')}</div></li>`;
+  let items = dd('Produit', ['features', 'story', 'nouv'], [['features', 'Fonctionnalités', 'Ce que Précis sait faire'], ['story', 'Fonctionnement', 'En trois étapes'], ['nouv', 'Nouveautés', 'Les dernières améliorations']])
+    + `<li>${lien('pricing', 'Tarifs', etat.page === 'pricing' ? 'on' : '')}</li>`
+    + dd('Intégrations', 'integ', [['ext', 'Extension', 'Traduire dans le navigateur'], ['api', 'API', 'Bientôt disponible']])
+    + `<li>${lien('about', 'À propos', etat.page === 'about' ? 'on' : '')}</li>`;
+  if (etat.admin) items += dd('Administration', 'admin', ZONES.admin.pages);
+  return `<nav class="nb"><div class="nb-in">${logo}<ul class="links">${items}</ul>${droite()}</div>${panneau(groupes())}</nav>`;
+}
+
+function pisteD() {
+  const z = zoneDe(etat.page);
+  const ici = z ? `<span class="here">${ZONES[z].pages.length > 1 ? ZONES[z].nom + ' · ' : ''}<b>${TITRES[etat.page]}</b></span>` : '';
+  const btn = `<button class="menu-btn" data-panel><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>Menu</button>`;
+  return `<nav class="nb"><div class="nb-in">${logo}${ici}<div class="right">${lien('pricing', 'Tarifs').replace('<a', '<a class="pill"')}<span class="lang"><i>FR</i><i>EN</i></span><span class="av">I</span>${btn}</div></div>${panneau(groupes())}</nav>`;
+}
+
+// ---------- Contenu ----------
+function contenu() {
+  const z = zoneDe(etat.page);
+  const foot = `<footer class="foot"><span>© Précis</span>${ZONES.legal.pages.map(([id, t]) => lien(id, t)).join('')}${lien('nouv', 'Nouveautés')}</footer>`;
+  if (!z) {
+    const t = TITRES[etat.page];
+    return `<div class="hero"><div class="eyebrow" style="color:var(--gold-light)">Page d’accueil · section</div><h1>${t}</h1></div><main class="page"><i class="l"></i><i class="l" style="width:80%"></i><i class="l" style="width:60%"></i></main>${foot}`;
+  }
+  const eyebrow = etat.v === 'c' && ZONES[z].pages.length > 1 ? `<div class="eyebrow">${ZONES[z].nom}</div>` : '';
+  return `<main class="page">${eyebrow}<h1>${TITRES[etat.page]}</h1><i class="l"></i><i class="l" style="width:85%"></i><i class="l" style="width:70%"></i><i class="l" style="width:90%"></i></main>${foot}`;
+}
+
+const PISTES = { actuel: pisteActuel, a: pisteA, b: pisteB, c: pisteC, d: pisteD };
+const NOTES = {
+  actuel: ['Actuel', 'Sur l’accueil : 5 sections + Extension. Ailleurs, le menu principal disparaît et laisse place au sous-menu de la rubrique (Extension/API, Légal, Admin) et à « Retour à l’accueil ». Cliquez sur « Extension » puis revenez : le menu change à chaque fois.', [], ['On perd Tarifs, À propos… dès qu’on quitte l’accueil', '« Retour à l’accueil » ne dit pas où l’on est', 'Nouveautés s’appelle « Fonctionnalités », comme la section']],
+  a: ['A · Fil d’Ariane', 'On garde les menus actuels ; le bouton « Retour à l’accueil » est remplacé par une ligne « Accueil › Intégrations › Extension ».', ['Changement minimal', 'On voit où l’on est'], ['Le menu principal disparaît toujours hors de l’accueil']],
+  b: ['B · Menu principal fixe + sous-menu (recommandé)', 'Le même menu partout ; la rubrique en cours est soulignée. Dans une rubrique à plusieurs pages (Intégrations, Admin, Légal), une 2ᵉ rangée fine affiche ses pages. Plus de bouton retour : le logo et le menu suffisent. Les mentions légales passent en pied de page.', ['Repères identiques sur tout le site', 'On voit la rubrique ET la page', 'Pratique courante (Stripe, GitHub…)'], ['La 2ᵉ rangée ajoute 44 px dans les rubriques']],
+  c: ['C · Menus déroulants', 'Menu fixe et court : Produit ▾ (Fonctionnalités, Fonctionnement, Nouveautés), Tarifs, Intégrations ▾, À propos. Les sous-pages s’ouvrent au survol.', ['Le plus compact', 'Menu identique partout'], ['Sous-pages cachées : il faut survoler', 'Moins pratique au toucher']],
+  d: ['D · Un seul bouton « Menu »', 'Barre minimale : logo, l’endroit où l’on est, Tarifs, et un bouton « Menu » qui ouvre tout le plan du site rangé par rubrique.', ['Prend le moins de place', 'Même comportement sur bureau et mobile'], ['Tout demande un clic de plus', 'Les visiteurs voient moins ce que propose le site']],
+};
+
+function rendre() {
+  document.getElementById('site').innerHTML = PISTES[etat.v]() + contenu();
+  const [t, d, plus, moins] = NOTES[etat.v];
+  document.getElementById('note').innerHTML = `<h2>${t}</h2>${d}<ul>${plus.map(x => `<li class="plus">+ ${x}</li>`).join('')}${moins.map(x => `<li class="moins">− ${x}</li>`).join('')}</ul>`;
+  document.querySelectorAll('button[data-v]').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === etat.v));
+  document.querySelectorAll('button[data-r]').forEach(b => b.setAttribute('aria-pressed', (b.dataset.r === 'admin') === etat.admin));
+  document.querySelectorAll('button[data-w]').forEach(b => b.setAttribute('aria-pressed', (b.dataset.w === 'mobile') === etat.mobile));
+  document.body.classList.toggle('mobile', etat.mobile);
+}
+document.addEventListener('click', e => {
+  const go = e.target.closest('[data-go]');
+  const pn = e.target.closest('[data-panel]');
+  const b = e.target.closest('.mq-bar button');
+  if (go) { etat.page = go.dataset.go; etat.panel = false; }
+  else if (pn) etat.panel = !etat.panel;
+  else if (b) {
+    if (b.dataset.v) { etat.v = b.dataset.v; etat.panel = false; }
+    if (b.dataset.r) { etat.admin = b.dataset.r === 'admin'; if (!etat.admin && zoneDe(etat.page) === 'admin') etat.page = 'hero'; }
+    if (b.dataset.w) etat.mobile = b.dataset.w === 'mobile';
+  } else if (!e.target.closest('.panel')) { if (!etat.panel) return; etat.panel = false; }
+  else return;
+  rendre();
+});
+const q = new URLSearchParams(location.search);
+etat.v = q.get('v') || 'b'; etat.page = q.get('p') || 'hero'; etat.admin = q.get('r') === 'admin'; etat.mobile = q.get('w') === 'mobile';
+rendre();
+</script>
+</body>
+</html>

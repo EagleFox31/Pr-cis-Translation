@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "projectId": "precis-translation",
-  "environment": "staging",
+  "environment": "production",
   "releaseBranch": "main",
   "releaseMarker": "CHANGELOG.md",
   "composePath": "docker-compose.yml",

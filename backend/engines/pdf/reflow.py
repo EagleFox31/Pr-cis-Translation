@@ -84,7 +84,9 @@ def build_tokens(segments):
                 tokens.append({"text": part, "fonts": fonts, "size": size,
                                "color": color, "underline": underline,
                                "space_before": pending_space, "lsp": lsp,
-                               "rise": seg.get("rise", 0.0) or 0.0})
+                               "rise": seg.get("rise", 0.0) or 0.0,
+                               "synth_bold": seg.get("synth_bold"),
+                               "synth_italic": seg.get("synth_italic")})
                 pending_space = False
     return tokens
 
@@ -303,7 +305,9 @@ def _layout(tokens, container_lines, first_baseline, bottom, size_scale, pitch,
                 head, tail = piece
                 cur.append({"text": head, "x": x + sp, "fonts": t["fonts"],
                             "size": size, "color": t["color"], "sx": sx,
-                            "underline": t.get("underline"), "sb": sp > 0})
+                            "underline": t.get("underline"), "sb": sp > 0,
+                            "synth_bold": t.get("synth_bold"),
+                            "synth_italic": t.get("synth_italic")})
                 # Avancer x jusqu'à la fin du préfixe césuré : close_line()
                 # mesure le slack de justification/centrage sur x — sans cette
                 # avance, le slack est surestimé de (espace + préfixe) et la
@@ -327,7 +331,9 @@ def _layout(tokens, container_lines, first_baseline, bottom, size_scale, pitch,
                 head, tail = piece
                 cur.append({"text": head, "x": x, "fonts": t["fonts"],
                             "size": size, "color": t["color"], "sx": sx,
-                            "underline": t.get("underline"), "sb": False})
+                            "underline": t.get("underline"), "sb": False,
+                            "synth_bold": t.get("synth_bold"),
+                            "synth_italic": t.get("synth_italic")})
                 x += text_width(head, t["fonts"], size, sx)
                 queue.insert(0, {**t, "text": tail, "space_before": False})
                 close_line()
@@ -337,6 +343,8 @@ def _layout(tokens, container_lines, first_baseline, bottom, size_scale, pitch,
         cur.append({"text": t["text"], "x": x, "fonts": t["fonts"],
                     "size": size, "color": t["color"], "sx": sx,
                     "underline": t.get("underline"), "sb": sp > 0,
+                    "synth_bold": t.get("synth_bold"),
+                    "synth_italic": t.get("synth_italic"),
                     "lsp": t.get("lsp") or 0.0,
                     # décalage de baseline (satellite), à l'échelle du rendu
                     "rise": (t.get("rise") or 0.0) * size_scale,
@@ -428,6 +436,18 @@ def reflow_paragraph(segments, container_lines, lang="fr_FR",
     # visuelle). Le force-fit reste disponible en dernier recours.
     if fixed_scale is not None:
         ss = max(0.3, min(1.0, fixed_scale))
+        # MOT UNIQUE (aucun espace entre les jetons, ex. initiale agrandie +
+        # suite du mot) plus large que la ligne à cette échelle : on le réduit
+        # pour qu'il tienne en une ligne au lieu de le couper au caractère.
+        if tokens and not any(t["space_before"] for t in tokens[1:]) \
+                and not any(t.get("lsp") for t in tokens):
+            b0 = _bounds_at(container_lines,
+                            first_baseline - 0.8 * size_est * ss,
+                            first_baseline + 0.25 * size_est * ss)
+            larg = sum(text_width(t["text"], t["fonts"],
+                                  (t["size"] or 0) * ss, 0.98) for t in tokens)
+            if b0 and larg > (b0[1] - b0[0]) + 0.5 and larg > 0:
+                ss = max(0.3, ss * (b0[1] - b0[0]) / larg * 0.995)
         lines, h, overflow = _layout(tokens, container_lines, first_baseline,
                                      bottom, ss, orig_pitch * ss, 0.98, lang,
                                      size_est * ss, align)

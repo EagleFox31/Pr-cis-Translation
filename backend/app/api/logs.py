@@ -18,14 +18,14 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import case, delete, func, select, update
+from sqlalchemy import case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import optional_auth, require_admin
 from app.models import ErrorLog, LEVELS, STATUS_HANDLED, STATUS_NEW, User
 from app.rate_limit import rate_limit_decorator
-from app.services.error_log import log_error, maybe_alert_admins
+from app.services.error_log import log_error
 
 router = APIRouter(prefix="/api/logs", tags=["Journal"])
 
@@ -82,7 +82,8 @@ def _serialize(row: ErrorLog) -> dict:
     }
 
 
-def _filtered(source: str | None, level: str | None, status: str | None, q: str | None):
+def _filtered(source: str | None, level: str | None, status: str | None, q: str | None,
+              user_email: str | None = None):
     """Clauses WHERE communes à la liste et à l'export."""
     conds = []
     if source:
@@ -92,7 +93,11 @@ def _filtered(source: str | None, level: str | None, status: str | None, q: str 
     if status:
         conds.append(ErrorLog.status == status)
     if q:
-        conds.append(ErrorLog.message.ilike(f"%{q}%"))
+        # Le message OU l'e-mail du compte.
+        conds.append(or_(ErrorLog.message.icontains(q, autoescape=True), ErrorLog.user_email.icontains(q, autoescape=True)))
+    if user_email:
+        # Égalité stricte : la fiche utilisateur ne doit lister que ce compte.
+        conds.append(func.lower(ErrorLog.user_email) == user_email.strip().lower())
     return conds
 
 
@@ -102,6 +107,7 @@ async def list_groups(
     level: str | None = None,
     status: str | None = None,
     q: str | None = None,
+    user_email: str | None = None,
     limit: int = 50,
     offset: int = 0,
     _admin: User = Depends(require_admin),
@@ -111,7 +117,7 @@ async def list_groups(
     nombre d'occurrences et sa dernière apparition. Le brut se déplie via
     `/group/{fingerprint}`."""
     limit = max(1, min(limit, 200))
-    conds = _filtered(source, level, status, q)
+    conds = _filtered(source, level, status, q, user_email)
     new_count = func.sum(case((ErrorLog.status == STATUS_NEW, 1), else_=0))
     stmt = (
         select(
@@ -177,12 +183,13 @@ async def export_logs(
     level: str | None = None,
     status: str | None = None,
     q: str | None = None,
+    user_email: str | None = None,
     _admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Télécharge les logs filtrés en JSON — c'est le « consigner sous fichier »
     qui précède la suppression."""
-    conds = _filtered(source, level, status, q)
+    conds = _filtered(source, level, status, q, user_email)
     stmt = select(ErrorLog).order_by(ErrorLog.created_at.desc()).limit(_EXPORT_CAP)
     if conds:
         stmt = stmt.where(*conds)

@@ -31,12 +31,147 @@ from collections import defaultdict
 import fitz  # PyMuPDF >= 1.23
 
 from . import reflow
+from . import polices
 from .version import ENGINE_VERSION
 
 _log = logging.getLogger(__name__)
 
 # Caractères de contrôle parasites (hors \t \n \r) à purger du texte extrait.
 _CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+# `char_flags` MuPDF (FZ_STEXT_FILLED | FZ_STEXT_STROKED) : glyphe rempli ET
+# contouré = gras synthétique (mode de rendu 2).
+_STEXT_FILLED_STROKED = 16 | 32
+
+
+def _glyph_key(c):
+    """Identité d'un glyphe posé, commune à `rawdict` et au device MuPDF."""
+    return (c["c"], round(c["origin"][0], 1), round(c["origin"][1], 1))
+
+
+def _synth_bold_keys(page):
+    """Glyphes d'un GRAS SYNTHÉTIQUE : police non grasse peinte remplie ET
+    contourée (mode 2) — seul `char_flags` le dit, ni le nom ni les flags de
+    police. Lu dans une passe À PART : `TEXT_COLLECT_STYLES` fusionne aussi les
+    glyphes identiques superposés (faux gras par surimpression), ce qui
+    mangerait un texte réécrit sur l'ancien au même endroit."""
+    keys = set()
+    raw = page.get_text("rawdict", flags=fitz.TEXT_PRESERVE_WHITESPACE
+                        | fitz.TEXT_COLLECT_STYLES)
+    for block in raw.get("blocks", []):
+        for line in block.get("lines", ()):
+            for span in line.get("spans", ()):
+                if (not span.get("flags", 0) & 16
+                        and span.get("char_flags", 0) & _STEXT_FILLED_STROKED
+                        == _STEXT_FILLED_STROKED):
+                    keys.update(_glyph_key(c) for c in span.get("chars", ()))
+    return keys
+
+
+def _synth_italic_keys(page):
+    """Glyphe -> pente d'un ITALIQUE SYNTHÉTIQUE : police droite penchée par
+    la matrice de texte (Tm cisaillé). `rawdict` ne garde que la direction de
+    ligne ; seule la matrice de rendu (`trm` × `ctm`, lue au device MuPDF) dit
+    la pente. Pente = tan de l'écart à l'orthogonale entre les axes x et y du
+    glyphe, positive penchée vers l'avant ; nulle pour un texte droit, même
+    tourné ou étiré. Vide si le device est indisponible."""
+    if _mu is None:
+        return {}
+    pentes = {}
+
+    class _Dev(_mu.FzDevice2):
+        def __init__(self):
+            super().__init__()
+            self.use_virtual_fill_text()
+            self.use_virtual_stroke_text()
+
+        def _text(self, text, ctm):
+            m = _mu.FzMatrix(ctm)
+            sp = text.head
+            while sp:
+                t = _mu.fz_concat(_mu.FzMatrix(sp.trm), m)
+                n2 = t.a * t.a + t.b * t.b
+                # Axe y image du glyphe = (c, d) ; sa composante le long de
+                # l'axe x, rapportée à la chasse, est la pente (repère page
+                # y vers le bas : l'avant d'un glyphe droit est en -y).
+                k = (t.a * t.c + t.b * t.d) / n2 if n2 else 0.0
+                if abs(k) > 1e-3:
+                    w = _mu.FzTextSpan(sp)
+                    for i in range(sp.len):
+                        it = w.items(i)
+                        if it.ucs < 0:
+                            continue
+                        q = _mu.fz_transform_point(_mu.FzPoint(it.x, it.y), m)
+                        pentes[_glyph_key({"c": chr(it.ucs),
+                                           "origin": (q.x, q.y)})] = round(k, 3)
+                sp = sp.next
+
+        def fill_text(self, ctx, text, ctm, *args):
+            self._text(text, ctm)
+
+        def stroke_text(self, ctx, text, stroke, ctm, *args):
+            self._text(text, ctm)
+
+    try:
+        _mu.fz_run_page(page.this, _Dev(),
+                        _mu.FzMatrix(*page.derotation_matrix), _mu.FzCookie())
+    except Exception as exc:
+        _log.warning("pente du texte non relevée (page %s) : %s",
+                     getattr(page, "number", "?"), exc)
+        return {}
+    return pentes
+
+
+def _split_synth(spans, bold_keys, italic_pentes):
+    """Marque `synth_bold` / `synth_italic` (pente) sur chaque span, en le
+    scindant là où l'un d'eux change : MuPDF ne coupe pas un span au
+    changement de mode de rendu ni de matrice de texte."""
+    for span in spans:
+        chars = span.get("chars", ())
+        marks = [(_glyph_key(c) in bold_keys,
+                  italic_pentes.get(_glyph_key(c), 0.0)) for c in chars]
+        if len(set(marks)) <= 1:
+            b, k = marks[0] if marks else (False, 0.0)
+            yield dict(span, synth_bold=b, synth_italic=k)
+            continue
+        i = 0
+        while i < len(chars):
+            j = i
+            while j < len(chars) and marks[j] == marks[i]:
+                j += 1
+            part = chars[i:j]
+            bb = span["bbox"]
+            yield dict(span, chars=part, synth_bold=marks[i][0],
+                       synth_italic=marks[i][1], origin=part[0]["origin"],
+                       bbox=(min(c["bbox"][0] for c in part), bb[1],
+                             max(c["bbox"][2] for c in part), bb[3]))
+            i = j
+
+
+def _render_mode(run, font):
+    """Mode de rendu PDF (`Tr`) d'un run peint avec `font` : 2 (remplissage +
+    contour) pour reproduire un gras synthétique avec la police même qui le
+    portait à la source, 0 sinon (une police de repli a sa vraie graisse)."""
+    synth = run.get("synth_bold")
+    return 2 if synth is not None and synth is font else 0
+
+
+def _shear(run, font):
+    """Pente d'un italique synthétique à reproduire en peignant avec `font` :
+    celle de la source si c'est la police même qui la portait, 0 sinon (une
+    police de repli choisie italique a déjà sa vraie forme penchée)."""
+    synth = run.get("synth_italic")
+    return synth[1] if synth and synth[0] is font else 0.0
+
+
+def _morph(pt, shear, mat=None):
+    """`morph` de `write_text` : cisaillement d'italique appliqué AVANT
+    l'échelle et la rotation de `mat` ; None quand il n'y a rien à
+    transformer. `morph` agit dans l'espace PDF (y vers le haut) : la pente
+    lue (positive = vers l'avant) s'y reporte telle quelle."""
+    if shear:
+        cis = fitz.Matrix(1, 0, shear, 1, 0, 0)
+        mat = cis if mat is None else cis * mat
+    return None if mat is None else (pt, mat)
 
 # Ligne commençant par une puce ou un numéro d'item de liste.
 _LIST_RE = re.compile(
@@ -185,6 +320,34 @@ def _walk_clips(trace):
             pile = pile + [d]
 
 
+def _pixmap_attenuee(stream, alpha):
+    """L'image de `stream` dont le canal alpha est multiplié par `alpha` (pose
+    semi-transparente), ou None si la pose est opaque ou l'image illisible :
+    `insert_image` ne connaît pas l'opacité de l'état graphique."""
+    if alpha is None or alpha >= 0.999:
+        return None
+    try:
+        pix = fitz.Pixmap(stream)
+        if pix.colorspace and pix.colorspace.n > 3:
+            pix = fitz.Pixmap(fitz.csRGB, pix)
+        if not pix.alpha:
+            pix = fitz.Pixmap(pix, 1)
+        table = bytes(round(v * alpha) for v in range(256))
+        pix.set_alpha(bytes(pix.samples)[pix.n - 1::pix.n].translate(table))
+        return pix
+    except Exception as exc:
+        _log.warning("opacité d'image non reportée : %s", exc)
+        return None
+
+
+def _avec_alpha(el, alpha):
+    """Note l'opacité d'une pose d'image (`ca` de l'état graphique) quand elle
+    n'est pas pleine : un filigrane à 20 % rendu opaque masquerait la page."""
+    if alpha < 0.999:
+        el["alpha"] = round(alpha, 3)
+    return el
+
+
 def _image_bytes(doc, xref):
     """Octets d'une image de `doc` et leur extension — (None, "png") si illisible.
 
@@ -318,14 +481,35 @@ if _mu is not None:
 
         def fill_image(self, ctx, image, ctm, alpha, color_params):
             r = _mu.fz_transform_rect(_mu.FzRect(0, 0, 1, 1), _mu.FzMatrix(ctm))
-            self.images.append((fitz.Rect(r.x0, r.y0, r.x1, r.y1), list(self.pile)))
+            im = _mu.FzImage(_mu.ll_fz_keep_image(image))
+            self.images.append((fitz.Rect(r.x0, r.y0, r.x1, r.y1), list(self.pile),
+                                float(alpha), im.m_internal_value()))
 
 
-def _image_clip_stacks(page):
+def _image_clip_stacks(page, xrefs=()):
     """Pour chaque image peinte, dans l'ordre de peinture : (rectangle, pile
-    des découpes actives). Liste vide si le device MuPDF est indisponible."""
+    des découpes actives, opacité de la pose, xref ou None). Liste vide si le
+    device MuPDF est indisponible.
+
+    Le xref est rattaché par IDENTITÉ : MuPDF garde une image chargée en
+    mémoire et la resert telle quelle à chaque pose. Charger d'abord les
+    `xrefs` (références tenues pendant le passage) puis comparer les objets
+    reçus par le device dit quel objet est peint où — là où l'empreinte des
+    pixels (`get_image_rects`) confond deux images de même dessin. Une pose
+    non reconnue reste à None."""
     if _mu is None:
         return []
+    tenues = {}
+    try:
+        pdf = _mu.pdf_document_from_fz_document(page.parent.this)
+        for x in xrefs:
+            try:
+                im = _mu.pdf_load_image(pdf, _mu.pdf_new_indirect(pdf, x, 0))
+                tenues[im.m_internal_value()] = (x, im)
+            except Exception:
+                continue
+    except Exception:
+        tenues = {}
     try:
         dev = _ImageClipDevice()
         # `fz_run_page` peint dans l'espace de la page PIVOTÉE ; le bboxlog et
@@ -333,7 +517,8 @@ def _image_clip_stacks(page):
         # quoi une découpe de page `/Rotate 90` serait rejouée ailleurs.
         _mu.fz_run_page(page.this, dev, _mu.FzMatrix(*page.derotation_matrix),
                         _mu.FzCookie())
-        return dev.images
+        return [(r, pile, alpha, tenues[ptr][0] if ptr in tenues else None)
+                for r, pile, alpha, ptr in dev.images]
     except Exception as exc:
         _log.warning("découpes d'images non relevées (page %s) : %s",
                      getattr(page, "number", "?"), exc)
@@ -421,6 +606,13 @@ def _sens_des_rectangles(page, el, max_rect=4):
             items[i].pop("sens", None)
 
 
+def _translucide(el):
+    """Le dessin se fond-il avec ce qui est dessous (mode de fusion autre que
+    normal, opacité de groupe) ? Un surligneur « multiply » teinte le texte, il
+    ne le masque pas : jamais une couverture."""
+    return bool(el.get("blend")) or (el.get("group_opacity") or 1.0) < 1.0
+
+
 def _opaque_covers(draw_els):
     """(seqno, rect) des aplats qui cachent À COUP SÛR ce qu'ils recouvrent :
     rectangle plein, opaque, découpé (s'il l'est) par des rectangles seulement.
@@ -431,6 +623,7 @@ def _opaque_covers(draw_els):
         seq = el.get("seqno")
         items = el.get("items") or []
         if (seq is None or el.get("fill_color") is None
+                or _translucide(el)
                 or "f" not in (el.get("draw_type") or "")
                 or (el.get("fill_opacity") if el.get("fill_opacity")
                     is not None else 1) < 1
@@ -448,6 +641,63 @@ def _opaque_covers(draw_els):
     return out
 
 
+def _shape_covers(draw_els):
+    """(seqno, bbox, dessin) des formes PLEINES et opaques autres qu'un simple
+    rectangle (lettre dessinée, logo, pastille). Leur boîte ne prouve pas
+    qu'elles cachent un caractère : `_ink_masked` le vérifie à l'image."""
+    out = []
+    for el in draw_els:
+        seq, items, bb = el.get("seqno"), el.get("items") or [], el.get("bbox")
+        if (seq is None or not bb or el.get("fill_color") is None
+                or _translucide(el)
+                or "f" not in (el.get("draw_type") or "")
+                or (el.get("fill_opacity") if el.get("fill_opacity")
+                    is not None else 1) < 1
+                or (len(items) == 1 and items[0].get("op") == "re")):
+            continue
+        out.append((seq, fitz.Rect(bb), el))
+    return out
+
+
+# Part minimale de la boîte d'un caractère qu'une forme doit couvrir pour
+# qu'on cherche s'il est masqué, et part maximale de pixels de SA couleur
+# encore visibles pour le déclarer caché.
+_MASK_OVERLAP = 0.4
+_MASK_VISIBLE = 0.005
+
+
+def _ink_masked(page, span, u, bb, shapes):
+    """Le caractère (boîte `bb`) est-il masqué par une forme peinte après lui ?
+    Exemple : un « S » gris sous un « S » rouge dessiné (initiale colorée). La
+    boîte de la forme ne contient pas celle du caractère (marges de la police) :
+    on regarde donc l'original à l'image et l'on exige qu'AUCUN pixel de la
+    couleur du texte ne subsiste. Un blanc n'a pas d'encre : jamais masqué.
+    Couleur inconnue, transparence, forme de même couleur : réponse « non »."""
+    if chr(u).isspace() or bb.is_empty or (span.get("opacity", 1) or 0) < 1:
+        return False
+    col = span.get("color")
+    if not col or len(col) not in (1, 3):
+        return False
+    if len(col) == 1:
+        col = (col[0],) * 3
+    if not any((r & bb).get_area() >= _MASK_OVERLAP * bb.get_area()
+               for r in shapes):
+        return False
+    try:
+        pix = page.get_pixmap(matrix=fitz.Matrix(4, 4), clip=bb, alpha=False)
+    except Exception:
+        return False
+    tot = pix.width * pix.height
+    if not tot or pix.n < 3:
+        return False
+    c = [int(v * 255) for v in col]
+    s, n = pix.samples, pix.n
+    vus = sum(1 for i in range(0, len(s), n)
+              if abs(s[i] - c[0]) < 26 and abs(s[i + 1] - c[1]) < 26
+              and abs(s[i + 2] - c[2]) < 26)
+    return vus <= _MASK_VISIBLE * tot
+
+
 def _hidden_chars(page, draw_els):
     """Caractères ENTIÈREMENT recouverts par un aplat opaque peint APRÈS eux.
 
@@ -460,30 +710,66 @@ def _hidden_chars(page, draw_els):
     à la fois caché et visible. On compte donc, par (unicode, origine), les
     occurrences cachées et visibles : `_is_hidden` retire les premières et
     garde autant d'exemplaires que la page en montre.
-    Renvoie {unicode: [[origine, cachés, visibles], ...]}."""
+    Les caractères masqués par une FORME (non rectangulaire) ne sont pas
+    déclarés cachés ici : leur sort (cachés, lettre dessinée, avant-plan) se
+    décide plus loin, avec le mot qui les entoure (`_decider_formes`). On note,
+    par occurrence, les formes qui les masquent (4e élément de l'entrée).
+    Renvoie ({unicode: [[origine, cachés, visibles, formes], ...]}, dessins
+    des formes, indexés comme les numéros notés)."""
     covers = _opaque_covers(draw_els)
-    if not covers:
-        return {}
+    shapes = _shape_covers(draw_els)
+    if not covers and not shapes:
+        return {}, []
     try:
         trace = page.get_texttrace()
     except Exception:
-        return {}
+        return {}, []
     hidden = defaultdict(list)
     for span in trace:
         seq = span.get("seqno")
         after = [r for s, r in covers if seq is not None and s > seq]
+        over = [(i, r) for i, (s, r, _) in enumerate(shapes)
+                if seq is not None and s > seq]
         for ch in span.get("chars", ()):
             u, origin, bb = ch[0], ch[2], fitz.Rect(ch[3])
             if bb.is_empty:
                 bb = fitz.Rect(origin, origin)
             cache = any((r + (-0.5, -0.5, 0.5, 0.5)).contains(bb) for r in after)
+            forme = ()
+            if (not cache and over
+                    and _ink_masked(page, span, u, bb, [r for _, r in over])):
+                forme = tuple(i for i, r in over
+                              if (r & bb).get_area()
+                              >= _MASK_OVERLAP * bb.get_area())
             for e in hidden[u]:
                 if abs(e[0][0] - origin[0]) < 0.5 and abs(e[0][1] - origin[1]) < 0.5:
-                    e[1 if cache else 2] += 1
+                    if cache:
+                        e[1] += 1
+                    elif forme:
+                        e[3].append(forme)
+                    else:
+                        e[2] += 1
                     break
             else:
-                hidden[u].append([origin, int(cache), int(not cache)])
-    return {u: es for u, es in hidden.items() if any(e[1] for e in es)}
+                hidden[u].append([origin, int(cache),
+                                  int(not cache and not forme),
+                                  [forme] if forme else []])
+    return ({u: es for u, es in hidden.items()
+             if any(e[1] or e[3] for e in es)},
+            [el for _, _, el in shapes])
+
+
+def _formes_du_caractere(hidden, c):
+    """Numéros des formes qui masquent le caractère `rawdict` `c` (tuple), ou
+    None. Chaque réponse consomme une occurrence, comme `_is_hidden`."""
+    es = hidden.get(ord(c["c"])) if len(c["c"]) == 1 else None
+    if not es:
+        return None
+    ox, oy = c["origin"]
+    for e in es:
+        if abs(ox - e[0][0]) < 0.5 and abs(oy - e[0][1]) < 0.5:
+            return e[3].pop(0) if e[3] else None
+    return None
 
 
 def _is_hidden(hidden, c):
@@ -500,6 +786,219 @@ def _is_hidden(hidden, c):
                 return True
             return False
     return False
+
+
+# Lettre dessinée (initiale colorée posée sur la vraie lettre) : rapport de
+# hauteur toléré entre le dessin et l'ENCRE de la lettre qu'il masque, et
+# écart maximal (en × le corps) entre deux lettres voisines d'un même mot. La
+# lettre refaite prend l'apparence du PARENT DOMINANT : le dessin, peint
+# au-dessus, impose sa taille entière (aucun plafond).
+_INI_RATIO_MIN = 0.8
+_INI_RATIO_MAX = 3.0
+_INI_ADJ = 0.25
+_INI_PIXELS_MAX = 400000
+_helv_font = None
+
+
+def _hauteur_encre(u, size):
+    """Hauteur de l'encre d'un caractère à la taille `size` (police sans empattement
+    de référence : la police du document peut n'être qu'un sous-ensemble)."""
+    global _helv_font
+    try:
+        if _helv_font is None:
+            _helv_font = fitz.Font("helv")
+        g = _helv_font.has_glyph(u)
+        if g:
+            b = _helv_font.glyph_bbox(g)
+            if b.y1 - b.y0 > 0:
+                return (b.y1 - b.y0) * size
+    except Exception:
+        pass
+    return 0.72 * size
+
+
+def _forme_unie(page, el):
+    """La forme pleine `el` est-elle d'UNE couleur unie à l'image (pas de
+    dégradé, pas d'ornement, pas de deuxième couleur par-dessus) ? On trace son
+    masque, on érode d'un pixel (le bord est lissé) puis on exige que 90 % au
+    moins des pixels intérieurs de l'original soient de la couleur du remplissage.
+    Page tournée, découpe ou forme énorme : réponse « non » (filet prudent)."""
+    if page.rotation or el.get("clips"):
+        return False
+    fill = el.get("fill_color")
+    if not fill or len(fill) not in (1, 3):
+        return False
+    if len(fill) == 1:
+        fill = [fill[0]] * 3
+    try:
+        bb = fitz.Rect(el["bbox"])
+        if bb.is_empty or bb.get_area() * 9 > _INI_PIXELS_MAX:
+            return False
+        zoom = fitz.Matrix(3, 3)
+        doc = fitz.open()
+        pg = doc.new_page(width=page.rect.width, height=page.rect.height)
+        sh = pg.new_shape()
+        if not _trace_items(sh, el.get("items") or []):
+            return False
+        sh.finish(fill=(0, 0, 0), color=None,
+                  even_odd=bool(el.get("even_odd")), closePath=False)
+        sh.commit()
+        masque = pg.get_pixmap(matrix=zoom, clip=bb, colorspace=fitz.csGRAY,
+                               alpha=False)
+        ref = page.get_pixmap(matrix=zoom, clip=bb, colorspace=fitz.csRGB,
+                              alpha=False)
+        if (masque.width, masque.height) != (ref.width, ref.height):
+            return False
+        w, h = masque.width, masque.height
+        plein = [v < 128 for v in masque.samples]
+        c = [int(round(v * 255)) for v in fill]
+        s = ref.samples
+        total = bons = 0
+        for y in range(1, h - 1):
+            for x in range(1, w - 1):
+                i = y * w + x
+                if not (plein[i] and plein[i - 1] and plein[i + 1]
+                        and plein[i - w] and plein[i + w]):
+                    continue
+                total += 1
+                j = i * 3
+                if (abs(s[j] - c[0]) <= 40 and abs(s[j + 1] - c[1]) <= 40
+                        and abs(s[j + 2] - c[2]) <= 40):
+                    bons += 1
+        return total >= 12 and bons >= 0.9 * total
+    except Exception:
+        return False
+
+
+def _chaine_mot(plat, m):
+    """Caractères du mot qui contient `m`, de gauche à droite : même ligne de
+    base (à 0,3 corps près), horizontaux, sans espace ni écart de plus de
+    `_INI_ADJ` corps entre deux voisins. Le découpage en spans ou en lignes du
+    PDF n'y change rien : seule la géométrie compte."""
+    corps = m["size"] or 1.0
+    cand = [p for p in plat
+            if p["horiz"] and abs(p["oy"] - m["oy"]) <= 0.3 * corps]
+    cand.sort(key=lambda p: p["bb"][0])
+    chaines, cur = [], []
+    for p in cand:
+        if p["space"]:
+            if cur:
+                chaines.append(cur)
+                cur = []
+            continue
+        if cur and (p["bb"][0] - cur[-1]["bb"][2]
+                    > _INI_ADJ * max(p["size"], cur[-1]["size"], 1.0)):
+            chaines.append(cur)
+            cur = []
+        cur.append(p)
+    if cur:
+        chaines.append(cur)
+    for ch in chaines:
+        if any(p is m for p in ch):
+            return ch
+    return [m]
+
+
+def _verdict_forme(page, el, masques, plat):
+    """Sort d'une forme pleine peinte après du texte qu'elle masque :
+    ('cache', None)     un mot entier (ou un texte non horizontal) est dessous :
+                        cache volontaire, le texte est retiré (comportement
+                        historique) ;
+    ('initiale', (d, chaine))
+                        cas A : un dessin UNI masque la lettre de TÊTE d'un mot ;
+                        la lettre reste du vrai texte, au style du dessin ;
+    ('avant_plan', None) filet : le dessin est repeint après le texte, qui reste
+                        entier et ancré."""
+    for m in masques:
+        if not m["horiz"]:
+            return "cache", None
+        if all(p["forme"] for p in _chaine_mot(plat, m)):
+            return "cache", None
+    if len(masques) != 1:
+        return "avant_plan", None
+    m = masques[0]
+    chaine = _chaine_mot(plat, m)
+    if (len(m["forme"]) != 1 or len(chaine) < 2 or chaine[0] is not m
+            or chaine[1]["forme"]):
+        return "avant_plan", None
+    fill, stroke = el.get("fill_color"), el.get("stroke_color")
+    if (not fill or len(fill) != 3
+            or (stroke is not None and "s" in (el.get("draw_type") or "")
+                and list(stroke) != list(fill))):
+        return "avant_plan", None
+    bb = el["bbox"]
+    ink = _hauteur_encre(ord(m["c"]["c"][0]), m["size"])
+    r = (bb[3] - bb[1]) / ink if ink > 0 else 0.0
+    if (not _INI_RATIO_MIN <= r <= _INI_RATIO_MAX
+            or abs(bb[3] - m["oy"]) > 0.4 * (m["size"] or 1.0)
+            or not _forme_unie(page, el)):
+        return "avant_plan", None
+    suivant = chaine[1]
+    d = {"color": [float(v) for v in fill],
+         "scale": r,
+         "base_size": suivant["size"],
+         "base_color": _int_color_to_rgb(suivant["span"].get("color", 0))}
+    return "initiale", (d, chaine)
+
+
+def _decider_formes(page, entrees, formes):
+    """Décide, pour chaque caractère masqué par une forme (`c["_forme"]`), de
+    son sort. `entrees` = [(span, direction, caractères)] ; la liste des
+    caractères est modifiée sur place.
+    Priorité par caractère : cache > initiale > avant-plan.
+      - cache : le caractère est retiré ;
+      - initiale : le caractère reçoit `_ini` (le dessin devient le style de la
+        lettre), les suivants du mot `_suite` ; le dessin est « consommé » ;
+      - avant-plan : le caractère reçoit `_ap`, le dessin est marqué `_avant_plan`
+        (repeint après le texte au rendu)."""
+    plat = []
+    for span, direction, chars in entrees:
+        horiz = abs(direction[1]) <= 0.01 and direction[0] >= 0
+        for c in chars:
+            plat.append({"c": c, "span": span, "chars": chars,
+                         "bb": c["bbox"], "oy": c["origin"][1],
+                         "size": span.get("size") or 0.0, "horiz": horiz,
+                         "space": c["c"].isspace(), "forme": c.get("_forme")})
+    par_forme = defaultdict(list)
+    for p in plat:
+        for f in p["forme"] or ():
+            par_forme[f].append(p)
+    verdicts = {f: _verdict_forme(page, formes[f], ms, plat)
+                for f, ms in par_forme.items()}
+    retirer = set()
+    for f, (v, info) in verdicts.items():
+        el = formes[f]
+        if v == "initiale":
+            d, chaine = info
+            el["_initiale_consommee"] = True
+            chaine[0]["c"]["_ini"] = d
+            chaine[0]["c"]["_ref_span"] = chaine[1]["span"]
+            for p in chaine[1:]:
+                p["c"]["_suite"] = d
+        elif v == "avant_plan":
+            el["_avant_plan"] = True
+            # Les autres formes pleines qui se superposent à celle-ci (ornement
+            # en plusieurs pièces) restent au-dessus du texte dans le même ordre.
+            for g, autre in enumerate(formes):
+                if (g != f and autre.get("seqno") is not None
+                        and autre["seqno"] > el.get("seqno", -1)
+                        and (fitz.Rect(autre["bbox"])
+                             & fitz.Rect(el["bbox"])).get_area() > 0):
+                    autre["_avant_plan"] = True
+    for p in plat:
+        ids = p["forme"]
+        if not ids:
+            continue
+        vs = {verdicts[f][0] for f in ids}
+        if "cache" in vs:
+            retirer.add(id(p["c"]))
+        elif "initiale" in vs:
+            pass
+        else:
+            p["c"]["_ap"] = True
+    if retirer:
+        for _, _, chars in entrees:
+            chars[:] = [c for c in chars if id(c) not in retirer]
 
 
 def _trace_items(shape, items):
@@ -616,7 +1115,8 @@ class PDFObjectEngine:
             # Polices embarquées du PDF source (pour un rendu fidèle des glyphes
             # et de la vraie police à la réinjection). Encodées en base64 dans
             # le JSON → fichier autonome.
-            data["fonts"] = self._extract_fonts(doc)
+            data["font_profiles"] = {}
+            data["fonts"] = self._extract_fonts(doc, data["font_profiles"])
             for page_num, page in enumerate(doc):
                 data["pages"].append(self.extract_page_data(
                     doc, page_num, page, embed_images=embed_images,
@@ -657,10 +1157,15 @@ class PDFObjectEngine:
         # recouvre en partie doit rester dessous, et inversement.
         trace = self._drawing_trace(page)
         draw_els = self._extract_drawings(page, trace)
+        try:
+            xrefs = [i[0] for i in page.get_images(full=True)]
+        except Exception:
+            xrefs = []
+        piles = _image_clip_stacks(page, xrefs)     # un seul passage device
         img_els = self._extract_images(
             doc, page, page_num, embed_images, assets_dir,
-            images_par_reference)
-        self._attach_image_order(page, img_els)
+            images_par_reference, piles)
+        self._attach_image_order(page, img_els, piles)
         graphiques = draw_els + img_els
         graphiques.sort(key=lambda e: e.get("seqno")
                         if e.get("seqno") is not None else math.inf)
@@ -677,10 +1182,22 @@ class PDFObjectEngine:
         else:
             page_data["elements"].extend(text_lines)
         self._mark_underlines(page_data["elements"])
+        self._marquer_ancres(page_data["elements"])
         return page_data
 
+    @staticmethod
+    def _marquer_ancres(elements):
+        """Un texte recouvert par un dessin d'avant-plan est ANCRÉ (`_ancre`) :
+        il garde son point de départ et sa ligne de base. Il peut rétrécir mais
+        jamais se déplacer, sinon la lettre grise du dessous réapparaîtrait à
+        côté du dessin ou un vide s'ouvrirait derrière lui."""
+        for el in elements:
+            if any(r.get("avant_plan") for ln in el.get("lines", ())
+                   for r in ln.get("runs", ())):
+                el["_ancre"] = True
+
     # ── Polices embarquées : nom propre -> liste de sous-ensembles (b64) ─────
-    def _extract_fonts(self, doc):
+    def _extract_fonts(self, doc, profiles=None):
         """Collecte les octets de chaque police embarquée du PDF.
 
         Une même police (ex. 'PTSerif-Regular') peut être embarquée en
@@ -689,7 +1206,12 @@ class PDFObjectEngine:
         pour chaque texte le sous-ensemble qui couvre réellement ses glyphes.
         Clé = nom SANS préfixe de sous-ensemble ('ABCDEF+') pour matcher le
         champ 'font' des spans.
+
+        `profiles` (dict) reçoit au passage, par nom propre, la chasse MESURÉE
+        de chaque caractère (voir `_font_profiles_from`) : c'est elle qui choisit
+        la police la plus proche quand l'originale est introuvable.
         """
+        mesures = defaultdict(lambda: defaultdict(list))
         # 1) Mapping Unicode -> glyph-id PAR XREF (sous-ensemble). Les polices
         #    CID/Type0 (Identity-H) sont embarquées sans cmap Unicode : on la
         #    reconstruit à partir de get_texttrace() qui expose, pour chaque
@@ -719,6 +1241,8 @@ class PDFObjectEngine:
             for span in trace:
                 nm = span.get("font", "")
                 nm = nm.split("+")[-1] if "+" in nm else nm
+                if profiles is not None:
+                    self._measure_span(span, mesures[nm])
                 xrefs = page_name2xref.get(nm)
                 if not xrefs:
                     continue
@@ -732,6 +1256,8 @@ class PDFObjectEngine:
         u2g_by_xref = {xr: {u: next(iter(gs)) for u, gs in m.items()
                             if len(gs) == 1}
                        for xr, m in u2g_by_xref.items()}
+        if profiles is not None:
+            profiles.update(self._font_profiles_from(mesures))
 
         # 2) Extraction des octets de chaque sous-ensemble + patch de cmap si
         #    nécessaire. On garde TOUS les sous-ensembles d'un même nom : à la
@@ -751,6 +1277,34 @@ class PDFObjectEngine:
                     "b64": base64.b64encode(buf).decode("ascii"),
                 })
         return fonts
+
+    @staticmethod
+    def _measure_span(span, acc, limite=40):
+        """Chasse de chaque caractère du span, en em : distance entre deux
+        origines consécutives projetée sur la direction d'écriture, divisée par
+        le corps. L'espace est écarté (l'espacement des mots s'y ajoute)."""
+        adv = acc
+        size = span.get("size") or 0
+        chars = span.get("chars") or ()
+        if size <= 0 or len(chars) < 2:
+            return
+        dx, dy = span.get("dir") or (1.0, 0.0)
+        for a, b in zip(chars, chars[1:]):
+            try:
+                ch = chr(a[0])
+            except (TypeError, ValueError):
+                continue
+            if ch.isspace() or len(adv[ch]) >= limite:
+                continue
+            w = ((b[2][0] - a[2][0]) * dx + (b[2][1] - a[2][1]) * dy) / size
+            if 0.05 < w < 2.5:                  # saut de ligne, crénage négatif
+                adv[ch].append(w)
+
+    @staticmethod
+    def _font_profiles_from(mesures):
+        """{nom: {"adv": {car: chasse médiane en em}}}."""
+        return {nm: {"adv": {c: sorted(v)[len(v) // 2] for c, v in adv.items() if v}}
+                for nm, adv in mesures.items()}
 
     @staticmethod
     def _span_owners(doc, xrefs, chars, glyph_info):
@@ -1037,14 +1591,18 @@ class PDFObjectEngine:
         # Le texte, lui, reste INTACT (les espaces de tête sont un signal pour
         # les titres à lettres espacées), et `origin` aussi (peinture source).
         raw = page.get_text("rawdict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
-        hidden = _hidden_chars(page, draw_els)
-        spans = []
+        synth_b, synth_i = _synth_bold_keys(page), _synth_italic_keys(page)
+        hidden, formes = _hidden_chars(page, draw_els)
+        # Passe 1 : caractères retenus de chaque span (contrôle et cachés par
+        # un aplat retirés), avec, pour ceux qu'une forme masque, ses numéros.
+        entrees = []
         for block in raw.get("blocks", []):
             if block.get("type") != 0:      # 0 = texte
                 continue
             for line in block.get("lines", []):
                 direction = line.get("dir", (1, 0))
-                for span in line.get("spans", []):
+                for span in _split_synth(line.get("spans", []), synth_b,
+                                         synth_i):
                     # Retire les caractères de CONTRÔLE (BEL \x07, etc.) : sans
                     # sens visuel, souvent superposés au texte (ex. « \x07 » sur
                     # « Note: »), ils créent des spans/lignes parasites qui
@@ -1054,47 +1612,119 @@ class PDFObjectEngine:
                     chars = [c for c in span.get("chars", ())
                              if _CTRL_RE.sub("", c["c"])
                              and not (hidden and _is_hidden(hidden, c))]
-                    text = "".join(c["c"] for c in chars)
-                    if not text.strip():
+                    if not chars:
                         continue
-                    bb = list(span["bbox"])
-                    # Extension d'ENCRE (spans horizontaux) : du 1er au dernier
-                    # caractère non blanc. Un blanc n'a pas de BORD — mais il
-                    # reste un PONT : le bbox complet (espaces compris) continue
-                    # de servir à toute la SEGMENTATION (coupes de colonnes,
-                    # corridors, lettres espacées), sinon deux espaces de tête
-                    # deviennent un « blanc » qui scinde la phrase (mesuré :
-                    # « Department of Motor / Vehicles », « F O R E W O R D /
-                    # B Y / J A K E »). Seuls les FERS, conteneurs et le RENDU
-                    # lisent l'encre.
-                    ink_x0, ink_x1 = bb[0], bb[2]
-                    if abs(direction[1]) <= 0.01 and direction[0] >= 0:
-                        encre = [c for c in chars if not c["c"].isspace()]
-                        if encre:
-                            ix0 = min(c["bbox"][0] for c in encre)
-                            ix1 = max(c["bbox"][2] for c in encre)
-                            if ix1 > ix0:
-                                ink_x0, ink_x1 = ix0, ix1
-                    o = span.get("origin", (bb[0], bb[3]))
-                    flags = span.get("flags", 0)
-                    nchar = max(1, len(text.strip()))
-                    spans.append({
-                        "bbox": [bb[0], bb[1], bb[2], bb[3]],
-                        "origin": [o[0], o[1]],
-                        "text": text,
-                        "font": span.get("font"),
-                        "size": span.get("size", 0) or 0,
-                        "color": _int_color_to_rgb(span.get("color", 0)),
-                        "flags": flags,
-                        "bold": bool(flags & 16),
-                        "italic": bool(flags & 2),
-                        "dir": list(direction),
-                        "_gw": (bb[2] - bb[0]) / nchar,   # largeur de glyphe approx.
-                        "_base": o[1],
-                        "_ink_x0": ink_x0,
-                        "_ink_x1": ink_x1,
-                    })
-        return self._group_text_lines(spans, self._ink_walls(draw_els, img_els))
+                    if formes:
+                        for c in chars:
+                            f = _formes_du_caractere(hidden, c)
+                            if f:
+                                c["_forme"] = f
+                    entrees.append((span, direction, chars))
+        # Passe 2 : sort des caractères masqués par une forme (retirés, lettre
+        # dessinée devenue style, ou texte entier sous un avant-plan).
+        if formes and any(c.get("_forme") for _, _, ch in entrees for c in ch):
+            _decider_formes(page, entrees, formes)
+        # Passe 3 : les spans. Un span qui porte une lettre dessinée est coupé
+        # aux frontières du mot : la lettre, la suite du mot, le reste.
+        spans = []
+        for span, direction, chars in entrees:
+            if not "".join(c["c"] for c in chars).strip():
+                continue
+            if not any(c.get("_ini") or c.get("_suite") for c in chars):
+                ap = any(c.get("_ap") for c in chars)
+                spans.append(self._span_dict(
+                    span, direction, chars, list(span["bbox"]),
+                    span.get("origin", (span["bbox"][0], span["bbox"][3])),
+                    extra={"avant_plan": True} if ap else None))
+                continue
+            morceaux = []
+            for c in chars:
+                cle = ((1, id(c["_ini"])) if c.get("_ini")
+                       else (2, id(c["_suite"])) if c.get("_suite") else (0, 0))
+                if morceaux and morceaux[-1][0] == cle:
+                    morceaux[-1][1].append(c)
+                else:
+                    morceaux.append((cle, [c]))
+            for (genre, _), cs in morceaux:
+                if not "".join(c["c"] for c in cs).strip():
+                    continue
+                x0 = min(c["bbox"][0] for c in cs)
+                x1 = max(c["bbox"][2] for c in cs)
+                o = cs[0].get("origin") or span.get("origin")
+                ap = {"avant_plan": True} if any(c.get("_ap") for c in cs) else {}
+                if genre == 1:
+                    d = cs[0]["_ini"]
+                    ref = cs[0].get("_ref_span") or span
+                    spans.append(self._span_dict(
+                        ref, direction, cs,
+                        [x0, ref["bbox"][1], x1, ref["bbox"][3]],
+                        (o[0], ref["origin"][1]),
+                        size=d["base_size"] * d["scale"], color=d["color"],
+                        extra={"initiale": d}))
+                else:
+                    extra = dict(ap)
+                    if genre == 2:
+                        extra["initiale_suite"] = cs[0]["_suite"]
+                    spans.append(self._span_dict(
+                        span, direction, cs,
+                        [x0, span["bbox"][1], x1, span["bbox"][3]], o,
+                        extra=extra))
+        # Les dessins devenus lettres ne sont plus des murs : le mot est entier.
+        murs = [d for d in draw_els if not d.get("_initiale_consommee")]
+        return self._group_text_lines(spans, self._ink_walls(murs, img_els))
+
+    @staticmethod
+    def _span_dict(span, direction, chars, bb, o, size=None, color=None,
+                   extra=None):
+        """Span normalisé (tel que le lit `_group_text_lines`) pour les
+        caractères `chars` du span `span` de `rawdict`. `size` et `color`
+        remplacent ceux du span (lettre dessinée)."""
+        text = "".join(c["c"] for c in chars)
+        # Extension d'ENCRE (spans horizontaux) : du 1er au dernier
+        # caractère non blanc. Un blanc n'a pas de BORD — mais il
+        # reste un PONT : le bbox complet (espaces compris) continue
+        # de servir à toute la SEGMENTATION (coupes de colonnes,
+        # corridors, lettres espacées), sinon deux espaces de tête
+        # deviennent un « blanc » qui scinde la phrase (mesuré :
+        # « Department of Motor / Vehicles », « F O R E W O R D /
+        # B Y / J A K E »). Seuls les FERS, conteneurs et le RENDU
+        # lisent l'encre.
+        ink_x0, ink_x1 = bb[0], bb[2]
+        if abs(direction[1]) <= 0.01 and direction[0] >= 0:
+            encre = [c for c in chars if not c["c"].isspace()]
+            if encre:
+                ix0 = min(c["bbox"][0] for c in encre)
+                ix1 = max(c["bbox"][2] for c in encre)
+                if ix1 > ix0:
+                    ink_x0, ink_x1 = ix0, ix1
+        flags = span.get("flags", 0)
+        synth_bold = bool(span.get("synth_bold"))
+        # Une police déjà italique ne se repenche pas.
+        synth_italic = (0.0 if flags & 2
+                        else span.get("synth_italic") or 0.0)
+        nchar = max(1, len(text.strip()))
+        out = {
+            "bbox": [bb[0], bb[1], bb[2], bb[3]],
+            "origin": [o[0], o[1]],
+            "text": text,
+            "font": span.get("font"),
+            "size": (span.get("size", 0) or 0) if size is None else size,
+            "color": _int_color_to_rgb(span.get("color", 0)
+                                       if color is None else color),
+            "flags": flags,
+            "bold": bool(flags & 16) or synth_bold,
+            "synth_bold": synth_bold,
+            "italic": bool(flags & 2) or bool(synth_italic),
+            "synth_italic": synth_italic,
+            "dir": list(direction),
+            "_gw": (bb[2] - bb[0]) / nchar,   # largeur de glyphe approx.
+            "_base": o[1],
+            "_ink_x0": ink_x0,
+            "_ink_x1": ink_x1,
+        }
+        if extra:
+            out.update(extra)
+        return out
 
     @staticmethod
     def _ink_walls(draw_els=(), img_els=()):
@@ -1216,6 +1846,27 @@ class PDFObjectEngine:
             def _in_gutter(a, b):
                 return any(a <= 0.5 * (g0 + g1) <= b for g0, g1 in guts)
 
+            # DEUX CADRES : deux textes posés chacun dans SON cadre (étiquettes
+            # « Necessary » | « Unnecessary » à 4 pt l'une de l'autre) ne
+            # forment pas une phrase, quel que soit l'écart. Un cadre est une
+            # boîte d'encre (rectangle, image) qui contient l'un sans l'autre.
+            ry0 = min(s["bbox"][1] for s in row_spans)
+            ry1 = max(s["bbox"][3] for s in row_spans)
+            frames = [w for w in ink_walls if w[1] <= ry1 and w[3] >= ry0
+                      and w[2] - w[0] > 1 and w[3] - w[1] > 1]
+
+            def _inside(w, s):
+                # Boîte de police plus haute que l'encre : en hauteur, il
+                # suffit que le cadre couvre le milieu du texte.
+                b = s["bbox"]
+                return (w[0] - 1 <= b[0] and b[2] <= w[2] + 1
+                        and w[1] <= 0.5 * (b[1] + b[3]) <= w[3])
+
+            def _two_frames(p, c):
+                fp = [w for w in frames if _inside(w, p) and not _inside(w, c)]
+                return bool(fp) and any(_inside(w, c) and not _inside(w, p)
+                                        for w in frames)
+
             # NB — on a tenté ici de neutraliser la coupe de largeur quand la
             # ligne porte PLUSIEURS grands blancs de taille voisine (signature
             # d'une justification lâche : « reshaped ␣␣ how ␣␣ businesses »).
@@ -1258,7 +1909,7 @@ class PDFObjectEngine:
                 if marqueur:
                     segment.append(cur)
                     continue
-                if gap > split_gap or in_gutter:
+                if gap > split_gap or in_gutter or _two_frames(prev, cur):
                     segs.append(segment)
                     segment = [cur]
                 else:
@@ -1762,7 +2413,7 @@ class PDFObjectEngine:
 
     @staticmethod
     def _run_from_span(s):
-        return {
+        run = {
             "text": s["text"],
             "origin": s["origin"],
             "bbox": s["bbox"],
@@ -1771,12 +2422,21 @@ class PDFObjectEngine:
             "color": s["color"],
             "flags": s["flags"],
             "bold": s["bold"],
+            "synth_bold": s.get("synth_bold", False),
             "italic": s["italic"],
+            "synth_italic": s.get("synth_italic", 0.0),
             "dir": s["dir"],
             # Décalage de baseline d'un SATELLITE (exposant/indice) par rapport
             # à sa ligne hôte — 0 pour un run ordinaire. Voyage jusqu'au rendu.
             "rise": s.get("_rise", 0.0),
         }
+        # Lettre dessinée (cf. `_decider_formes`) : « initiale » = la lettre
+        # elle-même, « initiale_suite » = la suite du mot ; « avant_plan » =
+        # texte masqué par un dessin repeint après lui.
+        for cle in ("initiale", "initiale_suite", "avant_plan"):
+            if s.get(cle):
+                run[cle] = s[cle]
+        return run
 
     # ── Texte INCLINÉ / VERTICAL (Étape C) : regroupement le long de l'axe ────
     def _group_rotated_lines(self, spans):
@@ -2174,6 +2834,19 @@ class PDFObjectEngine:
             f_left, f_right = frame
             if f_right - f_left < 1.0:                  # cadre dégénéré
                 f_left, f_right = col_left, col_right
+            # LE BORD DU CADRE N'EST PAS UN VOISIN — le contour d'une pastille
+            # est décomposé en morceaux, dont un trait d'épaisseur nulle posé
+            # SUR son bord droit (« What is 4S? », pastille [24,1 ; 153,4]).
+            # Pris pour un objet à droite, il retranchait une gouttière
+            # (17,5 pt) au cadre : conteneur [24,1 ; 135,9], centre 80 au lieu
+            # de 88,75, et la traduction partait de travers vers la gauche.
+            # Un cadre dur borne déjà le conteneur (padding de la boîte) : ce
+            # qui est sur son bord ou au-delà ne borne plus.
+            if frame_dur:
+                if right_block >= f_right - 1.0:
+                    right_block = float("inf")
+                if left_block <= f_left + 1.0:
+                    left_block = float("-inf")
 
             col_w = max(1.0, f_right - f_left)
             lg, rg = pleft - f_left, f_right - pright
@@ -2196,13 +2869,79 @@ class PDFObjectEngine:
                 contains = (bb[0] <= pleft + 2 and bb[1] <= ptop + 2
                             and bb[2] >= pright - 2 and bb[3] >= pbottom - 2)
                 return not contains
-            wrapped = any(_partial_overlap(q["bbox"]) for q in boxed if q is not p)
-            if not wrapped:
-                wrapped = any(_partial_overlap(ob) for ob in obstacles)
-
             lbb = [ln["bbox"] for ln in p.get("lines", [])
                    if ln.get("bbox") and len(ln["bbox"]) >= 4]
+
+            # FOND, PAS ENROULEMENT — une forme dont les LIGNES passent
+            # par-dessus (l'encre du texte la recouvre) est un décor du cadre :
+            # quartiers d'un cercle dessiné en 4 morceaux, bouts arrondis d'une
+            # pastille, aplat débordant. Un vrai enroulement, lui, fait
+            # s'écarter les lignes de l'objet : elles ne le recouvrent pas.
+            # (4S : chiffres « 1 »–« 4 » dans leurs cercles, « Necessary
+            # items » sur 2 lignes, « Develop an ability… » lus à gauche.)
+            def _sous_le_texte(bb):
+                for lb in lbb:
+                    ox = min(bb[2], lb[2]) - max(bb[0], lb[0])
+                    oy = min(bb[3], lb[3]) - max(bb[1], lb[1])
+                    if (ox > max(2.0, 0.5 * size)
+                            and oy > 0.5 * max(1.0, lb[3] - lb[1])):
+                        return True
+                return False
+
+            # Une forme qui ne fait qu'EFFLEURER le haut ou le bas du
+            # paragraphe (moins d'une demi-ligne : jambage, interligne) est
+            # au-dessus ou en dessous de lui, pas à côté.
+            h_ligne = min((lb[3] - lb[1] for lb in lbb), default=size)
+
+            def _effleure(bb):
+                oy = min(bb[3], pbottom) - max(bb[1], ptop)
+                return oy < 0.5 * max(1.0, h_ligne)
+
+            wrapped = any(_partial_overlap(q["bbox"]) for q in boxed if q is not p)
+            if not wrapped:
+                parts = [list(ob[:4]) for ob in obstacles
+                         if _partial_overlap(ob)]
+                # Morceaux d'UN MÊME dessin (cercle en 4 quartiers, pastille
+                # en 3 pièces) : on regroupe ceux qui se touchent ; un groupe
+                # dont l'ensemble contient le paragraphe est son fond.
+                groupes = []
+                for bb in parts:
+                    lie = [g for g in groupes
+                           if bb[0] <= g[2] + 1 and g[0] <= bb[2] + 1
+                           and bb[1] <= g[3] + 1 and g[1] <= bb[3] + 1]
+                    for g in lie:
+                        groupes.remove(g)
+                        bb = [min(bb[0], g[0]), min(bb[1], g[1]),
+                              max(bb[2], g[2]), max(bb[3], g[3])]
+                    groupes.append(bb)
+                # Un groupe n'est un ENROULEMENT que s'il chevauche le
+                # paragraphe sans le contenir, sans passer sous ses lignes,
+                # et plus que par un simple effleurement.
+                wrapped = any(_partial_overlap(g) and not _sous_le_texte(g)
+                              and not _effleure(g) for g in groupes)            # Cadre fermé (case, pastille) avec le même blanc des deux côtés.
+            marges_egales = (frame_dur and min(lg, rg) >= 0.5
+                             and abs(lg - rg) <= max(1.0, 0.1 * (lg + rg)))
+            # MARGES DE COLONNE, PAS CENTRAGE — si une voisine du même cadre
+            # part du MÊME bord gauche sans partager l'axe, ces blancs égaux
+            # sont les marges de la colonne (ligne pleine largeur d'une
+            # attestation dans le cadre de sa page, 50 / 50 pt), pas un
+            # centrage. Une pile centrée (« Seiri » / « Shifting ») partage
+            # son axe : elle n'est pas concernée.
+            if marges_egales:
+                tol_g = max(2.5, 0.25 * size)
+                cx_p = (pleft + pright) / 2
+                for q in boxed:
+                    if q is p:
+                        continue
+                    qb = q["bbox"]
+                    if not (f_left - 1 <= (qb[0] + qb[2]) / 2 <= f_right + 1):
+                        continue
+                    if (abs(qb[0] - pleft) <= tol_g
+                            and abs((qb[0] + qb[2]) / 2 - cx_p) > tol_g):
+                        marges_egales = False
+                        break
             ferre_droite = False
+            axe_pile = None                     # axe commun d'une pile centrée
             if len(lbb) >= 2:
                 # TAXONOMIE PAR VARIANCES — le bord le plus STABLE d'un paragraphe
                 # trahit son alignement :
@@ -2285,7 +3024,11 @@ class PDFObjectEngine:
                 # de mv21, « 6 | Driver's Manual », collé à la marge GAUCHE de sa
                 # page, passait pour ferré à droite.
                 colle_droite = pright >= f_right - max(2.0 * safety, 0.05 * col_w)
-                if not centered and not wrapped and colle_droite:
+                # Dans un cadre fermé aux marges ÉGALES, le texte touche autant
+                # le bord gauche que le droit : ce n'est pas un fer à droite
+                # (4S p.10 « The importance of 4S », 5,3 / 5,4 pt, dont la
+                # pastille voisine partage par hasard le bord droit).
+                if not centered and not wrapped and colle_droite and not marges_egales:
                     pile_r, pile_l = [pright], [pleft]
                     h = max(1.0, pbottom - ptop)
                     for q in boxed:
@@ -2307,7 +3050,63 @@ class PDFObjectEngine:
                         larg_p = max(1.0, max(pile_r) - min(pile_l))
                         ferre_droite = (vd_p <= tol_b and vg_p >=
                                         max(4.0 * tol_b, 0.12 * larg_p))
+                # (c) CENTRÉ PAR LA PILE : symétrique du (b). Un en-tête officiel
+                # (« RÉPUBLIQUE… / Paix - Travail - Patrie / ------- / MINISTÈRE…
+                # ») empile des lignes SEULES centrées sur un même axe, séparées
+                # de filets ; leur colonne, polluée par l'en-tête voisin, ne leur
+                # offre aucun cadre symétrique. On les reconnaît à ce que leurs
+                # voisines verticales partagent leur AXE tandis que leurs DEUX
+                # bords se dispersent. La pile se suit de proche en proche (les
+                # filets creusent des blancs de plus de 2,5 lignes au total).
+                if not centered and not ferre_droite and not wrapped:
+                    cx = (pleft + pright) / 2
+                    h = max(1.0, pbottom - ptop)
+                    pile = [(pleft, pright, ptop, pbottom)]
+                    ajout = True
+                    while ajout:
+                        ajout = False
+                        for q in boxed:
+                            if q is p:
+                                continue
+                            qb = q["bbox"]
+                            if any(qb[0] == b[0] and qb[1] == b[2] for b in pile):
+                                continue
+                            if abs((qb[0] + qb[2]) / 2 - cx) > tol_b:
+                                continue                # pas le même axe
+                            if (qb[3] - qb[1]) > 2.5 * h:
+                                continue                # un pavé, pas une ligne
+                            if not any(qb[1] - b[3] <= 2.5 * h
+                                       and b[2] - qb[3] <= 2.5 * h for b in pile):
+                                continue                # hors de la pile
+                            pile.append((qb[0], qb[2], qb[1], qb[3]))
+                            ajout = True
+                    if len(pile) >= 2:
+                        gauches = [b[0] for b in pile]
+                        larg_p = max(1.0, max(b[1] for b in pile) - min(gauches))
+                        if max(gauches) - min(gauches) >= max(4.0 * tol_b,
+                                                              0.12 * larg_p):
+                            centered, axe_pile = True, cx
                 justified = False
+
+            # CADRE FERMÉ À MARGES ÉGALES — un texte dans une case, une pastille
+            # ou une bulle, avec le MÊME blanc à gauche et à droite, est centré,
+            # quelle que soit la taille de ce blanc. Les seuils ci-dessus (blancs
+            # ≥ 14 pt, ≥ 10 % du cadre) visent la colonne ouverte ; dans un cadre
+            # serré, la marge intérieure est fine (2 à 10 pt) et le texte centré
+            # passait pour ferré à gauche (4S : « Necessary items » 2,0 / 2,0 pt,
+            # « Standardizing » 9,8 / 9,5, « Promoting 4S » traduit à gauche).
+            # Plusieurs lignes : il faut en plus que leurs CENTRES soient plus
+            # stables que leurs bords gauches (sinon c'est un fer à gauche).
+            if marges_egales and not centered and not ferre_droite and not wrapped:
+                if len(lbb) < 2:
+                    centered = True
+                else:
+                    gs = [b[0] for b in lbb]
+                    cs = [(b[0] + b[2]) / 2 for b in lbb]
+                    v_g, v_c = max(gs) - min(gs), max(cs) - min(cs)
+                    centered = v_c <= max(2.5, 0.25 * size) and v_c <= v_g
+                if centered:
+                    justified = False
 
             # Bord droit de référence. La marge SYMÉTRIQUE n'est un repli que si
             # le paragraphe est VRAIMENT SEUL (aucun voisin de colonne) : sinon,
@@ -2400,6 +3199,36 @@ class PDFObjectEngine:
                 if left_block != float("-inf"):
                     left_edge = max(left_edge, left_block + safety)
                 left_edge = min(left_edge, pleft)       # jamais rétrécir la ligne
+                if axe_pile is not None:
+                    # Le cadre n'est pas symétrique autour de l'axe de la pile :
+                    # on le resserre pour que le recentrage tombe SUR cet axe.
+                    demi = max(min(axe_pile - left_edge, ref_right - axe_pile),
+                               (pright - pleft) / 2)
+                    left_edge, ref_right = axe_pile - demi, axe_pile + demi
+                elif (frame_dur and left_block == float("-inf")
+                      and right_block == float("inf")
+                      and abs((pleft + pright) / 2 - (f_left + f_right) / 2)
+                      <= max(2.0, 0.1 * (f_right - f_left))):
+                    # Seulement si le texte est SEUL dans le cadre et déjà
+                    # centré dessus : un voisin dans le cadre (« Necessary
+                    # items », case 308–367 dans le cadre 213–374) veut dire
+                    # que le texte se centre sur sa case, pas sur le cadre.
+                    # Même chose pour l'axe du CADRE : le bord droit a perdu un
+                    # padding que le gauche n'a pas (pastille [24,1 ; 153,4] →
+                    # [24,1 ; 145,4], centre 84,8 au lieu de 88,75). On garde
+                    # le côté le plus serré des deux, de part et d'autre.
+                    # Seul dans son cadre : le CADRE est la référence, pas la
+                    # colonne d'un voisin hors cadre (« What is 4S? » bridé à
+                    # 468 par la pastille du dessous, cadre 232–562 → texte
+                    # traduit rapetissé). Toute la largeur, marge égale.
+                    axe = (f_left + f_right) / 2
+                    # Marge intérieure seulement DANS le cadre (pastille) : une
+                    # légende SOUS sa photo (P18) en garde les deux bords.
+                    marge = (0.0 if over_frame is not None else
+                             max(2.0, min(pleft - f_left, f_right - pright, 8.0)))
+                    demi = max((f_right - f_left) / 2 - marge,
+                               (pright - pleft) / 2)
+                    left_edge, ref_right = axe - demi, axe + demi
             else:
                 left_edge = None
             # FERRÉ À DROITE : le bord droit est le point FIXE — on n'étend pas
@@ -2429,6 +3258,8 @@ class PDFObjectEngine:
                 for ox0, oy0, ox1, oy1 in obstacles:
                     if oy1 <= lb[1] or oy0 >= lb[3]:
                         continue
+                    if frame_dur and ox0 >= f_right - 1.0:
+                        continue                # bord du cadre, pas un voisin
                     if ox0 >= lb[2] - 0.5 and ox0 < blk:
                         blk = ox0
                 t = ref_right
@@ -2617,6 +3448,14 @@ class PDFObjectEngine:
                                      it["text"]))
         continues = (lower_next or measure_next or _starts_coord(it["text"])
                      or parent_continues)
+
+        # Ligne TOUT EN CAPITALES suivie d'une ligne en casse mixte : changement
+        # de composition, comme gras → maigre (« REPUBLIC OF CAMEROON » / « Peace
+        # - Work - Fatherland »). La géométrie ne tranche pas quand les deux
+        # lignes ont, par coïncidence, la même largeur : elles passaient pour
+        # une colonne justifiée, fusionnaient, et le reflow les recoupait.
+        if not continues and _all_caps(last_txt) and _has_lower(it["text"]):
+            return True
 
         # ── A. Coupe « espace restant » (tie-breaker géométrique, togglable) ─
         # Appliquée AVANT le flot continu : elle discrimine un vrai saut de
@@ -2922,24 +3761,40 @@ class PDFObjectEngine:
 
     # ── Images : une occurrence = un objet ───────────────────────────────────
     def _extract_images(self, doc, page, page_num, embed_images, assets_dir,
-                        images_par_reference=False):
+                        images_par_reference=False, piles=None):
+        """Une pose = un élément. Les poses viennent du device (`piles`, cf.
+        `_image_clip_stacks`) : chacune rattachée à son objet, avec son
+        opacité. `get_image_rects` (empreinte des pixels) n'est qu'un repli
+        pour un objet que le device n'a pas reconnu : il confond deux images
+        de même dessin (logo et filigrane) et donnerait à l'une la place de
+        l'autre."""
         elements = []
         try:
             infos = page.get_images(full=True)
         except Exception:
             infos = []
+        if piles is None:
+            piles = _image_clip_stacks(page, [i[0] for i in infos])
+        vues = {}
+        for r, _, alpha, x in piles:
+            if x is not None:
+                vues.setdefault(x, []).append((r, alpha))
         for img_index, info in enumerate(infos):
             xref = info[0]
-            try:
-                rects = page.get_image_rects(xref)
-            except Exception:
-                rects = []
-            if not rects:
+            if xref in vues:
+                poses = vues.pop(xref)
+            else:
+                try:
+                    poses = [(r, 1.0) for r in page.get_image_rects(xref)]
+                except Exception:
+                    poses = []
+            if not poses:
                 continue
             if images_par_reference:
-                for rect in rects:
-                    elements.append({"type": "image", "bbox": _rect(rect),
-                                     "xref": xref})
+                for rect, alpha in poses:
+                    elements.append(_avec_alpha({"type": "image",
+                                                 "bbox": _rect(rect),
+                                                 "xref": xref}, alpha))
                 continue
             img_bytes, ext = _image_bytes(doc, xref)
 
@@ -2954,15 +3809,15 @@ class PDFObjectEngine:
                         fh.write(img_bytes)
                     asset_ref = fname
 
-            for rect in rects:
-                elements.append({
+            for rect, alpha in poses:
+                elements.append(_avec_alpha({
                     "type": "image",
                     "bbox": _rect(rect),
                     "xref": xref,
                     "ext": ext,
                     "asset_file": asset_ref,   # si embed_images=False
                     "asset_b64": asset_b64,    # si embed_images=True
-                })
+                }, alpha))
         return elements
 
 
@@ -2988,10 +3843,26 @@ class PDFObjectEngine:
         if trace is None:
             trace = self._drawing_trace(page)
         elements = []
+        groupes = []            # groupes de transparence ouverts (mode, opacité)
         for d, pile in _walk_clips(trace):
+            lvl = d.get("level") or 0
+            groupes = [g for g in groupes if (g.get("level") or 0) < lvl]
+            if d.get("type") == "group":
+                groupes.append(d)
             if d.get("type") in ("clip", "group"):
                 continue
             el = _serialize_drawing(d)
+            # Mode de fusion et opacité de groupe : un aplat « multiply » ou
+            # transparent teinte ce qui est dessous, il ne le masque pas.
+            mode = next((g.get("blendmode") for g in reversed(groupes)
+                         if g.get("blendmode") not in (None, "Normal")), None)
+            if mode:
+                el["blend"] = mode
+            gop = 1.0
+            for g in groupes:
+                gop *= g.get("opacity") if g.get("opacity") is not None else 1.0
+            if gop < 1.0:
+                el["group_opacity"] = round(gop, 3)
             _sens_des_rectangles(page, el)
             clips = _effective_clips(pile, d.get("rect"))
             if clips:
@@ -2999,7 +3870,7 @@ class PDFObjectEngine:
             elements.append(el)
         return elements
 
-    def _attach_image_order(self, page, img_els):
+    def _attach_image_order(self, page, img_els, piles=None):
         """Donne à chaque image son ordre de peinture (`seqno`) et ses découpes.
 
         `get_bboxlog()` liste TOUT ce qui est peint, dans l'ordre : son indice
@@ -3019,7 +3890,8 @@ class PDFObjectEngine:
             log = page.get_bboxlog()
         except Exception:
             return
-        piles = _image_clip_stacks(page)
+        if piles is None:
+            piles = _image_clip_stacks(page)
         poses = [(i, fitz.Rect(r)) for i, (k, r) in enumerate(log)
                  if k == "fill-image"]
         if len(piles) != len(poses):
@@ -3091,10 +3963,13 @@ class PDFObjectEngine:
         return output_pdf
 
     def render_page_into(self, doc, page_data, draw_borders=False,
-                         assets_dir=None, translated=False, src_doc=None):
+                         assets_dir=None, translated=False, src_doc=None,
+                         images=None):
         """Peint UNE page (page_data) dans un document fitz existant — brique du
         rendu progressif page par page (le PDF partiel grandit au fil des pages
-        traduites) et de `reinject`. Nécessite `_build_fonts(data)` au préalable."""
+        traduites) et de `reinject`. Nécessite `_build_fonts(data)` au préalable.
+        `images` : {xref: octets} d'images traduites, posées à la place de
+        l'image d'origine."""
         page = doc.new_page(width=page_data["width"],
                             height=page_data["height"])
         # Flux vertical (Étape E) : calcule DÉCALAGE + croissance de
@@ -3117,12 +3992,17 @@ class PDFObjectEngine:
             kind = el.get("type")
             try:
                 if kind == "image":
-                    self._draw_image(page, el, assets_dir, src_doc)
+                    self._draw_image(page, el, assets_dir, src_doc, images)
                 elif kind == "drawing":
                     # En mode traduit, un soulignement de lien consommé
                     # est redessiné SOUS le texte reflowé, pas ici (sinon
                     # il resterait figé sous le texte déplacé).
-                    if not (translated and el.get("_underline_consumed")):
+                    # Un dessin devenu lettre (`_initiale_consommee`) n'est pas
+                    # repeint : la lettre est du vrai texte. Un dessin
+                    # d'avant-plan est repeint APRÈS le texte (voir plus bas).
+                    if el.get("_initiale_consommee") or el.get("_avant_plan"):
+                        pass
+                    elif not (translated and el.get("_underline_consumed")):
                         self._draw_drawing(page, el)
                 elif kind == "paragraph":
                     if translated and el.get("tr_tagged") is not None:
@@ -3134,6 +4014,15 @@ class PDFObjectEngine:
             except Exception:
                 # Un objet fautif ne doit pas casser toute la page.
                 pass
+        # Avant-plan : les dessins peints APRÈS le texte qu'ils masquent
+        # (ornement posé sur une lettre) reviennent au-dessus du texte, dans
+        # leur ordre d'origine. Le texte dessous est ancré, il ne bouge pas.
+        for el in page_data.get("elements", []):
+            if el.get("type") == "drawing" and el.get("_avant_plan"):
+                try:
+                    self._draw_drawing(page, el)
+                except Exception:
+                    pass
         # Bordures en dernier : toujours visibles, jamais recouvertes.
         if draw_borders:
             self._draw_borders(page, page_data.get("elements", []))
@@ -3141,6 +4030,7 @@ class PDFObjectEngine:
 
     # ── Polices : b64 -> objets fitz.Font (regroupés par nom propre) ─────────
     def _build_fonts(self, data):
+        self._font_profiles = data.get("font_profiles") or {}
         self._fonts = {}   # clean -> [fitz.Font, ...]
         for clean, variants in data.get("fonts", {}).items():
             objs = []
@@ -3159,6 +4049,14 @@ class PDFObjectEngine:
         clean = font_raw.split("+")[-1] if "+" in (font_raw or "") else (font_raw or "")
         variants = fonts.get(clean)
         if not variants:
+            # Le nom du span vient du programme de police, la clé du BaseFont
+            # du PDF : ils divergent parfois de la seule ponctuation
+            # (« OpenSans-Regular » / « Open Sans Regular »).
+            key = re.sub(r"[^0-9a-z]", "", clean.lower())
+            variants = next((v for k, v in fonts.items()
+                             if key and re.sub(r"[^0-9a-z]", "", k.lower()) == key),
+                            None)
+        if not variants:
             return None
         chars = [c for c in text if not c.isspace()]
         for f in variants:
@@ -3170,12 +4068,14 @@ class PDFObjectEngine:
         return variants[0]   # meilleur effort : couverture partielle
 
     # ── Rendu image ──────────────────────────────────────────────────────────
-    def _draw_image(self, page, el, assets_dir, src_doc=None):
+    def _draw_image(self, page, el, assets_dir, src_doc=None, images=None):
         rect = fitz.Rect(el["bbox"])
         if rect.is_empty or rect.is_infinite:
             return
         stream = None
-        if el.get("asset_b64"):
+        if images and el.get("xref") in images:
+            stream = images[el["xref"]]     # image traduite : prioritaire
+        elif el.get("asset_b64"):
             stream = base64.b64decode(el["asset_b64"])
         elif el.get("asset_file") and assets_dir:
             path = os.path.join(assets_dir, el["asset_file"])
@@ -3186,14 +4086,16 @@ class PDFObjectEngine:
             stream, _ = _image_bytes(src_doc, el["xref"])
         if stream is None:
             return
+        pix = _pixmap_attenuee(stream, el.get("alpha"))
+        image = {"pixmap": pix} if pix is not None else {"stream": stream}
         clip = _clip_ops(page, el.get("clips"))
         if not clip:
-            page.insert_image(rect, stream=stream)
+            page.insert_image(rect, **image)
             return
         # `insert_image` ajoute son propre flux de contenu à la page : on
         # l'encadre de la découpe (q … W n … Q) une fois posé.
         avant = set(page.get_contents())
-        page.insert_image(rect, stream=stream)
+        page.insert_image(rect, **image)
         # Une page aux q/Q déséquilibrés reçoit aussi des flux d'encadrement
         # (`wrap_contents`) : seul celui qui invoque l'image (« Do ») est le sien.
         doc = page.parent
@@ -3286,14 +4188,27 @@ class PDFObjectEngine:
         W = page_data.get("width") or 0.0
         H = page_data.get("height") or 0.0
         els = page_data.get("elements", [])
+        # Texte ANCRÉ (recouvert par un dessin d'avant-plan) : ni décalage, ni
+        # croissance, ni échelle de groupe ; compression seule si besoin.
+        for e in els:
+            if (e.get("type") == "paragraph" and e.get("_ancre")
+                    and e.get("tr_tagged") is not None):
+                e["_yshift"] = 0.0
+                e["_grow"] = 0.0
+                e["_force_fit"] = True
+                e.pop("_vscale", None)
         paras = [e for e in els if e.get("type") == "paragraph"
                  and e.get("tr_tagged") is not None
+                 and not e.get("_ancre")
                  and self._para_is_horizontal(e)]
         if not paras:
             return
         page_area = max(1.0, W * H)
         boxes = self._container_boxes(els, page_area)
-        images = [e["bbox"] for e in els if e.get("type") == "image"
+        # Obstacles fixes : images et dessins d'avant-plan (rien n'est poussé
+        # dessous : il se verrait recouvert par le dessin).
+        images = [e["bbox"] for e in els if e.get("type") in ("image", "drawing")
+                  and (e.get("type") == "image" or e.get("_avant_plan"))
                   and e.get("bbox") and len(e["bbox"]) >= 4]
         margin = 0.05 * H
 
@@ -3568,7 +4483,7 @@ class PDFObjectEngine:
                 bb = p.get("bbox")
                 cl = p.get("container_lines")
                 if not bb or len(bb) < 4 or not cl:
-                    continue
+                    continue                    # (un texte ancré peut grandir vers le bas)
                 pl, pt, pr, pb = bb
                 pitch = reflow._orig_pitch(cl, [])
                 # 1er élément SOUS le paragraphe qui chevauche sa largeur.
@@ -3666,7 +4581,8 @@ class PDFObjectEngine:
         def psize(p):
             return max((r.get("size", 0) or 0 for ln in p.get("lines", [])
                         for r in ln.get("runs", [])), default=10.0)
-        items = sorted((p for p in paras if id(p) in needs),
+        items = sorted((p for p in paras
+                        if id(p) in needs and not p.get("_ancre")),
                        key=lambda p: p["bbox"][1])
         used = set()
         for i, p in enumerate(items):
@@ -3765,6 +4681,8 @@ class PDFObjectEngine:
         # imposée → compression garantie, jamais de débordement.
         yshift = el.get("_yshift", 0.0) or 0.0
         grow = el.get("_grow", 0.0) or 0.0
+        if el.get("_ancre"):
+            yshift = 0.0                       # ancré : grandit vers le bas, ne bouge pas
         if yshift or grow:
             clines = [[c[0], c[1] + yshift, c[2], c[3] + yshift] for c in clines]
             if grow and clines:
@@ -3775,6 +4693,31 @@ class PDFObjectEngine:
         align = el.get("align", "left")
         if align == "left" and self.justify_text and self._is_justified(el):
             align = "justify"                  # source justifiée → rendu justifié
+        if el.get("_ancre"):
+            # Texte recouvert par un dessin d'avant-plan : même point de départ,
+            # même baseline (aucun décalage, aucune échelle de groupe) ; il peut
+            # grandir vers le bas dans le blanc libre, sinon rétrécir pour tenir.
+            align = "left"
+            clines = [list(c) for c in clines]
+            for ln in lines:
+                runs = ln.get("runs")
+                if runs and runs[0].get("origin"):
+                    ox = runs[0]["origin"][0]
+                    if clines[0][0] <= ox < clines[0][2]:
+                        clines[0][0] = ox
+                    break
+            # Ligne unique à l'origine : elle le reste. Sans cela, le reflow
+            # coupait le mot traduit au caractère (« R » / « anger ») dès que
+            # la hauteur du conteneur laissait place à une seconde ligne. En
+            # bornant le conteneur à la ligne, la cascade rétrécit à la place.
+            if len(lines) == 1 and first_baseline is not None and not grow:
+                corps = max((s.get("size", 0) or 0 for s in segs), default=0.0)
+                bas = first_baseline + 0.25 * corps
+                clines = [[clines[0][0], min(clines[0][1], first_baseline),
+                           clines[0][2], max(bas, first_baseline + 1.0)]]
+            return {"segs": segs, "clines": clines,
+                    "first_baseline": first_baseline,
+                    "align": align, "force_fit": True, "vscale": None}
         return {"segs": segs, "clines": clines, "first_baseline": first_baseline,
                 "align": align,
                 "force_fit": self.shrink_to_fit or bool(el.get("_force_fit")),
@@ -3958,7 +4901,8 @@ class PDFObjectEngine:
                     mat = fitz.Matrix(deg)
                     if abs(sx - 1.0) > 0.001:
                         mat = fitz.Matrix(sx, 1) * mat
-                    tw.write_text(page, morph=(pt, mat))
+                    tw.write_text(page, morph=_morph(pt, _shear(r, gf), mat),
+                                  render_mode=_render_mode(r, gf))
                 except Exception:
                     pass
             x += reflow.text_width(ch, [(gf, None)], size, sx) + lsp
@@ -3996,13 +4940,40 @@ class PDFObjectEngine:
                 continue
             i = int(idx)
             m = meta[i] if 0 <= i < len(meta) else (meta[-1] if meta else {})
-            segs.append(self._seg_from_meta(m, txt))
+            if m.get("initiale"):
+                segs.extend(self._segs_avec_initiale(m, txt))
+            else:
+                segs.append(self._seg_from_meta(m, txt))
         if not segs and tagged.strip():
             # Traduction renvoyée SANS balises → un seul segment, style dominant.
             clean = re.sub(r"\[\[/?\d+\]\]", "", tagged).strip()
             if clean:
                 segs.append(self._seg_from_meta(meta[0] if meta else {}, clean))
         return segs
+
+    def _segs_avec_initiale(self, m, txt):
+        """Segments d'un mot dont la lettre de tête était un dessin (voir
+        `_decider_formes`) : c'est ICI que le style de la lettre dessinée passe
+        à la PREMIÈRE lettre du mot TRADUIT (« Seiri » -> « Trier » : le T prend
+        la couleur et la taille du S dessiné). Le reste du mot garde le style
+        du mot ; l'éventuelle ponctuation de tête n'est pas stylée. La lettre
+        garde la police du mot : reflow la soude au reste (aucune espace)."""
+        ini = m["initiale"]
+        base = self._seg_from_meta({k: v for k, v in m.items()
+                                    if k != "initiale"}, txt)
+        k = next((j for j, c in enumerate(txt) if c.isalnum()), None)
+        if k is None:
+            return [base]
+        lettre = dict(base, text=txt[k],
+                      size=base["size"] * float(ini.get("scale") or 1.0),
+                      color=tuple(ini["color"]))
+        out = []
+        if k:
+            out.append(dict(base, text=txt[:k]))
+        out.append(lettre)
+        if k + 1 < len(txt):
+            out.append(dict(base, text=txt[k + 1:]))
+        return out
 
     def _seg_from_meta(self, m, txt):
         """Segment de reflow : UNE SEULE police pour tout le segment — jamais de
@@ -4060,6 +5031,15 @@ class PDFObjectEngine:
             except Exception:
                 lsp = 0.0
         return {"text": txt, "fonts": fonts,
+                # Gras synthétique reproduit À L'IDENTIQUE : même police
+                # embarquée, peinte remplie + contourée. Une police assortie,
+                # elle, a sa vraie graisse Bold (déjà choisie par `bold`).
+                "synth_bold": (primary if use_embedded and m.get("synth_bold")
+                               else None),
+                # Italique synthétique : même police, même pente de la source.
+                "synth_italic": ((primary, m["synth_italic"])
+                                 if use_embedded and m.get("synth_italic")
+                                 else None),
                 "size": size,
                 "color": tuple(m.get("color", (0, 0, 0))),
                 "underline": bool(m.get("underline")),
@@ -4141,16 +5121,39 @@ class PDFObjectEngine:
         police libre ASSORTIE à la famille source (`backend/fonts/` : PT Serif,
         Montserrat, Open Sans, Roboto, Oswald, Merriweather) — bien plus proche du
         typeface embarqué qu'Helvetica (le « z », les accents, le « U » d'un titre
-        géométrique ne détonnent plus). Base-14 seulement en dernier recours."""
+        géométrique ne détonnent plus). Base-14 seulement en dernier recours.
+
+        Quand la police source n'est pas embarquée en entier, `polices` cherche
+        d'abord la MÊME police (disque, catalogue, téléchargement), ou son clone
+        métrique libre (Arial → Arimo…), puis la plus proche par la chasse
+        mesurée dans le document. Le mot-clé de famille et la base-14 restent
+        les secours si aucune n'est trouvée."""
         cache = getattr(self, "_fallback_cache", None)
         if cache is None:
             cache = self._fallback_cache = {}
-        fam = _matched_family(font_raw)
+        clean = (font_raw or "").split("+")[-1]
         weight = _weight_class(font_raw, bold)
-        key = (fam, weight, bool(bold), bool(italic))
+        key = (clean, weight, bool(bold), bool(italic))
         f = cache.get(key)
+        famille, poids, ital = polices.analyser_nom(font_raw)
+        if f is None and polices.cle(famille) in ("helvetica", "times", "courier"):
+            # Base-14 : la police de MuPDF EST l'originale (mêmes chasses).
+            try:
+                f = cache[key] = fitz.Font(_base14_full_name(
+                    font_raw, bold or (poids or 400) >= 600, italic or ital))
+            except Exception:
+                f = None
         if f is None:
-            f = _load_matched_font(fam, bold, italic, weight=weight)
+            fam = _matched_family(font_raw)
+            path, couche = polices.resolveur().resoudre(
+                font_raw, bold, italic,
+                (getattr(self, "_font_profiles", None) or {}).get(clean))
+            if couche == "proche" and not _matched_family_is_default(font_raw):
+                path = None                     # le nom désigne une famille assortie
+            if path:
+                f = self._font_from_file(path)
+            if f is None:
+                f = _load_matched_font(fam, bold, italic, weight=weight)
             if f is None:                       # aucune police assortie : base-14
                 try:
                     f = fitz.Font(_base14_full_name(font_raw, bold, italic))
@@ -4158,6 +5161,18 @@ class PDFObjectEngine:
                     f = fitz.Font("Helvetica")
             cache[key] = f
         return f
+
+    def _font_from_file(self, path):
+        """fitz.Font d'un fichier, une seule fois par processus de rendu."""
+        cache = getattr(self, "_font_file_cache", None)
+        if cache is None:
+            cache = self._font_file_cache = {}
+        if path not in cache:
+            try:
+                cache[path] = fitz.Font(fontfile=path)
+            except Exception:
+                cache[path] = None
+        return cache[path]
 
     def _paint_reflow(self, page, res):
         """Peint les lignes de runs placés produites par `reflow`. Chaque run est
@@ -4219,10 +5234,10 @@ class PDFObjectEngine:
                     pt = fitz.Point(x, base)
                     tw = fitz.TextWriter(page.rect, color=color)
                     tw.append(pt, ch, font=gf, fontsize=size)
-                    if abs(sx - 1.0) > 0.001:
-                        tw.write_text(page, morph=(pt, fitz.Matrix(sx, 1)))
-                    else:
-                        tw.write_text(page)
+                    tw.write_text(page, morph=_morph(
+                        pt, _shear(r, gf),
+                        fitz.Matrix(sx, 1) if abs(sx - 1.0) > 0.001 else None),
+                        render_mode=_render_mode(r, gf))
                 except Exception:
                     pass
                 x += reflow.text_width(ch, [(gf, None)], size, sx) + lsp
@@ -4236,10 +5251,10 @@ class PDFObjectEngine:
             try:
                 tw = fitz.TextWriter(page.rect, color=color)
                 tw.append(pt, chunk, font=chunk_font, fontsize=size)
-                if abs(sx - 1.0) > 0.001:
-                    tw.write_text(page, morph=(pt, fitz.Matrix(sx, 1)))
-                else:
-                    tw.write_text(page)
+                tw.write_text(page, morph=_morph(
+                    pt, _shear(r, chunk_font),
+                    fitz.Matrix(sx, 1) if abs(sx - 1.0) > 0.001 else None),
+                    render_mode=_render_mode(r, chunk_font))
             except Exception:
                 pass
             return cx + reflow.text_width(chunk, [(chunk_font, None)], size, sx)
@@ -4278,10 +5293,26 @@ class PDFObjectEngine:
                 else (bb[2] - bb[0])
         else:
             target_w = None
+        if run.get("initiale"):
+            # Lettre refaite à la taille du dessin : sa largeur n'est plus
+            # celle de la lettre d'origine, aucune cible à imposer.
+            target_w = None
 
         # 1) Police source embarquée (fidélité exacte de police + glyphes).
         font = self._pick_font(run.get("font", ""), text)
-        # 2) Sinon police base-14 (Helvetica/Times/Courier), comme objet Font
+        # Gras synthétique : la police embarquée est la Regular → la repeindre
+        # remplie + contourée, comme la source.
+        rm = 2 if font is not None and run.get("synth_bold") else 0
+        shear = (run.get("synth_italic") or 0.0) if font is not None else 0.0
+        # 2) Sinon la police de repli complète (la même téléchargée, ou la plus
+        #    proche), si elle rend tout le texte.
+        if font is None:
+            fb = self._full_fallback_font(run.get("font", ""), run.get("bold"),
+                                          run.get("italic"))
+            if all(self._renders_glyph(fb, c) for c in set(text)
+                   if not c.isspace()):
+                font = fb
+        # 3) Sinon police base-14 (Helvetica/Times/Courier), comme objet Font
         #    pour bénéficier du même rendu mis à l'échelle.
         if font is None:
             fontname = _base14_fontname(run.get("font", ""), run.get("bold"),
@@ -4294,7 +5325,8 @@ class PDFObjectEngine:
         if font is not None:
             try:
                 self._write_scaled(page, origin, text, font, size, color,
-                                   target_w, run.get("dir"))
+                                   target_w, run.get("dir"), render_mode=rm,
+                                   shear=shear)
                 return
             except Exception:
                 pass
@@ -4307,7 +5339,7 @@ class PDFObjectEngine:
             pass
 
     def _write_scaled(self, page, origin, text, font, size, color, target_w,
-                      direction=None):
+                      direction=None, render_mode=0, shear=0.0):
         """Écrit `text` à `origin` avec `font`. Texte horizontal : mis à
         l'échelle en x pour occuper exactement `target_w` (anti-dérive). Texte
         incliné/vertical (Étape C, `direction` ≠ (1,0)) : tourné par la matrice
@@ -4315,7 +5347,7 @@ class PDFObjectEngine:
         dx, dy = (direction or (1, 0))
         if abs(dy) > 0.01 or dx < 0:            # direction non horizontale
             self._write_rotated(page, origin, text, font, size, color,
-                                 target_w, dx, dy)
+                                 target_w, dx, dy, render_mode, shear)
             return
 
         core = text.strip()
@@ -4340,20 +5372,20 @@ class PDFObjectEngine:
             pt = fitz.Point(origin[0] + lead_off, origin[1])
             tw = fitz.TextWriter(page.rect, color=color)
             tw.append(pt, core, font=font, fontsize=size)
-            tw.write_text(page)                 # rendu naturel (pas de distorsion)
+            tw.write_text(page, morph=_morph(pt, shear),
+                          render_mode=render_mode)                 # rendu naturel (pas de distorsion)
             return
 
         pt = fitz.Point(origin)
         tw = fitz.TextWriter(page.rect, color=color)
         tw.append(pt, text, font=font, fontsize=size)
         sx = self._hscale(font, text, size, target_w)   # anti-dérive (ou None)
-        if sx is not None:
-            tw.write_text(page, morph=(pt, fitz.Matrix(sx, 1)))
-        else:
-            tw.write_text(page)
+        tw.write_text(page, morph=_morph(
+            pt, shear, fitz.Matrix(sx, 1) if sx is not None else None),
+            render_mode=render_mode)
 
     def _write_rotated(self, page, origin, text, font, size, color,
-                       target_w, dx, dy):
+                       target_w, dx, dy, render_mode=0, shear=0.0):
         """Rendu du texte INCLINÉ / VERTICAL (Étape C).
 
         Rotation : `dir` de PyMuPDF est en espace page (y vers le BAS) alors que
@@ -4393,7 +5425,8 @@ class PDFObjectEngine:
         mat = fitz.Matrix(deg)
         if sx is not None:
             mat = fitz.Matrix(sx, 1) * mat      # scale (le long de l'axe) puis rotation
-        tw.write_text(page, morph=(pt, mat))
+        tw.write_text(page, morph=_morph(pt, shear, mat),
+                      render_mode=render_mode)
 
     @staticmethod
     def _hscale(font, text, size, target_w):
@@ -4547,6 +5580,16 @@ def _starts_lower(text):
     return False
 
 
+def _all_caps(text):
+    """Toutes les lettres à casse de la ligne sont des capitales (au moins une)."""
+    cased = [ch for ch in text if ch.isupper() or ch.islower()]
+    return bool(cased) and not any(ch.islower() for ch in cased)
+
+
+def _has_lower(text):
+    return any(ch.islower() for ch in text)
+
+
 def _first_word(text):
     t = text.strip()
     return t.split(" ", 1)[0].strip(".,;:!?)]}»”\"'") if t else ""
@@ -4623,6 +5666,12 @@ def _matched_family(font_raw):
         return "roboto"
     # sans par défaut (helvetica, arial, segoe, calibri, open sans, verdana, DIN…)
     return "opensans"
+
+
+def _matched_family_is_default(font_raw):
+    """`_matched_family` n'a reconnu aucun mot-clé (repli sans empattement)."""
+    return (_matched_family(font_raw) == "opensans"
+            and "open" not in (font_raw or "").lower())
 
 
 def _weight_class(font_raw, bold_flag):

@@ -1,0 +1,59 @@
+name: Deploy Précis production through AppFactory AWS/SSM
+
+# Production target on the existing permanent host. Historical AWS resource IDs
+# remain stable to preserve the instance, volumes and imported SecureString.
+# Public HTTPS and off-host backup verification remain separate completion gates.
+# First trusted main merge starts the first deployment automatically. Later
+# releases use workflow_dispatch. No pull_request can reach AWS cloud writes.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/aws-production-deploy.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  production:
+    if: github.repository == 'EagleFox31/Pr-cis-Translation' && github.ref == 'refs/heads/main'
+    uses: EagleFox31/appfactory-project-automation/.github/workflows/reusable-aws-ssm-compose-deploy.yml@94968781c914a28c539a37c9f22f30e3744c9471
+    with:
+      github_environment: production
+      existing_instance_id: i-0ce97ff971dd343b2
+      public_origin: https://precis-translator.trigenys.com
+      deployment_mode: persistent
+      appfactory_ref: 94968781c914a28c539a37c9f22f30e3744c9471
+      source_sha: ${{ github.sha }}
+      project_slug: precis-translation
+      account_id: '458018461157'
+      region: eu-west-3
+      stack_name: precis-translation-staging-app
+      deploy_role_arn: arn:aws:iam::458018461157:role/precis-translation-staging-github-deployer
+      cloudformation_role_arn: arn:aws:iam::458018461157:role/precis-translation-staging-cfn-execution
+      runtime_parameter: /precis-translation/staging/env
+
+# The existing appfactory-staging-iam-deployer IAM reader is NOT a substitute
+# for the dedicated EC2 staging role above. The production Atelier role must
+# never be used to deploy this project. GitHub will fail closed if that role
+# has not yet been provisioned by authorized AWS administration.
+
+# Release: install official Debian dependencies over the allowed HTTPS egress.
+
+# Release: provision HTTPS proxy for precis.trigenys.com.
+
+# Release: activate precis-translator.trigenys.com and reload its TLS configuration.
+
+# Release: publish static Open Graph metadata and branded link-preview image.
+
+# Release: publish search discovery, structured data and canonical landing routes.
+
+# Release: integrate upstream 0905278 (subscriptions, persistent quotas and document engines).
+
+# Release: seed each comma-separated ADMIN_EMAIL account from the imported runtime configuration.
+
+# Release: sync existing Google account display names and repair legacy seeded names.
+
+# Release: recognize selected scanned PDF pages locally before translation and page consumption.

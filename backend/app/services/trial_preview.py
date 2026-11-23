@@ -21,7 +21,7 @@ texte sélectionnable, mise en page réutilisable, fichier propre.
 
 Après rastérisation, le document n'est plus que des pixels : aucun mot du texte
 traduit n'est extractible (mesuré : 782 -> 0). AUCUNE couche texte ne subsiste,
-pas même le filigrane : il est CUIT dans les pixels (double rastérisation), donc
+pas même le filigrane : il est FONDU dans les pixels du contenu, donc
 on ne le retire pas en supprimant des objets texte. Plus de polices, plus de
 vecteurs. Pour en tirer un document, il faudrait l'OCR —
 c'est-à-dire refaire soi-même, en moins bien, le travail qu'on vend. Le vol
@@ -36,10 +36,12 @@ from __future__ import annotations
 
 import functools
 import html
+import io
 import math
 import logging
 
 import fitz
+from PIL import Image, ImageChops
 
 from app.config import BACKEND_DIR, BRAND_NAME, PUBLIC_SITE
 
@@ -80,7 +82,9 @@ _MARK_ANGLE = 10          # inclinaison, en degrés (sens anti-horaire, comme -1
 _MARK_ECHELLE = 1.15
 _MARK_INTERLIGNE = 1.2    # `line-height: normal` de la police d'affichage
 _MARK_COLOR = "#0d1b3e"   # rgba(13, 27, 62) du décor
-_MARK_OPACITY = 0.16
+# Plus léger qu'avant (0.16) : le décor passe désormais SOUS le contenu
+# (fusion « produit », voir `_fondre`), il n'a plus à traverser le texte.
+_MARK_OPACITY = 0.08
 
 
 def _clamp(bas: float, val: float, haut: float) -> float:
@@ -115,38 +119,43 @@ def rasterize_for_trial(pdf_bytes: bytes, pages=None,
             page = src[i]
             rect = page.rect
             pix = page.get_pixmap(dpi=dpi, alpha=False)
+            # CUISSON DU FILIGRANE, en ARRIÈRE-PLAN : fusionné dans les pixels
+            # du contenu (voir `_fondre`), il n'est jamais une couche détachable.
+            png = _fondre(pix, rect)
             # On VIDE la page (texte, polices, vecteurs disparaissent) avant d'y
             # reposer son image : sans ce nettoyage, la couche texte survivrait
-            # SOUS le pixmap — invisible à l'œil, intacte au copier-coller.
+            # SOUS l'image — invisible à l'œil, intacte au copier-coller.
             page.clean_contents()
             src.delete_page(i)
             page = src.new_page(pno=i, width=rect.width, height=rect.height)
-            page.insert_image(page.rect, pixmap=pix)
-            _stamp(page)
-
-            # CUISSON DU FILIGRANE. `_stamp` pose le texte en COUCHE, détachable
-            # d'un coup en supprimant les objets texte. On re-rastérise donc la
-            # page tamponnée en une image, qu'on repose seule : le filigrane vit
-            # désormais dans les PIXELS. L'enlever demande de retoucher l'image
-            # (bien plus cher qu'un simple « supprimer la couche texte »).
-            baked = page.get_pixmap(dpi=dpi, alpha=False)
-            src.delete_page(i)
-            page = src.new_page(pno=i, width=rect.width, height=rect.height)
-            page.insert_image(page.rect, pixmap=baked)
+            page.insert_image(page.rect, stream=png)
         return src.tobytes(garbage=3, deflate=True)
     finally:
         src.close()
 
 
-def _stamp(page: fitz.Page) -> None:
-    """Pose le décor de bandes multilingues sur toute la page.
+def _fondre(pix: fitz.Pixmap, rect: fitz.Rect) -> bytes:
+    """Fond le décor SOUS le contenu de la page rendue `pix` ; renvoie un PNG.
+
+    Fusion « produit » (multiply) : chaque pixel est multiplié par la teinte du
+    décor. Sur le blanc du papier, le décor apparaît ; sur une encre plus
+    sombre que lui (texte, traits, photos), il ne change presque rien. Le
+    filigrane passe donc DERRIÈRE tout le contenu, au lieu d'un voile posé
+    par-dessus qui grisait le texte.
 
     Un échec RELÈVE, comme le reste de `rasterize_for_trial` : l'avaler
     servirait un aperçu d'essai sans filigrane, donc exploitable tel quel.
     `_calque` ne met pas les échecs en cache : l'appel suivant réessaie.
     """
-    r = page.rect
-    page.insert_image(r, stream=_calque(round(r.width), round(r.height)))
+    fond = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+    deco = Image.open(io.BytesIO(_calque(round(rect.width), round(rect.height))))
+    deco = deco.convert("RGBA").resize(fond.size, Image.LANCZOS)
+    # Teinte = le décor posé sur du blanc (son alpha porte déjà l'opacité).
+    teinte = Image.new("RGB", fond.size, (255, 255, 255))
+    teinte.paste(deco, mask=deco.getchannel("A"))
+    sortie = io.BytesIO()
+    ImageChops.multiply(fond, teinte).save(sortie, format="PNG", optimize=True)
+    return sortie.getvalue()
 
 
 def prechauffer() -> None:

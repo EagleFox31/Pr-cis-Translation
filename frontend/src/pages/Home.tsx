@@ -1,30 +1,60 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import Navbar from '../components/navbar/Navbar';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { ArrowUp } from 'lucide-react';
+import AppBar from '../components/navbar/AppBar';
+import { prendreSource, type DemandeBibliotheque, type DemandeApercuAdmin } from '../components/library/BibliothequeHote';
+import { createAdminCopy, downloadAdminDocument, fetchAdminPdf } from '../hooks/useAdminDocuments';
+import { reportClientError } from '../lib/errorReporting';
 import HeroSection from '../components/hero/HeroSection';
 import LanguageMarquee from '../components/hero/LanguageMarquee';
 import FeaturesGrid from '../components/features/FeaturesGrid';
 import StorySection from '../components/story/StorySection';
+import type { Ajustement } from '../components/preview/ViewerToolbar';
 import PricingSection from '../components/pricing/PricingSection';
 import AboutSection from '../components/about/AboutSection';
-import ToastContainer, { showToast } from '../components/ui/Toast';
-import SupportModal from '../components/support/SupportModal';
-import PaymentModal from '../components/payment/PaymentModal';
+import { showToast } from '../components/ui/Toast';
+import PaymentModal from '../components/payment/LazyPaymentModal';
+import { useTelechargementLibres } from '../components/library/TelechargementLibres';
+import FenetreRetraduire from '../components/library/FenetreRetraduire';
 import DocumentLibrary from '../components/library/DocumentLibrary';
 import { useAuth } from '../contexts/AuthContext';
-import { useDocumentLibrary } from '../hooks/useDocumentLibrary';
-import { useStreamingTranslation } from '../hooks/useStreamingTranslation';
+import { useDocumentLibrary, STATUTS_REPRENABLES, type DocMeta } from '../hooks/useDocumentLibrary';
+import DocumentImagesPanel from '../components/preview/DocumentImagesPanel';
+import ScanPagesNotice from '../components/preview/ScanPagesNotice';
+import { usePagesIllisibles } from '../hooks/usePagesIllisibles';
+import {
+  useStreamingTranslation, stopTranslation, type PageStatus, type StopMode,
+} from '../hooks/useStreamingTranslation';
 import { isTrialFor } from '../lib/plans';
+import { subscribeSection } from '../lib/sectionBus';
+import { splashTermine, surFinSplash } from '../lib/splash';
+import { openNouveautes } from '../components/nouveautes/nouveautesBus';
+import { useNouveautes } from '../hooks/useNouveautes';
+import { creerGesteMolette } from '../lib/molette';
 import type { TranslateConfig } from '../components/upload/TranslationSection';
 
+
 export default function Home() {
-  const { t } = useTranslation();
-  const [isAnnual, setIsAnnual] = useState(true);
+  const { t, i18n } = useTranslation();
+  const [isAnnual, setIsAnnual] = useState(false);
   const [activeSection, setActiveSection] = useState('hero');
   const [showPreview, setShowPreview] = useState(false);
+  // Lu à la fin d'une traduction : l'aperçu ouvert annonce déjà l'état.
+  const apercuOuvert = useRef(false);
+  apercuOuvert.current = showPreview;
   const [currentPage, setCurrentPage] = useState(1);
   const [numPages, setNumPages] = useState(1);
   const [zoom, setZoom] = useState(1.0);
+  // Ajustement du zoom à l'écran (« pleine page » par défaut à l'ouverture ;
+  // `null` = zoom manuel) et rideau de comparaison original / traduction.
+  const [ajustement, setAjustement] = useState<Ajustement>('page');
+  const [rideau, setRideau] = useState(false);
+  // Un zoom choisi à la main quitte l'ajustement automatique.
+  const changerZoom = useCallback((z: number) => {
+    setAjustement(null);
+    setZoom(z);
+  }, []);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   // Le fichier SOURCE affiché est-il déjà un PDF ? Vrai pour un aperçu ouvert
   // depuis la bibliothèque (le serveur le convertit). Faux pour une traduction
@@ -63,15 +93,26 @@ export default function Home() {
   // périmait le chargement du document SOURCE — le panneau gauche restait vide
   // et la comparaison côte à côte disparaissait.
   const openToken = useRef(0);    // une ouverture d'aperçu
+  // Ouverture en attente de sa traduction affichée (mesure de lenteur).
+  const ouvertureApercu = useRef<{ t: number; docId: string; format: string; admin: boolean } | null>(null);
   const pageToken = useRef(0);    // une demande de page
   // Pages déjà reçues (clé `docId:page`) et document dont on possède le rendu
   // COMPLET : c'est ce qui rend la navigation instantanée au retour sur une
   // page, et muette côté réseau quand le serveur a livré tout le document.
   const pageBlobCache = useRef(new Map<string, Blob>());
   const fullDocFor = useRef<string | null>(null);
+  const apercuEnVol = useRef<string | null>(null);
   // Document rouvert pendant sa traduction : chaque tick redemande l'aperçu.
   // Les relances ne repassent pas l'écran en « chargement » (clignotement).
   const [previewPoll, setPreviewPoll] = useState(0);
+  // Aperçu rouvert depuis la bibliothèque : la traduction (souvent en cache)
+  // arrive avant l'original (converti en PDF côté serveur). On la retient tant
+  // que l'original n'est pas là, pour ne jamais peindre la droite seule.
+  const [sourceEnAttente, setSourceEnAttente] = useState(false);
+  // Aperçu de bibliothèque : fichiers absents du serveur (404), pour dire quoi
+  // faire au lieu d'un « en attente » qui n'aboutira jamais.
+  const [traductionManquante, setTraductionManquante] = useState(false);
+  const [sourceManquante, setSourceManquante] = useState(false);
   const enSuivi = useRef(false);
   // Échecs d'affilée PENDANT le suivi : un raté réseau ne doit pas figer
   // l'aperçu, mais un document disparu ne doit pas être redemandé sans fin.
@@ -79,19 +120,65 @@ export default function Home() {
   // Document de la BIBLIOTHÈQUE en cours d'aperçu (null = traduction en direct,
   // qui reçoit ses pages par le flux et n'a rien à redemander).
   const [libraryDocId, setLibraryDocId] = useState<string | null>(null);
+  const [libraryCanReadClear, setLibraryCanReadClear] = useState(false);
+  // Document de la bibliothèque EN COURS de traduction : l'état des pages vient
+  // du serveur (`/preview`), car la réouverture n'a pas le flux de la
+  // traduction. Sans lui, toutes les pages passaient pour traduites.
+  const [suiviBiblio, setSuiviBiblio] = useState<{
+    pretes: Record<number, true>; etats: Record<number, PageStatus>;
+  } | null>(null);
+  // Admin regardant le document d'un AUTRE compte : tout passe par les routes
+  // admin (lecture seule), rien n'est retraduit ni débité, et Retour ramène à
+  // la console. `null` = aperçu ordinaire.
+  const [adminDoc, setAdminDoc] = useState<DemandeApercuAdmin['apercuAdmin'] | null>(null);
+  const [copieEnCours, setCopieEnCours] = useState(false);
 
   // ---- Traduction PROGRESSIVE (page par page) ----
-  const stream = useStreamingTranslation();
-  const { user, refreshUser } = useAuth();
-
-  // Mode ESSAI : DÉRIVÉ du plan, jamais stocké. C'était un `useState(true)`
-  // dont le setter n'était appelé nulle part — l'aperçu restait donc assombri
-  // et le téléchargement verrouillé pour TOUT LE MONDE, abonnés et admin
-  // compris. Un état qui ne change jamais n'est pas un état : c'est un calcul.
-  const isTrialMode = isTrialFor(user);
+  const { user, loading: authLoading, refreshUser } = useAuth();
+  const stream = useStreamingTranslation(user?.plan === 'free');
 
   // ---- Document library ----
-  const { documents, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll } = useDocumentLibrary();
+  const { documents, charge: bibliothequeChargee, erreur: bibliothequeErreur, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal, getImagesProposition, translateImages, getIllegiblePages, setIllegiblePages } = useDocumentLibrary();
+
+  // Les droits du document viennent du serveur ; une mise à jour de la
+  // bibliothèque après paiement doit aussi débloquer l'aperçu déjà ouvert.
+  const libraryRight = documents.find((doc) => doc.id === libraryDocId)?.paid ?? libraryCanReadClear;
+  // Image remplacée ou page de scan rechoisie : le rendu change, les pages
+  // en cache sont périmées. Juste après une traduction en direct, l'aperçu
+  // montre encore le flux, qui ne changera plus : il passe au rendu serveur
+  // du document enregistré.
+  const versRendu = useRef({ biblio: libraryDocId, flux: stream.documentId, clair: stream.canReadClear });
+  versRendu.current = { biblio: libraryDocId, flux: stream.documentId, clair: stream.canReadClear };
+  const rafraichirRendu = useCallback(() => {
+    pageBlobCache.current.clear();
+    fullDocFor.current = null;
+    const { biblio, flux, clair } = versRendu.current;
+    if (!biblio && flux) {
+      setLibraryCanReadClear(clair);
+      setLibraryDocId(flux);
+    }
+    setPreviewPoll((n) => n + 1);
+  }, []);
+  const isTrialMode = isTrialFor(user)
+    && !(libraryDocId ? libraryRight : stream.canReadClear);
+
+  // Pages illisibles d'un scan : document de la bibliothèque, ou celui que la
+  // traduction en direct vient d'enregistrer (la décision se prend sur la page).
+  // Document d'un autre compte (admin) : ses réglages ne se touchent pas d'ici.
+  const docIdPages = showPreview && !adminDoc ? (libraryDocId ?? stream.documentId) : null;
+  const pagesIllisibles = usePagesIllisibles({
+    docId: docIdPages,
+    load: getIllegiblePages,
+    choose: setIllegiblePages,
+    onChanged: rafraichirRendu,
+    // Suivi seulement pour un scan : un document à texte n'a jamais de page
+    // illisible.
+    traduction: suiviBiblio || stream.ocrPages > 0 ? {
+      enCours: stream.isTranslating || !!suiviBiblio,
+      pagesFaites: Object.values(suiviBiblio?.etats ?? stream.pageStatuses)
+        .filter((s) => s === 'done').length,
+    } : null,
+  });
 
   // ---- Scroll spy ----
   useEffect(() => {
@@ -129,10 +216,13 @@ export default function Home() {
   // défiler jusqu'à lui. En le fermant, on revient sur le formulaire de
   // traduction, quel que soit l'endroit d'où l'aperçu a été ouvert.
   const apercuEtaitOuvert = useRef(false);
-  const retourVers = useRef<'story' | 'pricing'>('story');
+  const retourVers = useRef<string>('story');
   useEffect(() => {
     if (apercuEtaitOuvert.current && !showPreview) {
       document.getElementById(retourVers.current)?.scrollIntoView({ behavior: 'instant' });
+      // Le scroll spy ne voit pas ce saut (aucune transition d'intersection
+      // sous la surcouche) : la barre restait sur « Fonctionnement ».
+      setActiveSection(retourVers.current);
       retourVers.current = 'story';
     }
     apercuEtaitOuvert.current = showPreview;
@@ -140,27 +230,16 @@ export default function Home() {
 
   const toggleFocus = useCallback(() => setPreviewFocus((v) => !v), []);
 
-  // ---- Nav click handler ----
-  const handleNavClick = useCallback((sectionId: string) => {
-    // Quitter une autre section depuis le mode agrandi : on revient d'abord au
-    // rendu NORMAL (la surcouche plein cadre `preview-focus` est `position:fixed`
-    // + `overflow:hidden` — sans ça, le scroll vers la cible n'aurait aucun effet).
-    setPreviewFocus(false);
-    const el = document.getElementById(sectionId);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, []);
-
   // ---- Démarrage de la traduction : l'aperçu s'ouvre IMMÉDIATEMENT, les pages
   //      traduites y apparaissent au fil de l'eau (streaming page par page). ----
   const handleStartTranslate = useCallback(
     (config: TranslateConfig) => {
       // Le catalogue ne propose que des codes de base ('en', 'fr'…) : plus de
       // variante régionale à réduire avant l'envoi.
-      const { file, targetLang, pages, debug, precise, onAccepted } = config;
-      // Mémorisé pour rejouer À L'IDENTIQUE après un achat de pages (402).
-      lastConfigRef.current = config;
+      const { file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta, resumeOf, images } = config;
+      // Mémorisé pour rejouer après un achat de pages (402) : en ENTIER, un
+      // achat sert à couvrir tout le document, jamais à rejouer une version partielle.
+      lastConfigRef.current = { ...config, coverOnly: false };
       setSelectedFile(file);
       setSourceIsPdf(false);      // fichier local, format d'origine
       setTargetLang(targetLang);
@@ -169,14 +248,18 @@ export default function Home() {
       // continuerait de réclamer les pages du document précédent et les
       // poserait par-dessus celles qui arrivent.
       setLibraryDocId(null);
+      setAdminDoc(null);
+      setSuiviBiblio(null);
       setPreviewLoading(false);
       setTranslatedBlob(null);
       setTranslatedFilename('');
       setCurrentPage(1);
+      setAjustement('page');
+      setRideau(false);
       setShowPreview(true);
 
       stream
-        .start(file, targetLang, pages, debug, precise, onAccepted)
+        .start(file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta, resumeOf, images)
         .then((result) => {
           setTranslatedBlob(result.blob);
           setTranslatedIsPdf(false);   // le RÉSULTAT est au format d'origine
@@ -187,19 +270,19 @@ export default function Home() {
             targetLang,
             ext,
           });
-          // Forfait freemium = 1 page max, on invite à upgrader
-          if (user?.plan === 'free') {
-            showToast('success', t('story.free_plan_title'), t('story.free_plan_hint'));
-          } else {
-            showToast('success', t('story.success_done'), result.filename);
-          }
+          // Le serveur a déjà appliqué le budget choisi (Bêta, forfait ou
+          // pages achetées) : le nom du forfait ne décrit pas cette livraison.
+          // Aperçu ouvert : la barre d'outils dit déjà « Traduction terminée ».
+          if (!apercuOuvert.current) showToast('success', t('story.success_done'), result.filename);
         })
         .catch(() => {
           // L'erreur est déjà dans stream.error (et stream.limitReached pour
           // les 402) — on laisse StorySection l'afficher en bannière inline.
+          // Arrêt (pause, annulation) : la bibliothèque doit montrer le statut.
+          refresh();
         });
     },
-    [stream, saveDocument, t],
+    [stream, saveDocument, refresh, t],
   );
 
   // ---- Library preview ----
@@ -208,6 +291,8 @@ export default function Home() {
       docId: string;
       filename: string;
       ext: string;
+      paid: boolean;
+      enCours: boolean;
       source: Promise<Blob | undefined>;
     }) => {
       // Chaque ouverture reçoit un jeton. Sans lui, ouvrir A puis B pendant que
@@ -220,6 +305,10 @@ export default function Home() {
       setTranslatedBlob(null);
       setSelectedFile(null);
       setTranslatedFilename(req.filename);
+      ouvertureApercu.current = {
+        t: Date.now(), docId: req.docId, admin: false,
+        format: req.filename.split('.').pop()?.toLowerCase() || req.ext,
+      };
       // Caches d'aperçu REMIS À ZÉRO : ils appartiennent à l'ouverture
       // précédente. Les garder servirait les pages d'une traduction
       // potentiellement retraduite depuis.
@@ -228,7 +317,15 @@ export default function Home() {
       enSuivi.current = false;
       echecsSuivi.current = 0;
       setLibraryDocId(req.docId);
+      setAdminDoc(null);
+      setTraductionManquante(false);
+      setSourceManquante(false);
+      setLibraryCanReadClear(req.paid);
+      // En cours : rien n'est tenu pour traduit avant la réponse du serveur.
+      setSuiviBiblio(req.enCours ? { pretes: {}, etats: {} } : null);
       setCurrentPage(1);
+      setAjustement('page');
+      setRideau(false);
       setPreviewLoading(true);
       setShowLibrary(false);
       setShowPreview(true);   // ← l'aperçu est visible AVANT le premier octet
@@ -238,11 +335,15 @@ export default function Home() {
       // et le viewer la retournait au serveur pour conversion — un aller-retour
       // de plusieurs mégaoctets qui, en échouant, laissait le panneau blanc.
       setSourceIsPdf(true);
+      setSourceEnAttente(true);
       req.source.then((src) => {
         if (fresh() && src) {
           setSelectedFile(new File([src], req.filename, { type: 'application/pdf' }));
+        } else if (fresh()) {
+          setSourceManquante(true);
         }
-      }).catch(() => { /* panneau gauche vide : le viewer le gère */ });
+      }).catch(() => { /* panneau gauche vide : le viewer le gère */ })
+        .finally(() => { if (fresh()) setSourceEnAttente(false); });
 
       // La traduction est chargée par l'effet ci-dessous, page par page.
     },
@@ -264,17 +365,128 @@ export default function Home() {
       // supprimer d'abord purgeait le dossier du job, et avec lui les pages
       // déjà traduites que la relance aurait reprises. Refusée (quota, 402),
       // la relance laisse l'ancien en place.
+      // Mêmes réglages qu'au départ : ce sont eux qui retrouvent les pages
+      // déjà traduites (sinon tout repart de zéro, et à un autre prix).
       handleStartTranslate({
         file,
         targetLang: doc.targetLang,
-        pages: '',
+        pages: doc.reglages?.pages ?? '',
         debug: false,
-        precise: false,
+        precise: doc.reglages?.precise ?? false,
+        beta: doc.reglages ? doc.reglages.beta : undefined,
+        images: doc.reglages?.qsuffix?.includes('_img') ?? false,
+        // Le serveur ne compte la remise que pour un document interrompu.
+        resumeOf: STATUTS_REPRENABLES.includes(doc.status) ? doc.id : undefined,
         onAccepted: () => { deleteDocument(doc.id).catch(() => { /* déjà parti */ }); },
       });
     },
     [getOriginalBlob, deleteDocument, handleStartTranslate, t],
   );
+
+  // ---- Traduire à nouveau : un document terminé, depuis son original -------
+  // Rien n'est supprimé : c'est un nouveau dépôt, au prix d'un nouveau dépôt,
+  // sans avoir à redonner le fichier. Mêmes réglages, langue au choix.
+  const [aRetraduire, setARetraduire] = useState<DocMeta | null>(null);
+  const handleRetranslate = useCallback(
+    async (doc: DocMeta, targetLang: string) => {
+      setARetraduire(null);
+      const blob = await getOriginalBlob(doc.id);
+      if (!blob || blob.size === 0) {
+        showToast('error', t('story.retry_unavailable_title'), t('story.retry_unavailable_hint'));
+        return;
+      }
+      setShowLibrary(false);
+      handleStartTranslate({
+        file: new File([blob], doc.originalName),
+        targetLang,
+        pages: doc.reglages?.pages ?? '',
+        debug: false,
+        precise: doc.reglages?.precise ?? false,
+        beta: doc.reglages ? doc.reglages.beta : undefined,
+        images: doc.reglages?.qsuffix?.includes('_img') ?? false,
+      });
+    },
+    [getOriginalBlob, handleStartTranslate, t],
+  );
+
+  // ---- Demande venue du tiroir d'une autre page (admin, intégrations) -------
+  // L'aperçu et la relance vivent ici : le tiroir des autres pages y renvoie
+  // avec la demande dans l'état de navigation, exécutée une fois le document
+  // connu, puis effacée (un retour arrière ne la rejoue pas).
+  const location = useLocation();
+  const navigate = useNavigate();
+  const demande = (location.state as DemandeBibliotheque | null)?.bibliotheque;
+  // Demande déjà exécutée. L'état de navigation n'est effacé qu'au rendu
+  // suivant : entre-temps l'effet repasse (ouvrir l'aperçu change ses
+  // dépendances, et le mode strict le rejoue), et chaque passage relançait le
+  // chargement complet du document — 3 à 5 fois le même gros fichier.
+  const demandeTraitee = useRef<object | null>(null);
+  useEffect(() => {
+    if (!demande || demandeTraitee.current === demande) return;
+    const doc = documents.find((d) => d.id === demande.docId);
+    if (!doc && !bibliothequeChargee) return;   // liste pas encore arrivée
+    demandeTraitee.current = demande;
+    navigate(location.pathname, { replace: true, state: null });
+    if (!doc) {
+      // Supprimé entre-temps : on le dit, et la demande ne reste pas armée.
+      prendreSource(demande.docId);
+      showToast('error', t('story.request_missing_title'), t('story.request_missing_hint'));
+      return;
+    }
+    if (demande.action === 'relance') {
+      handleRetry(doc);
+    } else {
+      handleLibraryPreview({
+        docId: doc.id, paid: doc.paid, filename: doc.filename, ext: doc.ext,
+        enCours: doc.status === 'translating',
+        source: prendreSource(doc.id) ?? getOriginalBlob(doc.id, true),
+      });
+    }
+  }, [demande, documents, bibliothequeChargee, navigate, location.pathname, handleRetry, handleLibraryPreview, getOriginalBlob, t]);
+
+  // Demande de la console admin : le document d'un autre compte, ouvert dans
+  // CET aperçu par les routes admin (l'état est effacé : pas de rejeu).
+  const demandeAdmin = (location.state as DemandeApercuAdmin | null)?.apercuAdmin;
+  useEffect(() => {
+    if (!demandeAdmin || demandeTraitee.current === demandeAdmin) return;
+    demandeTraitee.current = demandeAdmin;
+    navigate(location.pathname, { replace: true, state: null });
+    handleLibraryPreview({
+      docId: demandeAdmin.docId, filename: demandeAdmin.nom, ext: 'pdf',
+      paid: true, enCours: false,
+      source: fetchAdminPdf(demandeAdmin.docId, 'source').catch(() => undefined),
+    });
+    setAdminDoc(demandeAdmin);
+    if (ouvertureApercu.current) ouvertureApercu.current.admin = true;
+  }, [demandeAdmin, navigate, location.pathname, handleLibraryPreview]);
+
+  const handleAdminCopy = useCallback(async () => {
+    if (!adminDoc || copieEnCours) return;
+    setCopieEnCours(true);
+    try {
+      const res = await createAdminCopy(adminDoc.docId);
+      refresh();
+      // La copie s'ouvre comme tout document de la bibliothèque : la demande
+      // attend que la liste rafraîchie la contienne.
+      const ouvrir = () => {
+        const state: DemandeBibliotheque = { bibliotheque: { action: 'apercu', docId: res.id } };
+        navigate(location.pathname, { state });
+      };
+      showToast('success', res.cree
+        ? t('admin_docs.copy_created', 'Copie créée : elle est dans votre bibliothèque.')
+        : t('admin_docs.copy_exists', 'Vous avez déjà une copie de ce document.'),
+        undefined, { label: t('admin_docs.copy_open', 'Ouvrir ma copie'), onClick: ouvrir });
+    } catch (err) {
+      showToast('error', t('admin_docs.copy_error', 'La copie n’a pas pu être créée.'),
+        err instanceof Error ? err.message : undefined);
+    } finally {
+      setCopieEnCours(false);
+    }
+  }, [adminDoc, copieEnCours, refresh, navigate, location.pathname, t]);
+
+  // L'identifiant seul : l'objet change à chaque ouverture et relançait le
+  // rendu complet de la traduction pour le même document.
+  const adminDocId = adminDoc?.docId;
 
   // ---- Aperçu bibliothèque : réseau seulement quand on ne SAIT pas ---------
   //
@@ -288,9 +500,32 @@ export default function Home() {
     if (!libraryDocId || !showPreview) {
       // Plus d'aperçu de bibliothèque : le suivi en cours n'a plus d'objet.
       enSuivi.current = false; echecsSuivi.current = 0;
+      setSuiviBiblio(null);
       return;
     }
     if (fullDocFor.current === libraryDocId) return;          // niveau 1
+
+    if (adminDocId === libraryDocId) {
+      // Document d'un autre compte : la route admin rend la traduction
+      // ENTIÈRE en une fois, la navigation est ensuite locale.
+      // Une seule demande en vol par document : l'effet rejoué (StrictMode,
+      // re-rendu) ne relance pas un second rendu complet côté serveur.
+      if (apercuEnVol.current === libraryDocId) return;
+      apercuEnVol.current = libraryDocId;
+      const token = ++pageToken.current;
+      setPreviewLoading(true);
+      fetchAdminPdf(libraryDocId, 'apercu')
+        .finally(() => { if (apercuEnVol.current === libraryDocId) apercuEnVol.current = null; })
+        .then((blob) => {
+          if (pageToken.current !== token) return;
+          fullDocFor.current = libraryDocId;
+          setTranslatedBlob(blob);
+          setTranslatedIsPdf(true);
+        })
+        .catch(() => { if (pageToken.current === token) setTraductionManquante(true); })
+        .finally(() => { if (pageToken.current === token) setPreviewLoading(false); });
+      return;
+    }
     const key = `${libraryDocId}:${currentPage}`;
     const hit = pageBlobCache.current.get(key);
     if (hit) {                                                    // niveau 2
@@ -309,6 +544,7 @@ export default function Home() {
       } else {
         enSuivi.current = false;
         echecsSuivi.current = 0;
+        setSuiviBiblio(null);         // plus de suivi : plus de compteur qui tourne
       }
     };
     getPreviewBlob(libraryDocId, currentPage)
@@ -318,8 +554,15 @@ export default function Home() {
         // demandée avant écrase la page rapide demandée après.
         if (pageToken.current !== token) return;
         if (!res) { echec(); return; }
+        if (res.missing) {
+          enSuivi.current = false;
+          setSuiviBiblio(null);
+          setTraductionManquante(true);
+          return;
+        }
         echecsSuivi.current = 0;
         enSuivi.current = res.inProgress;
+        setSuiviBiblio(res.inProgress ? { pretes: res.pretes, etats: res.etats } : null);
         if (res.inProgress) {
           // Document rouvert PENDANT sa traduction : on montre ce qui est
           // traduit (rien en cache, ça change) et on redemande jusqu'au rendu
@@ -349,11 +592,91 @@ export default function Home() {
       .catch(() => { echec(); /* le lecteur garde son écran d'attente */ })
       .finally(() => { if (pageToken.current === token) setPreviewLoading(false); });
     return () => { if (relance) clearTimeout(relance); };
-  }, [libraryDocId, currentPage, showPreview, getPreviewBlob, previewPoll]);
+  }, [libraryDocId, adminDocId, currentPage, showPreview, getPreviewBlob, previewPoll]);
+
+  // Aperçu lent : le Journal le sait (un admin a attendu ~40 s sans trace).
+  useEffect(() => {
+    const o = ouvertureApercu.current;
+    if (!translatedBlob || !o || o.docId !== libraryDocId) return;
+    ouvertureApercu.current = null;
+    const ms = Date.now() - o.t;
+    if (ms > 15000) {
+      reportClientError(`Aperçu lent : ${Math.round(ms / 1000)} s`, {
+        level: 'warning', component: 'apercu',
+        context: { docId: o.docId, format: o.format, admin: o.admin, ms },
+      });
+    }
+  }, [translatedBlob, libraryDocId]);
 
   // ---- Download (le résultat complet, une fois la traduction terminée) ----
-  const handleDownload = useCallback(() => {
-    const blob = stream.result?.blob ?? translatedBlob;
+  const rafraichirSolde = useCallback(() => { refresh(); refreshUser(); }, [refresh, refreshUser]);
+  // Pages encore libres après un règlement : l'aperçu en cours se met à jour
+  // sans attendre une nouvelle traduction.
+  const [libresReglees, setLibresReglees] = useState<Record<string, number>>({});
+  // Voile tel qu'il était au règlement, gardé tant que l'aperçu montre l'ancien
+  // rendu (filigrané) : le lever tout de suite découvrait le filigrane le
+  // temps que le nouveau rendu arrive.
+  const voileCourant = useRef<{ blob: Blob | null; doc: boolean; pages?: number[] }>({ blob: null, doc: false });
+  const [voileGarde, setVoileGarde] = useState<typeof voileCourant.current | null>(null);
+  const noterReglement = useCallback((id: string, libres: number) => {
+    setLibresReglees((m) => ({ ...m, [id]: libres }));
+    setVoileGarde(voileCourant.current.blob ? { ...voileCourant.current } : null);
+    // Pages réglées : l'aperçu filigrané en cache est périmé ; plus aucune
+    // page libre, la lecture en clair est acquise.
+    const { biblio, flux } = versRendu.current;
+    if (id !== (biblio ?? flux)) return;
+    if (libres === 0) {
+      versRendu.current.clair = true;
+      if (biblio) setLibraryCanReadClear(true);
+    }
+    rafraichirRendu();
+  }, [rafraichirRendu]);
+  const {
+    telecharger: telechargerLibres, acheterLibres, fenetre: fenetreLibres,
+  } = useTelechargementLibres(rafraichirSolde, noterReglement);
+  const docCourant = libraryDocId ?? stream.documentId;
+  // Un document repris depuis « Mes documents » est aussi celui du flux : la
+  // fin du flux est plus fraîche que la liste, qui ne se recharge qu'ensuite.
+  const docBiblio = libraryDocId ? documents.find((doc) => doc.id === libraryDocId) : undefined;
+  // Document affiché, terminé et ouvrable : « Traduire à nouveau » dans l'aperçu.
+  const docAffiche = docCourant && !adminDoc ? documents.find((doc) => doc.id === docCourant) : undefined;
+  const docRetraduisible = docAffiche && !['translating', 'resumed', 'error', ...STATUTS_REPRENABLES].includes(docAffiche.status)
+    && !docAffiche.archive
+    && !stream.isTranslating ? docAffiche : undefined;
+  const fluxDuDoc = !libraryDocId || libraryDocId === stream.documentId;
+  const pagesLibresAffichees = docCourant && docCourant in libresReglees
+    ? libresReglees[docCourant]
+    : fluxDuDoc && stream.pagesLibres
+      ? stream.pagesLibres
+      : docBiblio?.pagesLibres ?? (fluxDuDoc ? stream.pagesLibres : 0);
+  // Numéros des pages libres affichées : les DERNIÈRES de la liste du
+  // serveur (un règlement partiel paie les premières), aucune après achat.
+  const numerosLibres = fluxDuDoc && stream.pagesLibresNumeros.length
+    ? stream.pagesLibresNumeros
+    : docBiblio?.pagesLibresNumeros ?? (fluxDuDoc ? stream.pagesLibresNumeros : []);
+  const pagesNonPayees = pagesLibresAffichees ? numerosLibres.slice(-pagesLibresAffichees) : [];
+  const pagesVoilees = isTrialFor(user) && pagesLibresAffichees ? pagesNonPayees : undefined;
+
+  const handleDownload = useCallback(async () => {
+    if (adminDoc) {
+      const { ok } = await downloadAdminDocument(adminDoc.docId, 'translated', translatedFilename || adminDoc.nom).catch(() => ({ ok: false }));
+      if (!ok) showToast('error', t('admin_docs.download_error', 'Téléchargement impossible'));
+      return;
+    }
+    // Le document est en bibliothèque : on redemande le rendu au serveur. Le
+    // blob reçu en fin de traduction ignore les choix faits ensuite sur les
+    // pages illisibles (garder, laisser vide, traduire quand même).
+    const id = libraryDocId ?? stream.documentId;
+    // Connecté : pages libres réglées d'office, sinon la fenêtre propose
+    // d'acheter le reste ou un fichier limité aux pages payées.
+    // Le hook signale lui-même un échec : pas de repli sur le blob local, qui
+    // contiendrait les pages non payées.
+    if (id && user && translatedFilename) {
+      await telechargerLibres(id, translatedFilename);
+      return;
+    }
+    const frais = id ? await getBlob(id).catch(() => undefined) : undefined;
+    const blob = frais ?? stream.result?.blob ?? translatedBlob;
     if (blob && translatedFilename) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -364,7 +687,41 @@ export default function Home() {
       URL.revokeObjectURL(url);
       document.body.removeChild(a);
     }
-  }, [stream.result, translatedBlob, translatedFilename]);
+  }, [adminDoc, libraryDocId, stream.documentId, stream.result, translatedBlob, translatedFilename, getBlob, t, user, telechargerLibres]);
+
+  // ---- Pause / Annuler ----
+  // Traduction lancée ici : le flux connaît le job. Document rouvert depuis la
+  // bibliothèque pendant sa traduction : c'est la liste qui le nomme.
+  const libraryJobId = libraryDocId
+    ? documents.find((d) => d.id === libraryDocId)?.jobId ?? null : null;
+  const stopJob = useCallback(async (jobId: string, mode: StopMode) => {
+    try {
+      await stopTranslation(jobId, mode);
+    } catch (err) {
+      showToast('error', t('story.stop_failed'), err instanceof Error ? err.message : undefined);
+      throw err;
+    }
+    refresh();
+  }, [refresh, t]);
+  const handleStop = useCallback(async (mode: StopMode) => {
+    if (stream.isTranslating) {
+      // Le flux annonce `stopped` : c'est lui qui fige l'aperçu.
+      await stream.stop(mode).catch((err) => {
+        showToast('error', t('story.stop_failed'), err instanceof Error ? err.message : undefined);
+        throw err;
+      });
+    } else if (libraryJobId) {
+      await stopJob(libraryJobId, mode);
+      // Aperçu rouvert depuis la bibliothèque : pas de flux pour annoncer
+      // l'arrêt. On fige tout de suite, puis on recharge l'état final.
+      enSuivi.current = false;
+      setSuiviBiblio(null);
+      setPreviewPoll((n) => n + 1);
+    }
+  }, [stream, libraryJobId, stopJob, t]);
+  const handleLibraryStop = useCallback(async (doc: DocMeta, mode: StopMode) => {
+    if (doc.jobId) await stopJob(doc.jobId, mode);
+  }, [stopJob]);
 
   // ---- Back from preview ----
   const handleBack = useCallback(() => {
@@ -373,7 +730,26 @@ export default function Home() {
     setPreviewFocus(false);         // on quitte aussi le mode agrandi
     setLibraryDocId(null);          // plus d'aperçu ouvert : plus rien à charger
     setPreviewLoading(false);
-  }, [stream]);
+    if (adminDoc) {
+      // Ouvert depuis la console admin : c'est là qu'on revient.
+      // Sauf après une déconnexion : la console admin n'est plus accessible.
+      setAdminDoc(null);
+      if (user) navigate(adminDoc.retour);
+    }
+  }, [stream, adminDoc, navigate, user]);
+
+  // Déconnexion (ou session expirée) : l'aperçu et le document courant
+  // appartiennent au compte qui vient de partir, on les ferme.
+  const etaitConnecte = useRef(!!user);
+  useEffect(() => {
+    if (etaitConnecte.current && !user) {
+      handleBack();
+      setSelectedFile(null);
+      setTranslatedBlob(null);
+      setTranslatedFilename('');
+    }
+    etaitConnecte.current = !!user;
+  }, [user, handleBack]);
 
   // « Débloquer » depuis l'essai : les tarifs sont sous la surcouche d'aperçu,
   // il faut la fermer pour les montrer.
@@ -382,12 +758,169 @@ export default function Home() {
     handleBack();
   }, [handleBack]);
 
+  // ---- Nav click handler ----
+  // La barre reste visible au-dessus de l'aperçu, mais l'aperçu est une
+  // surcouche FIXE : défiler vers une section la faisait bouger dessous, sans
+  // rien changer à l'écran — on « restait bloqué » jusqu'au bouton Retour.
+  // On ferme donc l'aperçu (comme Retour) et l'effet de fermeture défile vers
+  // la cible. La traduction continue côté serveur, le document reste dans la
+  // bibliothèque.
+  const handleNavClick = useCallback((sectionId: string) => {
+    setPreviewFocus(false);
+    if (showPreview) {
+      retourVers.current = sectionId;
+      handleBack();
+      return;
+    }
+    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth' });
+  }, [showPreview, handleBack]);
+
+  // Section demandée depuis une autre page (menu commun) : on y défile à
+  // l'arrivée, puis l'état est effacé (un retour arrière ne la rejoue pas).
+  const sectionVisee = (location.state as { section?: string } | null)?.section;
+  useEffect(() => {
+    if (!sectionVisee) return;
+    navigate(location.pathname, { replace: true, state: null });
+    requestAnimationFrame(() => handleNavClick(sectionVisee));
+  }, [sectionVisee, navigate, location.pathname, handleNavClick]);
+
+  // Même règle pour TOUT ce qui mène à une section, pas seulement la barre :
+  // boutons « voir les forfaits » (`goToSection`) et liens `#section` de la
+  // page. Un lien dont le composant gère déjà le clic (preventDefault) est
+  // laissé tel quel.
+  useEffect(() => {
+    const onLink = (e: MouseEvent) => {
+      if (!showPreview || e.defaultPrevented || e.button !== 0) return;
+      const a = (e.target as Element | null)?.closest?.('a[href^="#"]');
+      const id = a?.getAttribute('href')?.slice(1);
+      if (!id || !document.getElementById(id)) return;
+      e.preventDefault();
+      handleNavClick(id);
+    };
+    const off = subscribeSection(handleNavClick);
+    document.addEventListener('click', onLink);
+    return () => { off(); document.removeEventListener('click', onLink); };
+  }, [showPreview, handleNavClick]);
+
+  // ---- Nouveautés : ouverture automatique, une fois par session ----
+  // Après l'écran de démarrage, sans traduction en cours ni autre fenêtre ouverte.
+  const { chargerAVoir, marquerVu } = useNouveautes();
+  const occupe = stream.isTranslating || !!suiviBiblio;
+  // Panneau des images : document rouvert depuis la bibliothèque, ou
+  // traduction qui vient de se terminer sans erreur dans cette page.
+  const docImages = libraryDocId
+    ?? (!stream.isTranslating && !stream.error ? stream.documentId : null);
+  const occupeRef = useRef(occupe);
+  occupeRef.current = occupe;
+  const userId = user?.id ?? null;
+  const dejaVues = user?.nouveautes_vues_le ?? null;
+  const langue = i18n.language?.startsWith('en') ? 'en' : 'fr';
+  useEffect(() => {
+    if (authLoading) return;
+    // Une tentative par session ET par identité : ouvrir l'app sans compte ne
+    // doit pas empêcher la visite de s'ouvrir à la connexion qui suit.
+    const CLE_SESSION = `precis.nouveautes_session:${userId ?? 'invite'}`;
+    let annule = false;
+    let minuteur: number | undefined;
+    let offSplash: (() => void) | undefined;
+
+    const dejaFait = () => {
+      try { return !!sessionStorage.getItem(CLE_SESSION); } catch { return true; }
+    };
+    const marquer = () => {
+      try { sessionStorage.setItem(CLE_SESSION, '1'); } catch { /* sans stockage : une seule tentative par chargement */ }
+    };
+    const autreFenetre = () => !!document.querySelector('[role="dialog"][aria-modal="true"]');
+    const surPageExtension = () => window.location.pathname.startsWith('/extension');
+    if (dejaFait() || surPageExtension()) return;
+
+    const tenter = async () => {
+      if (annule || dejaFait()) return;
+      // Occupé ou autre fenêtre ouverte : on réessaie un peu plus tard.
+      if (occupeRef.current || autreFenetre()) {
+        minuteur = window.setTimeout(tenter, 1500);
+        return;
+      }
+      if (!userId) {
+        let vue = false;
+        try { vue = !!localStorage.getItem('precis.visite_vue'); } catch { vue = true; }
+        if (!vue) { marquer(); openNouveautes('accueil'); }
+        else marquer();
+        return;
+      }
+      // Le navigateur et le compte se transmettent la visite dans les deux
+      // sens : déjà vue sur l'un, elle n'est jamais rejouée sur l'autre.
+      if (!dejaVues) {
+        marquer();
+        let vueSurNavigateur = false;
+        try {
+          vueSurNavigateur = !!localStorage.getItem('precis.visite_vue')
+            || !!sessionStorage.getItem('precis.visite_vue_session');
+        } catch { /* rien */ }
+        if (vueSurNavigateur) void marquerVu();
+        else openNouveautes('accueil');
+        return;
+      }
+      try { localStorage.setItem('precis.visite_vue', '1'); } catch { /* stockage indisponible */ }
+      const donnees = await chargerAVoir(langue);
+      if (annule || dejaFait()) return;
+      if (!donnees || !donnees.elements?.length) { marquer(); return; }
+      if (occupeRef.current || autreFenetre()) {
+        minuteur = window.setTimeout(tenter, 1500);
+        return;
+      }
+      marquer();
+      openNouveautes('depuis', donnees);
+    };
+
+    const demarrer = () => { minuteur = window.setTimeout(tenter, 600); };
+    if (splashTermine()) demarrer();
+    else offSplash = surFinSplash(demarrer);
+
+    return () => {
+      annule = true;
+      if (minuteur !== undefined) window.clearTimeout(minuteur);
+      offSplash?.();
+    };
+  }, [authLoading, userId, dejaVues, langue, chargerAVoir, marquerVu]);
+
+  // ---- Original : le fichier tel qu'il a été déposé ----
+  // Document de la bibliothèque : le serveur le renvoie au format NATIF (le
+  // panneau gauche n'en a qu'une conversion PDF). Traduction en direct : c'est
+  // le fichier local, déjà en main.
+  const handleDownloadOriginal = useCallback(async () => {
+    if (adminDoc) {
+      const { ok } = await downloadAdminDocument(adminDoc.docId, 'original', adminDoc.nom).catch(() => ({ ok: false }));
+      if (!ok) showToast('error', t('admin_docs.download_error', 'Téléchargement impossible'));
+      return;
+    }
+    let blob: Blob | undefined;
+    let name = selectedFile?.name ?? 'document';
+    if (libraryDocId) {
+      blob = await getOriginalBlob(libraryDocId);
+      name = documents.find((d) => d.id === libraryDocId)?.originalName ?? name;
+    } else {
+      blob = selectedFile ?? undefined;
+    }
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  }, [adminDoc, libraryDocId, selectedFile, documents, getOriginalBlob, t]);
+
   // Aperçu du panneau « traduit » : blob final si dispo, sinon PDF partiel
   // (pages déjà prêtes), mis à jour au fil de l'eau pendant le streaming.
-  const previewTranslatedBlob = translatedBlob ?? stream.partialBlob;
+  const previewTranslatedBlob = sourceEnAttente ? null : translatedBlob ?? stream.partialBlob;
   // Le partiel du flux est TOUJOURS un PDF (le backend le convertit avant de
   // le servir), y compris pour un PPTX.
   const previewTranslatedIsPdf = translatedBlob ? translatedIsPdf : true;
+  voileCourant.current = { blob: previewTranslatedBlob, doc: isTrialMode, pages: pagesVoilees };
+  const garde = voileGarde && voileGarde.blob === previewTranslatedBlob ? voileGarde : null;
   const effectiveNumPages = stream.totalPages ?? numPages;
 
   // ---- Raccourcis clavier + souris de l'aperçu (simples) ----
@@ -398,14 +931,16 @@ export default function Home() {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      // Une fenêtre ouverte par-dessus l'aperçu garde ses touches (Échap la ferme, elle seule).
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       switch (e.key) {
         case 'ArrowLeft':  setCurrentPage((p) => Math.max(1, p - 1)); break;
         case 'ArrowRight': setCurrentPage((p) => Math.min(effectiveNumPages, p + 1)); break;
         case 'Home':       setCurrentPage(1); break;
         case 'End':        setCurrentPage(effectiveNumPages); break;
-        case '+': case '=': setZoom((z) => Math.min(3, +(z + 0.25).toFixed(2))); break;
-        case '-':          setZoom((z) => Math.max(0.5, +(z - 0.25).toFixed(2))); break;
-        case '0':          setZoom(1); break;
+        case '+': case '=': setAjustement(null); setZoom((z) => Math.min(3, +(z + 0.25).toFixed(2))); break;
+        case '-':          setAjustement(null); setZoom((z) => Math.max(0.5, +(z - 0.25).toFixed(2))); break;
+        case '0':          setAjustement('page'); break;
         case 'f': case 'F': setPreviewFocus((v) => !v); break;
         case 'Escape':
           if (previewFocus) setPreviewFocus(false);
@@ -416,10 +951,33 @@ export default function Home() {
     };
     // Ctrl + molette = zoom (comme un lecteur PDF). `passive:false` pour pouvoir
     // annuler le zoom natif de la page.
+    // Molette seule : un geste = une action (cf. `lib/molette.ts`). Un geste
+    // qui défile s'arrête au bord de la page ; seul un NOUVEAU geste, lancé
+    // depuis le bord, change de page — une seule fois.
     const scrollEl = document.getElementById('scroll');
+    const geste = creerGesteMolette();
     const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey) return;
+      if (!e.ctrlKey) {
+        if (!scrollEl || e.deltaY === 0) return;
+        const sens = e.deltaY > 0 ? 1 : -1;
+        const action = geste(e.deltaY, e.timeStamp, (s) => (s > 0
+          ? scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 2
+          : scrollEl.scrollTop <= 2));
+        if (action === 'defiler') return;
+        e.preventDefault();
+        if (action === 'bloquer') return;
+        setCurrentPage((p) => {
+          const n = Math.min(effectiveNumPages, Math.max(1, p + sens));
+          // Nouvelle page vue depuis son début (en avançant) ou sa fin (en reculant).
+          if (n !== p) requestAnimationFrame(() => {
+            scrollEl.scrollTop = sens > 0 ? 0 : scrollEl.scrollHeight;
+          });
+          return n;
+        });
+        return;
+      }
       e.preventDefault();
+      setAjustement(null);
       setZoom((z) => Math.min(3, Math.max(0.5,
         +(z + (e.deltaY < 0 ? 0.15 : -0.15)).toFixed(2))));
     };
@@ -433,27 +991,45 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-white text-gray-900 font-body">
-      <ToastContainer />
-      <SupportModal />
 
       {/* Paiement à la page : achat des crédits nécessaires à la traduction
           courante (402). Une fois payé, on REJOUE la traduction telle quelle. */}
+      {fenetreLibres}
+      {aRetraduire && (
+        <FenetreRetraduire
+          doc={aRetraduire}
+          onConfirm={(langue) => handleRetranslate(aRetraduire, langue)}
+          onClose={() => setARetraduire(null)}
+        />
+      )}
       <PaymentModal
         open={payPages !== null}
         onClose={() => setPayPages(null)}
         pages={payPages ?? 1}
         label={t('payment.buy_pages_label', 'Débloquez la traduction de ce document')}
         onPaid={() => {
+          // Pages achetées : on rejoue le document ENTIER, jamais le partiel.
           const cfg = lastConfigRef.current;
-          if (cfg) handleStartTranslate(cfg);
+          if (cfg) handleStartTranslate({ ...cfg, coverOnly: false });
         }}
       />
 
-      <Navbar
-        activeSection={activeSection}
-        onNavClick={handleNavClick}
-        onLibraryOpen={() => setShowLibrary(true)}
+      <AppBar
+        section={{ active: activeSection, onClick: handleNavClick }}
+        onAccount={() => setShowLibrary(true)}
       />
+
+      {/* Retour au formulaire du haut depuis n'importe quelle section (la barre
+          n'a pas de lien « Accueil » : le logo seul y ramène). */}
+      <button
+        type="button"
+        className={`retour-haut${activeSection !== 'hero' && !showPreview ? ' retour-haut--visible' : ''}`}
+        onClick={() => handleNavClick('hero')}
+        aria-label={t('nav.backToTop')} title={t('nav.backToTop')}
+        tabIndex={activeSection !== 'hero' && !showPreview ? 0 : -1}
+      >
+        <ArrowUp size={22} strokeWidth={2.2} aria-hidden="true" />
+      </button>
 
       <LanguageMarquee />
 
@@ -461,6 +1037,9 @@ export default function Home() {
         isOpen={showLibrary}
         onClose={() => setShowLibrary(false)}
         documents={documents}
+        loading={!bibliothequeChargee}
+        erreur={bibliothequeErreur}
+        onRefresh={refresh}
         onPreview={handleLibraryPreview}
         onDelete={deleteDocument}
         onClearAll={clearAll}
@@ -468,6 +1047,8 @@ export default function Home() {
         getOriginalBlob={getOriginalBlob}
         onPaid={() => { refresh(); refreshUser(); }}
         onRetry={handleRetry}
+        onRetranslate={setARetraduire}
+        onStop={handleLibraryStop}
       />
 
       <main>
@@ -485,28 +1066,80 @@ export default function Home() {
           currentPage={currentPage}
           numPages={effectiveNumPages}
           zoom={zoom}
-          isTrialMode={isTrialMode}
+          isTrialMode={garde ? garde.doc : isTrialMode}
+          pagesVoilees={garde ? garde.pages : pagesVoilees}
           targetLang={targetLang}
-          isTranslating={stream.isTranslating}
-          pageStatuses={stream.pageStatuses}
+          isTranslating={stream.isTranslating || !!suiviBiblio}
+          pageStatuses={suiviBiblio?.etats ?? stream.pageStatuses}
           queuePosition={stream.queuePosition}
-          readyPages={stream.readyPages}
+          readyPages={suiviBiblio?.pretes ?? stream.readyPages}
           previewRendering={previewLoading}
+          fileMissing={!libraryDocId || !traductionManquante ? null
+            : sourceManquante ? 'all' : 'translation'}
           translationError={stream.error}
           translationNotice={stream.notice}
           limitReached={stream.limitReached}
           creditsNeeded={stream.creditsNeeded}
           onBuyPages={(p) => setPayPages(p)}
+          pagesCovered={stream.imagesNeeded ? null : stream.pagesCovered}
+          imagesNeeded={stream.imagesNeeded}
+          pagesLibres={pagesLibresAffichees}
+          pagesNonPayees={pagesNonPayees}
+          onBuyLibres={docCourant && translatedFilename
+            ? () => { void acheterLibres(docCourant, translatedFilename); } : undefined}
+          onTranslateWithoutImages={() => {
+            const cfg = lastConfigRef.current;
+            if (cfg) handleStartTranslate({ ...cfg, images: false, coverOnly: false });
+          }}
+          creditsReason={stream.creditsReason}
+          onTranslateCovered={() => {
+            const cfg = lastConfigRef.current;
+            if (cfg) handleStartTranslate({ ...cfg, coverOnly: true });
+          }}
           focus={previewFocus}
           onStartTranslate={handleStartTranslate}
           onBack={handleBack}
           onUnlock={handleUnlock}
           onToggleFocus={toggleFocus}
-          onZoomChange={setZoom}
+          onStop={stream.isTranslating || (suiviBiblio && libraryJobId) ? handleStop : undefined}
+          onCopy={adminDoc?.copiable ? handleAdminCopy : undefined}
+          copyBusy={copieEnCours}
+          onZoomChange={changerZoom}
+          ajustement={ajustement}
+          onAjustementChange={setAjustement}
+          onZoomAjuste={setZoom}
+          rideau={rideau}
+          onRideauChange={setRideau}
           onPageChange={setCurrentPage}
           onDownload={handleDownload}
+          onDownloadOriginal={selectedFile || adminDoc ? handleDownloadOriginal : undefined}
+          onRetranslate={docRetraduisible ? () => setARetraduire(docRetraduisible) : undefined}
           onPagesLoaded={setNumPages}
           onLibraryOpen={() => setShowLibrary(true)}
+          scanPages={pagesIllisibles}
+          imagesPanel={(
+            <>
+              <ScanPagesNotice
+                key={`pages-${docIdPages ?? ''}`}
+                pages={pagesIllisibles.pages}
+                enCours={pagesIllisibles.enCours}
+                provisoire={pagesIllisibles.provisoire}
+                onPageChange={setCurrentPage}
+              />
+              {docImages && !suiviBiblio && !adminDoc ? (
+                <DocumentImagesPanel
+                  key={`images-${docImages}`}
+                  docId={docImages}
+                  load={getDocumentImages}
+                  setOriginal={setImageOriginal}
+                  loadProposition={getImagesProposition}
+                  translate={translateImages}
+                  onBuyPages={(p) => setPayPages(p)}
+                  onChanged={rafraichirRendu}
+                />
+              ) : null}
+            </>
+          )}
         />
 
         <PricingSection isAnnual={isAnnual} onAnnualChange={setIsAnnual} />

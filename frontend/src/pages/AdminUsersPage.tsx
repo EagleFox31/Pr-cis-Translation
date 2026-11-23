@@ -1,18 +1,25 @@
 /**
  * Comptes utilisateurs — vue d'administration (`/admin/users`).
  *
- * Le seul geste ici : changer le plan d'un compte pour ouvrir Précis à un
- * testeur sans desserrer le forfait Gratuit. On ne crée ni ne supprime de
- * compte — c'est un outil de promotion, pas un gestionnaire complet.
+ * Liste des comptes à gauche, fiche du compte choisi à droite
+ * (docs/etude-fiche-utilisateur-integree.md). Le seul geste : changer le plan
+ * d'un compte depuis sa fiche, pour ouvrir Précis à un testeur sans desserrer
+ * le forfait Gratuit. On ne crée ni ne supprime de compte.
  */
-import { useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, Search } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { MousePointerClick } from 'lucide-react';
 
-import { useAdminUsers, type AdminUser } from '../hooks/useAdminUsers';
+import { useAdminUsers } from '../hooks/useAdminUsers';
+import { useAdminUrlParams } from '../hooks/useAdminUrlParams';
 import { useAuth } from '../contexts/AuthContext';
-import { showToast } from '../components/ui/Toast';
 import AdminShell from '../components/admin/AdminShell';
+import { USER_PARAM, UserCard } from '../components/admin/UserPanel';
+import { USERS_CHANGED_EVENT } from '../components/admin/planChange';
+import { AdminList, AdminToolbar, RefreshButton } from '../components/admin/AdminParts';
+
+const URL_KEYS = ['q'] as const;
 
 const PLAN_COLOR: Record<string, string> = {
   free: '#6b7280', starter: '#2563eb', pro: '#7c3aed',
@@ -27,101 +34,92 @@ function fmt(iso: string | null): string {
 export default function AdminUsersPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
-  const { q, setQ, users, plans, total, loading, refresh, changePlan } = useAdminUsers();
-  const [busy, setBusy] = useState<string | null>(null);
+  const { values, setValues } = useAdminUrlParams(URL_KEYS);
+  const q = values.q;
+  const setQ = (v: string) => setValues({ q: v });
+  const { users, total, loading, refresh } = useAdminUsers(q);
+  const [params, setParams] = useSearchParams();
+  const selected = params.get(USER_PARAM);
+  const cardRef = useRef<HTMLDivElement>(null);
 
-  const onChange = async (u: AdminUser, plan: string) => {
-    if (plan === u.plan) return;
-    setBusy(u.id);
-    const res = await changePlan(u.id, plan);
-    setBusy(null);
-    if (res.ok) {
-      showToast('success', t('admin_users.changed', 'Plan modifié'), u.email);
-    } else if (res.status === 400) {
-      showToast('error', t('admin_users.change_refused_title', 'Changement refusé'),
-        t('admin_users.change_refused', 'Un admin ne peut pas changer son propre plan.'));
-    } else {
-      showToast('error', t('admin_users.change_error', 'Échec'), String(res.status));
+  const select = (email: string | null) => setParams((prev) => {
+    const next = new URLSearchParams(prev);
+    if (email) next.set(USER_PARAM, email); else next.delete(USER_PARAM);
+    return next;
+  }, { replace: !email });
+
+  // Une colonne (mobile) : la fiche passe au-dessus de la liste, on la montre.
+  useEffect(() => {
+    if (selected && window.matchMedia('(max-width: 899px)').matches) {
+      cardRef.current?.scrollIntoView({ block: 'start' });
     }
-  };
+  }, [selected]);
+
+  // La fiche peut changer un plan : la liste se remet à jour.
+  useEffect(() => {
+    const onChanged = () => { void refresh(); };
+    window.addEventListener(USERS_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(USERS_CHANGED_EVENT, onChanged);
+  }, [refresh]);
+
+  const isSelected = (email: string) => !!selected && email.toLowerCase() === selected.toLowerCase();
 
   return (
     <AdminShell
       title={t('admin_users.title', 'Comptes utilisateurs')}
       count={t('admin_users.count', '{{n}} compte(s)', { n: total })}
-      actions={
-        <button onClick={() => void refresh()} className="tb-btn ghost"
-          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <RefreshCw size={15} strokeWidth={2.2} /> {t('admin_users.refresh', 'Rafraîchir')}
-        </button>
-      }
+      actions={<RefreshButton onClick={() => void refresh()} disabled={loading} />}
     >
-        {/* Recherche */}
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', alignItems: 'center' }}>
-          <div style={{ position: 'relative', flex: 1 }}>
-            <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder={t('admin_users.search', 'Rechercher un e-mail ou un nom…')}
-              style={{
-                width: '100%', padding: '8px 10px 8px 32px', borderRadius: '8px',
-                border: '1px solid var(--gray-200, #e5e7eb)', background: '#fff',
-                color: 'var(--gray-700, #374151)', fontSize: '13px', fontFamily: 'inherit',
-              }}
-            />
-          </div>
-        </div>
+      <AdminToolbar
+        search={q}
+        onSearch={setQ}
+        placeholder={t('admin_users.search', 'Rechercher un e-mail ou un nom…')}
+      />
 
-        {loading && <div style={{ color: 'var(--gray-500)', fontSize: '13px' }}>{t('admin_users.loading', 'Chargement…')}</div>}
-        {!loading && users.length === 0 && (
-          <div style={{ padding: '48px', textAlign: 'center', color: 'var(--gray-500, #6b7280)', fontSize: '14px' }}>
-            {t('admin_users.empty', 'Aucun compte.')}
-          </div>
-        )}
-
-        {/* Table */}
-        {users.length > 0 && (
-          <div style={{ background: '#fff', border: '1px solid var(--gray-200, #e5e7eb)', borderRadius: '10px', overflow: 'hidden' }}>
-            {users.map((u, i) => {
-              const isSelf = user?.id === u.id;
-              return (
-                <div key={u.id} style={{
-                  display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px',
-                  borderTop: i === 0 ? 'none' : '1px solid var(--gray-100, #f3f4f6)',
-                }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--navy, #0d1b3e)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {u.email}{isSelf && <span style={{ marginLeft: '6px', fontSize: '11px', color: 'var(--gray-400)' }}>{t('admin_users.you', '(vous)')}</span>}
-                    </div>
-                    <div style={{ fontSize: '11px', color: 'var(--gray-500)' }}>
-                      {u.name || '—'} · {t('admin_users.since', 'inscrit le {{d}}', { d: fmt(u.created_at) })}
-                      {!u.email_verified && <span style={{ marginLeft: '6px', color: '#d97706' }}>{t('admin_users.unverified', 'non vérifié')}</span>}
-                    </div>
+      <div className={`admin-duo${selected ? ' admin-duo--open' : ''}`}>
+        <AdminList
+          loading={loading}
+          empty={users.length === 0}
+          emptyText={t('admin_users.empty', 'Aucun compte.')}
+          onClearFilters={q ? () => setQ('') : undefined}
+        >
+          {users.map((u) => {
+            const isSelf = user?.id === u.id;
+            const color = PLAN_COLOR[u.plan] || '#6b7280';
+            return (
+              <button
+                key={u.id}
+                type="button"
+                className="admin-row admin-row--button admin-duo__row"
+                aria-current={isSelected(u.email) ? 'true' : undefined}
+                onClick={() => select(u.email)}
+              >
+                <div className="admin-row__main">
+                  <div className="admin-row__title" title={u.email}>
+                    {u.email}{isSelf && <> {t('admin_users.you', '(vous)')}</>}
                   </div>
-                  <span style={{
-                    fontSize: '10px', fontWeight: 700, letterSpacing: '0.03em', color: '#fff',
-                    background: PLAN_COLOR[u.plan] || '#6b7280', padding: '2px 8px',
-                    borderRadius: '999px', textTransform: 'uppercase',
-                  }}>{u.plan}</span>
-                  <select
-                    value={u.plan}
-                    disabled={isSelf || busy === u.id}
-                    onChange={(e) => void onChange(u, e.target.value)}
-                    title={isSelf ? t('admin_users.cant_self', 'Vous ne pouvez pas changer votre propre plan') : ''}
-                    style={{
-                      padding: '6px 8px', borderRadius: '8px', border: '1px solid var(--gray-200, #e5e7eb)',
-                      background: isSelf ? 'var(--gray-100)' : '#fff', color: 'var(--gray-700, #374151)',
-                      fontSize: '12px', fontFamily: 'inherit', cursor: isSelf ? 'not-allowed' : 'pointer',
-                    }}
-                  >
-                    {plans.map((p) => <option key={p} value={p}>{p}</option>)}
-                  </select>
+                  <div className="admin-row__meta">
+                    {u.name && <>{u.name} · </>}{t('admin_users.since', 'inscrit le {{d}}', { d: fmt(u.created_at) })}
+                    {!u.email_verified && <> · {t('admin_users.unverified', 'non vérifié')}</>}
+                  </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
+                <span className="admin-tag" style={{ color, background: `${color}14`, border: `1px solid ${color}55` }}>{u.plan}</span>
+              </button>
+            );
+          })}
+        </AdminList>
+
+        <div ref={cardRef} className="admin-duo__card">
+          {selected ? (
+            <UserCard key={selected} email={selected} onClose={() => select(null)} />
+          ) : (
+            <p className="admin-duo__invite">
+              <MousePointerClick size={18} strokeWidth={2} aria-hidden="true" />
+              {t('admin_users.pick', 'Choisissez un compte dans la liste pour voir sa fiche.')}
+            </p>
+          )}
+        </div>
+      </div>
     </AdminShell>
   );
 }

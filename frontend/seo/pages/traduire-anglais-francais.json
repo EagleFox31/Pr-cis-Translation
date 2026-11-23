@@ -1,0 +1,34 @@
+{
+  "label": "Traduire de l'anglais vers le français",
+  "title": "Traduire un document de l'anglais vers le français · Précis Translator",
+  "description": "Traduisez un PDF, Word, PowerPoint ou Excel de l'anglais vers le français en gardant la mise en page. OCR des PDF anglais scannés.",
+  "h1": "Traduire un document de l'anglais vers le français",
+  "answer": "Pour traduire un document de l'anglais vers le français, déposez-le dans Précis Translator, choisissez « Français » comme langue cible, puis téléchargez le document traduit avec sa mise en page d'origine. Les PDF anglais scannés passent par l'OCR, jusqu'à 10 pages par envoi.",
+  "sections": [
+    "steps",
+    "demo",
+    {
+      "heading": "Les variantes du français",
+      "paragraphs": [
+        "Précis propose le français parmi 23 langues et 36 variantes régionales : choisissez la variante qui correspond à vos lecteurs."
+      ]
+    },
+    "limits",
+    "privacy"
+  ],
+  "faq": [
+    {
+      "q": "Quels formats peut-on traduire de l'anglais vers le français ?",
+      "a": "PDF, Word (DOCX), PowerPoint (PPTX), Excel (XLSX) et texte (TXT)."
+    },
+    {
+      "q": "Un PDF anglais scanné fonctionne-t-il ?",
+      "a": "Oui : l'OCR lit les PDF imprimés en anglais ou en français, jusqu'à 10 pages par envoi."
+    },
+    {
+      "q": "Le texte français est-il plus long que l'anglais ?",
+      "a": "Souvent, oui. L'aperçu permet de vérifier les zones serrées avant de télécharger."
+    }
+  ],
+  "verified": "2026-11-07"
+}

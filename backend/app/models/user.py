@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    String, Boolean, BigInteger, Integer, DateTime,
+    String, Boolean, BigInteger, Integer, DateTime, JSON,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -44,6 +44,30 @@ class User(Base):
     # C'est un SOLDE, pas un historique : il est débité au lancement d'une
     # traduction, et les paiements qui l'ont alimenté vivent dans `payments`.
     page_credits:  Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Téléphone vérifié (aucun fournisseur SMS branché pour l'instant) : un numéro
+    # = un seul quota gratuit ; un compte vérifié sort de la zone grise anti-abus.
+    phone_hash:    Mapped[str | None] = mapped_column(String(64), unique=True, index=True,
+                                                      nullable=True)
+    phone_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True),
+                                                               nullable=True)
+    # Extension : caractères de texte déjà payés (page entière entamée) et pas
+    # encore consommés ; la passe suivante les utilise avant de débiter.
+    extension_avance: Mapped[int] = mapped_column(Integer, default=0, server_default="0",
+                                                  nullable=False)
+    # Nouveautés : la fenêtre « depuis » montre ce qui est postérieur à
+    # `nouveautes_vues_le` (NULL = jamais vu : fenêtre d'accueil). Abonnement
+    # e-mail jamais coché d'office ; sa date sert de preuve du consentement.
+    nouveautes_vues_le: Mapped[datetime | None] = mapped_column(DateTime(timezone=True),
+                                                                nullable=True)
+    # Identifiants des nouveautés déjà montrées (NULL = compte antérieur à la
+    # liste : règle de transition, voir services/nouveautes.py).
+    nouveautes_vues: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    abonne_nouveautes: Mapped[bool] = mapped_column(Boolean, default=False,
+                                                    server_default="false", nullable=False)
+    abonne_nouveautes_le: Mapped[datetime | None] = mapped_column(DateTime(timezone=True),
+                                                                  nullable=True)
+    langue:        Mapped[str] = mapped_column(String(5), default="fr", server_default="fr",
+                                               nullable=False)
     created_at:    Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at:    Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow,

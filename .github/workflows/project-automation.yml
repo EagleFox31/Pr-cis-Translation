@@ -1,0 +1,39 @@
+name: Project automation
+on:
+  issues:
+    types: [opened, reopened, edited, closed]
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, closed]
+  push:
+    branches: [main]
+    paths: [.github/project-config.json, .github/workflows/project-automation.yml]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Optional issue to resync; empty bootstraps the project
+        required: false
+        type: string
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+jobs:
+  sync-project:
+    # The token broker only trusts this workflow as defined on the default
+    # branch. A pull request stacked on another branch runs that branch's
+    # copy, which the broker rejects (403 personal_owner_required) for
+    # collaborators: skip it; it is synchronized once it targets main.
+    if: ${{ github.event_name != 'pull_request_target' || github.event.pull_request.base.ref == github.event.repository.default_branch }}
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      id-token: write
+    uses: EagleFox31/appfactory-project-automation/.github/workflows/reusable-project-automation.yml@0523510a8e42290df3bae5749d034b1637569af5
+    with:
+      authentication: broker-user
+      broker_url: https://appfactory-project-token-broker.lawrynnjennifer.workers.dev/v1/github/user-token
+      broker_audience: appfactory-project-automation
+      appfactory_ref: 0523510a8e42290df3bae5749d034b1637569af5
+      config_path: .github/project-config.json
+      issue_number: ${{ inputs.issue_number }}

@@ -51,8 +51,8 @@ function buildQuery(f: LogFilters): string {
   return s ? `?${s}` : '';
 }
 
-export function useErrorLogs() {
-  const [filters, setFilters] = useState<LogFilters>({});
+/** Les filtres sont fournis par la page (ils vivent dans l'adresse). */
+export function useErrorLogs(filters: LogFilters) {
   const [groups, setGroups] = useState<LogGroup[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -107,7 +107,7 @@ export function useErrorLogs() {
   }, [filters]);
 
   return {
-    filters, setFilters, groups, total, loading, error,
+    groups, total, loading, error,
     refresh, fetchGroup, markHandled, remove, exportLogs,
   };
 }

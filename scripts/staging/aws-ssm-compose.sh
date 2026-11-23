@@ -5,7 +5,7 @@
 set -Eeuo pipefail
 umask 077
 
-readonly LIFECYCLE="${APPFACTORY_HOST_LIFECYCLE:-ephemeral}"
+readonly LIFECYCLE="${APPFACTORY_HOST_LIFECYCLE:-persistent}"
 [[ "$LIFECYCLE" == ephemeral || "$LIFECYCLE" == persistent ]] || exit 1
 export APPFACTORY_HOST_LIFECYCLE="$LIFECYCLE"
 readonly PROJECT=precis-translation
@@ -36,8 +36,7 @@ aws ssm get-parameter --name "$ENV_PARAMETER" --with-decryption \
 chmod 600 "$ENV_FILE.tmp"
 mv -f "$ENV_FILE.tmp" "$ENV_FILE"
 
-# Prevent accidental production configuration, missing credentials, and
-# external db references. The host stays deliberately private (SG: no ingress).
+# Validate the selected lifecycle, production origins and required credentials.
 python3 - <<'PY'
 from pathlib import Path
 import os,json
@@ -70,17 +69,19 @@ for line in Path('backend/.env').read_text().splitlines():
 required = ['DEEPSEEK_API_KEY','FRONTEND_API_KEY','POSTGRES_PASSWORD','JWT_SECRET']
 missing=[k for k in required if not keys.get(k)]
 if missing:
-    raise SystemExit('Refusing staging startup: missing '+', '.join(missing))
+    raise SystemExit('Refusing deployment startup: missing '+', '.join(missing))
 if len(keys['JWT_SECRET']) < 32:
     raise SystemExit('JWT_SECRET below required minimum')
 if keys.get('PRECIS_ENV') not in ('staging','production'):
-    raise SystemExit('Expected an explicitly configured nondevelopment staging runtime')
+    raise SystemExit('Expected an explicitly configured nondevelopment runtime')
 if os.environ['APPFACTORY_HOST_LIFECYCLE'] == 'ephemeral':
     if keys.get('CAMPAY_ENV') != 'DEMO':
         raise SystemExit('Only Campay DEMO may be enabled on disposable staging')
     if keys.get('EMAIL_ENABLED','false').lower() != 'false':
         raise SystemExit('Real SMTP delivery disabled in disposable staging')
 else:
+    if keys.get('PRECIS_ENV') != 'production':
+        raise SystemExit('Persistent production deployment requires PRECIS_ENV=production')
     from urllib.parse import urlparse
     origin=keys.get('FRONTEND_URL','')
     if urlparse(origin).scheme != 'https' or urlparse(origin).hostname in (None,'localhost','127.0.0.1'):
@@ -163,5 +164,5 @@ for attempt in $(seq 1 36); do
   fi
   sleep 5
 done
-echo 'Précis staging failed internal frontend + API health checks' >&2
+echo 'Précis deployment failed internal frontend + API health checks' >&2
 exit 1

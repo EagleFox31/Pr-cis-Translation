@@ -1,0 +1,109 @@
+{
+  "label": "Tarifs",
+  "title": "Tarifs de Précis Translator : gratuit, Starter, Pro",
+  "description": "Précis est gratuit jusqu'à 5 pages par mois. Starter : 100 pages, Pro : 500 pages par mois. Prix adaptés à votre zone : FCFA, dollars ou euros.",
+  "h1": "Tarifs de Précis Translator",
+  "answer": "Précis Translator est gratuit jusqu'à 5 pages équivalentes par mois, sans abonnement ni carte enregistrée. Au-delà, le forfait Starter couvre 100 pages par mois et le forfait Pro 500 pages ; le prix dépend de votre zone et s'affiche dans votre devise.",
+  "pricing": {
+    "caption": "Prix nets par zone (forfaits mensuels ; l'annuel est un prix mensuel facturé à l'année)",
+    "monthly_pages": {
+      "free": 5,
+      "starter": 100,
+      "pro": 500
+    },
+    "storage_gb": {
+      "free": 0,
+      "starter": 2,
+      "pro": 20
+    },
+    "zones": [
+      {
+        "zone": "A",
+        "name": "Afrique subsaharienne",
+        "currency": "XAF",
+        "starter": {
+          "monthly": 1500,
+          "annual": 1200
+        },
+        "pro": {
+          "monthly": 4500,
+          "annual": 3500
+        },
+        "page": 75
+      },
+      {
+        "zone": "B",
+        "name": "Maghreb, Asie, Amérique latine, Europe de l'Est",
+        "currency": "USD",
+        "starter": {
+          "monthly": 490,
+          "annual": 390
+        },
+        "pro": {
+          "monthly": 1190,
+          "annual": 890
+        },
+        "page": 12
+      },
+      {
+        "zone": "C",
+        "name": "Europe de l'Ouest, Amérique du Nord et autres pays",
+        "currency": "EUR",
+        "starter": {
+          "monthly": 790,
+          "annual": 590
+        },
+        "pro": {
+          "monthly": 1990,
+          "annual": 1490
+        },
+        "page": 19
+      }
+    ]
+  },
+  "sections": [
+    {
+      "heading": "Ce que comprend chaque offre",
+      "list": [
+        "Gratuit : 5 pages équivalentes par mois, téléchargement inclus ; traduction seule, sans stockage des documents. Au-delà, chaque page s'achète à l'unité.",
+        "Starter : 100 pages par mois et 2 Go de stockage.",
+        "Pro : 500 pages par mois et 20 Go de stockage.",
+        "Entreprise : volume et conditions fixés sur devis."
+      ]
+    },
+    {
+      "heading": "Comment les pages sont comptées",
+      "list": [
+        "PDF : une page par page du document.",
+        "PowerPoint : une page par diapositive.",
+        "Word, Excel et texte : une page par tranche de 500 mots entamée."
+      ]
+    },
+    {
+      "heading": "Paiement",
+      "paragraphs": [
+        "Paiement par carte bancaire dans toutes les zones, et aussi par Mobile Money (MTN MoMo, Orange Money) en Afrique subsaharienne. Les prix du tableau sont nets : les frais du moyen de paiement sont ajoutés au moment de payer et affichés avant validation.",
+        "La zone est déterminée par votre pays. Le prix exact dans votre devise s'affiche dans l'application avant tout paiement."
+      ]
+    }
+  ],
+  "faq": [
+    {
+      "q": "Précis est-il gratuit ?",
+      "a": "Oui, jusqu'à 5 pages équivalentes par mois, sans abonnement ni carte enregistrée."
+    },
+    {
+      "q": "Pourquoi les prix changent-ils selon le pays ?",
+      "a": "Les prix suivent le pouvoir d'achat de trois zones : Afrique subsaharienne en FCFA, pays émergents en dollars, et les autres pays en euros."
+    },
+    {
+      "q": "Peut-on payer par Mobile Money ?",
+      "a": "Oui, en Afrique subsaharienne : MTN MoMo et Orange Money sont acceptés, en plus de la carte bancaire."
+    },
+    {
+      "q": "Que se passe-t-il quand les 5 pages gratuites sont utilisées ?",
+      "a": "Vous pouvez acheter des pages à l'unité ou passer à un forfait Starter ou Pro."
+    }
+  ],
+  "verified": "2026-11-07"
+}

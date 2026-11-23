@@ -15,8 +15,8 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import (KIND_CREDITS, KIND_FREE_OFFER, KIND_LEGACY, UsageRecord,
-                        User, get_plan_monthly_pages, get_plan_page_limit)
+from app.models import (KIND_CREDITS, KIND_FREE_OFFER, KIND_LEGACY, KIND_PLAN, UsageRecord,
+                        User, get_plan_monthly_pages)
 
 
 def month_start(now: datetime | None = None) -> datetime:
@@ -58,18 +58,30 @@ def _du_mois(user_id: str):
             UsageRecord.refunded.is_(False))
 
 
-async def free_offer_used(db: AsyncSession, user_id: str) -> bool:
-    """La traduction offerte du mois a-t-elle déjà servi ?
+async def free_pages_used(db: AsyncSession, user_id: str) -> int:
+    """Pages offertes réservées ce mois-ci, même si le document a été supprimé.
 
-    `legacy` compte aussi : avant le registre, tout document du mois
-    consommait l'offre."""
+    Les anciennes offres et reprises restent comptées à leur valeur réelle.
+    Un remboursement est exclu ; un achat ne consomme pas ce quota.
+    """
     r = await db.execute(
-        select(func.count()).select_from(UsageRecord).where(
+        select(func.coalesce(func.sum(UsageRecord.pages), 0)).where(
             *_du_mois(user_id),
             UsageRecord.kind.in_((KIND_FREE_OFFER, KIND_LEGACY)),
         )
     )
-    return (r.scalar() or 0) >= 1
+    return int(r.scalar() or 0)
+
+
+async def free_offer_used(db: AsyncSession, user_id: str) -> bool:
+    """Compatibilité : le quota offert du mois est-il épuisé ?"""
+    return await free_pages_used(db, user_id) >= get_plan_monthly_pages("free")
+
+
+async def free_pages_remaining(db: AsyncSession, user: User) -> int:
+    if not user.email_verified:
+        return 0
+    return max(0, get_plan_monthly_pages("free") - await free_pages_used(db, user.id))
 
 
 async def pages_used_this_month(db: AsyncSession, user: User) -> int:
@@ -104,6 +116,8 @@ async def refund_for_document(db: AsyncSession, document_id: str) -> None:
 
     Idempotent : un échec reporté deux fois ne rembourse qu'une fois. Les
     pages achetées reviennent au solde ; l'offre du mois redevient libre."""
+    from app.services import beta
+    await beta.refund_for_document(db, document_id)
     rows = (await db.execute(
         select(UsageRecord).where(UsageRecord.document_id == document_id,
                                   UsageRecord.refunded.is_(False))
@@ -117,6 +131,48 @@ async def refund_for_document(db: AsyncSession, document_id: str) -> None:
                 user.page_credits += rec.pages
 
 
+async def refund_unfinished(db: AsyncSession, document_id: str, gardees: int) -> None:
+    """Rend les pages NON traduites d'un job coupé, garde `gardees` débitées.
+
+    Arrêt du serveur, pause ou annulation : les pages livrées restent dues, le reste revient —
+    d'abord les pages ACHETÉES (le titre le plus cher pour le client), puis
+    le quota. Une ligne réduite à zéro passe `refunded` ; les autres gardent
+    leur nombre de pages réduit. Limite : `rebill_for_document` ne rétablit
+    que les lignes remboursées en entier, pas une ligne réduite. Les
+    appelants verrouillent le compte avant le document (ordre unique)."""
+    from app.services import beta
+    await beta.refund_unfinished(db, document_id, gardees)
+    rows = (await db.execute(
+        select(UsageRecord).where(UsageRecord.document_id == document_id,
+                                  UsageRecord.refunded.is_(False))
+        .with_for_update()
+    )).scalars().all()
+    a_rendre = max(0, sum(r.pages for r in rows) - max(0, gardees))
+    for rec in sorted(rows, key=lambda r: r.kind != KIND_CREDITS):
+        if a_rendre <= 0:
+            break
+        n = min(rec.pages, a_rendre)
+        a_rendre -= n
+        if n == rec.pages:
+            rec.refunded = True
+        else:
+            rec.pages -= n
+        if rec.kind == KIND_CREDITS:
+            user = await db.get(User, rec.user_id, with_for_update=True)
+            if user is not None:
+                user.page_credits += n
+
+
+async def pages_payees(db: AsyncSession, document_id: str) -> int:
+    """Pages encore débitées pour ce document (titres confondus, bêta incluse)."""
+    from app.services import beta
+    n = (await db.execute(
+        select(func.coalesce(func.sum(UsageRecord.pages), 0))
+        .where(UsageRecord.document_id == document_id,
+               UsageRecord.refunded.is_(False)))).scalar()
+    return int(n or 0) + await beta.units_billed(db, document_id)
+
+
 async def rebill_for_document(db: AsyncSession, document_id: str) -> None:
     """Annule le remboursement d'une traduction finalement LIVRÉE.
 
@@ -127,6 +183,8 @@ async def rebill_for_document(db: AsyncSession, document_id: str) -> None:
     enregistrement remboursé puis livré ne peut venir que de là. Le solde
     peut passer sous zéro si les pages rendues ont déjà servi : c'est la
     dette réelle, et elle bloque le prochain débit."""
+    from app.services import beta
+    await beta.refund_for_document(db, document_id, refunded=False)
     rows = (await db.execute(
         select(UsageRecord).where(UsageRecord.document_id == document_id,
                                   UsageRecord.refunded.is_(True))
@@ -143,10 +201,16 @@ async def rebill_for_document(db: AsyncSession, document_id: str) -> None:
 async def usage_summary(db: AsyncSession, user: User) -> dict:
     """Ce qu'il reste à l'utilisateur ce mois-ci, tel que la route l'appliquera."""
     plan = user.plan
-    if get_plan_page_limit(plan) == 1:
-        offert = 0 if await free_offer_used(db, user.id) else 1
+    if plan == "free":
+        utilise = await free_pages_used(db, user.id)
+        offert = (max(0, get_plan_monthly_pages("free") - utilise)
+                  if user.email_verified else 0)
         return {
             "kind": "free",
+            "monthly_pages": get_plan_monthly_pages("free"),
+            "pages_used": utilise,
+            "pages_remaining": offert,
+            # Ancien champ conservé pour les clients déjà ouverts.
             "free_translations_remaining": offert,
             "page_credits": user.page_credits,
             "resets_at": _mois_suivant().isoformat(),
@@ -168,3 +232,44 @@ def _mois_suivant() -> datetime:
     if debut.month == 12:
         return debut.replace(year=debut.year + 1, month=1)
     return debut.replace(month=debut.month + 1)
+
+
+async def regler_pages_libres(db: AsyncSession, user_id: str, doc) -> int:
+    """Paie avec le solde ce qu'il peut des pages libres de `doc` (étude
+    traduction libre, §9). Renvoie le nombre de pages débitées ; le commit
+    revient à l'appelant.
+
+    Ordre : le quota du mois d'un forfait payant, puis les pages achetées.
+    L'offre gratuite du mois n'est jamais prise ici : son contrôle
+    anti-abus n'a lieu qu'au lancement d'une traduction. Les pages réglées
+    sont les PREMIÈRES pages libres ; les libres restantes sont donc
+    toujours les dernières de la sélection."""
+    libres = doc.pages_libres or 0
+    if libres <= 0:
+        return 0
+    # `populate_existing` : l'authentification a déjà chargé ce compte dans la
+    # même session ; sans lui, le verrou rend l'objet en mémoire et son solde
+    # lu AVANT le verrou (double dépense entre deux règlements simultanés).
+    user = (await db.execute(
+        select(User).where(User.id == user_id).with_for_update()
+        .execution_options(populate_existing=True)
+    )).scalar_one_or_none()
+    if user is None:
+        return 0
+    reste_plan = 0
+    if user.plan != "free":
+        monthly = get_plan_monthly_pages(user.plan)
+        reste_plan = (libres if monthly is None else
+                      max(0, monthly - await pages_used_this_month(db, user)))
+    du_plan = min(libres, reste_plan)
+    achetees = min(libres - du_plan, max(0, user.page_credits))
+    if du_plan:
+        record(db, user.id, doc.id, KIND_PLAN, du_plan)
+    if achetees:
+        user.page_credits -= achetees
+        record(db, user.id, doc.id, KIND_CREDITS, achetees)
+    regle = du_plan + achetees
+    if regle:
+        doc.pages_libres = libres - regle
+        doc.paid = True
+    return regle

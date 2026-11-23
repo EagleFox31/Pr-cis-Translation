@@ -7,9 +7,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from app.core.pricing import (CURRENCY, CURRENCY_DECIMALS, PLAN_RANK,
+from app.core.pricing import (CURRENCY, CURRENCY_DECIMALS, PLAN_RANK, PSP_FEE_PERCENT,
                               SELF_SERVE_PLANS, page_price,
                               plan_price, zone_for_country)
+from app.services.documents import WORDS_PER_PAGE
 from app.core.security import require_admin, require_auth
 from app.models import (PLAN_LABELS, User, get_plan_monthly_pages,
                         get_plan_priority, get_plan_storage)
@@ -88,6 +89,9 @@ async def pricing(request: Request, country: str | None = None):
         "currency": currency,
         "decimals": CURRENCY_DECIMALS[currency],
         "page_price": page_price(zone),
+        # Frais de transaction ajoutés au paiement, à la charge du client.
+        "fee_percent": PSP_FEE_PERCENT,
+        "words_per_page": WORDS_PER_PAGE,
         "plans": [
             {
                 "key": key,

@@ -120,7 +120,7 @@ async def run():
     job_libre = jobs.create()
     try:
         with TestClient(create_app()) as client:
-            # Le lifespan vient de passer les `translating` en erreur (job
+            # Le lifespan vient de passer les `translating` en `interrupted` (job
             # perdu par construction) : on remet les nôtres en vol, comme un
             # job lancé APRÈS le démarrage.
             async with async_session() as db:
@@ -129,8 +129,8 @@ async def run():
                 for cle in ("vol", "vol_libre", "vol_pptx"):
                     (await db.get(Document, docs[cle])).status = "translating"
                 await db.commit()
-            ok("REDEMARRAGE : traduction interrompue en erreur et remboursee",
-               statut_coupe == "error" and solde == 2,
+            ok("REDEMARRAGE : traduction interrompue et remboursee",
+               statut_coupe == "interrupted" and solde == 2,
                f"statut={statut_coupe} solde={solde}")
             # Le job n'était pas mort (autre processus) : il aboutit.
             job_coupe = jobs.create()
@@ -155,6 +155,8 @@ async def run():
             ok("EN COURS sans page prête : 202 pending",
                r.status_code == 202 and r.headers.get("X-Render") == "pending",
                f"status={r.status_code} render={r.headers.get('X-Render')}")
+            ok("EN COURS sans page prête : aucune page annoncée prête",
+               r.headers.get("X-Pages-Pretes") == "", f"{r.headers.get('X-Pages-Pretes')!r}")
             ok("EN COURS sans page prête : jamais l'original",
                ORIGINAL not in (r.content.decode("latin-1", "ignore")
                                 if r.content[:4] != b"%PDF" else _texte(r.content)))
@@ -170,6 +172,23 @@ async def run():
                f"status={r.status_code} render={r.headers.get('X-Render')}")
             ok("EN COURS : l'original n'est PAS servi comme traduction",
                ORIGINAL not in corps)
+
+            # 2b. L'aperçu rouvert depuis la bibliothèque n'a pas le flux : le
+            #     serveur lui dit quelles pages sont prêtes et où en sont les autres.
+            jobs.emit(job_id, "page", {"page": 1, "status": "done"})
+            jobs.emit(job_id, "page", {"page": 2, "status": "translating"})
+            r = client.get(url, headers=entetes(payant))
+            ok("EN COURS : pages prêtes et étapes annoncées",
+               r.headers.get("X-Pages-Pretes") == "1"
+               and r.headers.get("X-Pages-Etats") == "1:done,2:translating",
+               f"pretes={r.headers.get('X-Pages-Pretes')} etats={r.headers.get('X-Pages-Etats')}")
+            # PPTX : la liste du greffage fait foi (+ diapositives sans texte).
+            jobs.emit(job_id, "page", {"page": 4, "status": "copied"})
+            jobs.set(job_id, partial_pages=[2])
+            pretes, _ = jobs.pages_etat(jobs.get(job_id))
+            jobs.set(job_id, partial_pages=None)
+            ok("EN COURS PPTX : prêtes = greffées + copiées, pas les « done » non greffées",
+               pretes == [2, 4], f"pretes={pretes}")
 
             # 3. Plan d'essai : le partiel est rastérisé (aucun mot extractible).
             r = client.get(f"/api/documents/{docs['vol_libre']}/preview?page=1",

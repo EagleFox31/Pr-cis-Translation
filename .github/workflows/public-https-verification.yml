@@ -1,7 +1,7 @@
 name: Verify public Précis HTTPS
 on:
   workflow_run:
-    workflows: ["Deploy Précis permanent host through AppFactory AWS/SSM"]
+    workflows: ["Deploy Précis production through AppFactory AWS/SSM"]
     types: [completed]
   workflow_dispatch:
 permissions: {}

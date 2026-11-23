@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import fitz
-from app.services.ocr import prepare_scanned_pdf
+from app.services.ocr import lire_page
 from engines.pdf.stream import translate_pdf_progressive
 
 with tempfile.TemporaryDirectory(prefix="precis-ocr-smoke-") as directory:
@@ -18,8 +18,10 @@ with tempfile.TemporaryDirectory(prefix="precis-ocr-smoke-") as directory:
         target = scan.new_page()
         target.insert_image(target.rect, pixmap=page.get_pixmap(dpi=180))
         original = scan.tobytes()
-    prepared, count = prepare_scanned_pdf(original, {1})
-    assert count == 1
+    with fitz.open(stream=original, filetype="pdf") as document:
+        lecture = lire_page(document, 1)
+    assert lecture.statut == "ok", lecture
+    prepared = lecture.pdf
     source = Path(directory) / "recognized.pdf"
     source.write_bytes(prepared)
     output = Path(directory) / "translated.pdf"

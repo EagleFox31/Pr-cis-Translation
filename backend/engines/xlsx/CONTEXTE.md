@@ -69,7 +69,7 @@ que là. C'est précisément pourquoi la preuve se fait sur du synthétique.
 | `xl/sharedStrings.xml` | ✅ le gros du texte — Excel y déduplique les chaînes |
 | Cellules `t="inlineStr"` | ✅ chaîne écrite dans la feuille, sans magasin partagé |
 | `xl/workbook.xml` — noms d'onglets | ✅ renommage **et** réécriture des références, d'un seul geste |
-| `xl/charts/chart*.xml` | ✅ titres, noms d'axes, étiquettes en dur — **jamais** les caches |
+| `xl/charts/chart*.xml` | ✅ titres, noms d'axes, étiquettes en dur — caches texte **alignés** sur la cellule |
 | `xl/drawings/drawing*.xml` | ✅ zones de texte et formes — **jamais** le `name=` |
 | `comments*.xml` + `threadedComments/*` | ✅ les **deux** formats — **jamais** les `<author>` |
 | `xl/tables/table*.xml` | ✅ en-têtes **alignés** sur la cellule, jamais retraduits |
@@ -205,6 +205,14 @@ cache**, et les **3 vrais textes sont tous des `<a:t>`**.
 La règle : on traduit le texte riche (`<a:t>`) et les `<c:v>` **sans** cache
 au-dessus — du texte saisi en dur, qui n'est le reflet de rien.
 
+Les caches ne partent jamais au modèle, mais ne restent pas en langue source :
+un PowerPoint qui affiche un graphique incorporé ne les rafraîchit pas
+toujours. Après l'injection, `_aligner_graphiques` recopie dans chaque
+`<c:strCache>` le texte traduit de la plage `<c:f>` (plage simple seulement ;
+une cellule sans texte laisse son point intact). Les `<c:numCache>` ne
+changent pas. Au renommage d'un onglet, les `<c:f>` des graphiques sont
+réécrits comme les formules.
+
 ### Les noms d'onglets : deux gestes qui n'en font qu'un
 
 Un nom d'onglet est cité à **trois** endroits — `<sheet name>`, les
@@ -339,7 +347,7 @@ done
 | `partiel` | 17 | classeur amputé : ordre des onglets, index du magasin |
 | `apercu_progressif` | 11 | socle + greffe feuille par feuille |
 | `onglets` | 22 | renommage **et** réécriture des références |
-| `graphiques` | 11 | texte riche traduit, caches intacts |
+| `graphiques` | 12 | texte riche traduit, caches texte alignés |
 | `annotations` | 13 | les deux formats de commentaires, identités intactes |
 | `tableaux` | 11 | en-têtes alignés, références structurées suivies |
 | `croises` | 15 | table traduite, cache aligné, index intacts |

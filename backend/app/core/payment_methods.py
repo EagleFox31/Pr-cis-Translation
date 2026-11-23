@@ -19,7 +19,9 @@ from __future__ import annotations
 import os
 import re
 
-from app.core.payment_gateway import campay, SUPPORTED_CURRENCY
+from app.core.payment_gateway import (campay, fapshi, paddle, FAPSHI_STATUS,
+                                      PADDLE_CURRENCIES, PADDLE_STATUS,
+                                      SUPPORTED_CURRENCY)
 
 MTN_MOMO = "mtn_momo"
 ORANGE_MONEY = "orange_money"
@@ -34,6 +36,7 @@ DEFAULT_ROUTING = "mtn_momo=campay,orange_money=campay,card="
 
 class CampayProvider:
     """Invite USSD poussée sur le téléphone ; l'opérateur se déduit du numéro."""
+    needs_phone = True
     name = "campay"
     currencies = frozenset({SUPPORTED_CURRENCY})
     # Ce que le prestataire sait encaisser : un routage `card=campay` par
@@ -45,7 +48,8 @@ class CampayProvider:
         return campay.configured
 
     async def start(self, *, amount: int, currency: str, phone: str | None,
-                    description: str, reference: str) -> dict:
+                    description: str, reference: str,
+                    email: str | None = None, user_id: str | None = None) -> dict:
         res = await campay.collect(amount=amount, phone=phone,
                                    description=description,
                                    external_reference=reference)
@@ -58,7 +62,94 @@ class CampayProvider:
         return res.get("status", "PENDING")
 
 
-PROVIDERS = {p.name: p for p in (CampayProvider(),)}
+class FapshiProvider:
+    """Deux parcours, choisis par `FAPSHI_FLOW` :
+      • `direct` (défaut) : invite poussée sur le téléphone (`direct-pay`),
+        activée par Fapshi sur notre compte le 20/10/2026 ;
+      • `checkout` : page de paiement hébergée par Fapshi (`initiate-pay`),
+        affichée dans la modale. DÉSACTIVÉE mais conservée : elle ne demande
+        aucune activation et sert de repli si direct-pay est retiré.
+    N'encaisse que le franc CFA, au minimum 100 F."""
+    name = "fapshi"
+    currencies = frozenset({SUPPORTED_CURRENCY})
+    methods = frozenset({MTN_MOMO, ORANGE_MONEY})
+
+    @property
+    def configured(self) -> bool:
+        return fapshi.configured
+
+    @property
+    def hosted(self) -> bool:
+        return os.getenv("FAPSHI_FLOW", "direct").strip().lower() == "checkout"
+
+    @property
+    def needs_phone(self) -> bool:
+        # Sur la page hébergée, le client saisit lui-même opérateur et numéro :
+        # les redemander chez nous serait une double saisie.
+        return not self.hosted
+
+    async def start(self, *, amount: int, currency: str, phone: str | None,
+                    description: str, reference: str,
+                    email: str | None = None, user_id: str | None = None) -> dict:
+        if self.hosted:
+            res = await fapshi.initiate_pay(amount=amount, message=description,
+                                            external_id=reference, email=email,
+                                            user_id=user_id)
+            return {"provider_ref": res.get("transId"), "ussd_code": None,
+                    "operator": None, "checkout_url": res.get("link")}
+        res = await fapshi.direct_pay(amount=amount, phone=phone,
+                                      message=description, external_id=reference)
+        # Pas de code USSD à composer : l'invite arrive sur le téléphone.
+        return {"provider_ref": res.get("transId"), "ussd_code": None,
+                "operator": None}
+
+    async def status(self, provider_ref: str) -> str:
+        res = await fapshi.payment_status(provider_ref)
+        return FAPSHI_STATUS.get(res.get("status"), "PENDING")
+
+
+class PaddleProvider:
+    """Carte bancaire, saisie sur notre page `/paiement/carte` où Paddle.js
+    affiche son formulaire. Le franc CFA y est converti en euros (Paddle ne le
+    connaît pas) ; la base garde le montant dans la devise de la zone."""
+    name = "paddle"
+    needs_phone = False
+    currencies = frozenset({SUPPORTED_CURRENCY}) | PADDLE_CURRENCIES
+    methods = frozenset({CARD})
+
+    @property
+    def configured(self) -> bool:
+        return paddle.configured
+
+    async def start(self, *, amount: int, currency: str, phone: str | None,
+                    description: str, reference: str,
+                    email: str | None = None, user_id: str | None = None) -> dict:
+        data = await paddle.create_transaction(amount=amount, currency=currency,
+                                               description=description,
+                                               reference=reference, user_id=user_id)
+        return {"provider_ref": data["id"], "ussd_code": None, "operator": None,
+                "checkout_url": self._checkout_url(data)}
+
+    @staticmethod
+    def _checkout_url(data: dict) -> str | None:
+        # Paddle refuse `localhost` comme « Default payment link » : en local,
+        # PADDLE_CHECKOUT_URL pointe vers notre page à la place de son lien.
+        local = os.getenv("PADDLE_CHECKOUT_URL", "").strip()
+        if local:
+            return f"{local}?_ptxn={data['id']}"
+        return (data.get("checkout") or {}).get("url")
+
+    async def status(self, provider_ref: str) -> str:
+        res = await paddle.transaction(provider_ref)
+        return PADDLE_STATUS.get(res.get("status"), "PENDING")
+
+    async def resume(self, provider_ref: str) -> tuple[str, str | None]:
+        """État d'une transaction et lien pour la reprendre, en un appel."""
+        res = await paddle.transaction(provider_ref)
+        return PADDLE_STATUS.get(res.get("status"), "PENDING"), self._checkout_url(res)
+
+
+PROVIDERS = {p.name: p for p in (CampayProvider(), FapshiProvider(), PaddleProvider())}
 
 
 def routing() -> dict[str, str]:
@@ -94,7 +185,16 @@ def provider_for(method: str, currency: str):
 def list_methods(currency: str) -> list[dict]:
     # Sans la raison : l'état de la configuration ne regarde pas le client.
     return [{"id": m, "available": provider_for(m, currency)[0] is not None,
-             "needs_phone": m in PHONE_METHODS} for m in METHODS]
+             "needs_phone": needs_phone(m, currency)} for m in METHODS]
+
+
+def needs_phone(method: str, currency: str) -> bool:
+    """Le numéro est-il à saisir chez nous ? Non quand le prestataire le
+    recueille sur sa propre page."""
+    if method not in PHONE_METHODS:
+        return False
+    provider = provider_for(method, currency)[0]
+    return getattr(provider, "needs_phone", True)
 
 
 # Plan de numérotation camerounais (miroir de frontend/src/lib/mobileMoney.ts).

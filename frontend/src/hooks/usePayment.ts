@@ -16,8 +16,15 @@ export interface Quote {
   /** Pages facturées : ≥ `pages`, arrondi au montant minimum de l'opérateur. */
   billed_pages: number;
   unit_price: number;
+  /** Prix net, avant frais. */
+  subtotal: number;
+  /** Frais de transaction, à la charge du client. */
+  fee: number;
+  /** Montant DÉBITÉ : `subtotal + fee`. */
   amount: number;
   min_amount: number;
+  /** Mêmes chiffres par carte : minimum et frais de Paddle sont plus hauts. */
+  card?: Pick<Quote, 'billed_pages' | 'subtotal' | 'fee' | 'amount' | 'min_amount'>;
   currency: string;
   zone: string;
   /** Achat d'abonnement : durée payée d'avance (1 ou 12 mois). */
@@ -50,6 +57,8 @@ export interface PaymentState {
   /** Code à composer si l'invite n'arrive pas d'elle-même. */
   ussdCode: string | null;
   operator: string | null;
+  /** Page de paiement du prestataire, quand c'est là que le client paie. */
+  checkoutUrl: string | null;
   error: string | null;
 }
 
@@ -58,10 +67,13 @@ export interface PaymentState {
 // continuer à interroger n'apprendrait plus rien.
 const POLL_MS = 3000;
 const TIMEOUT_MS = 180_000;
+// Sur une page de paiement hébergée, le client choisit son opérateur et saisit
+// son numéro avant même l'invite : on lui laisse plus de temps.
+const CHECKOUT_TIMEOUT_MS = 900_000;
 
 export function usePayment() {
   const [state, setState] = useState<PaymentState>({
-    phase: 'idle', quote: null, methods: null, ussdCode: null, operator: null, error: null,
+    phase: 'idle', quote: null, methods: null, ussdCode: null, operator: null, checkoutUrl: null, error: null,
   });
   const timer = useRef<number | null>(null);
   const startedAt = useRef(0);
@@ -76,7 +88,7 @@ export function usePayment() {
 
   const reset = useCallback(() => {
     stop();
-    setState({ phase: 'idle', quote: null, methods: null, ussdCode: null, operator: null, error: null });
+    setState({ phase: 'idle', quote: null, methods: null, ussdCode: null, operator: null, checkoutUrl: null, error: null });
   }, [stop]);
 
   /** Combien coûtera la traduction — AVANT de la lancer. */
@@ -108,8 +120,10 @@ export function usePayment() {
     }
     const d = res.data as any;
     const quote: Quote = {
-      pages: 0, billed_pages: 0, unit_price: d.monthly_price, amount: d.amount,
+      pages: 0, billed_pages: 0, unit_price: d.monthly_price,
+      subtotal: d.subtotal, fee: d.fee, amount: d.amount,
       min_amount: 0, currency: d.currency, zone: d.zone, months: d.months,
+      card: d.card && { billed_pages: 0, min_amount: 0, ...d.card },
     };
     setState((s) => ({ ...s, phase: 'idle', quote }));
     return quote;
@@ -138,14 +152,18 @@ export function usePayment() {
       return false;
     }
 
-    const { payment_id, ussd_code, operator } = res.data as any;
-    setState((s) => ({ ...s, phase: 'waiting', ussdCode: ussd_code ?? null, operator: operator ?? null }));
+    const { payment_id, ussd_code, operator, checkout_url } = res.data as any;
+    setState((s) => ({
+      ...s, phase: 'waiting', ussdCode: ussd_code ?? null, operator: operator ?? null,
+      checkoutUrl: checkout_url ?? null,
+    }));
+    const timeout = checkout_url ? CHECKOUT_TIMEOUT_MS : TIMEOUT_MS;
     startedAt.current = Date.now();
 
     return new Promise<boolean>((resolve) => {
       stop();
       timer.current = window.setInterval(async () => {
-        if (Date.now() - startedAt.current > TIMEOUT_MS) {
+        if (Date.now() - startedAt.current > timeout) {
           stop();
           setState((s) => ({
             ...s, phase: 'failed',
