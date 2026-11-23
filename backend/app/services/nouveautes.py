@@ -2,8 +2,11 @@
 
 RÈGLE D'AFFICHAGE (`a_voir`)
     * jamais rien vu (`nouveautes_vues_le` nul) → mode « accueil » : les phares ;
-    * sinon → mode « depuis » : les éléments datés APRÈS le jour de la
-      dernière consultation ;
+    * sinon → mode « depuis » : les éléments dont l'identifiant n'est pas
+      dans `nouveautes_vues` (la date écrite au catalogue n'est pas la date
+      de mise en ligne, on ne compare donc pas les dates) ;
+    * compte antérieur à cette liste (`nouveautes_vues` nul) : on tient pour
+      vus les éléments datés de plus de 7 jours avant la dernière visite ;
     * rien à montrer → mode nul et liste vide : le site n'affiche RIEN
       (ni fenêtre, ni pastille).
 
@@ -18,7 +21,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.config import JWT_SECRET
 from app.content import nouveautes as catalogue
@@ -32,13 +35,27 @@ def langue_de(valeur: str | None, defaut: str = "fr") -> str:
     return code if code in catalogue.LANGUES else defaut
 
 
-def a_voir(vues_le: datetime | None, lang: str, admin: bool = False) -> dict:
+_TRANSITION = timedelta(days=7)
+
+
+def ids_catalogue(admin: bool = False) -> list[str]:
+    """Identifiants de tout ce que ce compte peut voir (liste posée à la fermeture)."""
+    return [e["id"] for e in catalogue.elements("fr", admin=admin)]
+
+
+def a_voir(vues_le: datetime | None, lang: str, admin: bool = False,
+           vues: list[str] | None = None) -> dict:
     if vues_le is None:
         elements = catalogue.phares(lang)
         mode = "accueil"
     else:
-        jour = vues_le.date().isoformat()
-        elements = [e for e in catalogue.elements(lang, admin=admin) if e["date"] > jour]
+        tous = catalogue.elements(lang, admin=admin)
+        if vues is None:
+            limite = (vues_le - _TRANSITION).date().isoformat()
+            elements = [e for e in tous if e["date"] > limite]
+        else:
+            deja = set(vues)
+            elements = [e for e in tous if e["id"] not in deja]
         mode = "depuis"
     if not elements:
         return {"mode": None, "depuis": None, "elements": []}

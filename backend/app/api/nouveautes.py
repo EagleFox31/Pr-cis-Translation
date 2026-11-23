@@ -20,7 +20,7 @@ from app.core.database import get_db
 from app.core.security import require_auth
 from app.models import User
 from app.rate_limit import rate_limit_decorator
-from app.services.nouveautes import a_voir, langue_de, verifier_jeton
+from app.services.nouveautes import a_voir, ids_catalogue, langue_de, verifier_jeton
 
 router = APIRouter(prefix="/api/nouveautes", tags=["Nouveautés"])
 
@@ -37,12 +37,15 @@ async def liste(lang: str = "fr"):
 @router.get("/a-voir")
 async def a_voir_route(lang: str | None = None, user: User = Depends(require_auth)):
     return a_voir(user.nouveautes_vues_le, langue_de(lang, user.langue),
-                  admin=user.plan == "admin")
+                  admin=user.plan == "admin", vues=user.nouveautes_vues)
 
 
 @router.post("/vues")
 async def marquer_vues(user: User = Depends(require_auth), db: AsyncSession = Depends(get_db)):
     user.nouveautes_vues_le = datetime.now(timezone.utc)
+    # La fenêtre montre tout ce qui n'est pas encore vu : tout devient vu.
+    user.nouveautes_vues = sorted(set(user.nouveautes_vues or [])
+                                  | set(ids_catalogue(admin=user.plan == "admin")))
     await db.commit()
     return {"nouveautes_vues_le": user.nouveautes_vues_le.isoformat()}
 
