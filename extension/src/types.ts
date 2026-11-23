@@ -1,0 +1,117 @@
+// Protocole de messages entre popup, content script et background.
+
+// « limite » : limite de la page atteinte ; « limite_jour » : pages traduites du jour épuisées.
+export type ErreurSegments = "credits" | "deconnecte" | "indisponible" | "trop" | "limite" | "limite_jour";
+export type ErreurImage = "credits" | "refusee" | "illisible" | "indisponible" | "deconnecte" | "limite" | "limite_jour";
+
+export interface BlocImage {
+  texte: string;
+  traduction: string;
+  boite: [number, number, number, number];
+  remplace: boolean;
+}
+
+export interface ReponseImage {
+  remplacee: boolean;
+  pages: number;
+  mime: string;
+  image: string | null;
+  blocs: BlocImage[];
+}
+
+// popup / content -> background
+/** popup -> background : ouvre le site pour y autoriser l'extension (code à usage unique + PKCE). */
+export type MsgConnexionSite = { type: "connexion-site" };
+export type MsgDeconnexion = { type: "deconnexion" };
+export type MsgEtat = { type: "etat" };
+export type MsgSegments = {
+  type: "segments";
+  textes: string[];
+  langue: string;
+  titre: string;
+  contexte: string[];
+  /** Identifiant de page (`lib/page.ts`) : le serveur y borne texte et images. */
+  page: string;
+};
+export type MsgImage = {
+  type: "image";
+  langue: string;
+  page: string;
+  src?: string;
+  donnees?: string;
+  mime?: string;
+  /** Images de vidéo : chaque arrêt sur image est différent, inutile de les garder. */
+  sansMemoire?: boolean;
+};
+/** Analyse avant l'accord : traduisible ou non, sans débit ni image renvoyée. */
+export type MsgAnalyseImage = { type: "analyse_image"; langue: string; page: string; src?: string; donnees?: string; mime?: string };
+export type MsgMemoireEtat = { type: "memoire_etat" };
+export type MsgMemoireEffacer = { type: "memoire_effacer" };
+export type MsgMaj = { type: "maj" };
+/** content -> background : langue à appliquer d'office si l'onglet est suivi (nouveau document). */
+export type MsgSuivi = { type: "suivi" };
+/** content -> background : choix du bandeau de proposition, appliqué à l'onglet (et au site si « toujours »). */
+export type MsgAppliquer = { type: "appliquer"; mode: "traduire" | "original"; langue: string; toujours: boolean };
+/** content -> background : accord pour des images, posé une seule fois pour tous les cadres de l'onglet. */
+export type MsgAccordImages = { type: "accord_images"; images: number };
+
+export type VersBackground =
+  | MsgConnexionSite
+  | MsgDeconnexion
+  | MsgEtat
+  | MsgSegments
+  | MsgImage
+  | MsgAnalyseImage
+  | MsgMemoireEtat
+  | MsgMemoireEffacer
+  | MsgMaj
+  | MsgSuivi
+  | MsgAppliquer
+  | MsgAccordImages;
+
+export type ReponseEtat = { connecte: boolean; email?: string; plan?: string };
+export type ReponseSegments =
+  | {
+      ok: true;
+      traductions: string[];
+      /** Limite de la page épuisée en cours de route : le reste est en original. */
+      limite?: boolean;
+      /** La limite atteinte est celle des pages du jour (et non celle de la page). */
+      jour?: boolean;
+      /** Proposer Starter ou Pro dans le message de limite. */
+      offre?: boolean;
+    }
+  | { ok: false; erreur: ErreurSegments; offre?: boolean };
+export type ReponseImageBg =
+  | { ok: true; reponse: ReponseImage }
+  | { ok: false; erreur: ErreurImage; offre?: boolean };
+export type ReponseAnalyse = { ok: true; traduisible: boolean } | { ok: false; erreur: ErreurImage; offre?: boolean };
+export type ReponseMemoire = { traductions: number };
+/** Version plus récente publiée sur le site (installation par dossier seulement), sinon null. */
+export type ReponseMaj = { version: string | null };
+
+export interface ReponsesBackground {
+  "connexion-site": { ok: true };
+  deconnexion: { ok: true };
+  etat: ReponseEtat;
+  segments: ReponseSegments;
+  image: ReponseImageBg;
+  analyse_image: ReponseAnalyse;
+  memoire_etat: ReponseMemoire;
+  memoire_effacer: ReponseMemoire;
+  maj: ReponseMaj;
+  suivi: { langue: string } | { proposer: true; cible: string } | null;
+  appliquer: { ok: boolean };
+  /** null : question impossible dans le cadre principal, à poser sur place. */
+  accord_images: { accepte: boolean; toujours: boolean } | null;
+}
+
+export type ReponseDe<M extends VersBackground> = ReponsesBackground[M["type"]];
+
+// popup -> content (tous les cadres de l'onglet)
+/** silencieux : relance automatique après un changement de document, sans message « déjà traduite ». */
+export type MsgTraduire = { type: "traduire"; langue: string; silencieux?: boolean };
+export type MsgOriginal = { type: "original" };
+/** background -> cadre principal : affiche la question d'accord pour les images. */
+export type MsgDemanderAccord = { type: "demander_accord"; images: number };
+export type VersContent = MsgTraduire | MsgOriginal | MsgDemanderAccord;

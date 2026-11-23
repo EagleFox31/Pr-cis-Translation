@@ -18,7 +18,8 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models import User, RefreshToken, get_plan_storage
+from app.models import (EVENT_EXPIRY, ExtensionAuthCode, PlanEvent, RefreshToken, User,
+                        get_plan_storage)
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
@@ -65,13 +66,24 @@ def verify_access_token(token: str) -> dict:
     return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
 
 
-async def create_refresh_token(db: AsyncSession, user_id: str) -> str:
-    """Refresh token stocké en DB (longue durée, rotation)."""
+def hash_token(raw: str) -> str:
+    """Empreinte stockée à la place d'un jeton ou d'un code (jamais le secret en clair)."""
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+async def create_refresh_token(db: AsyncSession, user_id: str,
+                               client: str = "site") -> str:
+    """Refresh token stocké en DB (longue durée, rotation).
+
+    `client` distingue les appareils d'un même compte (« site », « extension ») :
+    chacun se déconnecte sans fermer la session des autres.
+    """
     raw = secrets.token_urlsafe(48)
-    token_hash = hashlib.sha256(raw.encode()).hexdigest()
+    token_hash = hash_token(raw)
     expires = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRY_DAYS)
 
-    rt = RefreshToken(user_id=user_id, token_hash=token_hash, expires_at=expires)
+    rt = RefreshToken(user_id=user_id, token_hash=token_hash, expires_at=expires,
+                      client=client)
     db.add(rt)
     await db.commit()
     return raw
@@ -79,7 +91,7 @@ async def create_refresh_token(db: AsyncSession, user_id: str) -> str:
 
 async def rotate_refresh_token(db: AsyncSession, raw_token: str) -> tuple[str, User] | None:
     """Valide un refresh token, le supprime, en émet un nouveau. Retourne (token, user)."""
-    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    token_hash = hash_token(raw_token)
     stmt = select(RefreshToken).where(RefreshToken.token_hash == token_hash)
     result = await db.execute(stmt)
     rt = result.scalar_one_or_none()
@@ -91,21 +103,44 @@ async def rotate_refresh_token(db: AsyncSession, raw_token: str) -> tuple[str, U
     if user is None:
         return None
 
-    # Rotation : supprimer l'ancien, créer un nouveau.
+    # Rotation : supprimer l'ancien, créer un nouveau (même client).
+    client = rt.client
     await db.delete(rt)
     await db.commit()
 
-    new_raw = await create_refresh_token(db, user.id)
+    new_raw = await create_refresh_token(db, user.id, client)
     return new_raw, user
 
 
-async def revoke_user_tokens(db: AsyncSession, user_id: str) -> None:
-    """Révoque tous les refresh tokens d'un utilisateur (logout)."""
+async def revoke_user_tokens(db: AsyncSession, user_id: str,
+                             client: str | None = None) -> None:
+    """Révoque les refresh tokens d'un utilisateur : ceux d'un seul `client`
+    (déconnexion d'un appareil), ou tous si `client` est None ; dans ce cas,
+    les codes de connexion de l'extension encore en attente sont annulés aussi."""
     stmt = select(RefreshToken).where(RefreshToken.user_id == user_id)
+    if client is not None:
+        stmt = stmt.where(RefreshToken.client == client)
     result = await db.execute(stmt)
     for rt in result.scalars().all():
         await db.delete(rt)
+    if client is None:
+        codes = await db.execute(select(ExtensionAuthCode).where(ExtensionAuthCode.user_id == user_id))
+        for code in codes.scalars().all():
+            await db.delete(code)
     await db.commit()
+
+
+async def revoke_refresh_token(db: AsyncSession, raw_token: str) -> bool:
+    """Révoque ce seul refresh token. Retourne False s'il n'existe pas."""
+    token_hash = hash_token(raw_token)
+    rt = (await db.execute(
+        select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+    )).scalar_one_or_none()
+    if rt is None:
+        return False
+    await db.delete(rt)
+    await db.commit()
+    return True
 
 
 # ── Middleware ────────────────────────────────────────────────────────────────
@@ -149,14 +184,23 @@ async def _expire_plan_if_due(db: AsyncSession, user: User) -> None:
     now = datetime.now(timezone.utc)
     if user.plan_expires_at is None or user.plan_expires_at > now:
         return
-    await db.execute(
+    ended_at = user.plan_expires_at
+    res = await db.execute(
         update(User)
         .where(User.id == user.id, User.plan_expires_at <= now)
         .values(**_back_to_free())
         .execution_options(synchronize_session=False)
     )
+    if res.rowcount:
+        db.add(_expiry_event(user.id, ended_at))
     await db.commit()
     await db.refresh(user)
+
+
+def _expiry_event(user_id: str, ended_at: datetime) -> PlanEvent:
+    # Datée de la fin réelle du plan, pas du passage qui la constate.
+    return PlanEvent(user_id=user_id, kind=EVENT_EXPIRY, plan="free",
+                     created_at=ended_at)
 
 
 def _back_to_free() -> dict:
@@ -168,14 +212,23 @@ async def expire_due_plans(db: AsyncSession) -> None:
     """Applique TOUTES les échéances passées, pour les vues qui lisent d'autres
     comptes que le sien (liste d'administration) : l'échéance paresseuse ne
     touche que le compte qui se connecte."""
-    res = await db.execute(
+    now = datetime.now(timezone.utc)
+    due = dict((await db.execute(
+        select(User.id, User.plan_expires_at).where(User.plan_expires_at <= now)
+    )).all())
+    if not due:
+        return
+    # Seuls les comptes réellement remis au Gratuit (un renouvellement arrivé
+    # entre-temps a repoussé l'échéance) reçoivent leur ligne d'historique.
+    expired = (await db.execute(
         update(User)
-        .where(User.plan_expires_at <= datetime.now(timezone.utc))
+        .where(User.id.in_(list(due)), User.plan_expires_at <= now)
         .values(**_back_to_free())
+        .returning(User.id)
         .execution_options(synchronize_session=False)
-    )
-    if res.rowcount:
-        await db.commit()
+    )).scalars().all()
+    db.add_all(_expiry_event(uid, due[uid]) for uid in expired)
+    await db.commit()
 
 
 async def optional_auth(

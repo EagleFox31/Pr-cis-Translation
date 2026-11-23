@@ -74,6 +74,117 @@ TEXTES: dict[str, dict[str, str]] = {
 }
 
 
+#: Invitation à découvrir Précis. Ton différent du code de connexion : ici on
+#: PRÉSENTE le produit à quelqu'un qui ne le connaît pas, au nom d'une personne
+#: qu'il connaît. Trois arguments, pas un de plus — ce sont ceux de l'accueil.
+TEXTES_INVITATION: dict[str, dict[str, str]] = {
+    "fr": {
+        "sujet": "{inviteur} vous invite à découvrir Précis",
+        "bandeau": "Invitation",
+        "titre": "{inviteur} vous invite sur Précis",
+        "sous_titre": "Traduisez vos documents sans perdre leur mise en page.",
+        "mot_de": "Un mot de {inviteur}",
+        "atout_1": "Polices, colonnes, tableaux, images — tout reste en place.",
+        "atout_2": "PDF, Word, PowerPoint, Excel et texte.",
+        "atout_3": "23 langues, 36 variantes.",
+        "bouton": "Découvrir Précis",
+        "lien": "Ou copiez ce lien : {url}",
+        "pourquoi": "Vous recevez cet e-mail parce que {inviteur} ({email}) "
+                    "a pensé que Précis pourrait vous être utile. "
+                    "Aucun compte n'a été créé à votre nom.",
+        "texte_brut": (
+            "{inviteur} vous invite à découvrir Précis.\n\n"
+            "Traduisez vos documents sans perdre leur mise en page :\n"
+            "- Polices, colonnes, tableaux, images — tout reste en place.\n"
+            "- PDF, Word, PowerPoint, Excel et texte.\n"
+            "- 23 langues, 36 variantes.\n"
+            "{message}\n"
+            "Découvrir Précis : {url}\n\n"
+            "Vous recevez cet e-mail parce que {inviteur} ({email}) a pensé "
+            "que Précis pourrait vous être utile. Aucun compte n'a été créé "
+            "à votre nom."
+        ),
+    },
+    "en": {
+        "sujet": "{inviteur} invited you to try Précis",
+        "bandeau": "Invitation",
+        "titre": "{inviteur} invited you to Précis",
+        "sous_titre": "Translate your documents without losing their layout.",
+        "mot_de": "A note from {inviteur}",
+        "atout_1": "Fonts, columns, tables, images — everything stays in place.",
+        "atout_2": "PDF, Word, PowerPoint, Excel and plain text.",
+        "atout_3": "23 languages, 36 variants.",
+        "bouton": "Discover Précis",
+        "lien": "Or copy this link: {url}",
+        "pourquoi": "You're receiving this email because {inviteur} ({email}) "
+                    "thought Précis might be useful to you. "
+                    "No account has been created in your name.",
+        "texte_brut": (
+            "{inviteur} invited you to try Précis.\n\n"
+            "Translate your documents without losing their layout:\n"
+            "- Fonts, columns, tables, images — everything stays in place.\n"
+            "- PDF, Word, PowerPoint, Excel and plain text.\n"
+            "- 23 languages, 36 variants.\n"
+            "{message}\n"
+            "Discover Précis: {url}\n\n"
+            "You're receiving this email because {inviteur} ({email}) thought "
+            "Précis might be useful to you. No account has been created in "
+            "your name."
+        ),
+    },
+}
+
+
+TEXTES_NOUVEAUTES: dict[str, dict[str, str]] = {
+    "fr": {
+        "sujet": "Ce qui change dans Précis {version}",
+        "bandeau": "Nouveautés",
+        "titre": "Ce qui change dans Précis",
+        "intro": "La version {version} est disponible depuis le {date}. "
+                 "Voici l'essentiel.",
+        "nouveaute": "Nouveautés",
+        "amelioration": "Améliorations",
+        "correctif": "Correctifs",
+        "bouton": "Voir les fonctionnalités",
+        "note": "Tout ce que fait Précis est décrit sur la page Fonctionnalités.",
+        "pied": "Vous recevez cet e-mail car vous êtes abonné aux nouveautés "
+                "de Précis.",
+        "desabonner": "Se désabonner",
+        "mois": "janvier février mars avril mai juin juillet août septembre "
+                "octobre novembre décembre",
+    },
+    "en": {
+        "sujet": "What's new in Précis {version}",
+        "bandeau": "What's new",
+        "titre": "What's changing in Précis",
+        "intro": "Version {version} has been available since {date}. "
+                 "Here are the highlights.",
+        "nouveaute": "New",
+        "amelioration": "Improvements",
+        "correctif": "Fixes",
+        "bouton": "See all features",
+        "note": "Everything Précis does is described on the Features page.",
+        "pied": "You're receiving this email because you subscribed to "
+                "Précis product updates.",
+        "desabonner": "Unsubscribe",
+        "mois": "January February March April May June July August September "
+                "October November December",
+    },
+}
+
+
+def textes_nouveautes(langue: str) -> dict[str, str]:
+    """Les textes de l'e-mail Nouveautés dans une langue, français par défaut."""
+    return TEXTES_NOUVEAUTES.get(langue, TEXTES_NOUVEAUTES[LANGUE_DEFAUT])
+
+
+def date_longue(iso: str, langue: str) -> str:
+    """`2026-11-09` -> « 9 novembre 2026 » / « November 9, 2026 »."""
+    annee, mois, jour = (int(x) for x in iso.split("-"))
+    nom = textes_nouveautes(langue)["mois"].split()[mois - 1]
+    return f"{nom} {jour}, {annee}" if langue == "en" else f"{jour} {nom} {annee}"
+
+
 def normaliser_langue(accept_language: str | None) -> str:
     """Langue à employer, depuis un en-tête `Accept-Language`.
 
@@ -95,3 +206,122 @@ def normaliser_langue(accept_language: str | None) -> str:
 def textes(langue: str) -> dict[str, str]:
     """Les textes d'une langue, français par défaut."""
     return TEXTES.get(langue, TEXTES[LANGUE_DEFAUT])
+
+
+def textes_invitation(langue: str) -> dict[str, str]:
+    """Les textes de l'invitation dans une langue, français par défaut."""
+    return TEXTES_INVITATION.get(langue, TEXTES_INVITATION[LANGUE_DEFAUT])
+
+
+# Invitation à la bêta, envoyée à un compte existant
+# (docs/etude-mail-invitation-beta.md). Les quotas viennent de l'invitation.
+TEXTES_INVITATION_BETA: dict[str, dict] = {
+    "fr": {
+        "sujet": "Vous êtes invité(e) à la bêta de Précis",
+        "bandeau": "Bêta",
+        "titre": "Vous êtes invité(e) à la bêta de Précis",
+        "sous_titre": "Pendant {jours} jours à partir de votre première "
+                      "connexion, vous pouvez traduire gratuitement :",
+        "unites": {"pages": ("page", "pages"), "slides": ("diapositive", "diapositives"),
+                   "words": ("mot", "mots"), "sheets": ("feuille", "feuilles")},
+        "ligne": "{format} : {quantite}",
+        "excel_mots": "{feuilles}, {mots} au plus",
+        "sous_titre_actif": "Votre accès est ouvert jusqu'au {date}. D'ici là, "
+                            "vous pouvez traduire gratuitement :",
+        "date_limite": "Connectez-vous avant le {date} pour activer votre accès.",
+        "bouton": "Ouvrir Précis",
+        "lien": "Ou copiez ce lien : {url}",
+        "pied": "Vous recevez cet e-mail parce que l'équipe Précis vous a "
+                "invité(e) à la bêta. Connectez-vous avec cette adresse : "
+                "l'accès s'active tout seul.",
+        "pied_actif": "Vous recevez cet e-mail parce que l'équipe Précis vous a "
+                      "invité(e) à la bêta. Votre accès est déjà ouvert : "
+                      "connectez-vous avec cette adresse.",
+    },
+    "en": {
+        "sujet": "You're invited to the Précis beta",
+        "bandeau": "Beta",
+        "titre": "You're invited to the Précis beta",
+        "sous_titre": "For {jours} days from your first sign-in, you can "
+                      "translate for free:",
+        "unites": {"pages": ("page", "pages"), "slides": ("slide", "slides"),
+                   "words": ("word", "words"), "sheets": ("sheet", "sheets")},
+        "ligne": "{format}: {quantite}",
+        "excel_mots": "{feuilles}, up to {mots}",
+        "sous_titre_actif": "Your access is open until {date}. Until then, you "
+                            "can translate for free:",
+        "date_limite": "Sign in before {date} to activate your access.",
+        "bouton": "Open Précis",
+        "lien": "Or copy this link: {url}",
+        "pied": "You're receiving this email because the Précis team invited "
+                "you to the beta. Sign in with this address: access turns on "
+                "automatically.",
+        "pied_actif": "You're receiving this email because the Précis team invited "
+                      "you to the beta. Your access is already open: sign in with "
+                      "this address.",
+    },
+}
+
+
+def textes_invitation_beta(langue: str) -> dict:
+    """Les textes de l'invitation bêta, français par défaut."""
+    return TEXTES_INVITATION_BETA.get(langue, TEXTES_INVITATION_BETA[LANGUE_DEFAUT])
+
+
+# Rappel avant la suppression des traductions en aperçu dont aucune page n'a
+# été payée (docs/etude-traduction-libre.md, étape 5.5).
+TEXTES_RAPPEL_LIBRES: dict[str, dict[str, str]] = {
+    "fr": {
+        "sujet": "Vos traductions en aperçu seront bientôt supprimées",
+        "bandeau": "Rappel",
+        "titre": "Vos traductions en aperçu seront bientôt supprimées",
+        "sous_titre": "Ces documents ont été traduits en aperçu et aucune de "
+                      "leurs pages n'a été payée. Ils seront supprimés à la "
+                      "date indiquée.",
+        "colonne": "Supprimé le {date}",
+        "bouton": "Voir mes documents",
+        "note": "Pour garder un document, ouvrez-le et choisissez « Acheter » "
+                "sous l'aperçu.",
+        "pied": "Vous recevez cet e-mail parce que des documents de votre "
+                "compte Précis vont être supprimés. Si vous ne souhaitez pas "
+                "les garder, vous n'avez rien à faire.",
+        "texte_brut": (
+            "Vos traductions en aperçu seront bientôt supprimées.\n\n"
+            "Ces documents ont été traduits en aperçu et aucune de leurs pages "
+            "n'a été payée. Ils seront supprimés à la date indiquée :\n"
+            "{liste}\n\n"
+            "Pour garder un document, ouvrez-le et choisissez « Acheter » sous "
+            "l'aperçu : {url}\n\n"
+            "Si vous ne souhaitez pas les garder, vous n'avez rien à faire."
+        ),
+    },
+    "en": {
+        "sujet": "Your preview translations will be deleted soon",
+        "bandeau": "Reminder",
+        "titre": "Your preview translations will be deleted soon",
+        "sous_titre": "These documents were translated in preview and none of "
+                      "their pages has been paid for. They will be deleted on "
+                      "the date shown.",
+        "colonne": "Deleted on {date}",
+        "bouton": "See my documents",
+        "note": "To keep a document, open it and choose “Buy” below the "
+                "preview.",
+        "pied": "You're receiving this email because documents in your "
+                "Précis account are about to be deleted. If you don't want "
+                "to keep them, there's nothing to do.",
+        "texte_brut": (
+            "Your preview translations will be deleted soon.\n\n"
+            "These documents were translated in preview and none of their "
+            "pages has been paid for. They will be deleted on the date shown:\n"
+            "{liste}\n\n"
+            "To keep a document, open it and choose “Buy” below the preview: "
+            "{url}\n\n"
+            "If you don't want to keep them, there's nothing to do."
+        ),
+    },
+}
+
+
+def textes_rappel_libres(langue: str) -> dict[str, str]:
+    """Les textes du rappel avant suppression, français par défaut."""
+    return TEXTES_RAPPEL_LIBRES.get(langue, TEXTES_RAPPEL_LIBRES[LANGUE_DEFAUT])

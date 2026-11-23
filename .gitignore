@@ -10,6 +10,7 @@ __pycache__/
 
 # Node
 node_modules/
+*.tsbuildinfo
 frontend/dist/
 
 # Données générées à l'exécution
@@ -37,6 +38,7 @@ backend/fonts/catalogue/
 # sorties traduites, caches) — volumineux et regenerables localement.
 backend/tests files/
 backend/tests/_generic_tmp/
+backend/tests/out_lettres_dessinees/
 *.bak
 *.old
 
@@ -46,3 +48,8 @@ backend/tests/_generic_tmp/
 # Volumineuses (plusieurs dizaines de Mo) et REGENERABLES : un « git add . »
 # les embarquerait sinon dans le dépôt, qui ne pèse que 11 Mo par ailleurs.
 .ocr_out/
+
+# Poids PP-OCRv6 (backend/scripts/telecharger_ppocr.py)
+backend/models/
+# ZIP d'installation manuelle de l'extension (npm run package)
+frontend/public/extension/

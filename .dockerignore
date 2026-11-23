@@ -15,6 +15,7 @@ frontend/.env
 
 # ── Environnements et dépendances (reconstruits dans l'image) ────────────────
 backend/venv/
+backend/models/
 node_modules/
 */node_modules/
 frontend/dist/

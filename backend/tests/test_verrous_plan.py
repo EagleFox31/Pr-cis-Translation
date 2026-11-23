@@ -231,8 +231,8 @@ async def _run_checks(client, checks, ok):
         r = client.post("/api/translate", headers=entetes,
                         files={"file": ("x.docx", b"PK\x03\x04",
                                         "application/octet-stream")})
-        ok("FREEMIUM  un DOCX (illimitable en pages) est refusé : 402",
-           r.status_code == 402, f"status={r.status_code}")
+        ok("FREEMIUM  un conteneur DOCX invalide est refusé : 422",
+           r.status_code == 422, f"status={r.status_code}")
 
         cap = svc_documents.cap_pages_for_plan
         ok("CAP  PDF sans sélection, plan à 1 page : page 1 seule",

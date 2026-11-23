@@ -24,6 +24,14 @@ let toastListeners: Array<(t: ToastMessage) => void> = [];
 export function showToast(type: ToastType, title: string, message?: string, action?: ToastAction) {
   const duration = type === 'error' ? 6000 : 4000;
   const toast: ToastMessage = { id: Date.now().toString(), type, title, message, action, duration };
+  // Ce que l'utilisateur voit échouer, le Journal le voit aussi.
+  if (type === 'error') {
+    import('../../lib/errorReporting').then(({ reportClientError }) => {
+      reportClientError(`Message d'erreur affiché : ${title}${message ? ` — ${message}` : ''}`, {
+        level: 'warning', component: 'toast',
+      });
+    }).catch(() => { /* le rapporteur ne doit jamais casser l'affichage */ });
+  }
   toastListeners.forEach((fn) => fn(toast));
 }
 
@@ -148,6 +156,8 @@ export default function ToastContainer() {
 
   return (
     <div
+      role="status"
+      aria-live="polite"
       style={{
         position: 'fixed',
         top: '84px',

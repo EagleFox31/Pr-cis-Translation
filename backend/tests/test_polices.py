@@ -385,6 +385,13 @@ def run() -> int:
         ok("CACHE RENDU  dégradé (panne réseau) : non écrit ; sain : écrit",
            degrade_absent and render_cache.cache_valid(trad) is not None,
            f"{degrade_absent}")
+        # Traduction complétée pendant le rendu : il lui manque des pages.
+        os.remove(render_cache.cache_valid(trad))
+        avant = render_cache.mtime_de(trad)
+        os.utime(trad, (avant + 5, avant + 5))
+        render_cache.store_render(b"%PDF-perime", trad, render_cache.marque_polices(), avant)
+        ok("CACHE RENDU  traduction modifiée pendant le rendu : non écrit",
+           render_cache.cache_valid(trad) is None)
 
         # ── 15. Polices du système ignorées sauf demande explicite ────────────
         systeme = set(polices._repertoires_systeme())

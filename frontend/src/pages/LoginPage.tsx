@@ -24,9 +24,11 @@ import { Mail, ArrowRight, Lock, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import AuthLayout from '../components/auth/AuthLayout';
 import CodeStep from '../components/auth/CodeStep';
+import Turnstile, { turnstileActif } from '../components/auth/Turnstile';
 import Alert from '../components/ui/Alert';
 import Button from '../components/ui/Button';
 import Field from '../components/ui/Field';
+import { authPageLink, authReturnTo } from '../lib/authReturn';
 
 const CODE_VIDE = ['', '', '', '', '', ''];
 
@@ -36,6 +38,7 @@ export default function LoginPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  const returnTo = authReturnTo(params);
   const verified = params.get('verified') === '1';
 
   const [email, setEmail] = useState('');
@@ -52,12 +55,16 @@ export default function LoginPage() {
   const [code, setCode] = useState(CODE_VIDE);
   const [resent, setResent] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
+  // Le code par e-mail crée le compte s'il n'existe pas : contrôle anti-robots.
+  const [robotToken, setRobotToken] = useState('');
+  const [robotReset, setRobotReset] = useState(0);
+  const [robotKo, setRobotKo] = useState(false);
 
   /** Connexion par MOT DE PASSE — session ouverte sans passer par la boîte mail. */
   async function handlePassword(e: FormEvent) {
     e.preventDefault(); setError(''); setInfo(''); setBusy(true);
     const res = await loginPassword(email, password); setBusy(false);
-    if (res.ok) navigate('/home', { replace: true });
+    if (res.ok) navigate(returnTo, { replace: true });
     else setError(res.error || t('auth.err_credentials'));
   }
 
@@ -65,7 +72,8 @@ export default function LoginPage() {
   async function handleEmailCode() {
     if (!email) { setError(t('auth.err_email_required')); return; }
     setError(''); setInfo(''); setBusy(true);
-    const res = await login(email); setBusy(false);
+    const res = await login(email, robotToken || undefined); setBusy(false);
+    setRobotReset((n) => n + 1);
     if (res.ok) { setCodeFor('login'); setStep('code'); }
     else setError(res.error || t('auth.err_generic'));
   }
@@ -93,7 +101,7 @@ export default function LoginPage() {
       ? await resetPassword(email, full, newPassword)
       : await verifyCode(email, full);
     setBusy(false);
-    if (res.ok) navigate('/home', { replace: true });
+    if (res.ok) navigate(returnTo, { replace: true });
     else setError(res.error || t('auth.err_code_invalid'));
   }
 
@@ -174,7 +182,9 @@ export default function LoginPage() {
         </Button>
 
         {/* Repli : les comptes créés avant le mot de passe n'en ont pas. */}
-        <button type="button" className="auth-lien-discret" onClick={handleEmailCode} disabled={busy}>
+        <Turnstile onToken={setRobotToken} onUnavailable={() => setRobotKo(true)} resetKey={robotReset} />
+        <button type="button" className="auth-lien-discret" onClick={handleEmailCode}
+          disabled={busy || (turnstileActif && !robotToken && !robotKo)}>
           {t('auth.use_email_code')}
         </button>
       </form>
@@ -191,7 +201,7 @@ export default function LoginPage() {
             setError(''); setBusy(true); setGoogleBusy(true);
             const r = await googleAuth(res.credential!);
             setBusy(false); setGoogleBusy(false);
-            if (r.ok) navigate('/home', { replace: true });
+            if (r.ok) navigate(returnTo, { replace: true });
             else setError(r.error || t('auth.err_google'));
           }}
           onError={() => { setGoogleBusy(false); setError(t('auth.err_google')); }}
@@ -200,7 +210,7 @@ export default function LoginPage() {
       </div>
 
       <p className="auth-pied">
-        {t('auth.no_account')} <Link to="/register">{t('auth.create_account')}</Link>
+        {t('auth.no_account')} <Link to={authPageLink('/register', params)}>{t('auth.create_account')}</Link>
       </p>
     </AuthLayout>
   );

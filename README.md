@@ -1,12 +1,65 @@
+<!-- appfactory:hero:start -->
+<div align="center">
+
 # Précis Translator
 
-**Traduire un document sans lui faire perdre sa mise en forme.**
+### La traduction, sans sacrifier la mise en page.
 
-Le texte est relevé avec sa géométrie et ses styles, traduit, puis réinjecté
-dans le document d'origine — jamais reconstruit. PDF, PPTX, DOCX, XLSX.
+**Traduire PDF et documents Office avec des moteurs adaptés à chaque format, des aperçus progressifs et une architecture qui respecte le document d'origine.**
 
-Projet **1.1.0** · backend 1.1.0 · frontend 1.0.0 · moteurs PDF 1.0.0, PPTX
-1.0.0, DOCX 1.0.0, XLSX 1.0.0
+[![Formats: PDF DOCX PPTX XLSX](https://img.shields.io/badge/Formats-PDF%20DOCX%20PPTX%20XLSX-2563eb)](#formats-pris-en-charge)
+[![Approche: Fidelite du document](https://img.shields.io/badge/Approche-Fidelite%20du%20document-6d28d9)](#promesse-produit)
+[![API: FastAPI](https://img.shields.io/badge/API-FastAPI-0969da)](#architecture-de-traduction)
+[![Maturite: Beta](https://img.shields.io/badge/Maturite-Beta-orange)](#formats-pris-en-charge)
+
+[**Promesse**](#promesse-produit) · [**Formats**](#formats-pris-en-charge) · [**Architecture**](#architecture-de-traduction) · [**Limites**](#limites-et-transparence) · [**Démarrer**](backend/README.md) · [**Documentation**](ARCHITECTURE.md)
+
+</div>
+
+---
+<!-- appfactory:hero:end -->
+
+## Promesse produit
+
+**Un fichier traduit doit rester un document utilisable.** Précis Translator recherche la fidélité structurelle : extraction du texte avec sa géométrie et ses styles, traduction, puis réinjection à l'intérieur des conteneurs du document. L'approche ne garantit pas l'identité pixel par pixel de chaque fichier ; la recette dépend de la typographie, des documents et des moteurs.
+
+La séparation `api → services → engines` permet de tester les moteurs sans importer l'application FastAPI et de corriger les défauts de rendu à l'aide de documents synthétiques. [Consulter la conception](ARCHITECTURE.md).
+
+## Formats pris en charge
+
+**Maturité déclarée : beta.** Les moteurs PDF, DOCX, PPTX et XLSX possèdent du code et des guides dédiés, mais les cas limites doivent être vérifiés sur les documents représentatifs.
+
+| Format | Approche | Référence |
+| --- | --- | --- |
+| PDF numérique | Géométrie, polices et rendu progressif | [Moteur PDF](backend/engines/pdf/CONTEXTE.md) |
+| DOCX | Texte et structure Word | [Moteur DOCX](backend/engines/docx/CONTEXTE.md) |
+| PPTX | Texte et objets dans les diapositives | [Moteur PPTX](backend/engines/pptx/CONTEXTE.md) |
+| XLSX | Cellules, graphiques et contraintes de largeur | [Moteur XLSX](backend/engines/xlsx/CONTEXTE.md) |
+| PDF scanné | OCR implémenté (lecture page par page pendant la traduction, choix du client pour les pages illisibles), **pas encore ouvert au public** | [OCR en production](docs/ocr-production.md), [bilan](docs/bilan-ocr-deploiement.md), [étude pages illisibles](docs/etude-ocr-file-pages-illisibles.md) |
+
+**Versions :** le `package.json` de ce dépôt déclare actuellement `1.6.2`. Cette valeur ne prouve pas qu'une release correspondante soit effectivement déployée ; consulter les manifestes des moteurs, le [changelog](CHANGELOG.md) et les étapes de recette.
+
+## Architecture de traduction
+
+```mermaid
+flowchart LR
+  UI[React + Vite] --> API[FastAPI]
+  API --> JOB[Job / services]
+  JOB --> ENG[Engines PDF / DOCX / PPTX / XLSX]
+  ENG --> AI[Provider de traduction]
+  JOB --> SSE[Aperçu et progression SSE]
+```
+
+Les appels lourds ne doivent pas bloquer la boucle asynchrone. Les moteurs sont indépendants de l'API, et les caches de rendu sont versionnés pour éviter de servir d'anciens aperçus après un correctif.
+
+## Limites et transparence
+
+- La traduction de scans est implémentée mais pas ouverte au public tant que les points du [bilan OCR](docs/bilan-ocr-deploiement.md) ne sont pas réglés : ne pas la présenter comme livrée.
+- Les conversions peuvent nécessiter **LibreOffice** et des polices de repli ; la géométrie des documents complexes reste un risque de rendu.
+- Une batterie de tests locale n'est pas une garantie de fidélité sur tous les documents réels ; voir la [recette de production](docs/feuille-de-route-production.md).
+- L'utilisation du fournisseur de traduction, le déploiement et les paiements doivent être validés dans l'environnement concerné, sans secrets dans les exemples publics.
+
+**Périmètre du dépôt public :** vitrine et code visible. L'état exact du déploiement doit être vérifié séparément ; la présence d'un autre dépôt de développement n'est pas une preuve de synchronisation.
 
 ## Démarrer
 
@@ -34,7 +87,54 @@ aperçus non-PDF.
 | [`backend/engines/xlsx/CONTEXTE.md`](backend/engines/xlsx/CONTEXTE.md) | Le moteur XLSX — texte couvert (cellules, onglets, graphiques, commentaires, tableaux, croisés, formats) |
 | [`docs/feuille-de-route-production.md`](docs/feuille-de-route-production.md) | **Aller en production** : les 6 étapes dans l'ordre, qui fait quoi, et la preuve de chacune |
 | [`docs/deploiement.md`](docs/deploiement.md) | **Mettre en ligne** : machine AWS, configuration, HTTPS, limites connues |
-| [`docs/etude-ocr.md`](docs/etude-ocr.md) | Étude : traduire des PDF **scannés** (OCR) — feature à venir |
+| [`docs/etude-ocr.md`](docs/etude-ocr.md) | Étude initiale : traduire des PDF **scannés** (OCR) ; état actuel dans [`docs/ocr-production.md`](docs/ocr-production.md) |
+| [`docs/etude-traduction-images-pro.md`](docs/etude-traduction-images-pro.md) | Étude : traduire les images comme un studio de PAO (cases, alignement, contour, méthode « conteneur ») |
+| [`docs/etude-pdf-formes-cadres.md`](docs/etude-pdf-formes-cadres.md) | Étude : lettre cachée sous une forme dessinée, étiquettes posées dans deux cadres (moteur PDF) |
+| [`docs/etude-visionneuse-defilement.md`](docs/etude-visionneuse-defilement.md) | Étude : zoom qui coupait la page gauche, molette « un geste = une action » (visionneuse) |
+| [`docs/etude-pdf-superposition.md`](docs/etude-pdf-superposition.md) | Étude : dessin peint au-dessus du texte (lettrine), ordre de peinture et ancrage (moteur PDF) |
+| [`docs/etude-pdf-lettres-dessinees.md`](docs/etude-pdf-lettres-dessinees.md) | Étude : reconstituer un mot dont une lettre est dessinée, mise en valeur reportée sur la traduction (moteur PDF) |
+| [`docs/etude-pdf-centrage-cadre.md`](docs/etude-pdf-centrage-cadre.md) | Étude : texte centré dans une pastille ou un cadre, lettre dessinée à la taille du parent dominant (moteur PDF) |
+| [`docs/etude-visionneuse-ergonomie.md`](docs/etude-visionneuse-ergonomie.md) | Étude : ergonomie de la visionneuse comparée aux outils de référence, améliorations proposées |
+| [`docs/etude-visionneuse.md`](docs/etude-visionneuse.md) | Étude : visionneuse (navigation, molette, vignettes), fidélité de la retraduction compacte, originaux côté admin |
+| [`docs/etude-invitations.md`](docs/etude-invitations.md) | Étude : inviter des proches par e-mail — choix et points à trancher |
+| [`docs/etude-source-credits.md`](docs/etude-source-credits.md) | Étude : source des crédits — téléchargement et filigrane (gratuit, bêta, payant) |
+| [`docs/etude-frais-carte.md`](docs/etude-frais-carte.md) | Étude : frais propres au paiement par carte (Paddle) |
+| [`docs/etude-paddle-live.md`](docs/etude-paddle-live.md) | Étude : passer le paiement par carte en réel (build, nginx, étapes Paddle) |
+| [`docs/etude-normalisation-main.md`](docs/etude-normalisation-main.md) | Étude : corrections après fusion de main 1.6.2 (frais hors cartes, minimum carte Paddle, mentions sous les cartes) |
+| [`docs/etude-section-a-propos.md`](docs/etude-section-a-propos.md) | Étude : section « À propos » de l'accueil — structure recommandée et points à trancher |
+| [`docs/etude-pptx-traduction-apercu.md`](docs/etude-pptx-traduction-apercu.md) | Étude : PPTX non traduit (diapositives `slide1000.xml`, ordre réel) et aperçu qui clignote |
+| [`docs/etude-onglets-beta-pied.md`](docs/etude-onglets-beta-pied.md) | Étude : onglets admin cachés sur `/beta`, offre Bêta masquée si fermée, pied de barre latérale compact |
+| [`docs/etude-audit-beta.md`](docs/etude-audit-beta.md) | Étude : audit du programme bêta (écarts et décisions) |
+| [`docs/etude-anti-abus.md`](docs/etude-anti-abus.md) | Étude : anti-abus du gratuit et de la bêta (machine, cumul, e-mails jetables) |
+| [`docs/etude-interfaces-admin.md`](docs/etude-interfaces-admin.md) | Étude : refonte des interfaces d'administration (gabarit commun, campagne bêta, page /beta) |
+| [`docs/etude-fiche-utilisateur-integree.md`](docs/etude-fiche-utilisateur-integree.md) | Étude : fiche utilisateur à droite de la liste des comptes (plus de panneau latéral) |
+| [`docs/etude-historique-forfaits.md`](docs/etude-historique-forfaits.md) | Étude : historique des forfaits, fiche compte en pleine hauteur, tuiles cliquables |
+| [`docs/etude-navigation-integrations.md`](docs/etude-navigation-integrations.md) | Étude : barre partagée admin / pages d'intégration (Extension, API) |
+| [`docs/etude-menu-admin.md`](docs/etude-menu-admin.md)
+- [Étude — programmes Bêta multiples](docs/etude-programmes-beta.md) | Étude : « Administration » dans le menu principal, onglets admin dans la barre |
+- [Étude — fiche programme Bêta lisible](docs/etude-fiche-programme-beta.md)
+- [Étude — accès Bêta direct et fiche simplifiée](docs/etude-acces-beta-direct.md)
+- [Étude — aperçu d'un document aux fichiers disparus](docs/etude-apercu-fichier-manquant.md)
+- [Étude — page publique Bêta simplifiée](docs/etude-page-beta.md)
+| [`docs/etude-ocr-v2.md`](docs/etude-ocr-v2.md) | Étude : OCR v2 — lire, effacer et réécrire le texte d'une image (fonds chargés, japonais) |
+| [`docs/etude-ocr-file-pages-illisibles.md`](docs/etude-ocr-file-pages-illisibles.md) | Étude : OCR page par page en tâche de fond, file d'attente par priorité, choix du client sur une page illisible |
+| [`docs/bilan-ocr-deploiement.md`](docs/bilan-ocr-deploiement.md) | Bilan OCR pour le déploiement : mesures, limites, risques, check-list et décisions |
+| [`docs/etude-extension-navigateur.md`](docs/etude-extension-navigateur.md) | Étude : extension navigateur traduisant une page entière, images comprises après accord |
+| [`docs/etude-memoire-extension.md`](docs/etude-memoire-extension.md) | Étude : ne plus repayer une page déjà traduite (mémoire locale, texte compté au volume cumulé) |
+| [`docs/etude-images-documents.md`](docs/etude-images-documents.md) | Étude : traduire aussi les images à texte d'un document, avec le coût sans et avec images |
+| [`docs/etude-images-halo-encre-axe.md`](docs/etude-images-halo-encre-axe.md) | Étude : images traduites — halo des lettres, tailles des étiquettes sœurs, centrage dans les cases |
+| [`docs/etude-banc-public.md`](docs/etude-banc-public.md) | Étude : banc public de 50 images tirées au hasard dans des jeux publics (schémas AI2D, scans FUNSD/DocVQA, graphiques ChartQA, organigrammes et schémas de procédé Wikimedia) |
+| [`docs/etude-objets-incorpores.md`](docs/etude-objets-incorpores.md) | Étude : objets incorporés (Excel, Word, PowerPoint, graphiques…) — traduire leur contenu et régénérer leur aperçu |
+| [`docs/etude-interface-extension.md`](docs/etude-interface-extension.md) | Étude : habiller l'interface de l'extension aux couleurs du site (jetons, polices, logo) |
+| [`docs/etude-distribution-extension.md`](docs/etude-distribution-extension.md) | Étude : présenter l'extension et la faire installer sans effort |
+| [`docs/etude-connexion-extension.md`](docs/etude-connexion-extension.md) | Étude : l'extension se connecte par le site (code à usage unique + PKCE) |
+| [`docs/etude-limites-page-extension.md`](docs/etude-limites-page-extension.md) | Étude : bornes par page de l'extension (texte, lots, images) contre les abus |
+| [`docs/etude-analyse-images-extension.md`](docs/etude-analyse-images-extension.md) | Étude : analyse des images visibles avant l'accord, seules les traduisibles sont annoncées |
+| [`docs/etude-vitesse-images-extension.md`](docs/etude-vitesse-images-extension.md) | Étude : vitesse des images de l'extension (effacement allégé, 2 images à la fois, cache 30 jours) |
+| [`docs/etude-traduction-auto-extension.md`](docs/etude-traduction-auto-extension.md) | Étude : traduction automatique de l'extension (fenêtre popup, « toujours » par site, raccourci, proposition par détection de langue) |
+| [`docs/etude-apercu-admin.md`](docs/etude-apercu-admin.md) | Étude : aperçu admin d'un gros document (une seule conversion, bouton original, copie ouvrable, Journal des erreurs et lenteurs) |
+| [`docs/etude-nouveautes.md`](docs/etude-nouveautes.md) | Étude : page Nouveautés, fenêtre à la connexion (accueil puis « depuis votre dernière visite »), abonnement e-mail |
+| [`docs/fiches-boutiques-extension.md`](docs/fiches-boutiques-extension.md) | Textes à recopier pour les fiches Chrome Web Store et Edge Add-ons (permissions, données, visuels) |
 | [`docs/guide-premiere-mise-en-ligne.md`](docs/guide-premiere-mise-en-ligne.md) | Pas à pas de la toute première mise en ligne |
 | [`infra/aws/README.md`](infra/aws/README.md) | L'infrastructure AWS (CloudFormation, OIDC, secrets) |
 | `docs/api/index.html` | Les 32 opérations HTTP (`npm run docs:api`) |

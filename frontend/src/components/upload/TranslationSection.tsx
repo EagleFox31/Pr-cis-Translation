@@ -6,11 +6,18 @@ import CheckboxOption from '../ui/CheckboxOption';
 import {
   Check, ArrowRight, Loader2, Languages, Wand2, FileText,
   SlidersHorizontal, ChevronDown, ScanSearch, Info,
+  Image as ImageIcon, AlertTriangle,
 } from 'lucide-react';
 import FileUploader from './FileUploader';
 import LanguagePicker from './LanguagePicker';
 import { useAuth } from '../../contexts/AuthContext';
-import { findLang, isLangAvailable } from '../../lib/languages';
+import { baseCode, findLang, isLangAvailable } from '../../lib/languages';
+import { Link } from 'react-router-dom';
+import { useBeta, type BetaFormat } from '../../hooks/useBeta';
+import { useBetaPreference } from '../../hooks/useBetaPreference';
+import { BETA_FORMATS } from '../library/BetaAllowances';
+import { useAnalyseImages } from '../../hooks/useAnalyseImages';
+import ExtensionBanner from './ExtensionBanner';
 
 export interface TranslateConfig {
   file: File;
@@ -26,6 +33,11 @@ export interface TranslateConfig {
   /** Après un 402 « crédits insuffisants » : ne traduire que les pages
    *  couvertes par le solde (choix explicite de l'utilisateur). */
   coverOnly?: boolean;
+  /** Reprise d'un document interrompu : ses pages déjà payées ne sont pas redébitées. */
+  resumeOf?: string;
+  beta?: boolean;
+  /** Traduire aussi le texte des images (1 page par image remplacée). */
+  images?: boolean;
 }
 
 interface TranslationSectionProps {
@@ -62,16 +74,30 @@ function StepBadge({ n, done }: { n: number; done?: boolean }) {
   );
 }
 
+/** Nom de la langue dans la langue de l'interface : « anglais », « English »… */
+function nomLangue(code: string, interfaceLang: string): string {
+  try {
+    return new Intl.DisplayNames([interfaceLang], { type: 'language' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
 export default function TranslationSection({
   onStartTranslate, isTranslating, onLibraryOpen,
 }: TranslationSectionProps) {
-  const { t } = useI18n();
+  const { t, i18n } = useI18n();
 
   const [file, setFile] = useState<File | null>(null);
   const [targetLang, setTargetLang] = useState('en-US');
   const [pages, setPages] = useState('');
   const [structureMode, setStructureMode] = useState(false);
   const { user } = useAuth();
+  const betaAccess = useBeta(file?.name);
+  const [useBetaCredits, setUseBetaCredits] = useBetaPreference();
+  // La case ne sert que pour un accès actif et un format couvert par la bêta.
+  const betaUsable = betaAccess.data?.enrollment?.state === 'active'
+    && BETA_FORMATS.includes(file?.name.split('.').pop()?.toLowerCase() as BetaFormat);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [preciseMode, setPreciseMode] = useState(false);
   const [justReset, setJustReset] = useState(false);
@@ -108,6 +134,18 @@ export default function TranslationSection({
     if (f) setJustReset(false);
   };
 
+  // Images : le dépôt ne fait que les compter. Leur lecture se fait pendant la
+  // traduction et la proposition arrive à la fin, sur l'aperçu. Pas de
+  // proposition en bêta, en mode structure ni avec une plage de pages.
+  const { analyse, enCours: analyseEnCours } = useAnalyseImages(file, !!user);
+  // Langue d'arrivée identique à celle du document : simple avertissement.
+  const memeLangue = !!analyse?.langue && analyse.langue === baseCode(targetLang);
+  const imagesTrouvees = analyse?.images ?? 0;
+  const imagesBloquees = betaUsable && useBetaCredits ? 'beta'
+    : supportsStructure && structureMode ? 'structure'
+    : supportsPages && pages.trim() ? 'pages'
+    : null;
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!file || isTranslating) return;
@@ -118,6 +156,9 @@ export default function TranslationSection({
       pages: supportsPages ? pages.trim() : '',
       debug: supportsStructure && structureMode,
       precise: supportsPrecise && preciseMode,
+      beta: betaAccess.data ? betaUsable && useBetaCredits : undefined,
+      images: false,
+      onAccepted: () => { void betaAccess.refresh(); },
     });
   };
 
@@ -136,6 +177,16 @@ export default function TranslationSection({
       onSubmit={submit}
       style={{ display: 'flex', flexDirection: 'column', gap: '18px', flex: 1, width: '100%' }}
     >
+      <ExtensionBanner />
+      {betaAccess.data?.enrollment && (
+        <div className="beta-upload">
+          {betaUsable && <label><input type="checkbox" checked={useBetaCredits} disabled={isTranslating}
+            onChange={event => setUseBetaCredits(event.target.checked)} />
+            {t('beta.use_credits')}</label>}
+          <p>{t(`beta.states.${betaAccess.data.enrollment.state}`)} · <Link to="/beta">{t('beta.my_access')}</Link></p>
+          {betaUsable && <p>{t('beta.choice_hint')}</p>}
+        </div>
+      )}
       {/* En-tête — ancre le formulaire : le titre reste fixe quel que soit
           l'état, et annonce ce que fait la carte. */}
       <header style={{
@@ -231,7 +282,36 @@ export default function TranslationSection({
             <Wand2 size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
             {t('story.source_auto', 'La langue du document est détectée automatiquement.')}
           </span>
+          {memeLangue && (
+            <span role="status" style={{
+              display: 'flex', alignItems: 'flex-start', gap: '5px',
+              marginTop: '6px', fontSize: '12px', color: 'var(--gray-700)',
+            }}>
+              <AlertTriangle size={13} strokeWidth={2} style={{ flexShrink: 0, marginTop: '1px', color: 'var(--gold)' }} />
+              {t('story.same_language', { langue: nomLangue(analyse?.langue ?? '', i18n.language) })}
+            </span>
+          )}
         </div>
+
+        {/* Images à texte : l'option n'existe que si l'analyse en a trouvé. */}
+        {analyseEnCours && (
+          <span role="status" style={{
+            display: 'inline-flex', alignItems: 'center', gap: '6px',
+            fontSize: '11.5px', color: 'var(--gray-500)',
+          }}>
+            <Loader2 size={12} strokeWidth={2} className="animate-spin" style={{ flexShrink: 0 }} />
+            {t('story.images_analysing')}
+          </span>
+        )}
+        {imagesTrouvees > 0 && !imagesBloquees && (
+          <span role="status" style={{
+            display: 'inline-flex', alignItems: 'flex-start', gap: '6px',
+            fontSize: '11.5px', color: 'var(--gray-500)',
+          }}>
+            <ImageIcon size={12} strokeWidth={2} style={{ flexShrink: 0, marginTop: '2px' }} />
+            {t('story.images_note', { count: imagesTrouvees })}
+          </span>
+        )}
 
         {/* Options avancées — repliées : elles servent à des cas particuliers
             (extrait, diagnostic) et n'apparaissent que pour les formats qui les

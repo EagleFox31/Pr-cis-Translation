@@ -29,7 +29,7 @@ PLAN_STORAGE: dict[str, int] = {
 # plafond de ce type ».
 
 PLAN_PAGE_LIMIT: dict[str, int | None] = {
-    "free":       1,      # l'essai porte sur une page, et une seule
+    "free":       None,   # le quota mensuel borne aussi les fichiers Office entiers
     "starter":    None,
     "pro":        None,
     "enterprise": None,
@@ -37,7 +37,7 @@ PLAN_PAGE_LIMIT: dict[str, int | None] = {
 }
 
 PLAN_MONTHLY_PAGES: dict[str, int | None] = {
-    "free":       1,      # 1 page offerte / mois, puis paiement à la page
+    "free":       5,      # 5 pages équivalentes / mois, tous formats, export inclus
     "starter":    100,
     "pro":        500,
     "enterprise": None,   # illimité, cadré par contrat
@@ -73,9 +73,8 @@ PLAN_LABELS: dict[str, str] = {
     "admin":      "Admin",
 }
 
-# Le SEUL plan sans droits (ni téléchargement, ni aperçu en clair). On nomme
-# l'exception plutôt que d'énumérer les plans payants : ajouter un plan ne doit
-# pas obliger à penser à l'inscrire ici.
+# Le SEUL plan sans abonnement. Les droits sur un document sont accordés
+# à sa réservation (offre gratuite, bêta, forfait ou achat), pas à ce seul nom.
 FREE_PLAN = "free"
 
 

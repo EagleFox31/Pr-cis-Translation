@@ -1161,8 +1161,87 @@ def _p34_capitales_puis_casse_mixte(eng):
              and any("Peace" in t for t in textes), str(textes))]
 
 
+def _p35_pile_centree(eng):
+    """En-tête officiel : lignes SEULES centrées sur un même axe, séparées par
+    des blancs (filets « ------- »). Aucune n'est symétrique dans son cadre
+    (la colonne est polluée par l'en-tête voisin) : chacune passait ferrée à
+    gauche et la traduction, plus longue ou plus courte, perdait l'axe. C'est
+    la PILE qui parle, comme pour le fer à droite."""
+    gauche = ["STATE OF NORTHLAND", "Unity - Labour - Progress",
+              "OFFICE OF THE TREASURER", "GENERAL BUREAU OF PUBLIC REVENUE"]
+    droite = ["ETAT DU NORDLAND", "Unite - Travail - Progres",
+              "BUREAU DU TRESORIER", "DIRECTION GENERALE DES RECETTES"]
+    taille, ys = 8, (40, 51, 74, 98)
+    doc = fitz.open()
+    pg = doc.new_page(width=595, height=842)
+    for lignes, axe in ((gauche, 145), (droite, 443)):
+        for l, y in zip(lignes, ys):
+            pg.insert_text((axe - fitz.get_text_length(l, "helv", taille) / 2, y),
+                           l, fontname="helv", fontsize=taille)
+    pg.insert_text((52, 160), "Tax office: NORTH 4", fontname="helv", fontsize=9)
+    pg.insert_text((52, 300), "Body text of the page, unrelated to the header, "
+                   "long enough to span the column.", fontname="helv", fontsize=10)
+    pd = eng.extract_page_data(doc, 0, doc[0], embed_images=False)
+    paras = [el for el in pd["elements"] if el.get("type") == "paragraph"]
+    pile = [p for p in paras if any(k in (p.get("text") or "") for k in gauche)]
+    aligns = [p.get("align") for p in pile]
+    axes = [round((p["container_bbox"][0] + p["container_bbox"][2]) / 2, 1)
+            for p in pile if p.get("container_bbox")]
+    corps = next((p for p in paras if "Body text" in (p.get("text") or "")), {})
+    return [("P35  pile de lignes seules centrées : toutes centrées",
+             len(pile) == 4 and all(a == "center" for a in aligns), str(aligns)),
+            ("P35  conteneur de chaque ligne centré sur l'axe de la pile",
+             len(axes) == 4 and all(abs(a - 145) <= 3 for a in axes), str(axes)),
+            ("P35  un paragraphe seul ferré à gauche le reste",
+             corps.get("align") == "left", str(corps.get("align")))]
+
+
+def _p36_forme_et_cadres(eng):
+    """(a) Initiale colorée : une lettre grise recouverte d'une FORME pleine
+    (non rectangulaire) peinte après elle est cachée ; elle ne doit pas
+    repasser au-dessus au rendu. Une forme qui n'en couvre qu'une partie, ou
+    peinte AVANT le texte, laisse le texte visible. (b) Deux étiquettes, chacune
+    dans SON cadre et serrées l'une contre l'autre, restent deux textes ; deux
+    mots dans un même cadre restent une seule ligne."""
+    gris, rouge = (0.25, 0.25, 0.25), (0.93, 0.27, 0.18)
+    doc = fitz.open()
+    pg = doc.new_page(width=400, height=300)
+    pg.insert_text((20, 50), "Seiri", fontname="helv", fontsize=20, color=gris)
+    pg.draw_circle((26.5, 43), 11, color=None, fill=rouge)        # cache « S »
+    pg.insert_text((20, 100), "Orbit", fontname="helv", fontsize=20, color=gris)
+    pg.draw_circle((22, 93), 6, color=None, fill=rouge)           # « O » visible
+    pg.draw_circle((26.5, 143), 11, color=None, fill=rouge)       # forme AVANT
+    pg.insert_text((20, 150), "Under", fontname="helv", fontsize=20, color=gris)
+    pg.draw_rect(fitz.Rect(20, 186, 73.5, 217), color=rouge, width=1)
+    pg.draw_rect(fitz.Rect(75.5, 186, 140, 217), color=(0, 0, 0), width=1)
+    pg.insert_text((24, 205), "Necessary", fontname="helv", fontsize=10)
+    pg.insert_text((77, 205), "Unnecessary", fontname="helv", fontsize=10)
+    pg.draw_rect(fitz.Rect(20, 240, 200, 270), color=(0, 0, 0), width=1)
+    pg.insert_text((26, 259), "Two words", fontname="helv", fontsize=10)
+    pg.insert_text((86, 259), "same box", fontname="helv", fontsize=10)
+    pd = eng.extract_page_data(doc, 0, pg, embed_images=False)
+    textes = [el.get("text") or "" for el in pd["elements"]
+              if el.get("type") == "paragraph"]
+    tout = " | ".join(textes)
+    return [("P36  piège armé (le « S » caché reste lisible par fitz)",
+             "Seiri" in pg.get_text(), ""),
+            # Avant 1.0.14 la lettre masquée était retirée (« eiri » seul).
+            # Désormais une forme unie peinte après une initiale de mot est une
+            # « lettre dessinée = style » : le mot entier est conservé, la
+            # lettre porte la couleur de la forme, le dessin n'est pas repeint.
+            ("P36  initiale sous une forme unie : mot entier, lettre stylée",
+             "Seiri" in textes, tout[:80]),
+            ("P36  forme partielle ou peinte avant : le texte reste",
+             "Orbit" in tout and "Under" in tout, tout[:80]),
+            ("P36  deux étiquettes dans deux cadres : deux textes",
+             "Necessary" in textes and "Unnecessary" in textes, str(textes)),
+            ("P36  deux mots dans un même cadre : une seule ligne",
+             any("Two words" in t and "same box" in t for t in textes),
+             str(textes))]
+
+
 def run():
-    scratch = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+    scratch =os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "_generic_tmp")
     os.makedirs(scratch, exist_ok=True)
     pdf = build(os.path.join(scratch, "synthetique.pdf"))
@@ -1749,7 +1828,9 @@ def run():
                              + _p31_gras_synthetique(eng)
                              + _p33_images_jumelles(eng)
                              + _p32_italique_synthetique(eng)
-                             + _p34_capitales_puis_casse_mixte(eng)):
+                             + _p34_capitales_puis_casse_mixte(eng)
+                             + _p35_pile_centree(eng)
+                             + _p36_forme_et_cadres(eng)):
         ok(nom, bon, detail)
 
     # ── Rapport ─────────────────────────────────────────────────────────────

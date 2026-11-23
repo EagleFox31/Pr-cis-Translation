@@ -20,7 +20,7 @@
  * deux unités qu'on ne peut pas rapporter l'une à l'autre de tête.
  */
 import { useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
@@ -29,7 +29,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import { usePricing, formatMoney, type PricingPlan } from '../../hooks/usePricing';
 import { formatSize } from '../../lib/format';
 import Skeleton from '../ui/Skeleton';
-import PaymentModal from '../payment/PaymentModal';
+import BetaOffer from './BetaOffer';
+import { useBetaProgram } from '../../hooks/useBetaProgram';
+import PaymentModal from '../payment/LazyPaymentModal';
 import { openSupport } from '../support/supportBus';
 import type { PlanChoice } from '../../hooks/usePayment';
 
@@ -46,8 +48,6 @@ interface Feature {
 /** Les lignes d'une carte, dans la langue de l'interface. */
 function features(
   plan: PricingPlan,
-  p: { currency: string; decimals: number; page_price: number },
-  locale: string,
   t: TFunction,
 ): Feature[] {
   const stockage = (): Feature => ({
@@ -69,12 +69,9 @@ function features(
 
   if (plan.key === 'free') {
     return [
-      { text: t('pricing.feat_free_page') },
-      // LE point de l'offre gratuite : au-delà de la page offerte, on paie
-      // l'unité, sans s'engager. Le prix est annoncé ici, pas découvert au
-      // moment de payer.
-      { text: t('pricing.feat_free_then', {
-          price: formatMoney(p.page_price, p.currency, p.decimals, locale) }) },
+      { text: t('pricing.feat_free_page', { count: plan.monthly_pages ?? 0 }) },
+      { text: t('pricing.feat_all_formats') },
+      { text: t('pricing.feat_download') },
       vitesse(),
       { text: t('pricing.feat_free_no_storage'), off: true },
     ];
@@ -116,10 +113,15 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
   // Achat de pages à l'unité, sans forfait.
   const [packOpen, setPackOpen] = useState(false);
   const [packPages, setPackPages] = useState(2);
+  // Offre Bêta seulement quand on peut y candidater : fermée, pleine ou
+  // terminée, elle promettrait 30 jours que personne ne peut obtenir.
+  const { program: betaProgram } = useBetaProgram();
+  const beta = betaProgram?.applications_open ? betaProgram : null;
+  const gridClass = 'pricing-grid';
 
   if (loading) {
     return (
-      <div className="pricing-grid">
+      <div className={gridClass}>
         {[0, 1, 2, 3].map((i) => (
           <div key={i} className="pricing-card">
             <Skeleton height={260} />
@@ -132,7 +134,9 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
   // Le serveur n'a pas répondu. On le dit, plutôt que d'afficher des prix de
   // secours qui pourraient ne plus être ceux pratiqués.
   if (!pricing) {
-    return <p className="pricing-indispo">{t('pricing.unavailable')}</p>;
+    return <div className={gridClass}>
+      <p className="pricing-indispo">{t('pricing.unavailable')}</p>
+    </div>;
   }
 
   const locale = i18n.language || 'fr';
@@ -148,11 +152,13 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
 
   return (
     <>
-    <div className="pricing-grid">
+    <div className={gridClass}>
       {pricing.plans.map((plan, idx) => {
         const isActive = user ? user.plan === plan.key : false;
         const isPopular = plan.key === 'pro';
+        // Prix net du forfait : les frais n'apparaissent que dans la fenêtre de paiement.
         const amount = isAnnual ? plan.annual : plan.monthly;
+        const billedTotal = amount === null ? null : amount * (isAnnual ? 12 : 1);
         const onQuote = amount === null;
         const forSale = plan.for_sale && !onQuote;
         const renew = isActive && forSale && until !== null;
@@ -203,14 +209,16 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
 
             {/* L'engagement annuel se facture à l'année : le dire ici évite de
                 laisser croire qu'on peut résilier au mois à ce prix-là. */}
-            {isAnnual && !onQuote && amount !== 0 && (
-              <p className="pricing-annuel">{t('pricing.billed_annually')}</p>
+            {isAnnual && billedTotal !== null && billedTotal !== 0 && (
+              <p className="pricing-annuel">{t('pricing.billed_annually_total', {
+                total: formatMoney(billedTotal, pricing.currency, pricing.decimals, locale),
+              })}</p>
             )}
 
             <div className="pricing-divider" />
 
             <ul className="pricing-features">
-              {features(plan, pricing, locale, t).map((f, i) => (
+              {features(plan, t).map((f, i) => (
                 <li key={i} className={f.off ? 'unavailable' : ''}>{f.text}</li>
               ))}
             </ul>
@@ -236,28 +244,64 @@ export default function PricingCards({ isAnnual }: PricingCardsProps) {
       })}
     </div>
 
-    {/* Payer à la page, sans s'abonner : une offre à part entière, sous la
-        grille, et non un lien accroché à la seule carte Gratuit. Les pages
-        achetées restent créditées sur le compte jusqu'à leur utilisation. */}
-    <div className="pricing-payg">
-      <div>
-        <p className="pricing-payg__title">{t('pricing.payg_title')}</p>
-        <p className="pricing-payg__text">
-          {t('pricing.payg_text', {
-            price: formatMoney(pricing.page_price, pricing.currency, pricing.decimals, locale) })}
-        </p>
+    {/* Sous la grille. Bêta ouverte : bêta à gauche, achat à la page à
+        droite, même structure pour que les deux se comparent. Sinon : le
+        bandeau d'achat à la page d'origine, seul. Les pages achetées restent
+        créditées sur le compte jusqu'à leur utilisation. */}
+    {beta ? <div className="pricing-duo">
+      <BetaOffer program={beta} />
+      <div className="pricing-strip pricing-strip--payg">
+        <div>
+          <p className="pricing-strip__title">{t('pricing.payg_title')}</p>
+          <p className="pricing-strip__text">{t('pricing.payg_lead')}</p>
+        </div>
+        <a href={user ? '#' : '/login'} className="btn-pricing pricing-strip__btn"
+           onClick={(e) => { e.preventDefault(); if (user) setPackOpen(true); else navigate('/login'); }}>
+          {t('pricing.buy_pages')}
+        </a>
+        <ul className="pricing-strip__chips">
+          {(['price', 'no_expiry', 'prepaid', 'no_commitment'] as const).map((k) => (
+            <li key={k}><Trans i18nKey={`pricing.payg_chips.${k}`} components={{ b: <b /> }}
+              values={{ price: formatMoney(pricing.page_price, pricing.currency, pricing.decimals, locale) }} /></li>
+          ))}
+        </ul>
       </div>
-      <a href={user ? '#' : '/login'} className="btn-pricing pricing-payg__btn"
-         onClick={(e) => { e.preventDefault(); if (user) setPackOpen(true); else navigate('/login'); }}>
-        {t('pricing.buy_pages')}
-      </a>
-    </div>
+    </div> : (
+      <div className="pricing-payg">
+        <div>
+          <p className="pricing-payg__title">{t('pricing.payg_title')}</p>
+          <p className="pricing-payg__text">
+            {t('pricing.payg_text', {
+              price: formatMoney(pricing.page_price, pricing.currency, pricing.decimals, locale) })}
+          </p>
+        </div>
+        <a href={user ? '#' : '/login'} className="btn-pricing pricing-payg__btn"
+           onClick={(e) => { e.preventDefault(); if (user) setPackOpen(true); else navigate('/login'); }}>
+          {t('pricing.buy_pages')}
+        </a>
+      </div>
+    )}
+
+    {/* Règle commune aux forfaits et à l'achat à la page : en fin de section,
+        avec un exemple chiffré plutôt qu'une formule. */}
+    <section className="pricing-units" aria-labelledby="pricing-units-title">
+      <h3 id="pricing-units-title">{t('pricing.units.title')}</h3>
+      <ul>
+        <li><strong>PDF</strong> {t('pricing.units.pdf')}</li>
+        <li><strong>PowerPoint</strong> {t('pricing.units.pptx')}</li>
+        <li><strong>{t('pricing.units.text_formats')}</strong> {t('pricing.units.words', { count: pricing.words_per_page })}</li>
+      </ul>
+      <p>{t('pricing.units.example', {
+        words: Math.round(pricing.words_per_page * 2.4).toLocaleString(locale),
+        pages: Math.ceil(Math.round(pricing.words_per_page * 2.4) / pricing.words_per_page) })}</p>
+    </section>
 
     <PaymentModal
       open={payOpen && buying !== null}
       onClose={() => setPayOpen(false)}
       pages={0}
       plan={buying ?? undefined}
+      onPlanAnnualChange={(annual) => setBuying((b) => (b ? { ...b, annual } : b))}
       label={buying ? t('payment.plan_label', { plan: buying.label }) : ''}
       onPaid={() => { void refreshUser(); }}
     />

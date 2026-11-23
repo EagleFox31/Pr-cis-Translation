@@ -10,6 +10,8 @@ export default function PlanToggle({ isAnnual, onChange }: PlanToggleProps) {
 
   return (
     <div
+      role="group"
+      aria-label={`${t('pricing.monthly')} / ${t('pricing.annual')}`}
       style={{
         display: 'flex',
         background: 'var(--gray-100)',
@@ -32,12 +34,20 @@ export default function PlanToggle({ isAnnual, onChange }: PlanToggleProps) {
           boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
           transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
           zIndex: 1,
+          pointerEvents: 'none',
         }}
       />
-      <div
+      <button
+        type="button"
+        aria-pressed={!isAnnual}
         onClick={() => onChange(false)}
         style={{
           flex: 1,
+          border: 0,
+          borderRadius: '26px',
+          background: 'transparent',
+          cursor: 'pointer',
+          fontFamily: 'inherit',
           textAlign: 'center',
           padding: '8px 16px',
           fontSize: '13px',
@@ -50,11 +60,18 @@ export default function PlanToggle({ isAnnual, onChange }: PlanToggleProps) {
         }}
       >
         {t('pricing.monthly')}
-      </div>
-      <div
+      </button>
+      <button
+        type="button"
+        aria-pressed={isAnnual}
         onClick={() => onChange(true)}
         style={{
           flex: 1,
+          border: 0,
+          borderRadius: '26px',
+          background: 'transparent',
+          cursor: 'pointer',
+          fontFamily: 'inherit',
           textAlign: 'center',
           padding: '8px 16px',
           fontSize: '13px',
@@ -70,7 +87,7 @@ export default function PlanToggle({ isAnnual, onChange }: PlanToggleProps) {
         <span style={{ color: '#1a4dc7', fontSize: '11px', fontWeight: 700 }}>
           {t('pricing.discount')}
         </span>
-      </div>
+      </button>
     </div>
   );
 }

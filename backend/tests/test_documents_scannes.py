@@ -209,7 +209,7 @@ async def _verifier_endpoint(scan: bytes) -> int:
     import uuid
     from datetime import datetime, timezone
 
-    from fastapi import UploadFile
+    from fastapi import Response, UploadFile
     from sqlalchemy import select
 
     from app import config as cfg
@@ -223,7 +223,8 @@ async def _verifier_endpoint(scan: bytes) -> int:
         # (sinon la route emprunte la branche « offerte », qui ne débite rien —
         # et le test passerait sans rien prouver).
         u = User(email=email, name="Essai scan", plan="free",
-                 email_verified=True, page_credits=25)
+                 email_verified=True, page_credits=25,
+                 created_at=racine.compte_ancien())
         db.add(u)
         await db.flush()
         db.add(Document(user_id=u.id, original_name="deja.pdf",
@@ -235,24 +236,23 @@ async def _verifier_endpoint(scan: bytes) -> int:
         uid, solde_avant = u.id, u.page_credits
 
         televerse = UploadFile(filename="scan.pdf", file=io.BytesIO(scan))
-        # Un scan lisible passe maintenant par l'OCR. Ici on verifie encore
-        # le contrat de non-debit quand la reconnaissance echoue.
+        # Un scan est accepte et lu pendant le travail. Seule une panne du
+        # service se refuse a l'envoi : le contrat de non-debit y reste entier.
         from unittest.mock import patch
-        from app.services.ocr import OCRError
-        with patch("app.api.translate.prepare_scanned_pdf", side_effect=OCRError("Scan illisible. Aucune page decomptee.")):
+        with patch("app.api.translate.Tesseract.manquant", return_value="programme"):
             reponse = await translate_endpoint(
-                request=None, file=televerse, target_lang="en",
+                request=racine.requete_test(), response=Response(), file=televerse, target_lang="en",
                 format_options="{}", quality="fast", precise="", pages="",
                 debug="", x_api_key=cfg.FRONTEND_API_KEY,
                 current_user=u, db=db)
 
-        check(getattr(reponse, "status_code", None) == 422,
-              "un scan pur est REFUSE (422)",
+        check(getattr(reponse, "status_code", None) == 503,
+              "OCR en panne : le scan est REFUSE (503)",
               str(getattr(reponse, "status_code", reponse)))
 
         import json as _json
         corps = _json.loads(bytes(reponse.body).decode())
-        check(corps.get("reason") == "scanned_document",
+        check(corps.get("reason") == "ocr_unavailable",
               "le motif est au PREMIER niveau, comme pour need_credits",
               str(list(corps)))
         check(isinstance(corps.get("detail"), str),

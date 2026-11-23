@@ -25,7 +25,6 @@ eng.slide_count()                          # sans tout décompresser
 eng.extract_slide(n)                       # une seule diapositive
 eng.inject_slide(n, translation_map)
 eng.build_partial_pptx(sortie, jusqu_a=n, only_slides={…})
-eng.regenerate_ole_previews(only_slides={…})
 ```
 
 ## Trois pièges déjà payés
@@ -95,8 +94,10 @@ page fantôme. D'où une garde d'**existence** en plus du compte.
 
 ## Limites connues
 
-* les objets OLE non-Excel ne sont pas régénérés — leur aperçu reste celui
-  d'origine ;
+* les aperçus des objets incorporés sont redessinés par
+  `engines/apercus.py` (via `incorpores.reinjecter`) ; une icône, un objet lié,
+  ou une page Word/PowerPoint aux proportions trop éloignées (> 10 %) gardent
+  l'aperçu d'origine ;
 * `_auto_refresh_powerpoint()` (COM/PowerShell) n'existe que sur Windows **avec
   PowerPoint installé** ; ce n'est pas un chemin de production ;
 * les SmartArt sont traduits dans leur XML de données, mais leur rendu mis en

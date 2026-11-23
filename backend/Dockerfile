@@ -63,6 +63,13 @@ WORKDIR /app
 COPY backend/requirements.txt ./backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
+# ── Poids PP-OCRv6 (lecture des images) — BLOQUANT ──────────────────────────
+# ~30 Mo, non versionnés. Révision figée et SHA-256 contrôlé : un fichier
+# différent de celui mesuré sur le banc fait échouer la construction. Le script
+# seul est copié avant le code : la couche reste en cache tant qu'il ne change pas.
+COPY backend/scripts/telecharger_ppocr.py ./backend/scripts/telecharger_ppocr.py
+RUN python backend/scripts/telecharger_ppocr.py
+
 # ── Le code ──────────────────────────────────────────────────────────────────
 COPY backend/ ./backend/
 
