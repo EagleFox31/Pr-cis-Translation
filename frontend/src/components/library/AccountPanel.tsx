@@ -89,8 +89,14 @@ export default function AccountPanel({ user, refreshKey, onClose }: AccountPanel
   }, [ouvert]);
   const jour = (iso?: string | null) => {
     const d = iso ? new Date(iso) : null;
-    return !d || Number.isNaN(d.getTime()) ? '—'
-      : d.toLocaleDateString(i18n.language, { day: 'numeric', month: 'short', year: 'numeric' });
+    if (!d || Number.isNaN(d.getTime())) return '—';
+    // Mois en toutes lettres, année seulement si ce n'est pas l'année en cours.
+    const texte = d.toLocaleDateString(i18n.language, {
+      day: 'numeric', month: 'long',
+      ...(d.getFullYear() !== new Date().getFullYear() && { year: 'numeric' }),
+    });
+    // Usage français : « 1er décembre », pas « 1 décembre ».
+    return i18n.language.startsWith('fr') && d.getDate() === 1 ? texte.replace(/^1(?=\s)/, '1er') : texte;
   };
 
   // Une seule date au replié : renouvellement (gratuit) ou expiration.
