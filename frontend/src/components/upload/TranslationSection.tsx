@@ -178,7 +178,6 @@ export default function TranslationSection({
       onSubmit={submit}
       style={{ display: 'flex', flexDirection: 'column', gap: '18px', flex: 1, width: '100%' }}
     >
-      <ExtensionBanner />
       {betaAccess.data?.enrollment && (
         <div className="beta-upload">
           {betaUsable && <label><input type="checkbox" checked={useBetaCredits} disabled={isTranslating}
@@ -278,7 +277,7 @@ export default function TranslationSection({
           </div>
           <span style={{
             display: 'inline-flex', alignItems: 'center', gap: '5px',
-            marginTop: '7px', fontSize: '11.5px', color: 'var(--gray-500)',
+            marginTop: '7px', fontSize: '12.5px', color: 'var(--gray-500)',
           }}>
             <Wand2 size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
             {t('story.source_auto', 'La langue du document est détectée automatiquement.')}
@@ -480,13 +479,15 @@ export default function TranslationSection({
         {!file && !isTranslating && (
           <span style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
-            marginTop: '8px', fontSize: '11.5px', color: 'var(--gray-500)',
+            marginTop: '8px', fontSize: '12.5px', color: 'var(--gray-500)',
           }}>
             <Info size={12} strokeWidth={2} />
             {t('story.cta_hint', 'Choisissez un document pour commencer.')}
           </span>
         )}
       </div>
+      {/* Après la tâche, jamais avant : une ligne discrète, refermable. */}
+      <ExtensionBanner discret />
     </form>
   );
 }

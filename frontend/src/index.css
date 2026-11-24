@@ -1135,7 +1135,7 @@ html:has(.about-section) { background: var(--navy); }
   color: var(--gray-500);
   line-height: 1.7;
   max-width: 560px;
-  font-weight: 300;
+  font-weight: 400;
   margin-top: 14px;
 }
 
@@ -1154,12 +1154,17 @@ html:has(.about-section) { background: var(--navy); }
   background: #fff;
   padding: 26px 30px;
   border-radius: 16px;
-  box-shadow: var(--shadow-lg);
-  border: 1px solid var(--gray-100);
+  /* Carte posée sur la page : filet gris, petite ombre au plus (DESIGN.md). */
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--gray-200);
   height: 100%;
-  min-height: 580px;
   display: flex;
   flex-direction: column;
+}
+/* Plancher de hauteur : seulement sur deux colonnes ; empilée, la carte
+   n'a pas à s'aligner sur la colonne des étapes (trou sous l'aide de langue). */
+@media (min-width: 1025px) {
+  .story-form-card { min-height: 580px; }
 }
 /* Mobile : carte à plat — cadre fin et fond blanc qui la détachent de la
    section, sans ombre ni plancher de hauteur, marges intérieures réduites. */
@@ -1196,20 +1201,31 @@ html:has(.about-section) { background: var(--navy); }
   .story-visual {
     height: auto !important;
   }
+  /* Étapes resserrées : titre seul, le formulaire remonte. */
+  .story-steps { margin-top: 24px; }
+  .story-step-content { padding: 6px 0 14px; }
+  .story-step:last-child .story-step-content { padding-bottom: 0; }
+  .story-step p { display: none; }
+  .story-step-num { width: 32px; height: 32px; font-size: 12px; }
+  .story-step h3 { margin-bottom: 0; }
 }
 .story-steps {
   display: flex;
   flex-direction: column;
   gap: 0;
-  margin-top: 40px;
+  margin: 40px 0 0;
+  padding: 0;
+  list-style: none;
 }
 .story-step {
   display: flex;
   gap: 20px;
   position: relative;
-  padding-bottom: 36px;
 }
-.story-step:last-child { padding-bottom: 0; }
+/* L'espace entre étapes est porté par le texte, pas par l'étape : la colonne
+   du numéro s'étire donc jusqu'à l'étape suivante et le fil est continu. */
+.story-step-content { padding-bottom: 36px; }
+.story-step:last-child .story-step-content { padding-bottom: 0; }
 .story-step-line {
   display: flex;
   flex-direction: column;
@@ -1228,9 +1244,7 @@ html:has(.about-section) { background: var(--navy); }
   font-size: 13px;
   font-weight: 500;
   flex-shrink: 0;
-  transition: background var(--transition);
 }
-.story-step:hover .story-step-num { background: var(--blue); }
 .story-step-connector {
   width: 1px;
   flex: 1;

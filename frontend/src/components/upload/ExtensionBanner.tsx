@@ -19,7 +19,7 @@ function dejaRefuse(): boolean {
 }
 
 /** Invitation unique et refermable à installer l'extension (ordinateur, connecté, non installée). */
-export default function ExtensionBanner() {
+export default function ExtensionBanner({ discret = false }: { discret?: boolean }) {
   const { t } = useTranslation();
   const { user } = useAuth();
   const { installe } = useExtensionInstalled();
@@ -37,7 +37,7 @@ export default function ExtensionBanner() {
   };
 
   return (
-    <aside className="ext-banner" aria-label={t('extension_page.banner.label')}>
+    <aside className={`ext-banner${discret ? ' ext-banner--discret' : ''}`} aria-label={t('extension_page.banner.label')}>
       <span className="ext-banner__text">{t('extension_page.banner.text')}</span>
       <Link to="/extension" className="ext-banner__link">{t('extension_page.banner.link')}</Link>
       <button type="button" className="ext-banner__close" onClick={fermer} aria-label={t('extension_page.banner.close')}>
