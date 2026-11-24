@@ -117,7 +117,11 @@ export default function AccountPanel({ user, refreshKey, onClose }: AccountPanel
   const actif = surBeta && enrollment && qBeta
     ? { nom: `${t('account.beta_name')} · ${t(`beta.formats.${fmtBeta}`)}`,
         dispo: qBeta.remaining, total: qBeta.limit, unite: qBeta.unit, illimite: false, date: expireBeta }
-    : { nom: nomForfait, dispo: restantes, total, unite: 'pages', illimite, date: dateForfait };
+    : !illimite && restantes === 0 && credits > 0
+      // Forfait épuisé (ou compte gratuit sans pages offertes) : ce sont les
+      // pages achetées qui seront débitées.
+      ? { nom: t('account.detail_credits'), dispo: credits, total: 0, unite: 'pages', illimite: false, date: '' }
+      : { nom: nomForfait, dispo: restantes, total, unite: 'pages', illimite, date: dateForfait };
   const qte = (cle: string, valeur: number) =>
     t(cle, { count: valeur, n: valeur.toLocaleString(i18n.language) });
   const pret = surBeta ? !!qBeta : !!usage;

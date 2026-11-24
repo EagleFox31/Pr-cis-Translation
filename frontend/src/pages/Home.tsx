@@ -610,6 +610,16 @@ export default function Home() {
 
   // ---- Download (le résultat complet, une fois la traduction terminée) ----
   const rafraichirSolde = useCallback(() => { refresh(); refreshUser(); }, [refresh, refreshUser]);
+  // Le serveur débite à l'acceptation (document créé) et rembourse à la fin :
+  // le solde et « Mes documents » suivent sans recharger la page.
+  useEffect(() => {
+    if (stream.documentId) rafraichirSolde();
+  }, [stream.documentId, rafraichirSolde]);
+  const traduisaitAvant = useRef(false);
+  useEffect(() => {
+    if (traduisaitAvant.current && !stream.isTranslating) rafraichirSolde();
+    traduisaitAvant.current = stream.isTranslating;
+  }, [stream.isTranslating, rafraichirSolde]);
   // Pages encore libres après un règlement : l'aperçu en cours se met à jour
   // sans attendre une nouvelle traduction.
   const [libresReglees, setLibresReglees] = useState<Record<string, number>>({});
