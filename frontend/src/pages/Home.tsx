@@ -1045,7 +1045,7 @@ export default function Home() {
           n'a pas de lien « Accueil » : le logo seul y ramène). */}
       <button
         type="button"
-        className={`retour-haut${activeSection !== 'hero' && !showPreview ? ' retour-haut--visible' : ''}`}
+        className={`retour-haut${activeSection !== 'hero' && activeSection !== 'story' && !showPreview ? ' retour-haut--visible' : ''}`}
         onClick={() => handleNavClick('hero')}
         aria-label={t('nav.backToTop')} title={t('nav.backToTop')}
         tabIndex={activeSection !== 'hero' && !showPreview ? 0 : -1}

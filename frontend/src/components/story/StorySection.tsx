@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { motion, useTransform } from 'motion/react';
+import { motion, useReducedMotion, useTransform } from 'motion/react';
 import { useScrollProgress } from '../../lib/useScrollProgress';
 import { useEffect, useRef } from 'react';
 import { Check, Lock, Minus, X } from 'lucide-react';
@@ -205,6 +205,8 @@ export default function StorySection({
 
   const storyScrollProgress = useScrollProgress(storyRef, 'cross');
   const storyVisualY = useTransform(storyScrollProgress, [0, 1], [40, -40]);
+  // Glissement de la carte coupé si l'utilisateur réduit les animations.
+  const reduireAnimations = useReducedMotion();
 
   return (
     <section
@@ -220,74 +222,6 @@ export default function StorySection({
         padding: showPreview ? '0' : '40px 0',
       }}
     >
-      {/* Floating BG elements (only when not in preview) */}
-      {!showPreview && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            pointerEvents: 'none',
-            zIndex: 0,
-          }}
-        >
-          <motion.div
-            animate={{ y: [0, 20, 0], rotate: [0, -10, 0] }}
-            transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }}
-            style={{
-              position: 'absolute',
-              top: '20%',
-              right: '10%',
-              opacity: 0.1,
-              color: 'var(--blue)',
-            }}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth="1.5"
-              stroke="currentColor"
-              style={{ width: '90px', height: '90px' }}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-.778.099-1.533.284-2.253"
-              />
-            </svg>
-          </motion.div>
-          <motion.div
-            animate={{ y: [0, -20, 0], rotate: [0, 15, 0] }}
-            transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut', delay: 2 }}
-            style={{
-              position: 'absolute',
-              bottom: '15%',
-              left: '10%',
-              opacity: 0.1,
-              color: 'var(--gold)',
-            }}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth="1.5"
-              stroke="currentColor"
-              style={{ width: '80px', height: '80px' }}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607zM10.5 7.5v6m3-3h-6"
-              />
-            </svg>
-          </motion.div>
-        </div>
-      )}
-
       <div
         className="section-inner"
         style={{
@@ -313,11 +247,11 @@ export default function StorySection({
               />
               <p className="section-desc">{t('story.desc')}</p>
 
-              <div className="story-steps">
+              <ol className="story-steps">
                 {[1, 2, 3, 4].map((step) => (
-                  <div key={step} className="story-step">
+                  <li key={step} className="story-step">
                     <div className="story-step-line">
-                      <div className="story-step-num">
+                      <div className="story-step-num" aria-hidden="true">
                         {String(step).padStart(2, '0')}
                       </div>
                       {step < 4 && <div className="story-step-connector" />}
@@ -326,15 +260,15 @@ export default function StorySection({
                       <h3>{t(`story.step${step}_title`)}</h3>
                       <p>{t(`story.step${step}_desc`)}</p>
                     </div>
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ol>
             </div>
 
             {/* Right: Translation Widget */}
             <motion.div
               className="story-visual"
-              style={{ height: '100%', y: storyVisualY }}
+              style={{ height: '100%', y: reduireAnimations ? 0 : storyVisualY }}
             >
               {/* Carte sur grand écran ; à plat, pleine largeur sur mobile
                   (`.story-form-card`, index.css) pour rendre la place au formulaire. */}
