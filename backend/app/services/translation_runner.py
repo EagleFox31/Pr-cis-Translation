@@ -1363,11 +1363,34 @@ def _reprendre_retouches(translation_path: str, brut: bytes, instantane: str) ->
         os.replace(tmp, translation_path)
 
 
+def _pause_au_plafond(job_id, original_path, pages_set, plafond):
+    """Limite d'aperçu atteinte : seules les `plafond` premières pages de la
+    sélection sont traduites, puis le job se met en pause (reprise possible
+    plus tard, docs/etude-apercu-pages-libres.md, Retour 4)."""
+    if not plafond:
+        return None
+    if pages_set:
+        visees = sorted(pages_set)
+    else:
+        with fitz.open(original_path) as d:
+            visees = list(range(1, d.page_count + 1))
+    permises = set(visees[:plafond])
+
+    def avant_page(page: int) -> None:
+        jobs.verifier_arret(job_id)     # pause manuelle déjà demandée : elle prime
+        if page not in permises:
+            jobs.marquer_pause_limite(job_id)
+            jobs.demander_arret(job_id, "paused")
+            jobs.verifier_arret(job_id)
+    return avant_page
+
+
 def run_pdf_v2_job(
     job_id: str, file_bytes: bytes, original_path: str,
     output_path: str, output_filename: str, partial_path: str,
     translation_path: str, target_lang: str, pages_set=None, debug: bool = False,
     images: bool = False, user_id: str | None = None, budget: int | None = None,
+    plafond: int | None = None,
 ):
     """Pipeline PDF v2 PROGRESSIF : chaque page est extraite, traduite et rendue
     avant la suivante. Le PDF partiel grandit page après page — le client
@@ -1438,6 +1461,7 @@ def run_pdf_v2_job(
             arret=arret,
             images=table_images or None,
             lecteur_ocr=lecteur,
+            avant_page=_pause_au_plafond(job_id, original_path, pages_set, plafond),
             pages_originales=ocr_pages.pages_originales(translation_path),
             signaler_illisibles=True,
             pages_non_incluses=non_incluses,

@@ -20,7 +20,7 @@ import type { ReactNode } from 'react';
 import { motion } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import {
-  Eye, Download, Trash2, Lock, AlertTriangle, Loader2, RotateCcw, Flag, Pause, X, ScanText, Check,
+  Eye, Download, Trash2, Lock, AlertTriangle, Loader2, RotateCcw, Languages, Flag, Pause, X, ScanText, Check,
   FileType2, FileText, Presentation, Sheet, File as FileIcon,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -52,6 +52,8 @@ interface DocumentCardProps {
   onDownload: (doc: DocMeta) => void;
   onDelete: (id: string) => void;
   onRetry?: (doc: DocMeta) => void;
+  /** « Traduire à nouveau » : relance depuis l'original, langue au choix. */
+  onRetranslate?: (doc: DocMeta) => void;
   onStop?: (doc: DocMeta, mode: StopMode) => Promise<void>;
   /** Mode sélection : la ligne devient une case à cocher, sans actions. */
   selection?: { cochee: boolean; onBasculer: () => void };
@@ -69,7 +71,7 @@ function scinder(nom: string): [string, string] {
 }
 
 export default function DocumentCard({
-  doc, trial, busy, onPreview, onDownload, onDelete, onRetry, onStop,
+  doc, trial, busy, onPreview, onDownload, onDelete, onRetry, onRetranslate, onStop,
   selection, archiveActive, onArchive,
 }: DocumentCardProps) {
   const { t, i18n } = useTranslation();
@@ -94,9 +96,8 @@ export default function DocumentCard({
 
   const termine = !enCours && !enErreur && !reprise;
   const apercuPossible = !archive && !reprise && !(enErreur && !livrable);
-  // Terminé mais non réglé : pas d'aperçu, la ligne propose le forfait (le même
-  // chemin que « Débloquer »).
-  const aDebloquer = termine && verrouille && !archive;
+  // Terminé mais non réglé : la ligne rouvre l'aperçu filigrané (le serveur le
+  // voile) ; le paiement reste sur le lien rapide « Débloquer ».
 
   const demanderArret = (mode: StopMode) => {
     if (!onStop) return;
@@ -136,12 +137,15 @@ export default function DocumentCard({
     if (arrete && onRetry) {
       entrees.push({ key: 'reprendre', label: t('library.resume'), icon: icone(RotateCcw), onSelect: () => onRetry(doc) });
     }
-    // Pas d'« Aperçu » pendant la traduction, ni sur un document à débloquer.
-    if (apercuPossible && !enCours && !aDebloquer) {
+    // Pas d'« Aperçu » pendant la traduction.
+    if (apercuPossible && !enCours) {
       entrees.push({ key: 'apercu', label: t('library.preview'), icon: icone(Eye), apres: 'fenetre', onSelect: () => onPreview(doc) });
     }
     if (termine && !verrouille) {
       entrees.push({ key: 'telecharger', label: t('library.download'), icon: icone(Download), onSelect: () => onDownload(doc) });
+    }
+    if (termine && onRetranslate) {
+      entrees.push({ key: 'retraduire', label: t('library.retranslate'), icon: icone(Languages), apres: 'fenetre', onSelect: () => onRetranslate(doc) });
     }
     if (livrable && !verrouille) {
       entrees.push({ key: 'partiel', label: t('library.download_partial_menu'), icon: icone(Download), onSelect: () => onDownload(doc) });
@@ -256,13 +260,13 @@ export default function DocumentCard({
   const classes = ['doc', rapide && !selection ? 'doc--quick' : '', archive ? 'doc--archive' : '',
     selection ? 'doc--select' : '', selection?.cochee ? 'doc--coche' : '',
     archiveActive && !selection ? 'doc--actif' : ''].filter(Boolean).join(' ');
-  const ouvrable = (apercuPossible || aDebloquer) && !busy;
+  const ouvrable = apercuPossible && !busy;
   // Clic sur la ligne : cocher (sélection), expliquer (archivé) ou ouvrir.
   const auClic = selection
     ? selection.onBasculer
     : archive
       ? onArchive
-      : ouvrable ? () => (aDebloquer ? onDownload(doc) : onPreview(doc)) : undefined;
+      : ouvrable ? () => onPreview(doc) : undefined;
   // Sous-ligne = description du bouton (son nom reste le nom du fichier) ; elle
   // est masquée au nom pour ne pas être lue deux fois.
   const idSousLigne = `doc-sub-${doc.id}`;

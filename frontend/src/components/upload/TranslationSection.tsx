@@ -6,17 +6,17 @@ import CheckboxOption from '../ui/CheckboxOption';
 import {
   Check, ArrowRight, Loader2, Languages, Wand2, FileText,
   SlidersHorizontal, ChevronDown, ScanSearch, Info,
-  Image as ImageIcon,
+  Image as ImageIcon, AlertTriangle,
 } from 'lucide-react';
 import FileUploader from './FileUploader';
 import LanguagePicker from './LanguagePicker';
 import { useAuth } from '../../contexts/AuthContext';
-import { findLang, isLangAvailable } from '../../lib/languages';
+import { baseCode, findLang, isLangAvailable } from '../../lib/languages';
 import { Link } from 'react-router-dom';
 import { useBeta, type BetaFormat } from '../../hooks/useBeta';
 import { useBetaPreference } from '../../hooks/useBetaPreference';
 import { BETA_FORMATS } from '../library/BetaAllowances';
-import { useAnalyseImages, formatAvecImages } from '../../hooks/useAnalyseImages';
+import { useAnalyseImages } from '../../hooks/useAnalyseImages';
 import ExtensionBanner from './ExtensionBanner';
 
 export interface TranslateConfig {
@@ -74,10 +74,19 @@ function StepBadge({ n, done }: { n: number; done?: boolean }) {
   );
 }
 
+/** Nom de la langue dans la langue de l'interface : « anglais », « English »… */
+function nomLangue(code: string, interfaceLang: string): string {
+  try {
+    return new Intl.DisplayNames([interfaceLang], { type: 'language' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
 export default function TranslationSection({
   onStartTranslate, isTranslating, onLibraryOpen,
 }: TranslationSectionProps) {
-  const { t } = useI18n();
+  const { t, i18n } = useI18n();
 
   const [file, setFile] = useState<File | null>(null);
   const [targetLang, setTargetLang] = useState('en-US');
@@ -128,7 +137,9 @@ export default function TranslationSection({
   // Images : le dépôt ne fait que les compter. Leur lecture se fait pendant la
   // traduction et la proposition arrive à la fin, sur l'aperçu. Pas de
   // proposition en bêta, en mode structure ni avec une plage de pages.
-  const { analyse, enCours: analyseEnCours } = useAnalyseImages(file, !!user && formatAvecImages(ext));
+  const { analyse, enCours: analyseEnCours } = useAnalyseImages(file, !!user);
+  // Langue d'arrivée identique à celle du document : simple avertissement.
+  const memeLangue = !!analyse?.langue && analyse.langue === baseCode(targetLang);
   const imagesTrouvees = analyse?.images ?? 0;
   const imagesBloquees = betaUsable && useBetaCredits ? 'beta'
     : supportsStructure && structureMode ? 'structure'
@@ -271,6 +282,15 @@ export default function TranslationSection({
             <Wand2 size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
             {t('story.source_auto', 'La langue du document est détectée automatiquement.')}
           </span>
+          {memeLangue && (
+            <span role="status" style={{
+              display: 'flex', alignItems: 'flex-start', gap: '5px',
+              marginTop: '6px', fontSize: '12px', color: 'var(--gray-700)',
+            }}>
+              <AlertTriangle size={13} strokeWidth={2} style={{ flexShrink: 0, marginTop: '1px', color: 'var(--gold)' }} />
+              {t('story.same_language', { langue: nomLangue(analyse?.langue ?? '', i18n.language) })}
+            </span>
+          )}
         </div>
 
         {/* Images à texte : l'option n'existe que si l'analyse en a trouvé. */}

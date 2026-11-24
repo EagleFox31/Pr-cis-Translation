@@ -44,8 +44,9 @@ GRANT_DAYS = 35
 MACHINE_OTHER_ACCOUNTS = 2
 IP_PAGES_24H = 30
 NEW_ACCOUNT_HOURS = 24
-# Mode libre : pages traduites en aperçu sans solde, plafonnées par compte et par appareil.
-LIBRE_MAX_PAGES = 20
+# Mode libre : pages traduites en aperçu sans solde. Plafond par compte et par
+# appareil sur 24 h ; None = aperçu illimité (décision du 22/11/2026).
+LIBRE_MAX_PAGES: int | None = None
 LIBRE_WINDOW = timedelta(hours=24)
 
 _COOKIE = re.compile(r"[A-Za-z0-9_-]{32}\.[a-f0-9]{64}")
@@ -238,9 +239,37 @@ async def libre_used(db, user_id: str, machine_id: str | None, now=None) -> int:
     return int(max(by_user, by_machine))
 
 
+async def libre_reprise(db, user_id: str, machine_id: str | None, besoin: int,
+                        now=None) -> datetime | None:
+    """Heure à laquelle `besoin` pages libres tiennent de nouveau sous le plafond :
+    les plus anciennes attributions sortent de la fenêtre une à une, pour le compte
+    comme pour l'appareil (le plus tardif des deux). None si `besoin` dépasse à lui
+    seul le plafond."""
+    if LIBRE_MAX_PAGES is None or besoin > LIBRE_MAX_PAGES:
+        return None
+    since = aware(now or utcnow()) - LIBRE_WINDOW
+    reprise = None
+    cles = [LibreGrant.user_id == user_id]
+    if machine_id:
+        cles.append(LibreGrant.machine_id == machine_id)
+    for cle in cles:
+        lignes = (await db.execute(select(LibreGrant.created_at, LibreGrant.pages).where(
+            cle, LibreGrant.created_at >= since).order_by(LibreGrant.created_at))).all()
+        reste = sum(pages for _, pages in lignes)
+        for creee, pages in lignes:
+            if reste + besoin <= LIBRE_MAX_PAGES:
+                break
+            reste -= pages
+            moment = aware(creee) + LIBRE_WINDOW
+            reprise = moment if reprise is None or moment > reprise else reprise
+    return reprise
+
+
 def record_libre(db, user, machine_id: str | None, pages: int, now=None):
-    db.add(LibreGrant(user_id=user.id, machine_id=machine_id, pages=pages,
-                      created_at=now or utcnow()))
+    attribution = LibreGrant(id=new_uuid(), user_id=user.id, machine_id=machine_id,
+                             pages=pages, created_at=now or utcnow())
+    db.add(attribution)
+    return attribution
 
 
 async def purge(db, now=None):

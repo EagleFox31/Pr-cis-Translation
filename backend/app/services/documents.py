@@ -268,9 +268,44 @@ def pages_libres_du_document(doc) -> set[int]:
         return set()
     sel = pages_selectionnees(doc)
     visees = sorted(sel) if sel else list(range(1, (doc.page_count or 0) + 1))
-    hors = {int(p) for p in reglages_de(doc).get("hors_libres") or []}
+    reglages = reglages_de(doc)
+    plafond = int(reglages.get("plafond") or 0)
+    if plafond > 0:
+        # Pause à la limite d'aperçu : la sélection s'arrête au plafond.
+        visees = visees[:plafond]
+    hors = {int(p) for p in reglages.get("hors_libres") or []}
     visees = [p for p in visees if p not in hors]
     return set(visees[-n:])
+
+
+def borner_libres_a_l_arret(doc) -> int:
+    """Pause ou annulation d'un document en aperçu : ses pages libres se
+    réduisent à celles déjà traduites (les premières de leur zone) et la
+    sélection s'arrête juste après (`plafond`), pour qu'une reprise les
+    retrouve. Renvoie le nombre de pages libres non traduites, à rendre au
+    plafond de 24 h."""
+    import json
+    zone = sorted(pages_libres_du_document(doc))
+    sel = _selection_du_document(doc)
+    if not zone or sel is None:
+        return 0
+    chemin, ext, pages = sel
+    faites = pages_traduites(chemin, ext, pages, doc.page_count or 0)
+    # Atteintes : toutes les pages de la zone jusqu'à la dernière traduite
+    # (le moteur avance dans l'ordre). Une page vide ou illisible au milieu
+    # a été parcourue : elle ne rend pas au plafond les pages vues après elle.
+    k = max((i + 1 for i, p in enumerate(zone) if p in faites), default=0)
+    if k == len(zone):
+        return 0
+    visees = sorted(pages) if pages else list(range(1, (doc.page_count or 0) + 1))
+    reglages = reglages_de(doc)
+    if visees.index(zone[0]) + k > 0:
+        reglages["plafond"] = visees.index(zone[0]) + k
+    else:
+        reglages.pop("plafond", None)   # 0 se lirait « pas de plafond »
+    doc.reglages = json.dumps(reglages)
+    doc.pages_libres = k
+    return len(zone) - k
 
 
 def chemin_traduction_du_document(doc) -> str | None:

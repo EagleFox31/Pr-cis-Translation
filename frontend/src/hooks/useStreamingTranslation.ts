@@ -43,6 +43,8 @@ export interface StreamingState {
   canReadClear: boolean;
   /** Pages traduites en aperçu sans être payées (mode libre). */
   pagesLibres: number;
+  /** Numéros de ces pages libres : l'aperçu les voile une à une. */
+  pagesLibresNumeros: number[];
   /** Document enregistré pour cette traduction (réponse de `/api/translate`) :
    *  permet d'agir sur ses pages illisibles avant même la fin. */
   documentId: string | null;
@@ -85,6 +87,7 @@ export interface StreamingState {
 const EMPTY: StreamingState = {
   canReadClear: false,
   pagesLibres: 0,
+  pagesLibresNumeros: [],
   documentId: null,
   ocrPages: 0,
   isTranslating: false,
@@ -248,6 +251,8 @@ export function useStreamingTranslation(deviceSignals = true) {
           if (typeof useBeta === 'boolean') formData.append('use_beta', useBeta ? '1' : '0');
           if (resumeOf) formData.append('resume_of', resumeOf);
           if (images) formData.append('images', '1');
+          // Choix explicite après un 402 « limite d'aperçu » : traduire jusqu'à
+          // la limite, le serveur met le document en pause tout seul.
 
           // `authHeader()` est INDISPENSABLE ici, pas décoratif : le backend lit
           // l'utilisateur via `optional_auth`. Sans token il voit un visiteur
@@ -286,13 +291,14 @@ export function useStreamingTranslation(deviceSignals = true) {
             throw new Error(detail);
           }
           const { job_id, document_id, ocr_pages, can_download, read_clear, pages_libres,
-            images: imagesAcceptees } = await startRes.json();
+            pages_libres_numeros, images: imagesAcceptees } = await startRes.json();
           setState((s) => ({
             ...s,
             // Pages payées en clair, même s'il reste des pages libres : le
             // serveur filigrane celles-ci page par page.
             canReadClear: (read_clear ?? can_download) === true,
             pagesLibres: typeof pages_libres === 'number' ? pages_libres : 0,
+            pagesLibresNumeros: Array.isArray(pages_libres_numeros) ? pages_libres_numeros : [],
             documentId: typeof document_id === 'string' ? document_id : null,
             ocrPages: typeof ocr_pages === 'number' ? ocr_pages : 0,
           }));

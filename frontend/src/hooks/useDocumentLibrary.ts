@@ -90,6 +90,8 @@ export interface DocMeta {
   /** Pages traduites mais non payées (mode libre) : visibles en aperçu
    *  filigrané, absentes du fichier tant qu'elles ne sont pas achetées. */
   pagesLibres: number;
+  /** Numéros de ces pages libres : l'aperçu les voile une à une. */
+  pagesLibresNumeros: number[];
   /** Nombre de pages — sert à calculer ce que coûtera son déblocage. */
   pageCount: number;
   /** `translating` · `done` · `error` · `interrupted` (serveur arrêté en
@@ -139,6 +141,7 @@ function toMeta(d: any): DocMeta {
     ext: d.original_name.split('.').pop()?.toLowerCase() ?? 'pdf',
     paid: !!d.paid,
     pagesLibres: d.pages_libres ?? 0,
+    pagesLibresNumeros: Array.isArray(d.pages_libres_numeros) ? d.pages_libres_numeros : [],
     pageCount: d.page_count ?? 1,
     status: d.status ?? 'done',
     pagesDone: d.pages_done ?? 0,
@@ -236,7 +239,7 @@ export function useDocumentLibrary() {
     // (rien n'est persisté, donc rien n'est payé).
     meta: Omit<DocMeta,
       'id' | 'date' | 'sizeByes' | 'filename' | '_blob'
-      | 'paid' | 'pagesLibres' | 'pageCount' | 'status' | 'pagesDone'
+      | 'paid' | 'pagesLibres' | 'pagesLibresNumeros' | 'pageCount' | 'status' | 'pagesDone'
       | 'sourceLang' | 'archive' | 'accesJusquAu'> & { sourceLang?: string },
   ): Promise<string> => {
     const id = crypto.randomUUID();
@@ -246,6 +249,7 @@ export function useDocumentLibrary() {
       sizeByes: blob.size,
       paid: false,
       pagesLibres: 0,
+      pagesLibresNumeros: [],
       pageCount: 1,
       status: 'done',
       pagesDone: 1,

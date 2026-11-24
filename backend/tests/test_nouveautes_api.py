@@ -17,7 +17,7 @@ Base PostgreSQL requise (DATABASE_URL, port 5433 en local).
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import sys
 import uuid
 
@@ -42,9 +42,9 @@ _eng = create_async_engine(DATABASE_URL, poolclass=NullPool)
 async_session = async_sessionmaker(_eng, class_=AsyncSession, expire_on_commit=False)
 
 
-async def _compte(vues_le=None):
+async def _compte(vues_le=None, vues=None):
     u = User(email=f"nouv-{uuid.uuid4().hex[:10]}@example.com", email_verified=True,
-             nouveautes_vues_le=vues_le)
+             nouveautes_vues_le=vues_le, nouveautes_vues=vues)
     async with async_session() as db:
         db.add(u)
         await db.commit()
@@ -68,10 +68,20 @@ async def run():
     attendus = [e["id"] for e in catalogue.FONCTIONNALITES
                 if e["date"] > dates[-2] and e.get("audience", "tous") == "tous"]
 
+    publics = [e for e in catalogue.FONCTIONNALITES if e.get("audience", "tous") == "tous"]
+    tous_ids = [e["id"] for e in publics]
+    maintenant = datetime.now(timezone.utc)
+    # Transition (liste nulle) : vu = daté de plus de 7 jours avant la visite.
+    limite = (maintenant - timedelta(days=7)).date().isoformat()
+    attendus_transition = [e["id"] for e in publics if e["date"] > limite]
+    oublie = min(publics, key=lambda e: e["date"])["id"]
+
     neuf = await _compte()
-    ancien = await _compte(avant_dernier)
-    a_jour = await _compte(datetime.now(timezone.utc))
-    users = [neuf.id, ancien.id, a_jour.id]
+    ancien = await _compte(avant_dernier, [e["id"] for e in publics if e["date"] <= dates[-2]])
+    a_jour = await _compte(maintenant, tous_ids)
+    transition = await _compte(maintenant)
+    manque = await _compte(maintenant, [i for i in tous_ids if i != oublie])
+    users = [neuf.id, ancien.id, a_jour.id, transition.id, manque.id]
 
     def ent(u, lang=None):
         h = {"Authorization": "Bearer " + create_access_token(u.id, u.email)}
@@ -104,6 +114,12 @@ async def run():
             r = client.get("/api/nouveautes/a-voir", headers=ent(a_jour)).json()
             ok("A-VOIR  rien de neuf : rien à afficher",
                r == {"mode": None, "depuis": None, "elements": []}, r)
+            r = client.get("/api/nouveautes/a-voir", headers=ent(manque)).json()
+            ok("A-VOIR  daté avant la visite mais jamais vu : montré",
+               [e["id"] for e in r["elements"]] == [oublie], r)
+            r = client.get("/api/nouveautes/a-voir", headers=ent(transition)).json()
+            ok("A-VOIR  compte antérieur : 7 derniers jours avant la visite",
+               sorted(e["id"] for e in r["elements"]) == sorted(attendus_transition), r)
 
             # 3. VUES
             r = client.post("/api/nouveautes/vues", headers=ent(ancien))
@@ -111,6 +127,11 @@ async def run():
             ok("VUES    date posée", (await _relire(ancien.id)).nouveautes_vues_le is not None)
             r = client.get("/api/nouveautes/a-voir", headers=ent(ancien)).json()
             ok("VUES    a-voir devient vide", r["mode"] is None and r["elements"] == [], r)
+            client.post("/api/nouveautes/vues", headers=ent(transition))
+            ok("VUES    liste posée (compte antérieur)",
+               set((await _relire(transition.id)).nouveautes_vues or []) == set(tous_ids))
+            r = client.get("/api/nouveautes/a-voir", headers=ent(transition)).json()
+            ok("VUES    compte antérieur : plus rien", r["elements"] == [], r)
             me = client.get("/api/auth/me", headers=ent(ancien)).json()
             ok("ME      champs nouveautés", me.get("nouveautes_vues_le")
                and me.get("abonne_nouveautes") is False, me)
