@@ -20,7 +20,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import TRANSLATIONS_DIR, logger
-from app.services import beta, extension, images_document, ocr_pages, render_cache, stockage, translation_runner, usage
+from app.services import avis_document, beta, extension, images_document, ocr_pages, render_cache, stockage, translation_runner, usage
 from app.services.beta_meter import BetaCost
 from app.models.plans import get_plan_priority
 from app.services.scheduler import scheduler_scans
@@ -31,6 +31,7 @@ from app.services.documents import (chemin_traduction_du_document, pages_libres_
                                     traduction_partielle_du_document)
 from app.services.jobs import STATUTS_ARRET, STATUTS_REPRENABLES, jobs
 from app.services.office import convert_to_pdf_bytes
+from app.services.documents import FORMATS_LIBRES
 from app.services.translation_runner import render_translation_bytes
 from app.core.database import get_db
 from app.models import User, Document, is_paid_plan
@@ -108,6 +109,22 @@ def _sans_pages_retirees(pdf: bytes, trad: str,
     with fitz.open(stream=pdf, filetype="pdf") as d:
         total = len(d)
     return _garder_pages(pdf, set(range(1, total + 1)) - retirees)
+
+
+def _sans_diapositives(pptx: bytes, retirees: set[int]) -> bytes:
+    """Retire de la présentation les diapositives `retirees` (positions
+    1-basées). Les parties devenues orphelines ne sont pas réécrites."""
+    import io
+    from pptx import Presentation
+    prs = Presentation(io.BytesIO(pptx))
+    liste = prs.slides._sldIdLst
+    for pos, sld in reversed(list(enumerate(list(liste), start=1))):
+        if pos in retirees:
+            prs.part.drop_rel(sld.rId)
+            liste.remove(sld)
+    out = io.BytesIO()
+    prs.save(out)
+    return out.getvalue()
 
 
 def _inside_store(path: str) -> bool:
@@ -374,6 +391,12 @@ def _doc_response(doc: Document, user: User) -> dict:
         "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
         "archive": acces_archive(user, doc),
         "acces_jusqu_au": fin.isoformat() if fin else None,
+        # Messages de la traduction (OCR, objets, cohérence…) : l'écran les
+        # réaffiche quand on rouvre le document. Pendant la traduction,
+        # `translated_path` n'est pas encore posé : chemin prévu du job. Un
+        # document en erreur n'a pas de traduction à commenter.
+        "avis": [] if doc.status == "error" else avis_document.lire(
+            doc.translated_path or chemin_traduction_du_document(doc)),
     }
 
 
@@ -419,7 +442,8 @@ async def download_document(
     user: User = Depends(require_auth),
     db: AsyncSession = Depends(get_db),
     # « Continuer » de la fenêtre des pages libres : fichier limité aux pages
-    # payées (PDF). En dernier, comme `as` sur /original.
+    # payées (PDF, PowerPoint ; Word : PDF des pages payées). En dernier, comme
+    # `as` sur /original.
     sans_libres: str | None = Query(None),
 ):
     """Téléchargement du fichier traduit (ou original si pas encore traduit).
@@ -446,7 +470,10 @@ async def download_document(
     # dont les pages libres ne se règlent pas (voir `regler_libres`).
     libres = pages_libres_du_document(doc)
     arret = livrables is not None
-    retirer = (libres if doc.paid and (arret or (sans_libres == "1" and ext == "pdf"))
+    # Word partiel = PDF des pages payées (une coupe du .docx décale la mise en
+    # page) ; PowerPoint partiel = présentation sans les diapositives libres.
+    retirer = (libres if doc.paid and (arret or (sans_libres == "1"
+                                                 and ext in FORMATS_LIBRES))
                else set())
     # Liste d'AUTORISATION : un plan inconnu est traité comme non payant.
     if trad and not retirer and not _may_read_clear(user, doc):
@@ -454,11 +481,12 @@ async def download_document(
             return JSONResponse(status_code=402, content={
                 "reason": "pages_libres", "pages_libres": doc.pages_libres,
                 "detail": "Des pages de cette traduction ne sont pas payées."})
-        raise HTTPException(
-            status_code=402,
-            detail="Cette traduction n'est pas payée. Achetez ses pages pour "
-                   "la télécharger.",
-        )
+        # Aucune page payée : le nombre de pages permet au client d'annoncer
+        # l'achat nécessaire au lieu d'un simple refus.
+        return JSONResponse(status_code=402, content={
+            "reason": "non_paye", "pages": doc.page_count or 1,
+            "detail": "Cette traduction n'est pas payée. Achetez ses pages pour "
+                      "la télécharger."})
 
     # Pas encore de traduction : on rend l'original (le fichier de l'utilisateur).
     if not trad:
@@ -483,6 +511,9 @@ async def download_document(
     # pas) et, pour le PDF, on CONSERVE le résultat — la lenteur ne se paie
     # qu'une fois.
     def _build() -> bytes:
+        if retirer and livrables is None and ext == "docx":
+            # Le rendu de l'aperçu (en cache) : le fichier livré lui est identique.
+            return _rendu_pdf_complet(doc, ext, trad)
         if livrables is not None:       # partiel : jamais le cache, voir `_traduction`
             data = _render_or_404(doc, ext, only_pages=livrables, trad=trad)
             # Le TÉLÉCHARGEMENT d'un arrêt ne livre que les pages traduites :
@@ -508,7 +539,12 @@ async def download_document(
         if not livrables:
             raise HTTPException(status_code=402, detail="Aucune page payée à livrer.")
     data = await run_in_threadpool(_build)
-    if ext == "pdf" and livrables is None:
+    if retirer and livrables is None and ext == "docx":
+        data = await run_in_threadpool(_sans_pages_retirees, data, trad, retirer)
+        ext = "pdf"
+    elif retirer and livrables is None and ext == "pptx":
+        data = await run_in_threadpool(_sans_diapositives, data, retirer)
+    elif ext == "pdf" and livrables is None:
         # Une seule coupe, numéros de l'original : couper en deux fois
         # décalerait les numéros de la seconde.
         data = await run_in_threadpool(_sans_pages_retirees, data, trad,
@@ -904,105 +940,6 @@ async def choisir_image(
     await run_in_threadpool(images_document.marquer_originale, copie, choix.cle, choix.originale)
     await run_in_threadpool(_invalider_rendu, copie)
     return {"cle": choix.cle, "originale": choix.originale}
-
-
-# ── Proposition de traduire les images (option D1, retours 18/11 §3) ────────
-# Les images à texte ont été lues pendant la traduction, sans débit. Le client
-# voit « N images sur M contiennent du texte à traduire » et décide ; l'offre
-# reste ouverte tant que le document existe.
-
-# Documents dont l'acceptation est en cours (un double clic ne débite qu'une fois).
-_images_en_acceptation: set[str] = set()
-
-
-def _proposition_du_document(doc: Document) -> dict:
-    ext = os.path.splitext(doc.original_name)[1].lstrip(".").lower()
-    if ext not in images_document.IMAGES_PROPOSABLES or not reglages_de(doc).get("images"):
-        return {"etat": "aucune", "n": 0, "total": 0}
-    if images_document._lire_meta(doc.translated_path) is not None:
-        return {"etat": "faite", "n": 0, "total": 0}
-    dossier = translation_runner.dossier_images(doc.translated_path)
-    prop = images_document.lire_proposition(dossier)
-    if prop is not None:
-        return {"etat": prop.get("etat", "aucune"), "n": int(prop.get("n") or 0),
-                "total": int(prop.get("total") or 0)}
-    if not translation_runner.proposition_en_cours(dossier):
-        # Calcul perdu (redémarrage, cache purgé) : relancé depuis l'original.
-        try:
-            with open(doc.original_path, "rb") as f:
-                donnees = f.read()
-        except (OSError, TypeError):
-            return {"etat": "aucune", "n": 0, "total": 0}
-        translation_runner.lancer_proposition(donnees, ext, doc.target_lang, dossier)
-    return {"etat": "en_cours", "n": 0, "total": 0}
-
-
-def _table_depuis_le_cache(doc: Document) -> tuple[dict[str, bytes], dict]:
-    ext = os.path.splitext(doc.original_name)[1].lstrip(".").lower()
-    with open(doc.original_path, "rb") as f:
-        donnees = f.read()
-    langue = doc.target_lang
-    return images_document.traduire_images(
-        donnees, ext, lambda t: extension.traduire_textes(t, langue),
-        translation_runner.dossier_images(doc.translated_path), None,
-        analyse=images_document.analyse_complete(donnees, ext), langue=langue)
-
-
-@router.get("/{doc_id}/images/proposition")
-async def proposition_images(
-    doc_id: str,
-    user: User = Depends(require_auth),
-    db: AsyncSession = Depends(get_db),
-):
-    """État de la proposition : `en_cours`, `pret` (n images à texte sur
-    total), `faite` (images déjà traduites) ou `aucune`."""
-    doc = await _doc_traduit(db, user, doc_id)
-    return await run_in_threadpool(_proposition_du_document, doc)
-
-
-@router.post("/{doc_id}/images/traduire")
-async def traduire_images_proposees(
-    doc_id: str,
-    user: User = Depends(require_auth),
-    db: AsyncSession = Depends(get_db),
-):
-    """Accepte la proposition : pose les images traduites (déjà en cache) et
-    débite une page par image réellement remplacée. 402 si le solde ne couvre
-    pas : le client achète des crédits, l'offre reste ouverte."""
-    doc = await _doc_traduit(db, user, doc_id)
-    if doc.id in _images_en_acceptation:
-        raise HTTPException(status_code=409, detail="Les images sont déjà en cours de traduction.")
-    _images_en_acceptation.add(doc.id)
-    try:
-        prop = await run_in_threadpool(_proposition_du_document, doc)
-        if prop["etat"] != "pret" or prop["n"] <= 0:
-            raise HTTPException(status_code=409, detail="Aucune image n'est à traduire.")
-        refus = await _couvre_les_pages(db, user, doc, prop["n"])
-        if refus is not None:
-            return refus
-        table, rapport = await run_in_threadpool(_table_depuis_le_cache, doc)
-        if not table:
-            raise HTTPException(status_code=409, detail="Aucune image n'est à traduire.")
-        try:
-            copie = await run_in_threadpool(_copie_du_document, doc)
-        except OSError:
-            logger.exception("Copie de traduction impossible (doc %s)", doc.id)
-            raise HTTPException(status_code=500, detail="Le changement n'a pas pu être enregistré.")
-        if not await extension.debiter(db, user.id, len(table), document_id=doc.id):
-            message = "Votre solde ne couvre pas ces images. Rechargez vos crédits pour les traduire."
-            return JSONResponse(status_code=402, content={
-                "reason": "insufficient_credits", "required": len(table),
-                "detail": message, "message": message})
-        # `debiter` a commité : le document est relu avant d'y lier la copie.
-        await db.refresh(doc)
-        if copie != doc.translated_path:
-            doc.translated_path = copie
-            await db.commit()
-        await run_in_threadpool(images_document.ecrire_table, copie, table, rapport)
-        await run_in_threadpool(_invalider_rendu, copie)
-        return {"images": await run_in_threadpool(_images_du_document, doc)}
-    finally:
-        _images_en_acceptation.discard(doc.id)
 
 
 # ── Pages illisibles d'un scan : original, vide ou traduire quand même ───────

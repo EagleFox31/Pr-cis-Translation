@@ -25,7 +25,6 @@ import uuid
 import racine  # noqa: F401  -- met backend/ sur le chemin
 
 import fitz                                              # noqa: E402
-from fastapi import HTTPException                        # noqa: E402
 from fastapi.testclient import TestClient                # noqa: E402
 
 from sqlalchemy.ext.asyncio import (                     # noqa: E402
@@ -168,12 +167,9 @@ async def _run_checks(client, checks, ok):
 
         # ── Porte 1 : /documents/{id}/download ─────────────────────────────
         async with async_session() as db:
-            try:
-                await download_document(ctx["docs"][libre.id], libre, db)
-                ok("DOWNLOAD  free sur une traduction : 402", False, "aucune exception")
-            except HTTPException as e:
-                ok("DOWNLOAD  free sur une traduction : 402", e.status_code == 402,
-                   f"status={e.status_code}")
+            rep = await download_document(ctx["docs"][libre.id], libre, db)
+            ok("DOWNLOAD  free sur une traduction : 402", rep.status_code == 402,
+               f"status={rep.status_code}")
             rep = await download_document(ctx["docs"][payant.id], payant, db)
             ok("DOWNLOAD  starter reçoit la traduction en clair",
                SECRET in _texte(rep.body))

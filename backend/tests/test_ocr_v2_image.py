@@ -17,7 +17,8 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from app.services.ocr_v2 import image as module
 from app.services.ocr_v2.detect import Mot
-from app.services.ocr_v2.image import ImageRefusee, blocs, lignes, placer, traduire_image, verifier
+from app.services.ocr_v2.image import (ImageRefusee, blocs, couper_colonnes, lignes, placer,
+                                       traduire_image, verifier)
 
 POLICE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fonts",
                       "montserrat-Regular.ttf")
@@ -123,6 +124,59 @@ def cas_blocs():
     assert len(blocs([("a b", (10, 10, 90, 24)), ("c d", (10, 30, 80, 24))])) == 1
     # Titre et texte (hauteurs 82 et 64, essai Edge) : deux blocs.
     assert len(blocs([("冷却水ポンプ", (45, 40, 390, 82)), ("毎日点検", (45, 130, 390, 64))])) == 2
+    # Tableau (b3374) : une valeur annotée « 6.0 (estimated) » en face suffit
+    # à faire une rangée ; deux lignes qui ne sont pas une grille restent liées.
+    grille = [("Zinc", (455, 1491, 68, 40)), ("42", (1345, 1497, 39, 40)),
+              ("Manganese", (458, 1576, 160, 39)), ("2.6", (1360, 1576, 47, 41)),
+              ("Copper", (457, 1652, 104, 40)), ("8.3", (1360, 1653, 48, 42)),
+              ("Calcium", (456, 1694, 105, 38)), ("6.0 (estimated)", (1362, 1695, 198, 39))]
+    assert "Copper" in [b.texte for b in blocs(grille)], [b.texte for b in blocs(grille)]
+    deux = [("Copper", (457, 1652, 104, 40)), ("Calcium", (456, 1694, 105, 38)),
+            ("6.0 (estimated)", (1362, 1695, 198, 39))]
+    assert "Copper Calcium" in [b.texte for b in blocs(deux)], [b.texte for b in blocs(deux)]
+    # T1/T2 (b3374) : deux cases lues d'un seul tenant, séparées par un vrai
+    # blanc, sont coupées au bord de colonne ; une phrase (espaces étroits) non.
+    tab = [("Zinc", (10, 0, 60, 40)), ("Zinc Sulfate", (200, 0, 150, 40)),
+           ("ManganeseManganese Gluconate", (10, 60, 450, 40)),
+           ("Copper", (10, 120, 80, 40)), ("Copper Gluconate", (200, 120, 180, 40)),
+           ("Calcium", (10, 180, 90, 40)), ("CCM", (200, 180, 50, 40))]
+    page = np.full((240, 500, 3), 255, np.uint8)
+    page[65:95, 10:140] = page[65:95, 200:460] = 0
+    coupe = couper_colonnes(tab, page)
+    assert ("Manganese", (10, 60, 130, 40)) in coupe, coupe
+    assert ("Manganese Gluconate", (200, 60, 260, 40)) in coupe, coupe
+    page[65:95, 10:460] = 0
+    page[65:95, 50:460:50] = 255  # espaces de 1 px entre les mots : une phrase
+    assert couper_colonnes(tab, page) == tab
+    assert couper_colonnes(tab) == tab  # sans image, rien n'est coupé
+    # T4 (b3374) : l'en-tête, sur une rangée de cases sans valeur, ne se fond
+    # pas dans la 1re case chiffrée en dessous ; sans rangée d'en-tête, si.
+    tete = [("Ingredient.", (450, 1414, 150, 46)), ("CCM Plus Trace Minerais", (660, 1414, 342, 46)),
+            ("Current Products", (1049, 1414, 230, 46)), ("Zinc Sulfate", (656, 1460, 163, 46)),
+            ("42", (1345, 1462, 39, 40))]
+    rangs = [("Manganese Gluconate", (654, 1576, 295, 39)), ("2.6", (1360, 1576, 47, 41)),
+             ("Copper Gluconate", (656, 1654, 241, 40)), ("8.3", (1360, 1653, 48, 42))]
+    textes = [b.texte for b in blocs(tete + rangs)]
+    assert "CCM Plus Trace Minerais" in textes and "Zinc Sulfate" in textes, textes
+    # Une seule rangée sous l'en-tête (en-tête sur deux lignes « DATE OF / INVOICE ») : liés.
+    assert "CCM Plus Trace Minerais Zinc Sulfate" in [b.texte for b in blocs(tete)]
+    seul = [tete[1], tete[3], tete[4]] + rangs
+    assert "CCM Plus Trace Minerais Zinc Sulfate" in [b.texte for b in blocs(seul)]
+    # F1 : libellé sur deux lignes, un seul bloc ; F2 : l'adresse en face garde ses sauts.
+    fiche = [("CASE TYPE:", (116, 323, 70, 15)), ("Asbestos", (244, 323, 44, 15)),
+             ("PLAINTIFF'S", (116, 350, 73, 15)), ("COUNSEL:", (116, 364, 61, 14)),
+             ("Wartnick, Chaber, Harowitz, Smith & Tigerman", (244, 363, 241, 16)),
+             ("Stephen M. Tigerman", (243, 378, 104, 13)),
+             ("101 California Street, Suite 2200", (243, 391, 161, 13)),
+             ("San Francisco, California 94111", (241, 403, 164, 17))]
+    textes = [b.texte for b in blocs(fiche)]
+    assert textes == ["CASE TYPE:", "Asbestos", "PLAINTIFF'S COUNSEL:",
+                      "Wartnick, Chaber, Harowitz, Smith & Tigerman", "Stephen M. Tigerman",
+                      "101 California Street, Suite 2200", "San Francisco, California 94111"], textes
+    # Valeur sur deux lignes dont la seconde poursuit la phrase : un seul bloc.
+    suite = [("NOTE:", (116, 323, 40, 15)), ("Filed with the court and", (244, 323, 150, 15)),
+             ("served on all parties", (244, 340, 130, 15))]
+    assert [b.texte for b in blocs(suite)][-1] == "Filed with the court and served on all parties"
     # Une puce ouvre un bloc, même à hauteur égale.
     liste = [("1. 電源を切る", (40, 10, 300, 36)), ("2. 弁を閉じる", (40, 50, 300, 39)),
              ("・圧力を確認", (40, 92, 300, 39))]
@@ -139,8 +193,34 @@ def cas_blocs():
     # Après une ponctuation finale, la même ligne courte reste un bloc à part.
     fini = [("点検をする。", (1118, 823, 687, 48)), ("注意", (1116, 874, 105, 59))]
     assert len(blocs(fini)) == 2
+    # Cause A — fiche, tableau, adresse : chaque ligne reste à part.
+    fiche = [("To:", (10, 10, 30, 20)), ("Kelli Scruggs", (60, 10, 120, 20)),
+             ("From:", (10, 36, 45, 20)), ("Bob Lee", (60, 36, 80, 20))]
+    assert len(blocs(fiche)) == 4, [b.texte for b in blocs(fiche)]
+    table = [("Salaries", (10, 10, 80, 20)), ("1,200", (300, 10, 50, 20)),
+             ("Office Expenses", (10, 36, 150, 20)), ("340", (300, 36, 40, 20))]
+    assert len(blocs(table)) == 4, [b.texte for b in blocs(table)]
+    entete = [("Fax Transmittal", (10, 10, 150, 20)),
+              ("450 Lexington Avenue New York", (10, 36, 300, 20))]
+    assert len(blocs(entete)) == 2, [b.texte for b in blocs(entete)]
+    # Liste de marques empilée (b3374ed8d5) : chaque nom reste à part ;
+    # un paragraphe étroit qui repart en minuscule reste un seul bloc.
+    marques = [("Nature Made", (663, 408, 167, 33)), ("Caltrate", (659, 447, 106, 38)),
+               ("·Os-Cal", (647, 486, 114, 42)), ("Your Life", (666, 531, 130, 37)),
+               ("Centrum", (668, 572, 106, 36))]
+    assert len(blocs(marques)) == 5, [b.texte for b in blocs(marques)]
+    etroit = [("Check the", (10, 10, 100, 24)), ("pump before", (10, 38, 110, 24)),
+              ("each start", (10, 66, 100, 24))]
+    assert len(blocs(etroit)) == 1, [b.texte for b in blocs(etroit)]
+    # Paragraphe étroit tout en capitales : la majuscule ne prouve rien, il reste entier.
+    capitales = [("CHECK THE", (10, 10, 100, 24)), ("PUMP BEFORE", (10, 38, 110, 24)),
+                 ("EACH START", (10, 66, 100, 24))]
+    assert len(blocs(capitales)) == 1, [b.texte for b in blocs(capitales)]
+    # Un vrai retour à la ligne reste réuni, même avec une dernière ligne courte.
+    phrase = [("the main pump is", (10, 10, 160, 20)), ("on", (10, 36, 20, 20))]
+    assert len(blocs(phrase)) == 1, [b.texte for b in blocs(phrase)]
     print("  blocs : lignes empilées réunies, confiance < 70 ignorée, japonais sans espace, "
-          "hauteur, puce et couleur séparent")
+          "hauteur, puce et couleur séparent ; fiche, tableau et en-tête découpés")
 
 
 def cas_placer():
@@ -246,6 +326,19 @@ def cas_bords():
                          Simule(mots))
     assert res.remplacee, res.blocs
     print(f"  bords : {rouge_a[bords].sum()} px de glyphe hors boîte effacés ; étiquette longue placée dans le vide")
+
+
+def cas_couleur_petit_corps():
+    """Cause N (banc public, schéma de procédé) : texte noir de ~9 px, masque
+    dilaté surtout fait de fond ; la couleur mesurée doit rester celle des lettres."""
+    for couleur in [(0, 0, 0), ROUGE]:
+        im = Image.new("RGB", (120, 30), "white")
+        ImageDraw.Draw(im).text((4, 8), "Pump Steam", font=ImageFont.truetype(POLICE, 9), fill=couleur)
+        bgr = np.asarray(im)[:, :, ::-1].copy()
+        boite = (2, 6, 70, 16)
+        mesure = module._couleur(bgr, module.masque_couleur(bgr, [boite], halo=False), boite)
+        assert np.abs(np.array(mesure) - couleur).max() < 90, (couleur, mesure)
+    print("  petit corps : couleur des lettres gardée (pas celle du fond)")
 
 
 def cas_mise_en_page():
@@ -460,6 +553,63 @@ def cas_cases_et_encre():
         assert (len(tailles) == 1) == une, (encres, tailles)
 
 
+def cas_axes():
+    """Alignement commun des blocs empilés d'une colonne (`_axes()`)."""
+    B = module.Bloc
+
+    def bloc(x, y, w, h=30):
+        return B("x", (x, y, w, h), [(x, y, w, h)])
+
+    # En-tête officiel à deux colonnes, chacune centrée sur son propre axe (200 et 800).
+    gauche = [bloc(50, 10, 300), bloc(150, 50, 100), bloc(90, 90, 220)]
+    droite = [bloc(640, 10, 320), bloc(750, 50, 100), bloc(700, 90, 200)]
+    axes = module._axes(gauche + droite)
+    assert all(axes.get(id(b)) == "centre" for b in gauche + droite), axes
+    # Même bord gauche, longueurs différentes : aligné à gauche.
+    liste = [bloc(40, 10, 300), bloc(40, 50, 120), bloc(40, 90, 200)]
+    axes = module._axes(liste)
+    assert all(axes.get(id(b)) == "gauche" for b in liste), axes
+    # Longueurs égales : centré ou à gauche, impossible à dire, rien n'est décidé.
+    egales = [bloc(40, 10, 200), bloc(40, 50, 200)]
+    assert module._axes(egales) == {}
+    # Colonne par bord commun (libellés d'axe d'un graphique) : 3 étiquettes
+    # collées à droite (x 328), espacées de 3,5 lignes, forment une colonne
+    # dont le bord ne cède pas.
+    col = set()
+    axe = [bloc(30, 10, 298, 12), bloc(118, 52, 210, 12), bloc(221, 94, 107, 12)]
+    axes = module._axes(axe, colonnes=col)
+    assert all(axes.get(id(b)) == "droite" for b in axe) and col == {id(b) for b in axe}, axes
+    # Un texte entre deux d'entre elles coupe la suite : plus de colonne.
+    coupe = axe + [bloc(150, 70, 100, 12)]
+    assert not any(module._axes(coupe).get(id(b)) for b in axe)
+    # Trop éloignés, ou sans axe commun : rien.
+    loin = [bloc(150, 10, 100), bloc(100, 300, 200)]
+    epars = [bloc(10, 10, 100), bloc(300, 50, 150)]
+    assert module._axes(loin) == {} and module._axes(epars) == {}
+    # Titre pleine largeur au-dessus de deux colonnes : il ne casse pas leur groupe.
+    titre = bloc(0, 10, 1000)
+    col = [bloc(150, 50, 100), bloc(90, 90, 220)]
+    axes = module._axes([titre] + col)
+    assert id(titre) not in axes and all(axes.get(id(b)) == "centre" for b in col), axes
+    print("  axes : en-tête centré par colonne, liste à gauche, longueurs égales sans décision")
+
+
+def cas_aplat():
+    # Fond blanc, barre bleue unie à droite (x ≥ 60), texte noir à gauche (x < 20).
+    img = np.full((40, 120, 3), 255, np.uint8)
+    img[:, 60:] = (200, 120, 30)
+    img[:, 59] = (228, 188, 143)          # pixel de lissage au bord de la barre
+    for x in range(5, 20, 3):
+        img[10:30:2, x] = 0               # traits de texte : pas un aplat
+    assert module._aplat(img, 50, 10, 30, 1), "barre à droite = limite"
+    assert not module._aplat(img, 25, 10, 30, -1), "texte à gauche ≠ aplat"
+    # Fond pâle voisin (carte claire) : couleur trop proche du blanc, pas une limite.
+    pale = np.full((40, 120, 3), 255, np.uint8)
+    pale[:, 60:] = (219, 237, 241)
+    assert not module._aplat(pale, 50, 10, 30, 1)
+    print("  aplat : barre unie = limite, texte et fond pâle non")
+
+
 def main():
     debut = time.monotonic()
     cas_symboles()
@@ -468,9 +618,12 @@ def main():
     cas_mots_entiers()
     cas_controles()
     cas_blocs()
+    cas_axes()
+    cas_aplat()
     cas_placer()
     cas_rendu()
     cas_bords()
+    cas_couleur_petit_corps()
     cas_mise_en_page()
     cas_ppocr()
     print(f"OK image traduite ({time.monotonic() - debut:.1f} s)")

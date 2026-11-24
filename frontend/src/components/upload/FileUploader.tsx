@@ -240,7 +240,7 @@ export default function FileUploader({ selectedFile, onFileSelect, disabled }: F
             <span
               key={fmt}
               style={{
-                fontFamily: 'var(--font-mono)', fontSize: '10px', fontWeight: 500,
+                fontFamily: 'var(--font-mono)', fontSize: '12px', fontWeight: 500,
                 padding: '3px 8px', borderRadius: '4px',
                 background: 'var(--gray-100)', color: 'var(--gray-500)',
                 border: '1px solid var(--gray-200)', textTransform: 'uppercase',

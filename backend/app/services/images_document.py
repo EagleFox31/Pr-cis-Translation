@@ -53,8 +53,8 @@ ENTREES_MAX = 10_000
 OCTETS_ZIP_MAX = 128 * 1024 * 1024
 VECTORIELLES = (".emf", ".wmf", ".svg", ".emz", ".wmz")
 _MEDIA = {"docx": "word", "pptx": "ppt", "xlsx": "xl"}
-# Formats dont la traduction des images est proposée en fin de travail : ceux
-# dont le rendu à la demande pose la table d'images (pas le xlsx).
+# Formats dont les images à texte sont traduites avec leur page : ceux dont
+# le rendu à la demande pose la table d'images (pas le xlsx).
 IMAGES_PROPOSABLES = ("pdf", "docx", "pptx")
 _RELS_DIAPO = re.compile(r"^ppt/slides/_rels/slide(\d+)\.xml\.rels$")
 CACHE_MAX = 32
@@ -497,43 +497,262 @@ def traduire_images(data: bytes, ext: str, traduire, dossier: str, budget: int |
     return table, rapport
 
 
-# ── Proposition en fin de travail (option D1, retours 18/11 §3) ──────────────
-# Les images sont lues et traduites pendant la traduction du texte, sans rien
-# débiter : le résultat ne sert qu'à remplir le cache et à compter les images
-# à texte. Le client décide à la fin ; le cache rend alors le clic immédiat.
+# ── Images du travail : la page part avec ses images (étude 23/11) ─────────
+# Une page n'est livrée qu'une fois ses images à texte traduites. Un fil lit
+# les images des pages attendues, puis lit d'avance celles des pages permises
+# suivantes. Rien n'est lu pour une page qui ne sera pas traduite (plafond,
+# sélection, budget). Aucun débit : la page couvre ses images.
 
-def chemin_proposition(dossier: str) -> str:
-    return os.path.join(dossier, "proposition.json")
+def ajouter_a_table(translation_path: str, cle: str, octets: bytes,
+                    mime: str | None = None, rapport: dict | None = None) -> None:
+    """Ajoute une image traduite à la table du document, en gardant les
+    autres images et les choix « garder l'original »."""
+    with _VERROU_TABLE:
+        dossier = _dossier_images(translation_path)
+        os.makedirs(dossier, exist_ok=True)
+        meta = _lire_meta(translation_path) or {"rapport": {}, "images": {}}
+        mime = mime or _mime_de(octets)
+        nom = hashlib.sha1(cle.encode("utf-8")).hexdigest()[:20] + _EXTENSIONS.get(mime, ".bin")
+        _ecrire_atomiquement(os.path.join(dossier, nom), octets)
+        meta["images"][cle] = {"fichier": nom, "mime": mime}
+        if rapport is not None:
+            meta["rapport"] = rapport
+        _ecrire_atomiquement(chemin_table(translation_path),
+                             json.dumps(meta, ensure_ascii=False).encode("utf-8"))
 
 
-def lire_proposition(dossier: str) -> dict | None:
-    try:
-        with open(chemin_proposition(dossier), "rb") as f:
-            return json.loads(f.read().decode("utf-8"))
-    except (OSError, ValueError):
+def _retirees(translation_path: str) -> set[str]:
+    meta = _lire_meta(translation_path)
+    return set(meta.get("retirees") or ()) if meta else set()
+
+
+class ImagesDuTravail:
+    """Images à texte d'un travail, traduites page par page.
+
+    `pages` : pages permises (None : toutes). `avance` : pages permises lues
+    d'avance après la plus haute page attendue. `reste()` : nombre de pages
+    encore permises au-delà (budget), ou None. `arret()` : lève l'arrêt du
+    travail (pause, annulation) ; il interrompt la lecture comme l'attente.
+    Une image illisible ou en échec reste d'origine, la page part quand même.
+    """
+
+    PAS_S = 0.3
+
+    def __init__(self, data: bytes, ext: str, traduire, dossier: str,
+                 translation_path: str, langue: str | None = None,
+                 pages=None, avance: int = 3, reste=None, arret=None, lecteur=None,
+                 persister: bool = True):
+        self._data, self._ext, self._traduire = data, ext, traduire
+        self._dossier, self._chemin, self._langue = dossier, translation_path, langue
+        self._permises = sorted(set(pages)) if pages is not None else None
+        self._avance, self._reste, self._arret = avance, reste, arret
+        self._lecteur = lecteur
+        # persister False : rien n'est écrit dans la table du document avant
+        # `reporter()` (page incluse après coup : seulement si elle est payée).
+        self._persister = persister
+        self._a_reporter: dict[str, tuple[bytes, str | None]] = {}
+        self._cond = threading.Condition()
+        self._index: dict[int, list[ImageDoc]] | None = None
+        self._traitees: set[str] = set()
+        self._attendues: set[int] = set()
+        self._fini = False          # fil terminé : fermé, arrêté ou en panne
+        self._ferme = False
+        self._fil: threading.Thread | None = None
+        self.rapport = {"traduites": 0, "inchangees": 0, "echecs": 0}
+        self._table = {cle: o for cle, _, o in etat_images(translation_path) if o}
+        # Images déjà traduites (reprise) : rien à relire pour elles.
+        self._traitees.update(self._table)
+
+    # ── Côté travail ──────────────────────────────────────────────────────
+    def demander(self, pages) -> None:
+        """Annonce des pages attendues, sans attendre ; lance le fil."""
+        with self._cond:
+            self._attendues.update(p for p in pages if self._permise(p))
+            if self._fil is None:
+                self._fil = threading.Thread(target=self._boucle, name="images-travail",
+                                             daemon=True)
+                self._fil.start()
+            self._cond.notify_all()
+
+    def attendre(self, page: int) -> dict[str, bytes]:
+        """Table des images traduites, une fois celles de `page` traitées.
+        Sans limite de temps ; `arret()` interrompt l'attente."""
+        if not self._permise(page):
+            return self.table()
+        self.demander([page])
+        while True:
+            with self._cond:
+                if self._fini or self._page_faite(page):
+                    break
+                self._cond.wait(self.PAS_S)
+            if self._arret is not None:
+                self._arret()
+        self._verifier_fin()
+        return self.table()
+
+    def attendre_tout(self) -> dict[str, bytes]:
+        """Toutes les pages permises : document livré d'un bloc (Word)."""
+        self.demander([])
+        while True:
+            with self._cond:
+                if self._fini or self._index is not None:
+                    pages = [p for p in (self._index or {}) if self._permise(p)]
+                    break
+                self._cond.wait(self.PAS_S)
+            if self._arret is not None:
+                self._arret()
+        self.demander(pages)
+        for page in sorted(pages):
+            self.attendre(page)
+        self._verifier_fin()
+        return self.table()
+
+    def _verifier_fin(self) -> None:
+        """Fil terminé (arrêt avalé, panne) : l'arrêt du travail est relu,
+        pour qu'une pause ou une annulation ne livre pas la page sans ses
+        images."""
+        if self._fini and self._arret is not None:
+            self._arret()
+
+    def reporter(self) -> None:
+        """Écrit dans la table du document les images gardées en attente."""
+        with self._cond:
+            a_ecrire, self._a_reporter = self._a_reporter, {}
+        for cle, (octets, mime) in a_ecrire.items():
+            ajouter_a_table(self._chemin, cle, octets, mime, dict(self.rapport))
+
+    @property
+    def traduites(self) -> int:
+        return self.rapport["traduites"]
+
+    def table(self) -> dict[str, bytes]:
+        """Images traduites, sans celles remises à l'original."""
+        retirees = _retirees(self._chemin)
+        with self._cond:
+            return {c: o for c, o in self._table.items() if c not in retirees}
+
+    def fermer(self) -> None:
+        with self._cond:
+            self._ferme = True
+            self._cond.notify_all()
+
+    # ── Fil de lecture ────────────────────────────────────────────────────
+    def _permise(self, page: int) -> bool:
+        return self._permises is None or page in self._permises
+
+    def _page_faite(self, page: int) -> bool:
+        if self._index is None:
+            return False
+        return all(i.cle in self._traitees for i in self._index.get(page, ()))
+
+    def _indexer(self) -> dict[int, list[ImageDoc]]:
+        try:
+            images = lister(self._data, self._ext)
+        except Exception as e:
+            logger.warning("Images du travail non listées : %s", e)
+            return {}
+        premiere = self._permises[0] if self._permises else 1
+        index: dict[int, list[ImageDoc]] = {}
+        for img in images:
+            if img.exclusion or img.octets is None:
+                continue
+            # Word : pas de pages (rattachées à la première) ; PowerPoint :
+            # images des masques, attendues par chaque diapositive permise
+            # (une diapositive reprise ne les lit donc pas seule).
+            sans_page = (self._permises or [premiere]) if self._ext == "pptx" else [premiere]
+            for page in img.pages or sans_page:
+                if self._permise(page):
+                    index.setdefault(page, []).append(img)
+        return index
+
+    def _prochaine(self) -> int | None:
+        """Plus petite page attendue non faite, sinon page à lire d'avance."""
+        en_attente = sorted(p for p in self._attendues if not self._page_faite(p))
+        if en_attente:
+            return en_attente[0]
+        if not self._attendues or not self._avance:
+            return None
+        haute = max(self._attendues)
+        suivantes = [p for p in (self._permises or sorted(self._index or ())) if p > haute]
+        n = self._avance
+        if self._reste is not None:
+            try:
+                reste = self._reste()
+            except Exception:
+                reste = 0
+            if reste is not None:
+                n = min(n, max(reste, 0))
+        for p in suivantes[:n]:
+            if not self._page_faite(p):
+                return p
         return None
 
+    def _boucle(self) -> None:
+        try:
+            index = self._indexer()
+            lecteur = self._lecteur
+            if index:
+                lecteur = lecteur or ocr_image._ppocr()
+                if lecteur.manquant():
+                    logger.warning("Images du travail : lecteur OCR indisponible")
+                    index = {}
+            with self._cond:
+                self._index = index
+                self._cond.notify_all()
+            while True:
+                with self._cond:
+                    page = self._prochaine()
+                    while page is None and not self._ferme:
+                        self._cond.wait(self.PAS_S)
+                        page = self._prochaine()
+                    if self._ferme:
+                        return
+                    a_lire = [i for i in self._index.get(page, ()) if i.cle not in self._traitees]
+                for img in a_lire:
+                    with self._cond:
+                        if self._ferme:
+                            return
+                    self._traiter(img, lecteur)
+                    with self._cond:
+                        self._traitees.add(img.cle)
+                        img.octets = None
+                        self._cond.notify_all()
+        except BaseException as e:
+            # Arrêt du travail (pause, annulation) ou panne : les pages partent
+            # avec leurs images d'origine.
+            logger.info("Images du travail interrompues : %s", e)
+        finally:
+            with self._cond:
+                self._fini = True
+                self._cond.notify_all()
 
-def analyse_complete(data: bytes, ext: str) -> Analyse:
-    """Détection sans délai serré : toutes les images sont examinées."""
-    return detecter(lister(data, ext), delai_s=600.0)
-
-
-def proposer(data: bytes, ext: str, traduire, dossier: str,
-             langue: str | None = None) -> dict:
-    """Lit et traduit les images à texte (cache), sans débit ; écrit et renvoie
-    `{etat, n, total}` : `n` images à texte remplaçables sur `total` lues."""
-    analyse = analyse_complete(data, ext)
-    if analyse.indisponible:
-        prop = {"etat": "aucune", "n": 0, "total": 0}
-    else:
-        table, _ = traduire_images(data, ext, traduire, dossier, None,
-                                   analyse=analyse, langue=langue)
-        prop = {"etat": "pret", "n": len(table), "total": analyse.analysees}
-    try:
-        os.makedirs(dossier, exist_ok=True)
-        _ecrire_atomiquement(chemin_proposition(dossier),
-                             json.dumps(prop).encode("utf-8"))
-    except OSError as e:
-        logger.warning("Proposition d'images non écrite : %s", e)
-    return prop
+    def _traiter(self, img: ImageDoc, lecteur) -> None:
+        """Détecte, traduit (cache) et ajoute l'image à la table. L'arrêt du
+        travail remonte ; toute autre erreur laisse l'image d'origine."""
+        if img.octets is None:          # déjà lue pour une autre page
+            return
+        try:
+            if not len(lecteur.detecter_image(_bgr(img.octets))):
+                return
+            sha = hashlib.sha256(img.octets).hexdigest()
+            trouve = _lire_cache(self._dossier, sha)
+            if trouve is None:
+                rendu = ocr_image.traduire_image(
+                    img.octets, self._traduire,
+                    tour=lambda: ocr_file.tour(arret=self._arret), langue=self._langue)
+                trouve = (rendu.remplacee, rendu.mime, rendu.data)
+                _ecrire_cache(self._dossier, sha, *trouve)
+            remplacee, mime, octets = trouve
+            if not remplacee:
+                self.rapport["inchangees"] += 1
+                return
+            self.rapport["traduites"] += 1
+            if self._persister:
+                ajouter_a_table(self._chemin, img.cle, octets, mime or None, dict(self.rapport))
+            with self._cond:
+                self._table[img.cle] = octets
+                if not self._persister:
+                    self._a_reporter[img.cle] = (octets, mime or None)
+        except Exception as e:
+            logger.warning("Image %s non traduite : %s", img.cle, e)
+            self.rapport["echecs"] += 1

@@ -8,6 +8,7 @@ from datetime import timedelta
 import io
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 from urllib.parse import urlsplit
 import uuid
 
@@ -101,11 +102,16 @@ class FreeDocumentTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(libre.json()["can_download"])
 
     async def test_office_and_txt_costs_use_actual_text_and_reject_oversized_free_upload(self):
-        for ext, data in [("docx", docx(501)), ("xlsx", fixtures.xlsx(501)),
+        for ext, data in [("xlsx", fixtures.xlsx(501)),
                           ("txt", ("bonjour " * 501).encode()), ("txt", ("漢" * 501).encode())]:
             with self.subTest(ext=ext):
                 self.assertEqual(count_pages(data, ext), 2)
-        self.assertEqual(count_pages(docx(500), "docx"), 1)
+        # Word : les vraies pages du rendu ; sans conversion, repli sur les mots.
+        with patch("app.services.documents.pages_word", return_value=3):
+            self.assertEqual(count_pages(docx(501), "docx"), 3)
+        with patch("app.services.documents.pages_word", return_value=None):
+            self.assertEqual(count_pages(docx(501), "docx"), 2)
+            self.assertEqual(count_pages(docx(500), "docx"), 1)
         # A compressed file containing one enormous token cannot buy unlimited
         # model input by pretending it contains just one word.
         huge_token = await self.upload(("a" * 150001).encode(), "unbroken.txt")
@@ -123,7 +129,9 @@ class FreeDocumentTests(unittest.IsolatedAsyncioTestCase):
         async with self.fx.sessions() as db:
             (await db.get(User, self.user.id)).page_credits = 2
             await db.commit()
-        response = await self.upload(docx(2501), "large.docx")
+        # Comptage par les mots : le rendu LibreOffice varie avec les polices installées.
+        with patch("app.services.documents.pages_word", return_value=None):
+            response = await self.upload(docx(2501), "large.docx")
         document = await self.document(response)
         # Document mixte : des pages achetées le rendent téléchargeable.
         self.assertTrue(response.json()["can_download"])

@@ -1,15 +1,15 @@
 {
   "version": "1.11.0",
-  "date_version": "2026-11-21",
+  "date_version": "2026-11-23",
   "elements": [
     {
-      "id": "images-proposees-apres-traduction",
-      "date": "2026-11-21",
+      "id": "images-traduites-avec-la-page",
+      "date": "2026-11-23",
       "type": "nouveaute",
       "domaine": "documents",
-      "titre": "Les images traduites sur proposition",
-      "resume": "À la fin de la traduction, Précis indique combien d'images contiennent du texte à traduire et vous laisse choisir.",
-      "detail": "Vous ne payez que les images réellement traduites : une page par image, débitée au clic. Le contrôle des crédits au dépôt ne porte plus que sur le texte. Les images sont déjà prêtes : elles s'affichent en quelques secondes. Valable pour les PDF, Word et PowerPoint traduits en entier."
+      "titre": "Chaque page arrive traduite en entier, images comprises",
+      "resume": "Le texte écrit dans les images est traduit en même temps que le reste de la page.",
+      "detail": "Une page ne s'affiche qu'une fois ses images traduites. Les images ne coûtent rien de plus : la page reste facturée une seule fois. Si une image ne peut pas être lue, elle reste d'origine. Vous pouvez toujours remettre une image d'origine depuis le document. Valable pour les PDF, Word et PowerPoint."
     },
     {
       "id": "traduction-libre",

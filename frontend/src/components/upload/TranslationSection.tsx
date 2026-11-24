@@ -6,7 +6,7 @@ import CheckboxOption from '../ui/CheckboxOption';
 import {
   Check, ArrowRight, Loader2, Languages, Wand2, FileText,
   SlidersHorizontal, ChevronDown, ScanSearch, Info,
-  Image as ImageIcon, AlertTriangle,
+  AlertTriangle,
 } from 'lucide-react';
 import FileUploader from './FileUploader';
 import LanguagePicker from './LanguagePicker';
@@ -17,6 +17,7 @@ import { useBeta, type BetaFormat } from '../../hooks/useBeta';
 import { useBetaPreference } from '../../hooks/useBetaPreference';
 import { BETA_FORMATS } from '../library/BetaAllowances';
 import { useAnalyseImages } from '../../hooks/useAnalyseImages';
+import { useDepot } from '../../hooks/useDepot';
 import ExtensionBanner from './ExtensionBanner';
 
 export interface TranslateConfig {
@@ -38,6 +39,8 @@ export interface TranslateConfig {
   beta?: boolean;
   /** Traduire aussi le texte des images (1 page par image remplacée). */
   images?: boolean;
+  /** Nombre de pages déjà connu par l'analyse : affiché dès le clic. */
+  nbPages?: number;
 }
 
 interface TranslationSectionProps {
@@ -134,21 +137,17 @@ export default function TranslationSection({
     if (f) setJustReset(false);
   };
 
-  // Images : le dépôt ne fait que les compter. Leur lecture se fait pendant la
-  // traduction et la proposition arrive à la fin, sur l'aperçu. Pas de
-  // proposition en bêta, en mode structure ni avec une plage de pages.
-  const { analyse, enCours: analyseEnCours } = useAnalyseImages(file, !!user);
+  // Analyse du dépôt : langue du document (les images sont traduites avec leur page).
+  // Le fichier part une seule fois, dès qu'il est choisi ; l'analyse attend
+  // la fin de l'envoi pour n'envoyer que son identifiant.
+  const depot = useDepot(file, !!user);
+  const { analyse } = useAnalyseImages(file, !!user && !depot.enCours);
   // Langue d'arrivée identique à celle du document : simple avertissement.
   const memeLangue = !!analyse?.langue && analyse.langue === baseCode(targetLang);
-  const imagesTrouvees = analyse?.images ?? 0;
-  const imagesBloquees = betaUsable && useBetaCredits ? 'beta'
-    : supportsStructure && structureMode ? 'structure'
-    : supportsPages && pages.trim() ? 'pages'
-    : null;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file || isTranslating) return;
+    if (!file || isTranslating || depot.enCours) return;
     if (!user) { window.location.href = '/login'; return; }
     onStartTranslate({
       file,
@@ -158,11 +157,13 @@ export default function TranslationSection({
       precise: supportsPrecise && preciseMode,
       beta: betaAccess.data ? betaUsable && useBetaCredits : undefined,
       images: false,
+      // Document entier seulement : une plage de pages change le total.
+      nbPages: supportsPages && !pages.trim() && analyse?.pages ? analyse.pages : undefined,
       onAccepted: () => { void betaAccess.refresh(); },
     });
   };
 
-  const ready = !!file && !isTranslating;
+  const ready = !!file && !isTranslating && !depot.enCours;
   // Ne compter que les options RÉELLEMENT applicables au format courant : une
   // case cochée sur un PDF puis un passage à un format qui ne la gère pas ne
   // doit pas afficher un badge mensonger.
@@ -177,7 +178,6 @@ export default function TranslationSection({
       onSubmit={submit}
       style={{ display: 'flex', flexDirection: 'column', gap: '18px', flex: 1, width: '100%' }}
     >
-      <ExtensionBanner />
       {betaAccess.data?.enrollment && (
         <div className="beta-upload">
           {betaUsable && <label><input type="checkbox" checked={useBetaCredits} disabled={isTranslating}
@@ -277,7 +277,7 @@ export default function TranslationSection({
           </div>
           <span style={{
             display: 'inline-flex', alignItems: 'center', gap: '5px',
-            marginTop: '7px', fontSize: '11.5px', color: 'var(--gray-500)',
+            marginTop: '7px', fontSize: '12.5px', color: 'var(--gray-500)',
           }}>
             <Wand2 size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
             {t('story.source_auto', 'La langue du document est détectée automatiquement.')}
@@ -292,26 +292,6 @@ export default function TranslationSection({
             </span>
           )}
         </div>
-
-        {/* Images à texte : l'option n'existe que si l'analyse en a trouvé. */}
-        {analyseEnCours && (
-          <span role="status" style={{
-            display: 'inline-flex', alignItems: 'center', gap: '6px',
-            fontSize: '11.5px', color: 'var(--gray-500)',
-          }}>
-            <Loader2 size={12} strokeWidth={2} className="animate-spin" style={{ flexShrink: 0 }} />
-            {t('story.images_analysing')}
-          </span>
-        )}
-        {imagesTrouvees > 0 && !imagesBloquees && (
-          <span role="status" style={{
-            display: 'inline-flex', alignItems: 'flex-start', gap: '6px',
-            fontSize: '11.5px', color: 'var(--gray-500)',
-          }}>
-            <ImageIcon size={12} strokeWidth={2} style={{ flexShrink: 0, marginTop: '2px' }} />
-            {t('story.images_note', { count: imagesTrouvees })}
-          </span>
-        )}
 
         {/* Options avancées — repliées : elles servent à des cas particuliers
             (extrait, diagnostic) et n'apparaissent que pour les formats qui les
@@ -487,16 +467,27 @@ export default function TranslationSection({
         </motion.button>
 
         {/* Le bouton désactivé dit POURQUOI il l'est. */}
+        {file && depot.enCours && !isTranslating && (
+          <span role="status" style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+            marginTop: '8px', fontSize: '11.5px', color: 'var(--gray-500)',
+          }}>
+            <Loader2 size={12} strokeWidth={2} />
+            {t('story.upload_progress', { pct: depot.pct, defaultValue: 'Envoi du fichier : {{pct}} %' })}
+          </span>
+        )}
         {!file && !isTranslating && (
           <span style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
-            marginTop: '8px', fontSize: '11.5px', color: 'var(--gray-500)',
+            marginTop: '8px', fontSize: '12.5px', color: 'var(--gray-500)',
           }}>
             <Info size={12} strokeWidth={2} />
             {t('story.cta_hint', 'Choisissez un document pour commencer.')}
           </span>
         )}
       </div>
+      {/* Après la tâche, jamais avant : une ligne discrète, refermable. */}
+      <ExtensionBanner discret />
     </form>
   );
 }

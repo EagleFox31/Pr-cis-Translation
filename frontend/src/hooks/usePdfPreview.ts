@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { authHeader } from '../services/api';
+import { postAvecFichier } from '../services/depot';
 import i18n from '../i18n';
 
 // Pas de valeur de repli : une clé écrite ici part dans le dépôt, et le repli
@@ -12,16 +13,12 @@ async function convertToPdf(data: Blob, ext: string): Promise<Blob> {
   // Déjà un PDF → rien à convertir.
   if (ext === 'pdf') return data;
 
-  const form = new FormData();
-  // Le backend déduit le format depuis l'extension du nom de fichier.
-  form.append('file', data, `preview.${ext}`);
-
+  // Le backend déduit le format depuis l'extension du nom de fichier. Un
+  // original déjà déposé n'est pas renvoyé : son identifiant suffit.
   // `authHeader()` obligatoire : le backend exige désormais une session pour
   // convertir (la clé d'API est publique, elle ne protège rien à elle seule).
-  const res = await fetch(`${API_BASE}/api/preview/pdf`, {
-    method: 'POST',
+  const res = await postAvecFichier(`${API_BASE}/api/preview/pdf`, data, `preview.${ext}`, () => {}, {
     headers: { 'X-API-Key': API_KEY, ...authHeader() },
-    body: form,
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

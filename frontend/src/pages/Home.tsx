@@ -33,6 +33,7 @@ import { openNouveautes } from '../components/nouveautes/nouveautesBus';
 import { useNouveautes } from '../hooks/useNouveautes';
 import { creerGesteMolette } from '../lib/molette';
 import type { TranslateConfig } from '../components/upload/TranslationSection';
+import { texteAvis } from '../lib/avis';
 
 
 export default function Home() {
@@ -138,7 +139,7 @@ export default function Home() {
   const stream = useStreamingTranslation(user?.plan === 'free');
 
   // ---- Document library ----
-  const { documents, charge: bibliothequeChargee, erreur: bibliothequeErreur, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal, getImagesProposition, translateImages, getIllegiblePages, setIllegiblePages } = useDocumentLibrary();
+  const { documents, charge: bibliothequeChargee, erreur: bibliothequeErreur, refresh, saveDocument, getBlob, getPreviewBlob, getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal, getIllegiblePages, setIllegiblePages } = useDocumentLibrary();
 
   // Les droits du document viennent du serveur ; une mise à jour de la
   // bibliothèque après paiement doit aussi débloquer l'aperçu déjà ouvert.
@@ -236,7 +237,7 @@ export default function Home() {
     (config: TranslateConfig) => {
       // Le catalogue ne propose que des codes de base ('en', 'fr'…) : plus de
       // variante régionale à réduire avant l'envoi.
-      const { file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta, resumeOf, images } = config;
+      const { file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta, resumeOf, images, nbPages } = config;
       // Mémorisé pour rejouer après un achat de pages (402) : en ENTIER, un
       // achat sert à couvrir tout le document, jamais à rejouer une version partielle.
       lastConfigRef.current = { ...config, coverOnly: false };
@@ -259,7 +260,7 @@ export default function Home() {
       setShowPreview(true);
 
       stream
-        .start(file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta, resumeOf, images)
+        .start(file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta, resumeOf, images, nbPages)
         .then((result) => {
           setTranslatedBlob(result.blob);
           setTranslatedIsPdf(false);   // le RÉSULTAT est au format d'origine
@@ -610,6 +611,16 @@ export default function Home() {
 
   // ---- Download (le résultat complet, une fois la traduction terminée) ----
   const rafraichirSolde = useCallback(() => { refresh(); refreshUser(); }, [refresh, refreshUser]);
+  // Le serveur débite à l'acceptation (document créé) et rembourse à la fin :
+  // le solde et « Mes documents » suivent sans recharger la page.
+  useEffect(() => {
+    if (stream.documentId) rafraichirSolde();
+  }, [stream.documentId, rafraichirSolde]);
+  const traduisaitAvant = useRef(false);
+  useEffect(() => {
+    if (traduisaitAvant.current && !stream.isTranslating) rafraichirSolde();
+    traduisaitAvant.current = stream.isTranslating;
+  }, [stream.isTranslating, rafraichirSolde]);
   // Pages encore libres après un règlement : l'aperçu en cours se met à jour
   // sans attendre une nouvelle traduction.
   const [libresReglees, setLibresReglees] = useState<Record<string, number>>({});
@@ -631,9 +642,17 @@ export default function Home() {
     }
     rafraichirRendu();
   }, [rafraichirRendu]);
+  // Les tarifs se montrent en fermant l'aperçu (`handleUnlock`, défini plus
+  // bas) : passage par une référence, stable pour le hook.
+  const versTarifsRef = useRef<() => void>(() => {});
+  const versTarifs = useCallback(() => versTarifsRef.current(), []);
   const {
     telecharger: telechargerLibres, acheterLibres, fenetre: fenetreLibres,
-  } = useTelechargementLibres(rafraichirSolde, noterReglement);
+  } = useTelechargementLibres({
+    onChange: rafraichirSolde,
+    onRegle: noterReglement,
+    versTarifs: isTrialFor(user) ? versTarifs : undefined,
+  });
   const docCourant = libraryDocId ?? stream.documentId;
   // Un document repris depuis « Mes documents » est aussi celui du flux : la
   // fin du flux est plus fraîche que la liste, qui ne se recharge qu'ensuite.
@@ -675,6 +694,9 @@ export default function Home() {
       await telechargerLibres(id, translatedFilename);
       return;
     }
+    // Visiteur sans compte en essai : le serveur ne peut rien lui remettre ;
+    // le blob local contiendrait les pages voilées.
+    if (isTrialMode) { versTarifs(); return; }
     const frais = id ? await getBlob(id).catch(() => undefined) : undefined;
     const blob = frais ?? stream.result?.blob ?? translatedBlob;
     if (blob && translatedFilename) {
@@ -687,7 +709,7 @@ export default function Home() {
       URL.revokeObjectURL(url);
       document.body.removeChild(a);
     }
-  }, [adminDoc, libraryDocId, stream.documentId, stream.result, translatedBlob, translatedFilename, getBlob, t, user, telechargerLibres]);
+  }, [adminDoc, libraryDocId, stream.documentId, stream.result, translatedBlob, translatedFilename, getBlob, t, user, telechargerLibres, isTrialMode, versTarifs]);
 
   // ---- Pause / Annuler ----
   // Traduction lancée ici : le flux connaît le job. Document rouvert depuis la
@@ -757,6 +779,7 @@ export default function Home() {
     retourVers.current = 'pricing';
     handleBack();
   }, [handleBack]);
+  useEffect(() => { versTarifsRef.current = handleUnlock; }, [handleUnlock]);
 
   // ---- Nav click handler ----
   // La barre reste visible au-dessus de l'aperçu, mais l'aperçu est une
@@ -1023,7 +1046,7 @@ export default function Home() {
           n'a pas de lien « Accueil » : le logo seul y ramène). */}
       <button
         type="button"
-        className={`retour-haut${activeSection !== 'hero' && !showPreview ? ' retour-haut--visible' : ''}`}
+        className={`retour-haut${activeSection !== 'hero' && activeSection !== 'story' && !showPreview ? ' retour-haut--visible' : ''}`}
         onClick={() => handleNavClick('hero')}
         aria-label={t('nav.backToTop')} title={t('nav.backToTop')}
         tabIndex={activeSection !== 'hero' && !showPreview ? 0 : -1}
@@ -1043,7 +1066,6 @@ export default function Home() {
         onPreview={handleLibraryPreview}
         onDelete={deleteDocument}
         onClearAll={clearAll}
-        getBlob={getBlob}
         getOriginalBlob={getOriginalBlob}
         onPaid={() => { refresh(); refreshUser(); }}
         onRetry={handleRetry}
@@ -1077,7 +1099,7 @@ export default function Home() {
           fileMissing={!libraryDocId || !traductionManquante ? null
             : sourceManquante ? 'all' : 'translation'}
           translationError={stream.error}
-          translationNotice={stream.notice}
+          translationNotice={fluxDuDoc && (stream.notice || stream.isTranslating) ? stream.notice : texteAvis(docBiblio?.avis, t)}
           limitReached={stream.limitReached}
           creditsNeeded={stream.creditsNeeded}
           onBuyPages={(p) => setPayPages(p)}
@@ -1102,6 +1124,7 @@ export default function Home() {
           onUnlock={handleUnlock}
           onToggleFocus={toggleFocus}
           onStop={stream.isTranslating || (suiviBiblio && libraryJobId) ? handleStop : undefined}
+          demarrage={stream.isTranslating && !stream.documentId && !suiviBiblio}
           onCopy={adminDoc?.copiable ? handleAdminCopy : undefined}
           copyBusy={copieEnCours}
           onZoomChange={changerZoom}
@@ -1132,9 +1155,6 @@ export default function Home() {
                   docId={docImages}
                   load={getDocumentImages}
                   setOriginal={setImageOriginal}
-                  loadProposition={getImagesProposition}
-                  translate={translateImages}
-                  onBuyPages={(p) => setPayPages(p)}
                   onChanged={rafraichirRendu}
                 />
               ) : null}

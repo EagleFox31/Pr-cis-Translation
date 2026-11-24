@@ -4,6 +4,7 @@ import api, { authFetch } from '../services/api';
 import i18n from '../i18n';
 import { showToast } from '../components/ui/Toast';
 import type { PageStatus } from './useStreamingTranslation';
+import type { Avis } from '../lib/avis';
 
 /** Le serveur refuse l'accès à un document archivé (plus de 30 jours, compte
  *  sans stockage) par un 403 `stockage_requis`. On le dit à l'utilisateur au
@@ -40,14 +41,6 @@ export interface DocImage {
   pages: number[];
   vignette_traduite: string | null;
   vignette_originale: string | null;
-}
-
-/** Proposition de traduire les images à texte (`GET …/images/proposition`) :
- *  `n` images à traduire sur `total` lues. */
-export interface PropositionImages {
-  etat: 'en_cours' | 'pret' | 'faite' | 'aucune';
-  n: number;
-  total: number;
 }
 
 /** Choix sur une page illisible (`vide`) ou hors sélection (`retirer`). */
@@ -109,6 +102,8 @@ export interface DocMeta {
   pagesADecider?: number;
   /** Scan terminé : pages en relecture (« traduire quand même »). */
   pagesRelues?: number;
+  /** Messages de la traduction, réaffichés à la réouverture (lib/avis). */
+  avis?: Avis[];
   /** Langue source déclarée à l'envoi (`auto` quand elle a été détectée). */
   sourceLang: string;
   /** Document archivé : listé, mais son contenu demande un forfait avec stockage. */
@@ -149,6 +144,7 @@ function toMeta(d: any): DocMeta {
     jobId: d.job_id ?? null,
     pagesADecider: d.pages_a_decider ?? 0,
     pagesRelues: d.pages_relues ?? 0,
+    avis: Array.isArray(d.avis) ? d.avis : [],
     sourceLang: d.source_lang ?? 'auto',
     archive: !!d.archive,
     accesJusquAu: d.acces_jusqu_au ?? null,
@@ -385,29 +381,6 @@ export function useDocumentLibrary() {
     return (await api.patch(`/api/documents/${id}/images`, { cle, originale })).ok;
   }, [user]);
 
-  /** Proposition de traduire les images à texte, lues pendant la traduction. */
-  const getImagesProposition = useCallback(async (id: string): Promise<PropositionImages> => {
-    const aucune: PropositionImages = { etat: 'aucune', n: 0, total: 0 };
-    if (!user) return aucune;
-    const res = await api.get(`/api/documents/${id}/images/proposition`);
-    return res.ok ? { ...aucune, ...(res.data as Partial<PropositionImages>) } : aucune;
-  }, [user]);
-
-  /** Accepte la proposition : `credits` si le solde ne couvre pas les images. */
-  const translateImages = useCallback(async (
-    id: string,
-  ): Promise<{ ok: true; images: DocImage[] } | { ok: false; credits: number | null }> => {
-    if (!user) return { ok: false, credits: null };
-    const res = await api.post(`/api/documents/${id}/images/traduire`, {});
-    if (res.ok) {
-      refresh();
-      return { ok: true, images: (res.data as { images?: DocImage[] }).images ?? [] };
-    }
-    const corps = (res.data ?? {}) as { required?: unknown };
-    return { ok: false,
-             credits: res.status === 402 && typeof corps.required === 'number' ? corps.required : null };
-  }, [user, refresh]);
-
   /** Pages de scan illisibles d'un document ; vide si aucune ou sans compte.
    *  Lève une erreur si la lecture échoue (réseau, serveur). */
   const getIllegiblePages = useCallback(async (id: string): Promise<PagesIllisibles> => {
@@ -438,6 +411,5 @@ export function useDocumentLibrary() {
 
   return { documents, loading, charge, erreur, refresh, saveDocument, getBlob, getPreviewBlob,
            getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal,
-           getImagesProposition, translateImages,
            getIllegiblePages, setIllegiblePages };
 }

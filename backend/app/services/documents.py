@@ -43,6 +43,9 @@ def acces_archive(user, doc, maintenant: datetime | None = None) -> bool:
 
 WORDS_PER_PAGE = 500
 
+# Formats à vraies pages : aperçu filigrané et fichier limité aux pages payées.
+FORMATS_LIBRES = frozenset({"pdf", "docx", "pptx"})
+
 
 def text_pages(words: int) -> int:
     """Une page équivalente par tranche commencée de 500 mots."""
@@ -141,6 +144,27 @@ def cap_pages_for_plan(pages_set, ext: str, page_limit: int):
     return pages_set
 
 
+def pages_word(file_bytes: bytes) -> int | None:
+    """Nombre de pages réel d'un .docx, d'après sa conversion en PDF.
+
+    `None` si la conversion échoue (LibreOffice absent, fichier invalide,
+    délai dépassé) : l'appelant retombe alors sur le comptage des mots.
+    """
+    try:
+        import fitz
+
+        from app.services.office import convert_to_pdf_bytes
+        pdf = convert_to_pdf_bytes(file_bytes, "docx")
+        with fitz.open(stream=pdf, filetype="pdf") as doc:
+            return doc.page_count or None
+    except Exception as e:  # noqa: BLE001
+        # Niveau erreur : le journal admin la reçoit et l'admin est prévenu,
+        # car le repli par les mots sous-estime les pages (images, tableaux).
+        logger.error("Pages Word non mesurées (conversion impossible : %s) — "
+                     "comptage par les mots.", e)
+        return None
+
+
 def count_pages(file_bytes: bytes, ext: str) -> int:
     """Nombre de pages/diapositives du fichier déposé.
 
@@ -153,13 +177,21 @@ def count_pages(file_bytes: bytes, ext: str) -> int:
     sait fabriquer un en-tête invalide. Le vrai refus viendra de l'extraction,
     quelques lignes plus loin, avec un message qui parle.
     """
-    # Office/TXT n'ont pas de pagination fiable sans rendu. Compter le texte
-    # réellement extrait par nos moteurs évite qu'un classeur immense coûte
-    # une seule page. Les formules, nombres et cellules vides ne sont pas des mots.
+    # Office/TXT : l'extraction du texte valide d'abord le fichier (un faux
+    # .docx est refusé ici ; LibreOffice, lui, en ferait une page de texte).
+    # Excel/TXT n'ont pas de pagination fiable sans rendu : compter le texte
+    # réellement extrait évite qu'un classeur immense coûte une seule page.
+    # Les formules, nombres et cellules vides ne sont pas des mots.
     if ext in ("docx", "xlsx"):
         from app.services.beta_meter import office_cost
         cost = office_cost(file_bytes, ext)
-        return text_pages(cost.units if ext == "docx" else cost.words)
+        if ext == "xlsx":
+            return text_pages(cost.words)
+        # Word : les vraies pages, celles que l'utilisateur voit dans son
+        # traitement de texte. La conversion LibreOffice est mise en cache par
+        # contenu : l'aperçu de l'original la réutilise sans la refaire. Si
+        # elle échoue, repli sur les mots.
+        return pages_word(file_bytes) or text_pages(cost.units)
     if ext == "txt":
         from app.services.beta_meter import word_count
         words = word_count(file_bytes.decode("utf-8-sig", errors="replace"))
@@ -365,7 +397,7 @@ def copie_du_document(doc) -> str:
     La traduction d'origine peut servir à d'autres comptes (magasin partagé) :
     on n'y touche pas. La copie (JSON, table et images) vit à côté, sous un nom
     qui reste une traduction pour le balayage et que seul ce document vise."""
-    from app.services import images_document, render_cache
+    from app.services import avis_document, images_document, render_cache
     trad = doc.translated_path
     copie = copie_prevue(doc)
     if copie == trad:
@@ -383,6 +415,7 @@ def copie_du_document(doc) -> str:
                 shutil.copytree(trad + suffixe, copie + suffixe, dirs_exist_ok=True,
                                 ignore=shutil.ignore_patterns("*.tmp"))
         for source, cible in ((images_document.chemin_table(trad), images_document.chemin_table(copie)),
+                              (avis_document.chemin(trad), avis_document.chemin(copie)),
                               (trad + ".source.pdf", copie + ".source.pdf")):
             if os.path.isfile(source):
                 shutil.copy2(source, cible)

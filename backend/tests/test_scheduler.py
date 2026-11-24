@@ -80,6 +80,8 @@ def main() -> None:
     check(order.index("B") < order.index("D"),
           "a priorite egale, le plus ancien (B) passe avant le plus recent (D)")
 
+    attente_sans_les_arretes()
+
     passed = sum(1 for ok, _ in _checks if ok)
     total = len(_checks)
     print(f"\n{passed}/{total} controles")
@@ -87,6 +89,36 @@ def main() -> None:
         print("ECHECS :", [lbl for ok, lbl in _checks if not ok])
         sys.exit(1)
     print("OK - ordonnanceur conforme")
+
+
+def attente_sans_les_arretes() -> None:
+    """« N devant vous » ne compte pas les jobs annulés ou en pause en file."""
+    from app.services import scheduler as mod
+    jobs = mod.jobs
+    sched = TranslationScheduler(workers=1)
+    started, release = threading.Event(), threading.Event()
+    vus: dict[str, int] = {}
+    emit_orig = jobs.emit
+
+    def espion(job_id, event_type, payload):
+        if event_type == "queued":
+            vus[job_id] = payload["ahead"]
+        return emit_orig(job_id, event_type, payload)
+
+    jobs.emit = espion
+    try:
+        a, b, c, d = (jobs.create() for _ in range(4))
+        sched.submit(a, 0, lambda: (started.set(), release.wait(5.0)), ())
+        _wait_until(started.is_set)
+        sched.submit(b, 0, lambda: None, ())
+        sched.submit(c, 0, lambda: None, ())
+        check(vus.get(c) == 1, f"un job en file devant : 1 (vu {vus.get(c)})")
+        check(jobs.demander_arret(b, "cancelled") == "en_file", "B annulé en file")
+        sched.submit(d, 0, lambda: None, ())
+        check(vus.get(d) == 1, f"B annulé ne compte plus : 1 devant D (vu {vus.get(d)})")
+        release.set()
+    finally:
+        jobs.emit = emit_orig
 
 
 if __name__ == "__main__":

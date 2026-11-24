@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
-  Download, Loader2, CheckCircle2, Lock,
+  Download, Loader2, CheckCircle2,
   Maximize2, Minimize2, Flag, FileDown, Languages, Pause, X,
   RectangleVertical, MoveHorizontal, SquareSplitHorizontal, CopyPlus,
 } from 'lucide-react';
@@ -12,7 +12,6 @@ import type { StopMode } from '../../hooks/useStreamingTranslation';
 import { baseCode } from '../../lib/languages';
 import ProgressBar from '../ui/ProgressBar';
 import { openSupport } from '../support/supportBus';
-import { goToSection } from '../../lib/sectionBus';
 
 // Le badge de langue passait par une table `LANG_LABELS` codée à la main —
 // dix entrées, à tenir à jour à chaque langue ajoutée, et un doublon de ce que
@@ -33,7 +32,6 @@ interface ViewerToolbarProps {
   onRideauChange?: (actif: boolean) => void;
   currentPage: number;
   numPages: number;
-  isTrialMode: boolean;
   sourceFilename?: string;
   translatedFilename?: string;
   targetLang?: string;
@@ -50,11 +48,12 @@ interface ViewerToolbarProps {
   onDownloadOriginal?: () => void;
   /** « Traduire à nouveau » ce document (langue au choix). */
   onRetranslate?: () => void;
-  /** Essai : quitter l'aperçu pour les tarifs (ils sont SOUS la surcouche). */
-  onUnlock?: () => void;
   onToggleFocus?: () => void;
   /** Pause / Annuler la traduction en cours. Absent : pas de job à arrêter. */
   onStop?: (mode: StopMode) => Promise<void>;
+  /** Traduction pas encore acceptée par le serveur : « Démarrage… » à la
+   *  place de Pause / Annuler, qui n'auraient encore rien à arrêter. */
+  demarrage?: boolean;
   /** Admin regardant le document d'un client : en garder une copie à son nom. */
   onCopy?: () => void;
   copyBusy?: boolean;
@@ -69,7 +68,6 @@ export default function ViewerToolbar({
   onRideauChange,
   currentPage,
   numPages,
-  isTrialMode,
   sourceFilename,
   translatedFilename,
   targetLang,
@@ -82,9 +80,9 @@ export default function ViewerToolbar({
   onDownload,
   onDownloadOriginal,
   onRetranslate,
-  onUnlock,
   onToggleFocus,
   onStop,
+  demarrage = false,
   onCopy,
   copyBusy = false,
 }: ViewerToolbarProps) {
@@ -243,6 +241,8 @@ export default function ViewerToolbar({
             }}>
               {arret
                 ? t('viewer.stopping', 'Arrêt après la page en cours…')
+                : isTranslating && demarrage
+                ? t('viewer.starting', 'Démarrage…')
                 : isTranslating && numPages === 0
                 ? t('preview.loading', "Préparation de l'aperçu…")
                 : isTranslating
@@ -255,7 +255,7 @@ export default function ViewerToolbar({
               height={3}
             />
           </div>
-          {isTranslating && onStop && (
+          {isTranslating && onStop && !demarrage && (
             <>
               <button
                 onClick={() => demanderArret('pause')}
@@ -353,35 +353,26 @@ export default function ViewerToolbar({
         </button>
       )}
 
-      {/* Téléchargement — indisponible tant que la traduction n'est pas finie */}
+      {/* Téléchargement — indisponible tant que la traduction n'est pas finie.
+          Même action pour tous les forfaits : le téléchargement partagé
+          demande au serveur ce qui est payé et explique le reste. */}
       <button
-        onClick={() => {
-          if (isTrialMode) {
-            // Défiler vers #pricing sans fermer l'aperçu ne montrait rien :
-            // la grille est sous la surcouche fixe.
-            if (onUnlock) onUnlock();
-            else goToSection('pricing');
-            return;
-          }
-          onDownload();
-        }}
+        onClick={onDownload}
         className="tb-btn ghost"
-        disabled={!canDownload && !isTrialMode}
+        disabled={!canDownload}
         aria-label={t('viewer.download', 'Télécharger la traduction')}
         title={
-          isTrialMode
-            ? t('viewer.download_locked', 'Version d’essai — débloquez le téléchargement')
-            : canDownload
-              ? t('viewer.download', 'Télécharger la traduction')
-              : t('viewer.download_wait', 'Disponible à la fin de la traduction')
+          canDownload
+            ? t('viewer.download', 'Télécharger la traduction')
+            : t('viewer.download_wait', 'Disponible à la fin de la traduction')
         }
         style={{
           display: 'flex', alignItems: 'center', gap: '6px',
-          opacity: !canDownload && !isTrialMode ? 0.45 : 1,
-          cursor: !canDownload && !isTrialMode ? 'not-allowed' : 'pointer',
+          opacity: canDownload ? 1 : 0.45,
+          cursor: canDownload ? 'pointer' : 'not-allowed',
         }}
       >
-        {isTrialMode ? <Lock size={15} strokeWidth={2.2} /> : <Download size={15} strokeWidth={2.2} />}
+        <Download size={15} strokeWidth={2.2} />
       </button>
     </div>
   );

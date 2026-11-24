@@ -23,7 +23,7 @@ VERSION doit rester égale au champ "version" du package.json racine
 """
 
 VERSION = "1.11.0"  # x-release-please-version
-DATE_VERSION = "2026-11-21"
+DATE_VERSION = "2026-11-23"
 
 TYPES = ("nouveaute", "amelioration", "correctif")
 DOMAINES = ("documents", "visionneuse", "extension", "compte")
@@ -124,21 +124,21 @@ FONCTIONNALITES: list[dict] = [
         },
     },
     {
-        "id": "images-proposees-apres-traduction",
-        "date": "2026-11-21",
+        "id": "images-traduites-avec-la-page",
+        "date": "2026-11-23",
         "type": "nouveaute",
         "domaine": "documents",
         "importance": 2,
         "phare": False,
         "fr": {
-            "titre": "Les images traduites sur proposition",
-            "resume": "À la fin de la traduction, Précis indique combien d'images contiennent du texte à traduire et vous laisse choisir.",
-            "detail": "Vous ne payez que les images réellement traduites : une page par image, débitée au clic. Le contrôle des crédits au dépôt ne porte plus que sur le texte. Les images sont déjà prêtes : elles s'affichent en quelques secondes. Valable pour les PDF, Word et PowerPoint traduits en entier.",
+            "titre": "Chaque page arrive traduite en entier, images comprises",
+            "resume": "Le texte écrit dans les images est traduit en même temps que le reste de la page.",
+            "detail": "Une page ne s'affiche qu'une fois ses images traduites. Les images ne coûtent rien de plus : la page reste facturée une seule fois. Si une image ne peut pas être lue, elle reste d'origine. Vous pouvez toujours remettre une image d'origine depuis le document. Valable pour les PDF, Word et PowerPoint.",
         },
         "en": {
-            "titre": "Images translated on request",
-            "resume": "When the translation ends, Précis shows how many images contain text to translate and lets you choose.",
-            "detail": "You only pay for the images actually translated: one page per image, debited when you click. The credit check at upload now covers the text only. The images are already prepared: they appear within seconds. Available for PDF, Word and PowerPoint documents translated in full.",
+            "titre": "Every page arrives fully translated, images included",
+            "resume": "Text written inside images is translated together with the rest of the page.",
+            "detail": "A page is shown only once its images are translated. Images cost nothing extra: the page is still billed once. If an image cannot be read, it stays as it was. You can still restore any original image from the document. Available for PDF, Word and PowerPoint.",
         },
     },
     {

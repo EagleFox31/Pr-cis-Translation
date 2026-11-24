@@ -21,6 +21,20 @@ const BOUTON_NEUTRE = {
 } as const;
 
 const largeurCadre = () => document.getElementById('scroll')?.clientWidth ?? window.innerWidth;
+/** Hauteur fixe du bandeau d'essai sous la page traduite. */
+const BANDEAU_ESSAI_PX = 33;
+
+// Surface intérieure du cadre (padding compris) COMME SI aucune barre de
+// défilement n'était là. `clientWidth/Height` perdent la largeur d'une barre
+// quand elle apparaît : la page, recalculée plus petite, ne débordait plus, la
+// barre disparaissait, la page regrandissait… et l'aperçu tremblait.
+function cadreSansBarres(el: HTMLElement) {
+  const cs = getComputedStyle(el);
+  return {
+    w: el.offsetWidth - parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth),
+    h: el.offsetHeight - parseFloat(cs.borderTopWidth) - parseFloat(cs.borderBottomWidth),
+  };
+}
 
 // Ouvre `blob` dans pdf.js et le garde ouvert tant que le blob ne change pas.
 // `garder` : pendant l'ouverture du suivant, continuer d'exposer le précédent
@@ -228,7 +242,7 @@ export default function PdfViewer({
       // redessin, la page peinte avant garde l'ancienne taille et les deux
       // volets ne correspondent plus.
       const el = document.getElementById('scroll');
-      if (el) setTailleCadre(`${el.clientWidth}x${el.clientHeight}`);
+      if (el) { const c = cadreSansBarres(el); setTailleCadre(`${c.w}x${c.h}`); }
     };
     suivre();   // le cadre a pu changer entre le premier rendu et cet effet
     const cadre = document.getElementById('scroll');
@@ -281,21 +295,22 @@ export default function PdfViewer({
       // prend toute la largeur utile — on la lit, on ne la suppose pas.
       const cs = getComputedStyle(scrollEl);
       const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+      const cadre = cadreSansBarres(scrollEl);
       // Rideau : UN seul panneau, toute la largeur utile (la bascule a disparu).
       containerWidth = compact || rideau
-        ? scrollEl.clientWidth - padX - (rideau ? 2 : 0)
+        ? cadre.w - padX - (rideau ? 2 : 0)
         : landscape
-          ? scrollEl.clientWidth - 24
-          : (scrollEl.clientWidth - 70) / 2;
+          ? cadre.w - 24
+          : (cadre.w - 70) / 2;
       // Hauteur disponible : le conteneur moins son padding (24px × 2) et
       // la hauteur du badge de langue au-dessus de chaque panneau (~34px).
       // Paysage : deux panneaux EMPILÉS → chacun a la MOITIÉ de la hauteur.
       // Écran étroit : un seul volet visible, sous la bascule (sa hauteur
       // mesurée + l'écart de 12px qui la sépare du volet).
-      const hDispo = scrollEl.clientHeight - 48 - 34;
+      const hDispo = cadre.h - 48 - 34;
       const hBascule = basculeRef.current ? basculeRef.current.offsetHeight + 12 : 0;
       containerHeight = rideau
-        ? scrollEl.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 2
+        ? cadre.h - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 2
         : compact
           ? hDispo - hBascule
           : landscape ? (hDispo - 24) / 2 : hDispo;
@@ -321,8 +336,13 @@ export default function PdfViewer({
     if (!el) return null;
     const landscape = pageW > pageH;
     const cs = getComputedStyle(el);
-    const larg = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-    const haut = el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    const cadre = cadreSansBarres(el);
+    const larg = cadre.w - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    // Essai : le bandeau sous la page traduite s'ajoute à sa hauteur. Réservé
+    // dès le départ (avant qu'il n'apparaisse) : sinon la page « entière »
+    // débordait de sa hauteur au moment où le voile s'affichait.
+    const haut = cadre.h - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
+      - (isTrialMode ? BANDEAU_ESSAI_PX : 0);
     let pw: number;
     let ph: number;
     if (rideau) {                 // une seule page
@@ -501,7 +521,8 @@ export default function PdfViewer({
       })
       .catch((e: unknown) => signaler(active)(e));
     return () => { active = false; };
-  }, [ajustement, rideau, compact, tailleCadre, currentPage, docOrig, docTrad, gabaritVide, onZoomAjuste]);
+  }, [ajustement, rideau, compact, tailleCadre, currentPage, docOrig, docTrad, gabaritVide, onZoomAjuste,
+    isTrialMode]);
 
   const [isHovering, setIsHovering] = useState(false);
 
@@ -810,6 +831,7 @@ export default function PdfViewer({
                 bottom: '0',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
                 width: '100%', boxSizing: 'border-box', minWidth: 0,
+                height: `${BANDEAU_ESSAI_PX}px`,
                 background: 'rgba(13,27,62,0.92)',
                 color: 'white',
                 padding: '7px 10px',

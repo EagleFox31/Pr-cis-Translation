@@ -398,7 +398,34 @@ def zones_par_boite(mask, boites, marge=3):
     return zones
 
 
-def effacer(image, boites, budget_s=BUDGET_S, mask=None, limite_s=None):
+def _fond_sous(image, gardee, mask, marge=8):
+    """Copie de `image` où l'encre `gardee` prend la couleur du fond voisin.
+
+    L'encre reste ainsi du « connu » pour le remplissage (la zone garde ses
+    repères) sans y apporter sa couleur. Le fond d'une tache est la médiane
+    du quart le plus clair de son voisinage hors encre et hors masque, et un
+    pixel n'est jamais assombri : une diffusion (telea), ou une tache collée
+    à un trait de tableau, étalerait sinon ce trait en voile gris.
+    """
+    source = image.copy()
+    n, etiq, stats, _ = cv2.connectedComponentsWithStats(gardee.astype(np.uint8), 8)
+    H, W = gardee.shape
+    for i in range(1, n):
+        x, y, w, h = stats[i, :4]
+        y0, y1, x0, x1 = max(0, y - marge), min(H, y + h + marge), max(0, x - marge), min(W, x + w + marge)
+        libre = ~gardee[y0:y1, x0:x1] & (mask[y0:y1, x0:x1] == 0)
+        pix = image[y0:y1, x0:x1][libre]
+        if not len(pix):
+            continue
+        clair = pix[pix.sum(1) >= np.percentile(pix.sum(1), 75)]
+        fond = np.median(clair, axis=0)
+        tache = etiq == i
+        sombre = tache & (image.astype(np.int32).sum(2) < fond.sum())
+        source[sombre] = fond.astype(image.dtype)
+    return source
+
+
+def effacer(image, boites, budget_s=BUDGET_S, mask=None, limite_s=None, gardee=None):
     """Efface le texte des boîtes `(x, y, w, h)` de l'image BGR `uint8`.
 
     Renvoie `(image_effacee, choix)` : `choix[i]` est la méthode appliquée à la
@@ -410,6 +437,10 @@ def effacer(image, boites, budget_s=BUDGET_S, mask=None, limite_s=None):
     La règle, peu coûteuse, passe d'abord sur toutes les zones ; le fantôme,
     bien plus cher, n'affine ensuite que pendant `budget_s` (et avant `limite_s`). Un délai serré profite
     ainsi au plus de zones possible.
+
+    `gardee` (booléen) : encre d'une ligne laissée intacte, contiguë à une
+    zone effacée. Elle n'est pas réécrite, mais ne sert pas non plus de
+    modèle au remplissage (sinon un voile gris s'étale dans la zone).
     """
     debut = time.perf_counter()
     if mask is None:
@@ -447,11 +478,16 @@ def effacer(image, boites, budget_s=BUDGET_S, mask=None, limite_s=None):
     # même résultat que zone par zone, sans refaire les recadrages qui se
     # chevauchent.
     out = image.copy()
-    if pre_efface is None and "telea (délai)" in choix:
-        pre_efface = m_telea(image, mask)
+    source = image
+    if gardee is not None and gardee.any():
+        source = _fond_sous(image, gardee, mask)
+        pre_efface = None
+    delai = None
+    if "telea (délai)" in choix:
+        delai = pre_efface if pre_efface is not None else m_telea(source, mask)
     for (sl, z), c in zip(zones, choix):
         if c is None:
             continue
-        rempli = pre_efface[sl] if c == "telea (délai)" else METHODES[c.split()[0]](image[sl], mask[sl])
+        rempli = delai[sl] if c == "telea (délai)" else METHODES[c.split()[0]](source[sl], mask[sl])
         out[sl][z] = rempli[z]
     return out, choix

@@ -32,14 +32,15 @@ from app.models import (Document, User, get_plan_page_limit,
                         get_plan_monthly_pages, is_paid_plan,
                         KIND_CREDITS, KIND_FREE_OFFER, KIND_PLAN)
 from app.rate_limit import verify_api_key
-from app.services.documents import acces_archive
+from app.services.documents import acces_archive, FORMATS_LIBRES
 from app.services.documents import (build_job_paths, cap_pages_for_plan,
                                     count_pages, pages_avec_texte, pages_faites,
                                     pages_selectionnees, reglages_de,
                                     translation_path_for)
-from app.services import usage
+from app.services import depots, usage
 from app.services import anti_abus
 from app.services import beta
+from app.services import avis_document
 from app.services.beta_meter import BetaCost, FORMATS as BETA_FORMATS, office_cost
 from app.services.images_document import IMAGES_PROPOSABLES, lister as lister_images
 from app.services.ocr import OCR_VERSION
@@ -90,10 +91,106 @@ async def preview_pdf_options():
         "Access-Control-Allow-Headers": "Content-Type, X-API-Key",
     })
 
+@router.options("/api/upload")
+async def upload_options():
+    return JSONResponse(content={}, headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, X-API-Key",
+    })
+
+
+# Garde une référence aux conversions lancées au dépôt (sinon le ramasse-miettes
+# peut les couper en route).
+_conversions_depot: set = set()
+
+
+@router.post("/api/upload")
+async def upload_endpoint(
+    request: Request,
+    nom: str = "",
+    x_api_key: str = Header(None),
+    current_user: "User" = Depends(require_auth),
+):
+    """Dépôt unique du fichier, dès qu'il est choisi (corps brut, nom en
+    paramètre). L'analyse, l'aperçu et la traduction le relisent ensuite par
+    `upload_id` au lieu de le renvoyer.
+
+    La taille est refusée sur l'annonce du navigateur, AVANT de recevoir le
+    fichier, puis contrôlée pendant la réception (annonce absente ou fausse)."""
+    verify_api_key(x_api_key)
+    ext = nom.rsplit(".", 1)[-1].lower() if "." in nom else ""
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Type non supporté : .{ext}")
+    trop_gros = "Fichier trop volumineux (max 100 Mo)."
+    try:
+        annonce = int(request.headers.get("content-length") or 0)
+    except ValueError:
+        annonce = 0
+    if annonce > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail=trop_gros)
+
+    # Réception en morceaux : l'envoi est coupé dès que la limite est dépassée,
+    # même si l'annonce de taille manquait ou mentait.
+    morceaux: list[bytes] = []
+    recu = 0
+    async for morceau in request.stream():
+        recu += len(morceau)
+        if recu > MAX_FILE_SIZE:
+            raise HTTPException(status_code=413, detail=trop_gros)
+        morceaux.append(morceau)
+    if not recu:
+        raise HTTPException(status_code=400, detail="Fichier vide.")
+    data = b"".join(morceaux)
+    del morceaux
+
+    def ecrire(chemin: str) -> int:
+        with open(chemin, "wb") as f:
+            f.write(data)
+        return len(data)
+
+    depot_id = await run_in_threadpool(depots.creer, current_user.id, nom, ecrire)
+
+    # L'aperçu de l'original se prépare pendant que l'utilisateur choisit sa
+    # langue : la demande d'aperçu retrouvera la conversion en cache (même
+    # contenu, même verrou) au lieu de la lancer au clic.
+    if ext != "pdf":
+        async def convertir():
+            try:
+                await asyncio.to_thread(convert_to_pdf_bytes, data, ext)
+            except Exception as e:
+                logger.warning(f"Aperçu préparé au dépôt : conversion échouée ({e}).")
+        tache = asyncio.create_task(convertir())
+        _conversions_depot.add(tache)
+        tache.add_done_callback(_conversions_depot.discard)
+
+    return JSONResponse(content={"upload_id": depot_id, "taille": len(data)})
+
+
+async def _fichier_recu(file: "UploadFile | None", upload_id: str,
+                        user: "User") -> tuple[str, bytes]:
+    """(nom, contenu) du fichier : relu depuis le dépôt (`upload_id`) ou reçu
+    avec la requête (ancien envoi direct, gardé en repli). 410 si le dépôt a
+    expiré : le navigateur renvoie alors le fichier lui-même."""
+    upload_id = upload_id if isinstance(upload_id, str) else ""
+    if upload_id:
+        trouve = await run_in_threadpool(depots.lire, upload_id, user.id)
+        if trouve is None:
+            raise HTTPException(status_code=410, detail="Fichier déposé introuvable ou expiré.")
+        return trouve
+    if file is None or not hasattr(file, "read"):
+        raise HTTPException(status_code=400, detail="Aucun fichier reçu.")
+    try:
+        return file.filename or "", await file.read()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Impossible de lire le fichier. Vérifiez qu'il n'est pas corrompu et réessayez.")
+
+
 @router.post("/api/preview/pdf")
 async def preview_pdf_endpoint(
     request: Request,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    upload_id: str = Form(""),
     x_api_key: str = Header(None),
     # CONNEXION OBLIGATOIRE : la clé d'API est publique (bundle du frontend),
     # elle ne « protège » rien. Sans JWT, cet endpoint était une ferme de
@@ -105,15 +202,10 @@ async def preview_pdf_endpoint(
     téléchargeable, elle ne sert qu'à un rendu exact dans le viewer."""
     verify_api_key(x_api_key)
 
-    filename = file.filename or ""
+    filename, file_bytes = await _fichier_recu(file, upload_id, current_user)
     ext = filename.split(".")[-1].lower() if "." in filename else ""
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"Type non supporté pour l'aperçu : .{ext}")
-
-    try:
-        file_bytes = await file.read()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Impossible de lire le fichier. Vérifiez qu'il n'est pas corrompu et réessayez.")
 
     if len(file_bytes) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="Fichier trop volumineux pour l'aperçu.")
@@ -195,9 +287,9 @@ APERCUS_MAX = 50
 
 
 def _analyse_images(file_bytes: bytes, ext: str):
-    """Pages du document et nombre d'images, repérées sans aucune lecture :
-    les images à texte se cherchent pendant la traduction et sont proposées à
-    la fin (option D1, étude retours 18/11 §3)."""
+    """Pages, langue et nombre d'images du document, repérés sans aucune
+    lecture : les images à texte sont lues pendant la traduction, avec leur
+    page."""
     images = lister_images(file_bytes, ext) if ext in IMAGES_PROPOSABLES else []
     total = sum(1 for i in images if not i.exclusion)
     pages = count_pages(file_bytes, ext)
@@ -208,7 +300,8 @@ def _analyse_images(file_bytes: bytes, ext: str):
 
 @router.post("/api/translate/analyse")
 async def analyse_endpoint(
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    upload_id: str = Form(""),
     x_api_key: str = Header(None),
     current_user: "User" = Depends(require_auth),
 ):
@@ -217,15 +310,10 @@ async def analyse_endpoint(
     proposées au client (option D1). Ne traduit ni ne débite rien."""
     verify_api_key(x_api_key)
 
-    filename = file.filename or ""
+    filename, file_bytes = await _fichier_recu(file, upload_id, current_user)
     ext = filename.split(".")[-1].lower() if "." in filename else ""
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"Type non supporté : .{ext}")
-
-    try:
-        file_bytes = await file.read()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Impossible de lire le fichier. Vérifiez qu'il n'est pas corrompu et réessayez.")
 
     if len(file_bytes) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail=f"Fichier trop volumineux ({len(file_bytes)/(1024*1024):.1f} Mo, max 100 Mo).")
@@ -241,7 +329,9 @@ async def analyse_endpoint(
 async def translate_endpoint(
     request: Request,
     response: Response,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    # Fichier déjà déposé par `/api/upload` : relu sur le serveur, pas renvoyé.
+    upload_id: str = Form(""),
     target_lang: str = Form("en"),
     format_options: str = Form("{}"),
     quality: str = Form("fast"),
@@ -281,15 +371,10 @@ async def translate_endpoint(
 
     quality = qualite_autorisee(quality, precise, current_user)
 
-    filename = file.filename or ""
+    filename, file_bytes = await _fichier_recu(file, upload_id, current_user)
     ext = filename.split(".")[-1].lower() if "." in filename else ""
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"Type non supporté : .{ext}")
-
-    try:
-        file_bytes = await file.read()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Impossible de lire le fichier. Vérifiez qu'il n'est pas corrompu et réessayez.")
 
     if len(file_bytes) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail=f"Fichier trop volumineux ({len(file_bytes)/(1024*1024):.1f} Mo, max 100 Mo).")
@@ -345,7 +430,7 @@ async def translate_endpoint(
     # Mode libre d'office (PDF) : ce que le solde ne couvre pas est traduit en
     # aperçu. Jamais en bêta (ses quotas ont leurs propres unités), ni quand le
     # client a choisi de ne traduire que les pages couvertes.
-    mode_libre = ext == "pdf" and not beta_mode and covered_only != "1"
+    mode_libre = ext in FORMATS_LIBRES and not beta_mode and covered_only != "1"
     # Hors format bêta, la case n'a pas d'objet : traduction ordinaire.
     if beta_choice in ("1", "true") and not beta_mode and ext in BETA_FORMATS:
         return JSONResponse(status_code=402, content={
@@ -418,15 +503,13 @@ async def translate_endpoint(
                 })
             qsuffix += f"_{OCR_VERSION}"
 
-    # ── Images à texte (option D1, étude retours 18/11 §3) ────────────────
-    # Rien n'est lu ni facturé au dépôt : les images sont lues pendant la
-    # traduction, puis leur traduction est proposée à la fin (« Traduire
-    # (N pages) »). Hors bêta, hors mode structure, hors scan (les images d'une
-    # page lue ne sont plus celles de l'original) ; document entier seulement
-    # (vérifié plus bas, une fois la sélection arrêtée). Le champ `images` reste
-    # accepté pour les anciens clients, sans effet.
-    images_actives = (ext in IMAGES_PROPOSABLES and not beta_mode
-                      and not debug_mode and not scans)
+    # ── Images à texte : traduites avec leur page ─────────────────────────
+    # Une page part entière, images comprises, pour le prix de la page. Rien
+    # n'est lu au dépôt. Partout (bêta, sélection de pages, documents en
+    # partie scannés) sauf en mode structure ; une page lue par OCR est déjà
+    # lue entière et ne lit pas ses images. Le champ `images` reste accepté
+    # pour les anciens clients, sans effet.
+    images_actives = ext in IMAGES_PROPOSABLES and not debug_mode
 
     # ── Limite de pages selon le plan ─────────────────────────────────────
     # On est dans un endpoint ASYNC : la session `db` et l'utilisateur
@@ -571,8 +654,7 @@ async def translate_endpoint(
             if refus_offert:
                 reste_plan = 0
         couvert = None if reste_plan is None else reste_plan + solde
-        # Le texte seul : les images se paient à part, si le client accepte
-        # la proposition faite en fin de traduction.
+        # La page couvre ses images : rien ne se paie à part.
         a_couvrir = needed
         # Mode libre : ce que le solde ne couvre pas est traduit en aperçu, dans
         # la limite du plafond ; la sélection reste entière. Une reprise garde
@@ -597,7 +679,8 @@ async def translate_endpoint(
                     min(a_couvrir - acquises, anti_abus.LIBRE_MAX_PAGES))
                 # Le document avancerait d'au moins une page avant la pause :
                 # « traduire jusqu'à la limite » est possible.
-                avance = deja_payees + traduites > faites_reprise
+                # Pause (arrêt à la limite) : PDF seul ; Word se traduit d'un bloc.
+                avance = ext == "pdf" and deja_payees + traduites > faites_reprise
                 limite_info = {"libre_used": deja_libres, "libre_max": anti_abus.LIBRE_MAX_PAGES,
                                "libre_needed": a_couvrir - acquises,
                                "libre_reprise": heure_reprise.isoformat() if heure_reprise else None,
@@ -710,9 +793,6 @@ async def translate_endpoint(
     # de page) ; pour DOCX/PPTX, le JSON de traduction. Le PDF/DOCX rendu, lui,
     # n'est PAS conservé : il se recalcule à la demande depuis ces deux-là.
     translation_path = translation_path_for(lang_dir, ext, pages_set, qsuffix)
-    # Proposition d'images : document entier seulement (la sélection finale,
-    # couverture et plafond du plan compris, est arrêtée ici).
-    images_actives = images_actives and not pages_set
 
     output_filename = f"{safe_name}_TRADUIT{qsuffix}{psuffix}.{ext}"
     if debug_mode:
@@ -803,8 +883,8 @@ async def translate_endpoint(
                                           "qsuffix": qsuffix,
                                           "beta": bool(beta_charge),
                                           "deja": deja_payees,
-                                          # Document dont les images à texte
-                                          # seront proposées en fin de travail.
+                                          # Images à texte traduites avec
+                                          # chaque page.
                                           "images": bool(images_actives),
                                           **({"budget": budget} if budget else {}),
                                           **reglages_libres})
@@ -855,6 +935,9 @@ async def translate_endpoint(
     if scans:
         reponse["ocr_pages"] = len(scans)
         reponse["ocr_review_required"] = True
+    # Gardé avec la traduction : revu en revenant par « Mes documents ».
+    await asyncio.to_thread(avis_document.ajouter, translation_path, "ocr",
+                            {"pages": len(scans)} if scans else None)
     return avec_cookie(JSONResponse(reponse))
 
 
@@ -986,15 +1069,25 @@ async def translation_partial(job_id: str, x_api_key: str = Header(None),
     verify_api_key(x_api_key)
     job = _job_of(job_id, current_user)
     path = job.get("partial_path")
-    if not path or not os.path.exists(path):
+    # Word : traduit d'un bloc, sans partiel au fil de l'eau. Une fois fini,
+    # l'aperçu est la conversion PDF du résultat (filigranée plus bas).
+    resultat = job.get("result_path") or ""
+    if ((not path or not os.path.exists(path)) and job.get("state") == "done"
+            and resultat.lower().endswith(".docx") and os.path.exists(resultat)):
+        from app.api.documents import _lire
+        word = await run_in_threadpool(_lire, resultat)
+        data = await run_in_threadpool(convert_to_pdf_bytes, word, "docx")
+        pages_pretes = None
+    elif not path or not os.path.exists(path):
         raise HTTPException(status_code=202, detail="Aucune page prête pour l'instant.")
-    # Lue AVANT le fichier : le runner l'écrit après lui, elle ne peut donc
-    # qu'être en retard sur le contenu, jamais annoncer une page absente.
-    pages_pretes = job.get("partial_pages")
-    # Lecture et rastérisation HORS de la boucle : appelé à chaque page du
-    # flux, un appel bloquant ici figeait toute l'application, SSE compris.
-    from app.api.documents import _lire
-    data = await run_in_threadpool(_lire, path)
+    else:
+        # Lue AVANT le fichier : le runner l'écrit après lui, elle ne peut donc
+        # qu'être en retard sur le contenu, jamais annoncer une page absente.
+        pages_pretes = job.get("partial_pages")
+        # Lecture HORS de la boucle : appelé à chaque page du flux, un appel
+        # bloquant ici figeait toute l'application, SSE compris.
+        from app.api.documents import _lire
+        data = await run_in_threadpool(_lire, path)
 
     # PLAN D'ESSAI : jamais le clair. On envoyait le PDF traduit tel quel et on
     # comptait sur le navigateur pour l'assombrir — mesuré : un compte `free`

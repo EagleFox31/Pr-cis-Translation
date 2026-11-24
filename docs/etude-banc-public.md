@@ -87,4 +87,6 @@ la taille du jeu. La lecture OCR d'une image à la limite de la règle peut vari
 passage à l'autre : une relance a admis 2 AI2D de plus, retirées en gardant les 15
 premières dans l'ordre du tirage.
 
-_(lots : rempli lot par lot)_
+**Lots 0 à 15 (11/11/2026)** : jugés un à un, en tolérance zéro, dans
+`docs/revues/robustesse-ocr.md`. 6 cas conformes, tous sans texte à traduire. Le classement
+par cause et l'ordre de correction sont dans `docs/etude-robustesse-ocr.md` (Résultats).

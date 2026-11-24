@@ -35,7 +35,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 from engines.pdf import polices
 from .detect import LectureEchouee
 from .erase import T_TEX, effacer, indicateurs, zones_par_boite
-from .mask import masque_couleur
+from .mask import DILATATION, _longs, masque_couleur
 from .render import longueur_trait
 
 OCTETS_MAX = 10 * 1024 * 1024
@@ -76,6 +76,12 @@ FOND_MIN = 0.5           # moins de 50 % de fond derrière les lettres : fond ch
 _PUCE = re.compile(r"^\s*([0-9０-９]+[.)．）、]|[0-9０-９]{1,3}\s*[－―—ー]"
                    r"|[0-9０-９]{1,3}\s*[-–]\s|[・•\-–—－―*]|[①-⑳])")
 _FIN_PHRASE = re.compile(r"[。．.!?！？:：」』）)]\s*$")
+# Libellé de formulaire (« FROM: », « Date of issue: ») : un champ, pas un paragraphe.
+_LIBELLE = re.compile(r"^\s*\S+(\s+\S+){0,2}\s*[:：]\s*$")
+# Ligne faite de chiffres seuls (téléphone, montant, colonne de valeurs).
+_NOMBRE = re.compile(r"^[\s\d.,:;/%$€£¥+\-–—()#*'°·]*\d[\s\d.,:;/%$€£¥+\-–—()#*'°·]*$")
+RETOUR = 1.25            # × largeur estimée du 1er mot : marge du test de retour à la ligne
+INTERLIGNE = 0.3         # × hauteur de ligne : écart d'interligne qui sépare deux fiches
 DELAI_S = 30.0
 _CJK = re.compile(r"[぀-ヿ㐀-鿿豈-﫿가-힯]")
 _ROBOTO = {False: os.path.join(polices.FONTS_DIR, "roboto-Regular.ttf"),
@@ -240,17 +246,357 @@ def _trait(bgr, haut, bas):
     return bool((encre.mean(axis=1) > 0.8).any())
 
 
+LISTE_MIN = 3            # lignes empilées au moins pour faire une liste
+LISTE_MOTS = 4           # mots au plus par élément de liste
+LISTE_PAS = 0.25         # × hauteur de ligne : écart toléré entre deux pas de la liste
+
+
+MARGE_TRAITS = 40  # fenêtre où un trait de tableau se reconnaît à sa longueur
+
+
+def _proteger(mask, bgr, intactes, effacees):
+    """Une ligne laissée intacte n'est pas entamée par l'effacement d'une
+    voisine dont la boîte la chevauche (« OE » posé juste au-dessus de
+    « Control », 4e98). L'encre des deux lignes, lue sur leurs boîtes
+    entières, se répartit par tache : chacune va à la ligne dont le milieu
+    est le plus proche, si bien que le jambage d'une lettre effacée qui
+    descend dans la boîte voisine s'efface aussi, et que le haut des
+    chiffres d'en dessous reste (d24b). Une tache qui couvre les deux
+    milieux se coupe à mi-chemin.
+
+    Renvoie l'encre gardée près des lignes effacées : elle ne doit pas
+    servir de modèle au remplissage, sinon un voile gris s'y étale
+    (sous « New York », d24b)."""
+    H, W = mask.shape
+    noyau = np.ones((3, 3), np.uint8)
+    encre_gardee = np.zeros((H, W), bool)
+    for x, y, w, h in intactes:
+        x0, y0, x1, y1 = max(x, 0), max(y, 0), min(x + w, W), min(y + h, H)
+        if x1 <= x0 or y1 <= y0:
+            continue
+        garde = np.ones((y1 - y0, x1 - x0), bool)
+        ci = y + h / 2
+        for e in effacees:
+            ex, ey, ew, eh = e
+            if min(x + w, ex + ew) <= max(x, ex) or min(y + h, ey + eh) <= max(y, ey):
+                continue
+            ce = ey + eh / 2
+            mi = (ci + ce) / 2
+            bx0, by0 = max(min(x, ex), 0), max(min(y, ey), 0)
+            bx1, by1 = min(max(x + w, ex + ew), W), min(max(y + h, ey + eh), H)
+            encre = masque_couleur(bgr, [(x, y, w, h), e], halo=False, dilatation=0)[by0:by1, bx0:bx1]
+            n, lab, st, cen = cv2.connectedComponentsWithStats(encre, connectivity=8)
+            lignes = np.arange(by0, by1)[:, None]
+            a_elle = np.zeros(encre.shape, bool)
+            for i in range(1, n):
+                haut, bas = st[i][1] + by0, st[i][1] + st[i][3] + by0
+                if haut <= min(ci, ce) and bas >= max(ci, ce):
+                    a_elle |= (lab == i) & ((lignes < mi) if ce > ci else (lignes >= mi))
+                elif abs(cen[i][1] + by0 - ci) <= abs(cen[i][1] + by0 - ce):
+                    a_elle |= lab == i
+            a_elle = cv2.dilate(a_elle.astype(np.uint8), noyau, iterations=DILATATION).astype(bool)
+            # Modèle interdit au remplissage : l'encre gardée et son liseré, sauf
+            # un trait de tableau (repéré sur une fenêtre élargie, où il est long) :
+            # il reste une source, sinon il bave.
+            gx0, gy0 = max(bx0 - MARGE_TRAITS, 0), max(by0 - MARGE_TRAITS, 0)
+            gx1, gy1 = min(bx1 + MARGE_TRAITS, W), min(by1 + MARGE_TRAITS, H)
+            gris = cv2.cvtColor(bgr[gy0:gy1, gx0:gx1], cv2.COLOR_BGR2GRAY).astype(np.int16)
+            fonce = np.abs(gris - np.median(gris)) > 40
+            traits = cv2.dilate(_longs(fonce, max(ew, eh)).astype(np.uint8), noyau, iterations=DILATATION)
+            encre_gardee[by0:by1, bx0:bx1] |= a_elle & ~traits[by0 - gy0:by1 - gy0, bx0 - gx0:bx1 - gx0].astype(bool)
+            # zone commune : seule l'encre de la ligne intacte (et son liseré) est gardée
+            cx0, cy0 = max(x0, ex), max(y0, ey)
+            cx1, cy1 = min(x1, ex + ew), min(y1, ey + eh)
+            commun = np.zeros(garde.shape, bool)
+            commun[cy0 - y0:cy1 - y0, cx0 - x0:cx1 - x0] = True
+            garde &= ~commun | a_elle[y0 - by0:y1 - by0, x0 - bx0:x1 - bx0]
+        mask[y0:y1, x0:x1][garde] = 0
+    return encre_gardee
+
+
+def _en_face(b, lignes_lues):
+    """Valeur d'en face : la plus proche ligne lue à droite de `b` qui
+    commence par un nombre, dont le milieu tombe dans la hauteur de `b`
+    (même rangée)."""
+    x, y, w, h = b
+    face = [(lx, t, (lx, ly, lw, lh)) for t, (lx, ly, lw, lh) in lignes_lues
+            if lx >= x + w - 0.2 * h and y <= ly + lh / 2 <= y + h and _VALEUR.match(t)]
+    return min(face)[1:] if face else None
+
+
+_VALEUR = re.compile(r"^[\s$€£¥+\-–(#]*\d")   # commence par un nombre
+GRILLE = 3               # rangées au même bord gauche pour reconnaître un tableau
+
+
+def _suite(gauche, face):
+    """Vrai si `face` prolonge la ligne de gauche (texte qui court d'une
+    colonne à l'autre) : écart entre les deux plus étroit qu'un espace."""
+    (_, (x, _, w, h)), (_, (lx, _, _, _)) = gauche, face
+    return lx - (x + w) < 0.3 * h
+
+
+def _liste(lignes_lues):
+    """Boîtes des éléments d'une liste verticale (marques, noms) : au moins
+    `LISTE_MIN` lignes latines courtes, chacune commençant par une majuscule,
+    sans texte en face sur sa rangée, même marge gauche, même corps, pas
+    régulier, aucune autre ligne lue entre deux. Un paragraphe étroit repart
+    presque toujours sur une minuscule ; ses lignes restent fusionnables."""
+    def element(t, b):
+        mots = t.split()
+        tete = t.lstrip("·•・*-–— ")
+        # Majuscule en tête : signe d'un nouvel élément seulement si la ligne
+        # a aussi des minuscules (un paragraphe tout en capitales reste entier).
+        return (1 <= len(mots) <= LISTE_MOTS and tete[:1].isupper()
+                and any(ch.islower() for ch in t) and not _CJK.search(t)
+                and not t.rstrip().endswith(("-", "‐", ",", "&", "("))
+                and not any(l != b and min(l[1] + l[3], b[1] + b[3]) - max(l[1], b[1])
+                            > 0.5 * min(l[3], b[3])
+                            and (l[0] >= b[0] + b[2] or l[0] + l[2] <= b[0])
+                            for _, l in lignes_lues))
+    cands = sorted((tuple(b) for t, b in lignes_lues if element(t, tuple(b))),
+                   key=lambda b: b[1])
+    toutes = [tuple(b) for _, b in lignes_lues]
+    suite = {}
+    for b in cands:
+        x, y, w, h = b
+        for c in cands:
+            cx, cy, cw, ch = c
+            if (cy > y + 0.5 * h and abs(cx - x) <= MEME_BORD * max(h, ch)
+                    and abs(ch - h) <= MEME_HAUTEUR * max(h, ch) and cy - y < 2 * max(h, ch)
+                    and not any(l not in (b, c) and y + h / 2 < l[1] + l[3] / 2 < cy + ch / 2
+                                and min(l[0] + l[2], x + w, cx + cw) > max(l[0], x, cx)
+                                for l in toutes)):
+                suite[b] = c
+                break
+    pris, vus = set(), set()
+    for b in cands:
+        if b in vus:
+            continue
+        chaine = [b]
+        while chaine[-1] in suite and suite[chaine[-1]] not in vus:
+            chaine.append(suite[chaine[-1]])
+        vus.update(chaine)
+        pas = [c[1] - a[1] for a, c in zip(chaine, chaine[1:])]
+        h = max(c[3] for c in chaine)
+        if len(chaine) >= LISTE_MIN and max(pas) - min(pas) <= LISTE_PAS * h:
+            pris.update(chaine)
+    return pris
+
+
+COUPE_PRES = 1.5         # × hauteur : écart toléré entre la coupure estimée et le bord de colonne
+BLANC_CASE = 0.5         # × hauteur : blanc minimal entre deux cases lues d'un seul tenant
+_COUPURE = re.compile(r" (?=\S)|(?<=[a-z])(?=[A-Z])")   # espace, ou minuscule→Majuscule
+
+
+def _bords(lignes_lues):
+    """T1 — bords de colonne : bord gauche partagé par au moins `GRILLE`
+    lignes de rangées différentes. Renvoie {bord: [boîtes]}."""
+    bords = {}
+    for _, b in sorted(lignes_lues, key=lambda l: l[1][0]):
+        for x in bords:
+            if abs(b[0] - x) <= 0.3 * b[3]:
+                bords[x].append(tuple(b))
+                break
+        else:
+            bords[b[0]] = [tuple(b)]
+    return {x: bs for x, bs in bords.items() if len(bs) >= GRILLE}
+
+
+def _meme_rangee(a, b):
+    return min(a[1] + a[3], b[1] + b[3]) - max(a[1], b[1]) > 0.5 * min(a[3], b[3])
+
+
+def _blancs(gris, boite):
+    """Colonnes sans encre (Otsu) à l'intérieur de la boîte : [(début, fin)]."""
+    x, y, w, h = boite
+    z = gris[y:y + h, x:x + w]
+    if z.size == 0:
+        return []
+    _, bw = cv2.threshold(z, 0, 1, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    encre = bw.sum(0) > 0
+    out, i = [], 0
+    while i < len(encre):
+        j = i
+        while j < len(encre) and not encre[j]:
+            j += 1
+        if j > i and i > 0 and j < len(encre):
+            out.append((x + i, x + j))
+        i = j + 1 if j == i else j
+    return out
+
+
+def couper_colonnes(lignes_lues, bgr=None):
+    """T2 — une ligne lue qui franchit un bord de colonne de tableau est coupée
+    à ce bord (« ManganeseManganese Gluconate » → « Manganese » |
+    « Manganese Gluconate »). Le tableau est confirmé : la ligne part d'un bord
+    A, le bord franchi E et A ont au moins `GRILLE` rangées en commun, la ligne
+    a le corps de la colonne A et touche la grille (à 2 hauteurs près). Il faut
+    un blanc d'au moins `BLANC_CASE` hauteur dans l'image, à moins de
+    `COUPE_PRES` hauteurs avant E (un espace entre deux mots d'une phrase est
+    bien plus étroit), et une coupure du texte (espace ou minuscule→Majuscule)
+    estimée au prorata des caractères à moins de `COUPE_PRES` hauteurs de ce
+    blanc ; les deux morceaux s'arrêtent au blanc. Sans image, rien n'est coupé."""
+    out = [(t, tuple(b)) for t, b in lignes_lues]
+    if bgr is None:
+        return out
+    gris = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY) if bgr.ndim == 3 else bgr
+    for _ in range(len(out)):
+        bords = _bords(out)
+        for n, (t, (x, y, w, h)) in enumerate(out):
+            a = next((bx for bx in bords if (x, y, w, h) in bords[bx]), None)
+            if a is None:
+                continue
+            coupe = None
+            for e in sorted(bords):
+                if not x + h < e < x + w - h:
+                    continue
+                col_a = [c for c in bords[a] if c != (x, y, w, h)]
+                communs = [c for c in col_a if any(_meme_rangee(c, d) for d in bords[e])]
+                if len(communs) < GRILLE:
+                    continue
+                if abs(h - np.median([c[3] for c in communs])) > MEME_HAUTEUR * h:
+                    continue
+                haut, bas = min(c[1] for c in communs), max(c[1] + c[3] for c in communs)
+                if y + h < haut - 2 * h or y > bas + 2 * h:
+                    continue
+                blancs = [(g1 - g0, g0, g1) for g0, g1 in _blancs(gris, (x, y, w, h))
+                          if g1 - g0 >= BLANC_CASE * h and e - COUPE_PRES * h <= g1 and g0 <= e + 0.5 * h]
+                if not blancs:
+                    continue
+                _, g0, g1 = max(blancs)
+                cands = [(abs(x + w * i / len(t) - (g0 + g1) / 2), i) for i in
+                         (m.start() if m.group() == "" else m.start() + 1 for m in _COUPURE.finditer(t))]
+                cands = [(d, i) for d, i in cands if d <= COUPE_PRES * h and 0 < i < len(t)]
+                if cands:
+                    coupe = (g0, g1, min(cands)[1])
+                    break
+            if coupe:
+                g0, g1, i = coupe
+                gauche, droite = t[:i].rstrip(), t[i:].lstrip()
+                out[n:n + 1] = [(gauche, (x, y, g0 - x, h)), (droite, (g1, y, x + w - g1, h))]
+                break
+        else:
+            return out
+    return out
+
+
 def blocs(lignes_lues, couleurs=None, puces=(), bgr=None):
     """Regroupe les lignes voisines (même hauteur et couleur, empilées,
     recouvrement) ; une ligne qui commence par une puce, lue ou dessinée
     (`puces` : boîtes de lignes), ouvre un bloc. Un trait dessiné entre deux
-    lignes (`bgr` fourni) les sépare : titre d'un tableau et case en dessous."""
-    out, teintes = [], []
+    lignes (`bgr` fourni) les sépare : titre d'un tableau et case en dessous.
+    Restent aussi à part : un libellé « To: », sa valeur et un nombre seul ;
+    deux rangées de tableau ayant chacune leur nombre en face ; une ligne dont
+    le premier mot aurait tenu au bout de la précédente (pas un retour à la
+    ligne) ; un interligne nettement plus grand que le précédent ; deux lignes
+    entre lesquelles une autre ligne a été lue."""
+    out, teintes, lu = [], [], {}
+    # Libellé d'une rangée de tableau : un nombre seul lui fait face à droite.
+    rangee = {tuple(b) for _, b in lignes_lues
+              if any(_NOMBRE.match(t) and lx >= b[0] + b[2] - 0.2 * b[3]
+                     and b[1] <= ly + lh / 2 <= b[1] + b[3]
+                     for t, (lx, ly, lw, lh) in lignes_lues)}
+    # Valeur annotée en face (« 6.0 (estimated) ») : rangée aussi, si la
+    # grille en compte au moins 3 au même bord gauche, valeurs en colonne.
+    chiffree = {}
+    for t, b in lignes_lues:
+        f = _en_face(tuple(b), lignes_lues)
+        if f and not _suite((t, b), f):
+            chiffree[tuple(b)] = f[1]
+    for b, f in chiffree.items():
+        if sum(abs(c[0] - b[0]) <= 0.3 * b[3] and abs(g[0] - f[0]) <= 0.5 * b[3]
+               for c, g in chiffree.items()) >= GRILLE:
+            rangee.add(b)
+    # T4 — rangée d'en-tête : ligne sans valeur en face, posée sur une rangée
+    # d'au moins `GRILLE` cases (lignes côte à côte, disjointes). Au-dessus
+    # d'une colonne de rangées chiffrées (même bord gauche), elle reste à part.
+    entete = {tuple(b) for _, b in lignes_lues if tuple(b) not in rangee
+              and sum(_meme_rangee(b, l) and (l[0] >= b[0] + b[2] or l[0] + l[2] <= b[0])
+                      for _, l in lignes_lues) >= GRILLE - 1}
+    # Interligne sous chaque ligne : écart avec la plus proche ligne lue
+    # en dessous, de même largeur et de même corps.
+    dessous = {}
+    for _, (x, y, w, h) in lignes_lues:
+        e = [ly - y - h for _, (lx, ly, lw, lh) in lignes_lues
+             if -0.3 * h < ly - y - h < 0.8 * h and min(lx + lw, x + w) > max(lx, x)
+             and abs(lh - h) <= MEME_HAUTEUR * max(lh, h)]
+        if e:
+            dessous[(x, y, w, h)] = min(e)
+    liste = _liste(lignes_lues)
+    # Valeur d'un champ : un libellé « To: » la précède sur la même rangée.
+    valeurs = {tuple(b) for _, b in lignes_lues
+               if any(_LIBELLE.match(t) and lx + lw <= b[0] + 0.2 * b[3]
+                      and min(ly + lh, b[1] + b[3]) - max(ly, b[1]) > 0.5 * min(lh, b[3])
+                      for t, (lx, ly, lw, lh) in lignes_lues)}
+    # F2 — une valeur et les lignes empilées dessous au même bord gauche
+    # (adresse : nom, cabinet, rue, ville) gardent chacune leur saut de ligne.
+    champ = set()
+    for _, b in sorted(lignes_lues, key=lambda l: l[1][1]):
+        x, y, w, h = b
+        if tuple(b) in valeurs or any(
+                abs(x - c[0]) <= MEME_BORD * h and -0.3 * h < y - c[1] - c[3] < 0.8 * h
+                and abs(h - c[3]) <= 2 * MEME_HAUTEUR * max(h, c[3]) for c in champ):
+            champ.add(tuple(b))
+    # F1 — libellé sur deux lignes (« PLAINTIFF'S » / « COUNSEL: ») : la ligne
+    # du dessus, courte, sans « : » ni rien en face, au même bord gauche et à
+    # interligne serré, forme avec lui un seul libellé.
+    haut = {}
+    for t, b in lignes_lues:
+        if not _LIBELLE.match(t):
+            continue
+        for ta, a in lignes_lues:
+            if (not _LIBELLE.match(ta) and not _NOMBRE.match(ta) and len(ta.split()) <= 3
+                    and abs(a[0] - b[0]) <= MEME_BORD * b[3]
+                    and -0.3 * b[3] < b[1] - a[1] - a[3] < 0.3 * b[3]
+                    and abs(a[3] - b[3]) <= 2 * MEME_HAUTEUR * max(a[3], b[3])
+                    and not any(_meme_rangee(a, l) and l[0] >= a[0] + a[2] for _, l in lignes_lues)):
+                haut[tuple(b)] = tuple(a)
     for n, (texte, b) in enumerate(lignes_lues):
         x, y, w, h = b
+        lu[tuple(b)] = texte
         c = np.array(couleurs[n], float) if couleurs else None
-        for bl, tb in zip([] if _PUCE.match(texte) or b in puces else out, teintes):
+        dessus = next((bl for bl in out if len(bl.lignes) == 1
+                       and tuple(bl.lignes[0]) == haut.get(tuple(b))), None)
+        if dessus is not None:
+            dessus.lignes.append(b)
+            dessus.texte = _joindre([dessus.texte, texte])
+            dessus.boite = _union(dessus.lignes)
+            continue
+        valeur = tuple(b) in valeurs
+        seule = (_PUCE.match(texte) or b in puces or _LIBELLE.match(texte)
+                 or _NOMBRE.match(texte) or valeur or tuple(b) in liste)
+        for bl, tb in zip([] if seule else out, teintes):
             px, py, pw, ph = bl.lignes[-1]
+            avant = lu[tuple(bl.lignes[-1])]
+            if _LIBELLE.match(avant) or _NOMBRE.match(avant) or tuple(bl.lignes[-1]) in liste:
+                continue
+            if tuple(b) in rangee and tuple(bl.lignes[-1]) in rangee:
+                continue  # deux rangées d'un tableau, chacune avec sa valeur
+            if (tuple(b) in rangee and tuple(bl.lignes[-1]) in entete
+                    and sum(abs(r[0] - x) <= 0.3 * h for r in rangee) >= GRILLE):
+                continue  # en-tête au-dessus d'une colonne d'au moins 3 rangées
+            if (tuple(b) in champ and tuple(bl.lignes[-1]) in champ
+                    and not _CJK.search(texte + avant) and not texte.lstrip()[:1].islower()
+                    and not avant.rstrip().endswith(("-", "‐"))):
+                continue  # ligne d'adresse : une suite de phrase commencerait en minuscule
+            if not _CJK.search(texte + avant) and not avant.rstrip().endswith(("-", "‐")):
+                # Retour à la ligne : le 1er mot de la ligne n'aurait pas tenu au bout
+                # de la précédente, dans la largeur du bloc. S'il y tenait, ce sont
+                # deux champs empilés (libellé puis valeur, lignes d'une adresse).
+                g = min(x, bl.boite[0])
+                d = max(x + w, bl.boite[0] + bl.boite[2])
+                car = w / max(len(texte), 1)
+                mot = len(texte.split()[0]) * car
+                if (d - g) - pw > RETOUR * mot + car + INTERLIGNE * ph:
+                    continue
+            if len(bl.lignes) > 1:
+                # Interligne régulier dans un paragraphe ; un écart plus grand
+                # sépare deux fiches (fonctions de deux personnes d'un tableau).
+                qy, qh = bl.lignes[-2][1], bl.lignes[-2][3]
+                if (y - py - ph) - (py - qy - qh) > INTERLIGNE * max(h, ph):
+                    continue
+            elif (y - py - ph) - dessous.get(tuple(b), y - py - ph) > INTERLIGNE * max(h, ph):
+                continue  # la ligne est plus serrée avec celle du dessous : en-tête à part
             # Fin de phrase reportée seule sous la ligne (« …がで » / « きる。 ») :
             # la boîte d'un texte court varie plus en hauteur, on tolère le double.
             suite = (w < 0.5 * pw and abs(x - px) <= MEME_BORD * ph
@@ -279,7 +625,11 @@ def blocs(lignes_lues, couleurs=None, puces=(), bgr=None):
             if (aligne and abs(h - ph) <= tol * max(h, ph) and -0.3 * ph < y - (py + ph) < 0.8 * ph
                     and min(x + w, px + pw) > max(x, px)
                     and (c is None or np.linalg.norm(c - tb) <= MEME_COULEUR)
-                    and (bgr is None or not _trait(bgr, bl.lignes[-1], b))):
+                    and (bgr is None or not _trait(bgr, bl.lignes[-1], b))
+                    # Une autre ligne lue entre les deux, sur la même largeur : pas voisines.
+                    and not any(l not in bl.lignes and py + ph / 2 < l[1] + l[3] / 2 < y + h / 2
+                                and min(l[0] + l[2], x + w, px + pw) > max(l[0], x, px)
+                                for _, l in lignes_lues[:n])):
                 bl.lignes.append(b)
                 bl.texte = _joindre([bl.texte, texte])
                 bl.boite = _union(bl.lignes)
@@ -499,7 +849,141 @@ def conteneur(bgr, efface, lignes_bloc, autres=()):
     return (x0, y0, x1, y1), float(ok[y0:y1, x0:x1].mean()), encre, part, ferme, clos
 
 
-def _case(bgr, bloc, efface, autres=()):
+GROUPE_ECART = 2         # × hauteur de ligne : écart vertical au plus entre deux blocs d'un groupe
+GROUPE_CORPS = 1.5        # rapport de hauteurs de ligne au plus entre deux blocs d'un groupe
+COLONNE_MIN = 3           # blocs d'une ligne au bord commun, au moins, pour faire une colonne
+COLONNE_LARGE = 40        # × hauteur : au-delà, une ligne est un morceau de paragraphe, pas un libellé
+
+
+def _axes(tous, bgr=None, colonnes=None):
+    """Alignement commun `{id(bloc): "gauche" | "centre" | "droite"}` des blocs
+    empilés dans une même colonne (en-tête officiel centré, liste) : leurs
+    lignes, de longueurs différentes, gardent le même bord gauche, le même
+    milieu ou le même bord droit. Le cadre est la colonne, pas la page : deux
+    en-têtes côte à côte forment deux groupes. Trois bords alignés seulement
+    si au moins deux longueurs diffèrent ; sinon rien n'est décidé. Un trait
+    dessiné entre deux blocs (`bgr` fourni) les met dans deux groupes.
+
+    Une colonne se reconnaît aussi à un bord commun, pas seulement à la
+    proximité : au moins `COLONNE_MIN` blocs d'une ligne, de même corps, au
+    même bord (gauche, droit ou axe) sans autre texte entre eux, forment un
+    groupe quel que soit l'écart (libellés d'axe d'un graphique). `colonnes`,
+    s'il est donné, reçoit les blocs d'une telle colonne alignée à gauche ou
+    à droite : leur bord ne cède jamais (`traduire_image`)."""
+    def ecarts(ls):
+        return [np.ptp([l[0] for l in ls]), np.ptp([l[0] + l[2] / 2 for l in ls]),
+                np.ptp([l[0] + l[2] for l in ls])]
+
+    def accorde(ls):
+        hl = float(np.median([l[3] for l in ls]))
+        return min(ecarts(ls)) <= MEME_BORD * hl
+
+    groupes = []
+    for b in sorted(tous, key=lambda b: b.boite[1]):
+        x, y, w, h = b.boite
+        hb = float(np.median([l[3] for l in b.lignes]))
+        proches = []
+        for g in groupes:
+            lx, ly, lw, lh = g[-1].boite
+            hv = float(np.median([l[3] for l in g[-1].lignes]))
+            hg = max(hb, hv)
+            ecart = y - (ly + lh)
+            # Corps trop différents (titre au-dessus d'un libellé) : pas le même groupe.
+            if (hg <= GROUPE_CORPS * min(hb, hv)
+                    and -0.3 * hg <= ecart <= GROUPE_ECART * hg and min(x + w, lx + lw) > max(x, lx)
+                    and accorde([l for o in g for l in o.lignes] + list(b.lignes))
+                    and (bgr is None or not _trait(bgr, g[-1].lignes[-1], b.lignes[0]))):
+                proches.append((ecart, g))
+        if proches:
+            min(proches, key=lambda p: p[0])[1].append(b)
+        else:
+            groupes.append([b])
+    axes = {}
+    colonnes = set() if colonnes is None else colonnes
+
+    def decider(g, k=None):
+        ls = [l for o in g for l in o.lignes]
+        hl = float(np.median([l[3] for l in ls]))
+        if len(g) < 2 or np.ptp([l[2] for l in ls]) < 0.5 * hl:
+            return False
+        i = int(np.argmin(ecarts(ls)))
+        if k is not None and i != k:
+            return False
+        sens = ("gauche", "centre", "droite")[i]
+        axes.update((id(o), sens) for o in g)
+        if (sens != "centre" and len(g) >= COLONNE_MIN
+                and max(l[2] for l in ls) <= COLONNE_LARGE * hl):
+            colonnes.update(id(o) for o in g)
+        return True
+
+    for g in groupes:
+        decider(g)
+
+    def entre(a, b):  # autre texte dans la bande qui sépare a (au-dessus) et b
+        x0 = min(a.boite[0], b.boite[0])
+        x1 = max(a.boite[0] + a.boite[2], b.boite[0] + b.boite[2])
+        y0, y1 = a.boite[1] + a.boite[3], b.boite[1]
+        return (y1 - y0 < -0.3 * a.boite[3]
+                or any(o is not a and o is not b and o.boite[1] < y1 and o.boite[1] + o.boite[3] > y0
+                       and o.boite[0] < x1 and o.boite[0] + o.boite[2] > x0 for o in tous)
+                or (bgr is not None and _trait(bgr, a.lignes[-1], b.lignes[0])))
+
+    bords = (lambda o: o.boite[0], lambda o: o.boite[0] + o.boite[2] / 2,
+             lambda o: o.boite[0] + o.boite[2])
+    seuls = sorted((b for b in tous if id(b) not in axes and len(b.lignes) == 1), key=lambda b: b.boite[1])
+    for b in seuls:
+        if id(b) in axes:
+            continue
+        hb = b.lignes[0][3]
+        for k, bord in enumerate(bords):
+            membres = [o for o in seuls if id(o) not in axes
+                       and abs(bord(o) - bord(b)) <= MEME_BORD * hb
+                       and max(hb, o.lignes[0][3]) <= GROUPE_CORPS * min(hb, o.lignes[0][3])]
+            # Suite ininterrompue (rien entre deux voisins) qui contient b.
+            suite = []
+            for o in membres:
+                if suite and entre(suite[-1], o):
+                    if b in suite:
+                        break
+                    suite = []
+                suite.append(o)
+            if len(suite) >= COLONNE_MIN and decider(suite, k):
+                break
+    return axes
+
+
+APLAT_PAS = 1.5          # × hauteur du bloc : distance au plus entre le bord du fond et l'aplat voisin
+APLAT_ECART = 150        # somme des écarts BGR : couleur nettement autre que le fond (pas un fond pâle)
+APLAT_BRUIT = 15         # écart-type BGR au plus d'un aplat (pas du texte)
+
+
+def _aplat(bgr, x, y0, y1, sens):
+    """Vrai si, à partir de `x` vers `sens` (±1), le fond du bloc s'arrête
+    sur un aplat d'une autre couleur (barre, bandeau), pas sur du texte."""
+    H, W = bgr.shape[:2]
+    y0, y1 = max(int(y0), 0), min(int(y1), H)
+    x = int(round(x))
+    if y1 - y0 < 2 or not 0 <= x < W:
+        return False
+    fond = np.median(bgr[y0:y1, x].reshape(-1, 3), axis=0)
+    for k in range(1, int(APLAT_PAS * (y1 - y0)) + 1):
+        xs = x + sens * k
+        if not 0 <= xs < W:
+            return False
+        col = bgr[y0:y1, xs].reshape(-1, 3).astype(float)
+        m = np.median(col, axis=0)
+        if np.abs(m - fond).sum() > APLAT_ECART:
+            # un pixel de lissage au bord, puis l'aplat
+            lo, hi = sorted((xs + sens, xs + sens * 5))
+            if lo < 0 or hi >= W:
+                return False
+            z = bgr[y0:y1, lo:hi + 1].reshape(-1, 3).astype(float)
+            return bool(z.std(axis=0).max() <= APLAT_BRUIT
+                        and np.abs(np.median(z, axis=0) - fond).sum() > APLAT_ECART)
+    return False
+
+
+def _case(bgr, bloc, efface, autres=(), groupe=None):
     """Place offerte autour du bloc : `(cadre, libre, uni)` à passer à
     `placer()`, ou `None` sur un fond chargé (photo, dégradé), où la place
     se cherche par l'encre voisine (`cadre()`, `_libre()`).
@@ -529,6 +1013,8 @@ def _case(bgr, bloc, efface, autres=()):
         sens = ("gauche", "centre", "droite")[int(np.argmin(ecarts))]
     elif axe:
         sens = "centre"
+    elif groupe and not clos:  # aligné comme ses voisins de colonne (`_axes()`) ; case close : la sienne
+        sens = groupe
     elif flottant := len(ls) == 1 and min(mg, md) > FLOTTANT * hl:
         sens = "centre"
     else:
@@ -573,12 +1059,13 @@ def _encre(bgr, bloc):
     return np.abs(bande - fond).max(axis=2).max(axis=0) > SEUIL_ENCRE
 
 
-def cadre(bgr, bloc, tous):
+def cadre(bgr, bloc, tous, groupe=None):
     """Colonnes `(x0, x1)` permises et alignement (vrai : centré), comme le
     PDF : un bloc de plusieurs lignes, ou qui partage son bord gauche avec un
     autre, garde ce bord et s'étend à droite jusqu'à l'encre voisine moins
     une gouttière, sinon jusqu'à une marge droite égale à la marge gauche ;
-    une étiquette isolée reste centrée, avec autant de place des deux côtés."""
+    une étiquette isolée reste centrée, avec autant de place des deux côtés.
+    `groupe` (`_axes()`) l'emporte : alignement commun des blocs voisins."""
     W = bgr.shape[1]
     x, y, w, h = bloc.boite
     hl = float(np.median([b[3] for b in bloc.lignes]))
@@ -588,8 +1075,16 @@ def cadre(bgr, bloc, tous):
     gauche = next((c for c in range(max(x - d, 0) - 1, -1, -1) if sale[c]), None)
     aligne = len(bloc.lignes) > 1 or any(
         o is not bloc and abs(o.boite[0] - x) <= MEME_BORD * hl for o in tous)
+    if groupe == "droite":  # garde son bord droit, s'étend à gauche
+        x0 = gauche + g if gauche is not None else 0
+        return min(max(x0, 0), x), x + w, "droite"
+    if groupe:
+        aligne = groupe == "gauche"
     if aligne:
-        x1 = droite - g if droite is not None else W - x
+        # marge droite = marge gauche ; pour un groupe, celle de la page
+        # (bord gauche le plus à gauche), pas celle du bloc décalé en colonne
+        m = min([x] + [o.boite[0] for o in tous]) if groupe else x
+        x1 = droite - g if droite is not None else W - m
         return x, max(min(x1, W), x + w), False
     cx = x + w / 2
     demi = min(cx - (gauche + g if gauche is not None else 0),
@@ -599,7 +1094,7 @@ def cadre(bgr, bloc, tous):
 
 
 def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max=None, n_min=1,
-           milieu=None, dico=None):
+           milieu=None, dico=None, serie=False, bornes=None):
     """Taille, lignes et cadre `(x, y, w)` de la traduction, ou `None` si
     elle ne tient pas au-dessus du plancher. `libre` : rangées `(haut, bas)`
     vides autour du bloc, où il peut grandir vers le bas ; `cadre` :
@@ -607,7 +1102,12 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
     d'une liste ; `n_min` : lignes gardées quand le corps baisse ; `milieu` :
     milieu vertical d'une case fermée, où un texte centré pose le milieu de
     ses capitales (du haut des capitales à la ligne de base), comme en PAO :
-    sans jambage, il ne remonte pas. `dico` : césures de la langue cible."""
+    sans jambage, il ne remonte pas. `dico` : césures de la langue cible ;
+    `serie` : libellé d'une colonne (G3), qui rapetisse jusqu'au plancher sur
+    ses lignes d'origine avant d'en prendre une de plus, sauf si cette ligne
+    tient dans l'espace libre (`libre`) : la série garde un seul nombre de
+    lignes et un seul corps (`_freres()`) ; `bornes` : `(haut, bas)` de
+    `_bornes()`, que cette ligne de plus ne franchit pas."""
     fichier = fichier or _fichier_police()
     x, y, w, h = bloc.boite
     hl = float(np.median([b[3] for b in bloc.lignes]))
@@ -642,7 +1142,20 @@ def placer(bloc, largeur_image, fichier=None, libre=None, cadre=None, taille_max
     # plutôt que tassée en petit sur de nombreuses lignes. Dès la ligne de
     # plus, un mot plus large que la case s'y coupe aux syllabes plutôt que
     # de faire baisser le corps de tout le texte.
-    passes = [(max(n0, n_min), TOLERE * min(s0, taille_max or s0), False)]
+    if serie is True and libre:
+        # La ligne de plus est prise si elle tient dans l'espace libre (case
+        # ou zone vide) en écrivant plus grand que la série : rapetisser y
+        # laisserait la place à moitié vide. Elle ne mord jamais sur la part
+        # d'une ligne voisine (`bornes`), même dans une boîte lue gonflée.
+        args = (bloc, largeur_image, fichier, libre, cadre, taille_max, n_min, milieu, dico)
+        seul, rang = placer(*args), placer(*args, serie="rang")
+        b0, b1 = bornes or (-np.inf, np.inf)
+        if seul and len(seul["lignes"]) == max(n0, n_min) + 1 and (
+                not rang or seul["taille"] > rang["taille"]) and (
+                seul["y"] >= b0 and seul["y"] + seul["haut"] <= b1):
+            return seul
+        return rang
+    passes = [(max(n0, n_min), plancher if serie else TOLERE * min(s0, taille_max or s0), False)]
     passes += ([(n0 + 1, plancher, False), (None, GRANDIR * s0, False)] if libre
                else [(None, plancher, False)])
     if not _CJK.search(bloc.traduction):
@@ -709,7 +1222,11 @@ def _couleur(bgr, mask, boite):
     fond = np.median(roi[~m], axis=0)
     lettres = roi[m]
     d = np.linalg.norm(lettres - fond, axis=1)
-    c = np.median(lettres[d >= np.percentile(d, 70)], axis=0)
+    # Masque dilaté sur un petit corps : la plupart de ses pixels sont du fond,
+    # le 70e centile tombe à 0 et la couleur mesurée serait celle du fond.
+    # Seuls comptent les pixels proches du cœur de l'encre (petit corps
+    # anticrénelé : peu de pixels atteignent la vraie couleur).
+    c = np.median(lettres[d >= max(np.percentile(d, 70), 0.8 * d.max())], axis=0)
     return tuple(int(v) for v in c[::-1])
 
 
@@ -820,6 +1337,46 @@ def _libre(bgr, bloc, autres, x0, x1, efface, poses=()):
             else:
                 bas = min(bas, int(py0) - m)
     return min(haut + m, y), max(bas - m, y + h)
+
+
+def _bornes(bloc, autres, x0, x1, poses=()):
+    """Limites `(haut, bas)` que la traduction du bloc ne franchit pas : la
+    part de chaque ligne voisine lue entre x0..x1 et de chaque traduction déjà
+    posée. Une voisine dont la boîte chevauche celle du bloc (photo penchée :
+    l'OCR gonfle les boîtes) borne au milieu du chevauchement, côté de son
+    centre ; `_libre()` ne la voit pas et rend au moins la boîte du bloc."""
+    x, y, w, h = bloc.boite
+    haut, bas = -np.inf, np.inf
+    for ax, ay, aw, ah in [*autres, *((px0, py0, px1 - px0, py1 - py0) for px0, py0, px1, py1 in poses)]:
+        if (ax, ay, aw, ah) in bloc.lignes or min(ax + aw, x1) <= max(ax, x0):
+            continue
+        if ay + ah / 2 > y + h / 2:
+            bas = min(bas, max((y + h + ay) / 2, ay - ah / 2) if ay >= y + h else (ay + y + h) / 2)
+        else:
+            haut = max(haut, min((ay + ah + y) / 2, ay + ah + ah / 2) if ay + ah <= y else (ay + ah + y) / 2)
+    return haut, bas
+
+
+def _traits(bgr, bloc, efface, x0, x1, bornes):
+    """Resserre `bornes` sur le trait de tableau le plus proche du bloc, entre
+    sa boîte et le bord de la zone effacée : `_libre()` ne cherche l'encre
+    qu'au-delà de l'effacement et ne le voit pas (même critère que `_trait`)."""
+    x, y, w, h = _union([bloc.boite])
+    _, ey, _, eh = efface
+    x0, x1 = max(int(x0), x, 0), min(int(x1), x + w, bgr.shape[1])  # largeur partagée
+    y0, y1 = max(min(ey, y), 0), min(max(ey + eh, y + h), bgr.shape[0])
+    haut, bas = bornes
+    if x1 - x0 < 8 or y1 <= y0:
+        return haut, bas
+    bande = bgr[y0:y1, x0:x1].astype(np.int16)
+    fond = np.median(bgr[y:y + h, x0:x1].reshape(-1, 3), axis=0)
+    pleines = np.flatnonzero((np.abs(bande - fond).max(axis=2) > SEUIL_ENCRE).mean(axis=1) > 0.8) + y0
+    dessus, dessous = pleines[pleines < y], pleines[pleines >= y + h]
+    if dessus.size:
+        haut = max(haut, dessus.max() + 1)
+    if dessous.size:
+        bas = min(bas, dessous.min())
+    return haut, bas
 
 
 def _hauteur_encre(masque, boites):
@@ -970,6 +1527,7 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
             t = time.monotonic()
             lus = lignes(_lire(lecteur, bgr, max(fin - t, 1.0)))
             d["lecture"] = time.monotonic() - t
+    lus = couper_colonnes(lus, bgr)
     puces = _symboles(lus, bgr)
     zones = {b: _elargie(b, bgr) for _, b in lus}
     for b, bord in puces.items():  # le symbole dessiné n'est pas effacé
@@ -986,6 +1544,8 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
         d["traduction"] = time.monotonic() - t
 
     places, poses, unies, encres = [], [], set(), []
+    colonne = set()
+    axes = _axes(tous, bgr, colonne)
     for b in tous:
         x, y, w, h = b.boite
         # Déjà dans la langue cible (le traducteur l'a rendu tel quel) : laissé intact.
@@ -995,24 +1555,55 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
         if a is not None and a[y:y + h, x:x + w].min() < 255:
             continue
         efface = _union([zones[l] for l in b.lignes])
-        # Case dessinée autour du texte : sa place et son alignement ; sinon
-        # l'encre voisine et le vide autour du bloc.
-        case = _case(bgr, b, efface, [l for _, l in lus if l not in b.lignes])
-        cb = case[0] if case else cadre(bgr, b, tous)
-        if b.lignes[0] in puces:  # après la puce dessinée, aligné à gauche, sans la couvrir
-            x0 = max(x, b.lignes[0][0])
-            cb = (x0, max(cb[1], x0 + w), False)
-        if case:
-            libre = case[1]
-            if case[2] >= CASE_UNIE:
-                unies.add(b.boite)
-        else:
-            libre = _libre(bgr, b, [l for _, l in lus], cb[0], cb[1], efface, poses)
         z = [zones[l] for l in b.lignes]
         encre = masque_couleur(bgr, z, dilatation=0, halo=False)
         gras = _gras(encre, z, bool(_CJK.search(b.texte)))
         fichier = fichier_police or _police_couvrante(_fichier_police(gras), b.traduction, gras)
-        p = placer(b, W, fichier, libre, cb, milieu=case[3] if case else None, dico=dico)
+
+        def poser(groupe):
+            # Case dessinée autour du texte : sa place et son alignement ; sinon
+            # l'encre voisine et le vide autour du bloc.
+            case = _case(bgr, b, efface, [l for _, l in lus if l not in b.lignes], groupe)
+            if case and groupe and id(b) in colonne and not case[0][2]:
+                # Fond uni ouvert serré sur le texte : une colonne grandit du
+                # côté libre jusqu'à l'encre voisine (`cadre`), pas dans ce
+                # fond. Une case close (dessinée) reste sa place, et un bord
+                # du fond qui est un aplat d'une autre couleur (barre d'un
+                # graphique) reste une limite.
+                c0, c1 = case[0][0], case[0][1]
+                cb = cadre(bgr, b, tous, groupe)
+                g0 = c0 if _aplat(bgr, c0, y, y + h, -1) else -np.inf
+                g1 = c1 if _aplat(bgr, c1, y, y + h, 1) else np.inf
+                case = None
+                cb = (max(cb[0], g0), max(min(cb[1], g1), max(cb[0], g0) + 1), cb[2])
+            else:
+                cb = case[0] if case else cadre(bgr, b, tous, groupe)
+            if b.lignes[0] in puces:  # après la puce dessinée, aligné à gauche, sans la couvrir
+                x0 = max(x, b.lignes[0][0])
+                cb = (x0, max(cb[1], x0 + w), False)
+            libre = case[1] if case else _libre(bgr, b, [l for _, l in lus], cb[0], cb[1], efface, poses)
+            p = placer(b, W, fichier, libre, cb, milieu=case[3] if case else None, dico=dico,
+                       serie=bool(groupe) and id(b) in colonne,
+                       bornes=_traits(bgr, b, efface, cb[0], cb[1],
+                                      _bornes(b, [l for _, l in lus], cb[0], cb[1], poses)))
+            return case, cb, libre, p
+
+        case, cb, libre, p = poser(axes.get(id(b)))
+        en_col = id(b) in colonne
+        if axes.get(id(b)) and (not en_col or p is None or len(p["lignes"]) > len(b.lignes)):
+            # L'alignement du groupe cède s'il rapetisse le bloc (un corps
+            # plus petit se propagerait à tous ses frères, `_freres()`) ou
+            # s'il le coupe sur plus de lignes. Une colonne (libellés) garde
+            # son bord même rapetissée (la série reste d'un corps) ; elle ne
+            # cède que si elle coupe le bloc sur plus de lignes que l'original.
+            seul = poser(None)
+            n = len(b.lignes) if en_col and p is not None else None
+            if seul[3] is not None and (p is None or (n is None and p["taille"] < seul[3]["taille"])
+                                        or len(p["lignes"]) > len(seul[3]["lignes"])
+                                        and (n is None or len(seul[3]["lignes"]) <= n)):
+                case, cb, libre, p = seul
+        if case and case[2] >= CASE_UNIE:
+            unies.add(b.boite)
         if p is not None:
             places.append((b, p, cb, libre))
             encres.append(_hauteur_encre(encre, z))
@@ -1022,6 +1613,8 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
     if places:
         boites = [zones[l] for b, _ in places for l in b.lignes]
         mask = masque_couleur(bgr, boites)
+        effacees = {l for b, _ in places for l in b.lignes}
+        gardee = _proteger(mask, bgr, [l for _, l in lus if l not in effacees], boites)
         # Couleur et contour se mesurent sur le cœur des lettres : le halo
         # (bord adouci, pour l'effacement) tirerait la teinte vers le fond.
         coeur = masque_couleur(bgr, boites, halo=False)
@@ -1030,7 +1623,8 @@ def traduire_image(data, traduire, lecteur=None, delai_s=DELAI_S, fichier_police
                    b.boite not in unies and _contour(bgr, coeur, b.boite)) for b, _ in places]
         t = time.monotonic()
         reste = max(fin - t, 1.0)
-        efface, choix = effacer(bgr, boites, budget_s=reste, mask=mask, limite_s=reste)
+        efface, choix = effacer(bgr, boites, budget_s=reste, mask=mask, limite_s=reste,
+                                gardee=gardee)
         complet = "telea (délai)" not in choix
         d["effacement"] = time.monotonic() - t
         dessin = Image.fromarray(cv2.cvtColor(efface, cv2.COLOR_BGR2RGB))
