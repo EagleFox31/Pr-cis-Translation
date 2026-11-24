@@ -186,13 +186,9 @@ async def _fichier_recu(file: "UploadFile | None", upload_id: str,
     if file is None or not hasattr(file, "read"):
         raise HTTPException(status_code=400, detail="Aucun fichier reçu.")
     try:
-        nom, contenu = file.filename or "", await file.read()
+        return file.filename or "", await file.read()
     except Exception:
         raise HTTPException(status_code=400, detail="Impossible de lire le fichier. Vérifiez qu'il n'est pas corrompu et réessayez.")
-    ext = nom.rsplit(".", 1)[-1].lower() if "." in nom else ""
-    if office_illisible(contenu, ext):
-        raise HTTPException(status_code=400, detail=_OFFICE_ILLISIBLE)
-    return nom, contenu
 
 
 @router.post("/api/preview/pdf")
