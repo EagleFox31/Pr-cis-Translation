@@ -7,7 +7,8 @@ identifiant. On vérifie :
   • il expire après 24 heures et la purge l'efface du disque ;
   • une taille annoncée au-delà de 100 Mo est refusée avant la réception ;
   • un identifiant inconnu répond 410 (le navigateur renvoie alors le fichier) ;
-  • un type refusé ou un corps vide ne crée rien.
+  • un type refusé ou un corps vide ne crée rien ;
+  • un Office tronqué (envoi coupé) est refusé au dépôt et ne crée rien.
 
 Exécution :  cd backend && venv/Scripts/python.exe tests/test_depot.py
 Ne touche pas à la base : la session est simulée.
@@ -17,6 +18,8 @@ import os
 import shutil
 import tempfile
 import time
+import zipfile
+from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -30,6 +33,18 @@ from app.core.security import require_auth               # noqa: E402
 from app.services import depots                          # noqa: E402
 
 PDF = b"%PDF-1.4 contenu de test"
+
+
+def _pptx() -> bytes:
+    tampon = BytesIO()
+    with zipfile.ZipFile(tampon, "w") as z:
+        z.writestr("[Content_Types].xml", "<Types/>")
+        z.writestr("ppt/presentation.xml", "<p:presentation/>")
+        z.writestr("ppt/slides/slide1.xml", "x" * 4000)
+    return tampon.getvalue()
+
+
+PPTX = _pptx()
 CLE = {"X-API-Key": cfg.FRONTEND_API_KEY}
 
 
@@ -53,10 +68,10 @@ def main():
 
             # Un PDF n'a pas de conversion préparée ; un PowerPoint, si.
             assert not conv.called
-            r = client.post("/api/upload?nom=slides.pptx", content=b"PK pptx",
+            r = client.post("/api/upload?nom=slides.pptx", content=PPTX,
                             headers={**CLE, "Content-Type": "application/octet-stream"})
             assert r.status_code == 200, r.text
-            assert conv.call_args.args == (b"PK pptx", "pptx"), conv.call_args
+            assert conv.call_args.args == (PPTX, "pptx"), conv.call_args
 
             # Aperçu par identifiant : seul `upload_id` part, le contenu est relu.
             r = client.post("/api/preview/pdf", data={"upload_id": depot_id}, headers=CLE)
@@ -91,6 +106,12 @@ def main():
             assert r.status_code == 400, r.text
             r = client.post("/api/upload?nom=vide.pdf", content=b"", headers=CLE)
             assert r.status_code == 400, r.text
+            # PPTX coupé en route (cas réel : 4,9 Mo reçus sur 19,7) : refusé
+            # au dépôt avec un message clair, pas un job qui échoue plus loin.
+            r = client.post("/api/upload?nom=coupe.pptx", content=PPTX[: len(PPTX) // 2],
+                            headers=CLE)
+            assert r.status_code == 400, r.text
+            assert "incomplet" in r.json()["detail"], r.text
             assert set(os.listdir(dossier)) == avant
 
             # Expiration : illisible au-delà de 24 h, puis effacé par la purge.

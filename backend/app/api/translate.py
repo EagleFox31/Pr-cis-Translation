@@ -46,7 +46,7 @@ from app.services.images_document import IMAGES_PROPOSABLES, lister as lister_im
 from app.services.ocr import OCR_VERSION
 from app.services.ocr_v2.detect import Tesseract
 from app.services.jobs import STATUTS_ARRET, STATUTS_REPRENABLES, jobs
-from app.services.office import convert_to_pdf_bytes
+from app.services.office import convert_to_pdf_bytes, office_illisible
 from app.services.scheduler import scheduler, scheduler_scans
 from app.services.translation_runner import (run_pdf_v2_job,
                                              run_pptx_progressive_job,
@@ -100,6 +100,9 @@ async def upload_options():
     })
 
 
+_OFFICE_ILLISIBLE = ("Fichier incomplet ou corrompu : il n'a pas pu être ouvert. "
+                     "Renvoyez le fichier d'origine depuis votre ordinateur.")
+
 # Garde une référence aux conversions lancées au dépôt (sinon le ramasse-miettes
 # peut les couper en route).
 _conversions_depot: set = set()
@@ -143,6 +146,8 @@ async def upload_endpoint(
         raise HTTPException(status_code=400, detail="Fichier vide.")
     data = b"".join(morceaux)
     del morceaux
+    if office_illisible(data, ext):
+        raise HTTPException(status_code=400, detail=_OFFICE_ILLISIBLE)
 
     def ecrire(chemin: str) -> int:
         with open(chemin, "wb") as f:
@@ -181,9 +186,13 @@ async def _fichier_recu(file: "UploadFile | None", upload_id: str,
     if file is None or not hasattr(file, "read"):
         raise HTTPException(status_code=400, detail="Aucun fichier reçu.")
     try:
-        return file.filename or "", await file.read()
+        nom, contenu = file.filename or "", await file.read()
     except Exception:
         raise HTTPException(status_code=400, detail="Impossible de lire le fichier. Vérifiez qu'il n'est pas corrompu et réessayez.")
+    ext = nom.rsplit(".", 1)[-1].lower() if "." in nom else ""
+    if office_illisible(contenu, ext):
+        raise HTTPException(status_code=400, detail=_OFFICE_ILLISIBLE)
+    return nom, contenu
 
 
 @router.post("/api/preview/pdf")

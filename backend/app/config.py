@@ -167,6 +167,12 @@ PROGRESS_EVERY_S = 3.0
 # défaut prudent pour un mono-serveur ; à monter avec le nombre de cœurs.
 TRANSLATION_WORKERS = max(1, int(os.getenv("TRANSLATION_WORKERS", "2")))
 
+# Diapositives menées de front DANS un job PPTX. Chaque fil garde en mémoire sa
+# diapositive, ses images et les réponses du modèle : sur un hôte à mémoire
+# comptée (conteneur plafonné), le baisser évite que le noyau tue le processus
+# en pleine traduction.
+PPTX_SLIDE_WORKERS = max(1, int(os.getenv("PPTX_SLIDE_WORKERS", "4")))
+
 # ── Lecture des scans (OCR) ──────────────────────────────────────────────────
 # Documents scannés : un second ordonnanceur, à part, pour que leur attente
 # devant le guichet OCR n'occupe jamais les workers des documents à texte.

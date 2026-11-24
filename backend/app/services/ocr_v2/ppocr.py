@@ -95,6 +95,10 @@ class PPOCR:
                 # Un seul fil, comme Tesseract (OMP_THREAD_LIMIT=1) : le serveur a 2 cœurs.
                 opts.intra_op_num_threads = 1
                 opts.inter_op_num_threads = 1
+                # L'arène CPU d'onnxruntime garde pour toujours le pic d'une
+                # inférence (des centaines de Mo sur une grande page) : sans
+                # elle, la mémoire est rendue après chaque lecture.
+                opts.enable_cpu_mem_arena = False
                 det, rec = (ort.InferenceSession(os.path.join(self.dossier, f), opts,
                                                  providers=["CPUExecutionProvider"])
                             for f in FICHIERS[:2])

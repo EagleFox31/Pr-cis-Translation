@@ -58,13 +58,17 @@ async def log_error(
     user_id: str | None = None,
     user_email: str | None = None,
     trigger_alert: bool = True,
+    _session=None,
 ) -> None:
-    """Écrit UNE occurrence, dans sa propre session. Ne lève jamais."""
+    """Écrit UNE occurrence, dans sa propre session. Ne lève jamais.
+
+    `_session` : fabrique de sessions à utiliser à la place de la globale
+    (écriture depuis une boucle jetable, cf. `log_error_threadsafe`)."""
     try:
         message = _truncate(message, _MAX_MESSAGE) or "(sans message)"
         stack = _truncate(stack, _MAX_STACK)
         fp = fingerprint(source, level, message, location)
-        async with async_session() as db:
+        async with (_session or async_session)() as db:
             db.add(ErrorLog(
                 source=source, level=level, message=message, stack=stack,
                 context=context, user_id=user_id, user_email=user_email,
@@ -83,9 +87,39 @@ async def log_error(
             pass
 
 
+# Boucle principale d'uvicorn, retenue au démarrage (`install_db_log_handler`).
+# Le moteur global et son pool de connexions y sont attachés : écrire depuis un
+# thread passe donc PAR elle, jamais par une boucle jetable.
+_boucle: asyncio.AbstractEventLoop | None = None
+
+
+async def _log_error_hors_pool(source: str, message: str, **kw) -> None:
+    """`log_error` sur un moteur DÉDIÉ sans pool, pour une boucle jetable.
+
+    Réutiliser le pool global hors de sa boucle y remettait des connexions
+    liées à une boucle morte : la requête suivante de l'application levait
+    alors « attached to a different loop » (500 sur /api/auth/me)."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from app.core.database import DATABASE_URL
+
+    eng = create_async_engine(DATABASE_URL, poolclass=NullPool)
+    try:
+        await log_error(source, message,
+                        _session=async_sessionmaker(eng, expire_on_commit=False), **kw)
+    finally:
+        await eng.dispose()
+
+
 def log_error_threadsafe(source: str, message: str, **kw) -> None:
     """Version appelable depuis un THREAD (worker de traduction) ou un contexte
-    sync. Route vers `log_error` selon qu'une boucle tourne ou non."""
+    sync. Ne lève jamais.
+
+    - dans la boucle principale : tâche planifiée ;
+    - depuis un thread, boucle principale connue : confiée à cette boucle ;
+    - sinon (script, tests, boucle fermée) : boucle jetable SANS le pool global.
+    """
     try:
         try:
             loop = asyncio.get_running_loop()
@@ -93,8 +127,12 @@ def log_error_threadsafe(source: str, message: str, **kw) -> None:
             loop = None
         if loop and loop.is_running():
             loop.create_task(log_error(source, message, **kw))
-        else:
-            asyncio.run(log_error(source, message, **kw))
+            return
+        boucle = _boucle
+        if boucle is not None and boucle.is_running() and not boucle.is_closed():
+            asyncio.run_coroutine_threadsafe(log_error(source, message, **kw), boucle)
+            return
+        asyncio.run(_log_error_hors_pool(source, message, **kw))
     except Exception:
         pass
 
@@ -140,7 +178,15 @@ class DBLogHandler(logging.Handler):
 
 
 def install_db_log_handler() -> None:
-    """Branche le handler sur le logger racine, au niveau ERROR. Idempotent."""
+    """Branche le handler sur le logger racine, au niveau ERROR. Idempotent.
+
+    Appelée depuis le démarrage de l'application (boucle en marche) : retient
+    cette boucle pour les écritures venues des threads."""
+    global _boucle
+    try:
+        _boucle = asyncio.get_running_loop()
+    except RuntimeError:
+        pass
     root = logging.getLogger()
     if any(isinstance(h, DBLogHandler) for h in root.handlers):
         return

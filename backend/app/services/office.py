@@ -14,7 +14,9 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import zipfile
 from contextlib import contextmanager
+from io import BytesIO
 
 from app.config import PREVIEW_CACHE_DIR, note
 from app.core.files import get_file_hash
@@ -27,6 +29,32 @@ if SOFFICE_PATH:
 else:
     note(logging.WARNING, "LibreOffice introuvable : l'aperçu des formats "
                           "non-PDF sera indisponible.")
+
+
+# Partie que tout document Office valide contient, par format.
+_PARTIE_PRINCIPALE = {
+    "docx": "word/document.xml",
+    "pptx": "ppt/presentation.xml",
+    "xlsx": "xl/workbook.xml",
+}
+
+
+def office_illisible(data: bytes, ext: str) -> bool:
+    """Vrai si `data` n'est pas un document Office lisible pour `ext`.
+
+    Un .docx/.pptx/.xlsx est une archive ZIP dont la table des matières est À
+    LA FIN : un envoi coupé en route (réseau, redémarrage du serveur) donne un
+    fichier qui a la bonne extension mais qu'aucun moteur ne peut ouvrir. Le
+    refuser au dépôt évite un job qui échoue plus loin sur « File is not a zip
+    file ». Les autres extensions ne sont pas concernées (Faux)."""
+    partie = _PARTIE_PRINCIPALE.get(ext)
+    if partie is None:
+        return False
+    try:
+        with zipfile.ZipFile(BytesIO(data)) as archive:
+            return partie not in archive.namelist()
+    except (zipfile.BadZipFile, ValueError, OSError, EOFError):
+        return True
 
 
 def convert_to_pdf_bytes(file_bytes: bytes, ext: str,

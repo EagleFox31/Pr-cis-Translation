@@ -24,6 +24,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# glibc ouvre une arène malloc par thread (jusqu'à 8 × cœurs) : avec les
+# workers de traduction, l'OCR et les threads d'onnxruntime, la mémoire rendue
+# par Python reste fragmentée dans ces arènes et le processus dépasse sa limite
+# au repos. Deux arènes suffisent à ce service.
+ENV MALLOC_ARENA_MAX=2
+
 # ── Dépendances système ──────────────────────────────────────────────────────
 # LibreOffice sert UNIQUEMENT à convertir les documents non-PDF en PDF pour
 # l'aperçu. On n'installe que les trois modules utilisés (writer/impress/calc) :
