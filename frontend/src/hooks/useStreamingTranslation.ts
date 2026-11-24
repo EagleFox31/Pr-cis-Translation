@@ -212,6 +212,7 @@ export function useStreamingTranslation(deviceSignals = true) {
       useBeta?: boolean,
       resumeOf?: string,
       images: boolean = false,
+      nbPages?: number,
     ): Promise<{ blob: Blob; filename: string }> => {
       return new Promise(async (resolve, reject) => {
         // Fermer TOUT flux encore ouvert avant d'en démarrer un nouveau. Relancer
@@ -225,7 +226,9 @@ export function useStreamingTranslation(deviceSignals = true) {
         if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
 
-        setState({ ...EMPTY, isTranslating: true });
+        // Total connu dès le clic (analyse) : « 0/75 pages » plutôt que « 0/1 ».
+        // L'événement `start` du serveur le confirme ou le corrige.
+        setState({ ...EMPTY, isTranslating: true, totalPages: nbPages ?? null });
         // Sans ça, un 402 survenant avant le premier partiel du NOUVEAU
         // document résoudrait avec celui du PRÉCÉDENT — on afficherait le
         // mauvais document sans que rien ne signale l'erreur.

@@ -84,6 +84,8 @@ interface StorySectionProps {
   onToggleFocus?: () => void;
   /** Pause / Annuler la traduction affichée (barre d'aperçu). */
   onStop?: (mode: StopMode) => Promise<void>;
+  /** Traduction pas encore acceptée par le serveur : rien à arrêter. */
+  demarrage?: boolean;
   /** Admin regardant le document d'un client : « Créer ma copie ». */
   onCopy?: () => void;
   copyBusy?: boolean;
@@ -144,6 +146,7 @@ export default function StorySection({
   onUnlock,
   onToggleFocus,
   onStop,
+  demarrage,
   onCopy,
   copyBusy,
   onZoomChange,
@@ -590,6 +593,7 @@ export default function StorySection({
                     onRetranslate={onRetranslate}
                     onToggleFocus={onToggleFocus}
                     onStop={onStop}
+                    demarrage={demarrage}
                     onCopy={onCopy}
                     copyBusy={copyBusy}
                   />

@@ -236,7 +236,7 @@ export default function Home() {
     (config: TranslateConfig) => {
       // Le catalogue ne propose que des codes de base ('en', 'fr'…) : plus de
       // variante régionale à réduire avant l'envoi.
-      const { file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta, resumeOf, images } = config;
+      const { file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta, resumeOf, images, nbPages } = config;
       // Mémorisé pour rejouer après un achat de pages (402) : en ENTIER, un
       // achat sert à couvrir tout le document, jamais à rejouer une version partielle.
       lastConfigRef.current = { ...config, coverOnly: false };
@@ -259,7 +259,7 @@ export default function Home() {
       setShowPreview(true);
 
       stream
-        .start(file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta, resumeOf, images)
+        .start(file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta, resumeOf, images, nbPages)
         .then((result) => {
           setTranslatedBlob(result.blob);
           setTranslatedIsPdf(false);   // le RÉSULTAT est au format d'origine
@@ -1123,6 +1123,7 @@ export default function Home() {
           onUnlock={handleUnlock}
           onToggleFocus={toggleFocus}
           onStop={stream.isTranslating || (suiviBiblio && libraryJobId) ? handleStop : undefined}
+          demarrage={stream.isTranslating && !stream.documentId && !suiviBiblio}
           onCopy={adminDoc?.copiable ? handleAdminCopy : undefined}
           copyBusy={copieEnCours}
           onZoomChange={changerZoom}

@@ -51,6 +51,9 @@ interface ViewerToolbarProps {
   onToggleFocus?: () => void;
   /** Pause / Annuler la traduction en cours. Absent : pas de job à arrêter. */
   onStop?: (mode: StopMode) => Promise<void>;
+  /** Traduction pas encore acceptée par le serveur : « Démarrage… » à la
+   *  place de Pause / Annuler, qui n'auraient encore rien à arrêter. */
+  demarrage?: boolean;
   /** Admin regardant le document d'un client : en garder une copie à son nom. */
   onCopy?: () => void;
   copyBusy?: boolean;
@@ -79,6 +82,7 @@ export default function ViewerToolbar({
   onRetranslate,
   onToggleFocus,
   onStop,
+  demarrage = false,
   onCopy,
   copyBusy = false,
 }: ViewerToolbarProps) {
@@ -237,6 +241,8 @@ export default function ViewerToolbar({
             }}>
               {arret
                 ? t('viewer.stopping', 'Arrêt après la page en cours…')
+                : isTranslating && demarrage
+                ? t('viewer.starting', 'Démarrage…')
                 : isTranslating && numPages === 0
                 ? t('preview.loading', "Préparation de l'aperçu…")
                 : isTranslating
@@ -249,7 +255,7 @@ export default function ViewerToolbar({
               height={3}
             />
           </div>
-          {isTranslating && onStop && (
+          {isTranslating && onStop && !demarrage && (
             <>
               <button
                 onClick={() => demanderArret('pause')}

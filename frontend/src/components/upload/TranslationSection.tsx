@@ -39,6 +39,8 @@ export interface TranslateConfig {
   beta?: boolean;
   /** Traduire aussi le texte des images (1 page par image remplacée). */
   images?: boolean;
+  /** Nombre de pages déjà connu par l'analyse : affiché dès le clic. */
+  nbPages?: number;
 }
 
 interface TranslationSectionProps {
@@ -155,6 +157,8 @@ export default function TranslationSection({
       precise: supportsPrecise && preciseMode,
       beta: betaAccess.data ? betaUsable && useBetaCredits : undefined,
       images: false,
+      // Document entier seulement : une plage de pages change le total.
+      nbPages: supportsPages && !pages.trim() && analyse?.pages ? analyse.pages : undefined,
       onAccepted: () => { void betaAccess.refresh(); },
     });
   };
