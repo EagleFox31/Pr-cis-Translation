@@ -37,7 +37,7 @@ from app.services.documents import (build_job_paths, cap_pages_for_plan,
                                     count_pages, pages_avec_texte, pages_faites,
                                     pages_selectionnees, reglages_de,
                                     translation_path_for)
-from app.services import usage
+from app.services import depots, usage
 from app.services import anti_abus
 from app.services import beta
 from app.services.beta_meter import BetaCost, FORMATS as BETA_FORMATS, office_cost
@@ -90,10 +90,106 @@ async def preview_pdf_options():
         "Access-Control-Allow-Headers": "Content-Type, X-API-Key",
     })
 
+@router.options("/api/upload")
+async def upload_options():
+    return JSONResponse(content={}, headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, X-API-Key",
+    })
+
+
+# Garde une référence aux conversions lancées au dépôt (sinon le ramasse-miettes
+# peut les couper en route).
+_conversions_depot: set = set()
+
+
+@router.post("/api/upload")
+async def upload_endpoint(
+    request: Request,
+    nom: str = "",
+    x_api_key: str = Header(None),
+    current_user: "User" = Depends(require_auth),
+):
+    """Dépôt unique du fichier, dès qu'il est choisi (corps brut, nom en
+    paramètre). L'analyse, l'aperçu et la traduction le relisent ensuite par
+    `upload_id` au lieu de le renvoyer.
+
+    La taille est refusée sur l'annonce du navigateur, AVANT de recevoir le
+    fichier, puis contrôlée pendant la réception (annonce absente ou fausse)."""
+    verify_api_key(x_api_key)
+    ext = nom.rsplit(".", 1)[-1].lower() if "." in nom else ""
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Type non supporté : .{ext}")
+    trop_gros = "Fichier trop volumineux (max 100 Mo)."
+    try:
+        annonce = int(request.headers.get("content-length") or 0)
+    except ValueError:
+        annonce = 0
+    if annonce > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail=trop_gros)
+
+    # Réception en morceaux : l'envoi est coupé dès que la limite est dépassée,
+    # même si l'annonce de taille manquait ou mentait.
+    morceaux: list[bytes] = []
+    recu = 0
+    async for morceau in request.stream():
+        recu += len(morceau)
+        if recu > MAX_FILE_SIZE:
+            raise HTTPException(status_code=413, detail=trop_gros)
+        morceaux.append(morceau)
+    if not recu:
+        raise HTTPException(status_code=400, detail="Fichier vide.")
+    data = b"".join(morceaux)
+    del morceaux
+
+    def ecrire(chemin: str) -> int:
+        with open(chemin, "wb") as f:
+            f.write(data)
+        return len(data)
+
+    depot_id = await run_in_threadpool(depots.creer, current_user.id, nom, ecrire)
+
+    # L'aperçu de l'original se prépare pendant que l'utilisateur choisit sa
+    # langue : la demande d'aperçu retrouvera la conversion en cache (même
+    # contenu, même verrou) au lieu de la lancer au clic.
+    if ext != "pdf":
+        async def convertir():
+            try:
+                await asyncio.to_thread(convert_to_pdf_bytes, data, ext)
+            except Exception as e:
+                logger.warning(f"Aperçu préparé au dépôt : conversion échouée ({e}).")
+        tache = asyncio.create_task(convertir())
+        _conversions_depot.add(tache)
+        tache.add_done_callback(_conversions_depot.discard)
+
+    return JSONResponse(content={"upload_id": depot_id, "taille": len(data)})
+
+
+async def _fichier_recu(file: "UploadFile | None", upload_id: str,
+                        user: "User") -> tuple[str, bytes]:
+    """(nom, contenu) du fichier : relu depuis le dépôt (`upload_id`) ou reçu
+    avec la requête (ancien envoi direct, gardé en repli). 410 si le dépôt a
+    expiré : le navigateur renvoie alors le fichier lui-même."""
+    upload_id = upload_id if isinstance(upload_id, str) else ""
+    if upload_id:
+        trouve = await run_in_threadpool(depots.lire, upload_id, user.id)
+        if trouve is None:
+            raise HTTPException(status_code=410, detail="Fichier déposé introuvable ou expiré.")
+        return trouve
+    if file is None or not hasattr(file, "read"):
+        raise HTTPException(status_code=400, detail="Aucun fichier reçu.")
+    try:
+        return file.filename or "", await file.read()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Impossible de lire le fichier. Vérifiez qu'il n'est pas corrompu et réessayez.")
+
+
 @router.post("/api/preview/pdf")
 async def preview_pdf_endpoint(
     request: Request,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    upload_id: str = Form(""),
     x_api_key: str = Header(None),
     # CONNEXION OBLIGATOIRE : la clé d'API est publique (bundle du frontend),
     # elle ne « protège » rien. Sans JWT, cet endpoint était une ferme de
@@ -105,15 +201,10 @@ async def preview_pdf_endpoint(
     téléchargeable, elle ne sert qu'à un rendu exact dans le viewer."""
     verify_api_key(x_api_key)
 
-    filename = file.filename or ""
+    filename, file_bytes = await _fichier_recu(file, upload_id, current_user)
     ext = filename.split(".")[-1].lower() if "." in filename else ""
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"Type non supporté pour l'aperçu : .{ext}")
-
-    try:
-        file_bytes = await file.read()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Impossible de lire le fichier. Vérifiez qu'il n'est pas corrompu et réessayez.")
 
     if len(file_bytes) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="Fichier trop volumineux pour l'aperçu.")
@@ -208,7 +299,8 @@ def _analyse_images(file_bytes: bytes, ext: str):
 
 @router.post("/api/translate/analyse")
 async def analyse_endpoint(
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    upload_id: str = Form(""),
     x_api_key: str = Header(None),
     current_user: "User" = Depends(require_auth),
 ):
@@ -217,15 +309,10 @@ async def analyse_endpoint(
     proposées au client (option D1). Ne traduit ni ne débite rien."""
     verify_api_key(x_api_key)
 
-    filename = file.filename or ""
+    filename, file_bytes = await _fichier_recu(file, upload_id, current_user)
     ext = filename.split(".")[-1].lower() if "." in filename else ""
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"Type non supporté : .{ext}")
-
-    try:
-        file_bytes = await file.read()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Impossible de lire le fichier. Vérifiez qu'il n'est pas corrompu et réessayez.")
 
     if len(file_bytes) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail=f"Fichier trop volumineux ({len(file_bytes)/(1024*1024):.1f} Mo, max 100 Mo).")
@@ -241,7 +328,9 @@ async def analyse_endpoint(
 async def translate_endpoint(
     request: Request,
     response: Response,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    # Fichier déjà déposé par `/api/upload` : relu sur le serveur, pas renvoyé.
+    upload_id: str = Form(""),
     target_lang: str = Form("en"),
     format_options: str = Form("{}"),
     quality: str = Form("fast"),
@@ -281,15 +370,10 @@ async def translate_endpoint(
 
     quality = qualite_autorisee(quality, precise, current_user)
 
-    filename = file.filename or ""
+    filename, file_bytes = await _fichier_recu(file, upload_id, current_user)
     ext = filename.split(".")[-1].lower() if "." in filename else ""
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"Type non supporté : .{ext}")
-
-    try:
-        file_bytes = await file.read()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Impossible de lire le fichier. Vérifiez qu'il n'est pas corrompu et réessayez.")
 
     if len(file_bytes) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail=f"Fichier trop volumineux ({len(file_bytes)/(1024*1024):.1f} Mo, max 100 Mo).")

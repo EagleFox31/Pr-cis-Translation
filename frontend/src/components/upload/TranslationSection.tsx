@@ -17,6 +17,7 @@ import { useBeta, type BetaFormat } from '../../hooks/useBeta';
 import { useBetaPreference } from '../../hooks/useBetaPreference';
 import { BETA_FORMATS } from '../library/BetaAllowances';
 import { useAnalyseImages } from '../../hooks/useAnalyseImages';
+import { useDepot } from '../../hooks/useDepot';
 import ExtensionBanner from './ExtensionBanner';
 
 export interface TranslateConfig {
@@ -135,13 +136,16 @@ export default function TranslationSection({
   };
 
   // Analyse du dépôt : langue du document (les images sont traduites avec leur page).
-  const { analyse } = useAnalyseImages(file, !!user);
+  // Le fichier part une seule fois, dès qu'il est choisi ; l'analyse attend
+  // la fin de l'envoi pour n'envoyer que son identifiant.
+  const depot = useDepot(file, !!user);
+  const { analyse } = useAnalyseImages(file, !!user && !depot.enCours);
   // Langue d'arrivée identique à celle du document : simple avertissement.
   const memeLangue = !!analyse?.langue && analyse.langue === baseCode(targetLang);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file || isTranslating) return;
+    if (!file || isTranslating || depot.enCours) return;
     if (!user) { window.location.href = '/login'; return; }
     onStartTranslate({
       file,
@@ -155,7 +159,7 @@ export default function TranslationSection({
     });
   };
 
-  const ready = !!file && !isTranslating;
+  const ready = !!file && !isTranslating && !depot.enCours;
   // Ne compter que les options RÉELLEMENT applicables au format courant : une
   // case cochée sur un PDF puis un passage à un format qui ne la gère pas ne
   // doit pas afficher un badge mensonger.
@@ -460,6 +464,15 @@ export default function TranslationSection({
         </motion.button>
 
         {/* Le bouton désactivé dit POURQUOI il l'est. */}
+        {file && depot.enCours && !isTranslating && (
+          <span role="status" style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+            marginTop: '8px', fontSize: '11.5px', color: 'var(--gray-500)',
+          }}>
+            <Loader2 size={12} strokeWidth={2} />
+            {t('story.upload_progress', { pct: depot.pct, defaultValue: 'Envoi du fichier : {{pct}} %' })}
+          </span>
+        )}
         {!file && !isTranslating && (
           <span style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',

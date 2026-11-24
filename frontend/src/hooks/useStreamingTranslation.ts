@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { authHeader, accessToken, refreshAccessToken } from '../services/api';
+import { postAvecFichier } from '../services/depot';
 import i18n from '../i18n';
 import { deviceHeaders } from '../lib/device';
 
@@ -239,31 +240,30 @@ export function useStreamingTranslation(deviceSignals = true) {
           // `quality` et `format_options` ne sont plus envoyés : le moteur PDF v2
           // ne les lit pas (il préserve toujours la mise en page et n'accepte pas
           // de modèle alternatif). Le serveur garde des valeurs par défaut.
-          const formData = new FormData();
-          formData.append('file', file);
-          formData.append('target_lang', targetLang);
-          if (debug) formData.append('debug', '1');
-          if (precise) formData.append('precise', '1');
-          if (pages && pages.trim()) formData.append('pages', pages.trim());
-          // Choix explicite de l'utilisateur après un 402 : ne traduire que les
-          // pages couvertes. Jamais envoyé d'office.
-          if (coverOnly) formData.append('covered_only', '1');
-          if (typeof useBeta === 'boolean') formData.append('use_beta', useBeta ? '1' : '0');
-          if (resumeOf) formData.append('resume_of', resumeOf);
-          if (images) formData.append('images', '1');
-          // Choix explicite après un 402 « limite d'aperçu » : traduire jusqu'à
-          // la limite, le serveur met le document en pause tout seul.
+          // Fichier déjà déposé : seul son identifiant part (voir services/depot).
+          const champs = (formData: FormData) => {
+            formData.append('target_lang', targetLang);
+            if (debug) formData.append('debug', '1');
+            if (precise) formData.append('precise', '1');
+            if (pages && pages.trim()) formData.append('pages', pages.trim());
+            // Choix explicite de l'utilisateur après un 402 : ne traduire que les
+            // pages couvertes. Jamais envoyé d'office.
+            if (coverOnly) formData.append('covered_only', '1');
+            if (typeof useBeta === 'boolean') formData.append('use_beta', useBeta ? '1' : '0');
+            if (resumeOf) formData.append('resume_of', resumeOf);
+            if (images) formData.append('images', '1');
+            // Choix explicite après un 402 « limite d'aperçu » : traduire jusqu'à
+            // la limite, le serveur met le document en pause tout seul.
+          };
 
           // `authHeader()` est INDISPENSABLE ici, pas décoratif : le backend lit
           // l'utilisateur via `optional_auth`. Sans token il voit un visiteur
           // anonyme, n'enregistre AUCUN `Document` (la bibliothèque reste vide)
           // et n'applique pas le quota freemium. Un visiteur envoie `{}` et
           // reste anonyme, comme avant.
-          const startRes = await fetch(`${API_BASE}/api/translate`, {
-            method: 'POST',
+          const startRes = await postAvecFichier(`${API_BASE}/api/translate`, file, file.name, champs, {
             headers: { 'X-API-Key': API_KEY, ...authHeader(),
               ...(deviceSignalsRef.current ? await deviceHeaders() : {}) },
-            body: formData,
           });
           if (!startRes.ok) {
             const err = await startRes.json().catch(() => ({}));

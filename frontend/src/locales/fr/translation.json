@@ -142,6 +142,7 @@
     "btn_translate": "Traduire",
     "btn_structure": "Analyser la structure",
     "cta_hint": "Choisissez un document pour commencer.",
+    "upload_progress": "Envoi du fichier : {{pct}} %",
     "translating": "Traduction en cours…",
     "download": "Télécharger",
     "new_translation": "Nouvelle traduction",
