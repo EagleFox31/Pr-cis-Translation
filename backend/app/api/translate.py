@@ -40,6 +40,7 @@ from app.services.documents import (build_job_paths, cap_pages_for_plan,
 from app.services import depots, usage
 from app.services import anti_abus
 from app.services import beta
+from app.services import avis_document
 from app.services.beta_meter import BetaCost, FORMATS as BETA_FORMATS, office_cost
 from app.services.images_document import IMAGES_PROPOSABLES, lister as lister_images
 from app.services.ocr import OCR_VERSION
@@ -934,6 +935,9 @@ async def translate_endpoint(
     if scans:
         reponse["ocr_pages"] = len(scans)
         reponse["ocr_review_required"] = True
+    # Gardé avec la traduction : revu en revenant par « Mes documents ».
+    await asyncio.to_thread(avis_document.ajouter, translation_path, "ocr",
+                            {"pages": len(scans)} if scans else None)
     return avec_cookie(JSONResponse(reponse))
 
 

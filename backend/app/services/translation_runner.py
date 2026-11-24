@@ -36,7 +36,7 @@ import fitz
 import engines
 from app.config import logger, note
 from app.services import extension as ext_service
-from app.services import images_document, ocr, ocr_file, ocr_pages, render_cache
+from app.services import avis_document, images_document, ocr, ocr_file, ocr_pages, render_cache
 from engines import runtags
 from app.services.jobs import ArretDemande, _dans_une_boucle_jetable, jobs
 from app.services.office import convert_to_pdf_bytes
@@ -81,8 +81,16 @@ def _images_du_travail(job_id: str | None, file_bytes: bytes, ext: str, langue: 
         pages=pages, avance=avance, reste=reste, arret=arret, persister=persister)
 
 
+def _avis(job_id: str, translation_path: str | None, type_: str, donnees: dict) -> None:
+    """Message pour l'utilisateur : envoyé à l'écran ouvert ET gardé avec le
+    document, pour le retrouver en revenant plus tard (avis_document)."""
+    avis_document.ajouter(translation_path, type_, donnees)
+    jobs.emit(job_id, type_, donnees)
+
+
 def _signaler_objets(job_id: str, non_traites: list[dict] | None = None,
-                     extraction_path: str | None = None) -> None:
+                     extraction_path: str | None = None,
+                     translation_path: str | None = None) -> None:
     """Compte rendu client (D6) : objets incorporés laissés en langue
     d'origine (liés, Visio, échecs…) ou dont l'image n'a pu être refaite. Lus
     sur l'extraction quand la liste n'est pas fournie. Au mieux : un rapport
@@ -99,7 +107,9 @@ def _signaler_objets(job_id: str, non_traites: list[dict] | None = None,
     liste = [{"cible": o.get("cible"), "raison": o.get("raison")}
              for o in non_traites if isinstance(o, dict)]
     if liste:
-        jobs.emit(job_id, "objets", {"non_traites": liste})
+        _avis(job_id, translation_path, "objets", {"non_traites": liste})
+    else:
+        avis_document.retirer(translation_path, "objets")
 
 
 def _poser_images_fichier(chemin: str, table: dict[str, bytes]) -> None:
@@ -182,7 +192,8 @@ def run_translation_job(
         else:
             jobs.emit(job_id, "progress", {"step": "extract", "message": "Extraction : cache utilisé.", "page": 0, "total": None})
         if ext != "pdf":
-            _signaler_objets(job_id, extraction_path=extraction_path)
+            _signaler_objets(job_id, extraction_path=extraction_path,
+                             translation_path=translated_path)
 
         # 4. Traduction IA — ou IDENTITÉ en mode structure/debug
         if debug:
@@ -244,7 +255,8 @@ def run_translation_job(
             if os.path.exists(output_path):
                 os.remove(output_path)
             raise ValueError(f"Injection échouée : {inj_msg}")
-        _signaler_objets(job_id, moteur_injection.objets_restes)
+        _signaler_objets(job_id, moteur_injection.objets_restes,
+                         translation_path=translated_path)
 
         if not os.path.exists(output_path):
             raise ValueError("Le fichier traduit est introuvable après génération.")
@@ -351,7 +363,8 @@ def run_xlsx_progressive_job(
             eng.extract_text(original_path, extraction_path,
                              progress_callback=jobs.progress_callback(
                                  job_id, "extract"))
-        _signaler_objets(job_id, extraction_path=extraction_path)
+        _signaler_objets(job_id, extraction_path=extraction_path,
+                         translation_path=translation_path)
 
         # La carte feuille -> chaînes, et l'ordre d'affichage des onglets. Les
         # deux se lisent sur le dossier de travail ouvert par l'extraction.
@@ -451,7 +464,8 @@ def run_xlsx_progressive_job(
         if not os.path.exists(output_path):
             raise ValueError("Le fichier traduit est introuvable après génération.")
         eng.injecter_objets(output_path, traductions_objets)
-        _signaler_objets(job_id, eng.objets_restes)
+        _signaler_objets(job_id, eng.objets_restes,
+                         translation_path=translation_path)
 
         _poser_images_fichier(output_path, table_images)
         jobs.done(job_id, output_path, output_filename,
@@ -712,9 +726,10 @@ def _compacter_slide(pptx_eng, slide_num: int, slide_data: dict,
 
 
 def _coherence_document(slides_traduites: dict, pptx_eng, target_lang: str,
-                        progress_cb=None, fiche: str = "") -> int:
+                        progress_cb=None, fiche: str = "") -> tuple[int, list[int]]:
     """Reprend les fragments qui laissent en langue source un terme que le
-    document traduit ailleurs. Renvoie le nombre de fragments repris.
+    document traduit ailleurs. Renvoie le nombre de fragments repris et les
+    diapositives modifiées (triées), pour redessiner leur aperçu et le dire.
 
     `fiche` : celle qui a servi aux diapositives. Sans elle, les fragments
     repris, isolés de leur page, perdraient le vocabulaire du document.
@@ -725,7 +740,7 @@ def _coherence_document(slides_traduites: dict, pptx_eng, target_lang: str,
     fragments = [(sn, el) for sn, sd in slides_traduites.items()
                  for el in _elements_de(sd) if el.get("translated_text")]
     if not fragments:
-        return 0
+        return 0, []
 
     # Même fragment source, traductions différentes (diapositives traduites en
     # parallèle) : la traduction majoritaire, sans appel au modèle.
@@ -769,7 +784,7 @@ def _coherence_document(slides_traduites: dict, pptx_eng, target_lang: str,
         for el in a_reprendre:
             el.pop("consigne", None)
     if not slides_touchees:
-        return 0
+        return 0, []
 
     # Réinjection des seules slides touchées. L'injection écrit par
     # identifiant de paragraphe : la repasser sur un XML déjà injecté remplace
@@ -780,7 +795,7 @@ def _coherence_document(slides_traduites: dict, pptx_eng, target_lang: str,
             pptx_eng.inject_slide(sn, {
                 el["id"]: (el.get("translated_text") or el["text"])
                 for el in _elements_de(sd)})
-    return n_unifies + len(a_reprendre)
+    return n_unifies + len(a_reprendre), sorted(slides_touchees)
 
 
 class DeckSansTexte(ValueError):
@@ -1215,18 +1230,26 @@ def run_pptx_progressive_job(
 
         # ── Cohérence terminologique, une fois TOUT le document connu ──────
         # Elle ne peut pas se faire plus tôt : la preuve qu'un terme est
-        # traduisible vient des AUTRES slides. Après l'arrêt du convertisseur
-        # de partiel, donc sans accès concurrent au dossier temporaire.
+        # traduisible vient des AUTRES slides. Les slides qu'elle modifie sont
+        # reconverties ici (`_afficher_slides`), en série : le convertisseur de
+        # partiel est arrêté, rien d'autre n'écrit dans le dossier temporaire.
         if not debug and ai_active:
             try:
                 jobs.emit(job_id, "progress", {"step": "coherence", "message": "Contrôle de cohérence des termes...", "page": 0, "total": None})
-                n_coh = _coherence_document(
+                n_coh, touchees = _coherence_document(
                     slides_traduites, pptx_eng, target_lang,
                     jobs.progress_callback(job_id, "coherence"),
                     fiche=fiche_doc)
                 if n_coh:
                     logger.info(f"Job {job_id}: {n_coh} fragment(s) repris "
                                 f"pour cohérence terminologique")
+                # Ce que l'utilisateur a vu doit suivre le fichier livré : une
+                # seule conversion pour tout le groupe, et on ne dit « aperçu à
+                # jour » que si elle a réussi.
+                if touchees and _afficher_slides(touchees):
+                    _avis(job_id, translation_path, "coherence", {"slides": touchees})
+                else:
+                    avis_document.retirer(translation_path, "coherence")
             except Exception as e:
                 logger.warning(f"Job {job_id}: contrôle de cohérence ignoré : {e}")
 
@@ -1236,7 +1259,8 @@ def run_pptx_progressive_job(
         _poser_images_fichier(output_path, travail.table() if travail else {})
         # Après la cohérence, qui réinjecte aussi.
         _signaler_objets(job_id, pptx_eng.objets_non_traites + pptx_eng.objets_restes
-                         + pptx_eng.objets_hors_diapositives())
+                         + pptx_eng.objets_hors_diapositives(),
+                         translation_path=translation_path)
 
         # ── Sauvegarde de la traduction (JSON complet pour reprise) ───────
         # Assemblée depuis ce qu'on a retenu AVANT injection : `text` y est la

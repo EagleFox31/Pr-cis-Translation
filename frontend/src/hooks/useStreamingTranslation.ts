@@ -4,6 +4,7 @@ import { authHeader, accessToken, refreshAccessToken } from '../services/api';
 import { postAvecFichier } from '../services/depot';
 import i18n from '../i18n';
 import { deviceHeaders } from '../lib/device';
+import { phrasesAvis, TYPES_AVIS } from '../lib/avis';
 
 // Pas de valeur de repli : cf. usePdfPreview.ts — une clé écrite ici part dans
 // le dépôt, et le repli rendait l'oubli de `VITE_API_KEY` invisible.
@@ -308,7 +309,7 @@ export function useStreamingTranslation(deviceSignals = true) {
           // Images demandées mais écartées par le serveur (scan, par exemple) :
           // l'utilisateur doit le savoir, sa figure restera dans la langue d'origine.
           const avis = [
-            ocr_pages > 0 ? t('story.ocr_notice', { count: ocr_pages }) : '',
+            ...phrasesAvis({ type: 'ocr', pages: ocr_pages }, t),
             images && imagesAcceptees === undefined ? t('story.images_skipped') : '',
           ].filter(Boolean).join(' ');
           if (avis) setState((s) => ({ ...s, notice: avis }));
@@ -353,46 +354,10 @@ export function useStreamingTranslation(deviceSignals = true) {
               // worker l'a pris) : on efface l'état d'attente une bonne fois.
               setState((s) => (s.queuePosition === null ? s : { ...s, queuePosition: null }));
 
-              if (type === 'images') {
-                const bilan = ['traduites', 'inchangees', 'sans_credit', 'echecs']
-                  .map((cle) => {
-                    const count = Number(msg[cle]) || 0;
-                    return count > 0 ? t(`story.images_report.${cle}`, { count }) : '';
-                  })
-                  .filter(Boolean)
-                  .join(', ');
-                if (bilan) {
-                  const phrase = t('story.images_report.intro', { detail: bilan });
-                  setState((s) => ({ ...s, notice: [s.notice, phrase].filter(Boolean).join(' ') }));
-                }
-                return;
-              }
-
-              if (type === 'objets') {
-                type ObjetSignale = { cible?: string | null; raison?: string };
-                const liste: ObjetSignale[] = Array.isArray(msg.non_traites) ? msg.non_traites : [];
-                const RAISONS = ['lie', 'visio', 'pdf', 'equation', 'paquet', 'absent',
-                  'conversion', 'erreur', 'profondeur', 'illisible', 'reinjection', 'hors_diapo'];
-                const nomDe = (o: ObjetSignale) => (o.cible
-                  ? String(o.cible).split(' › ').map((part) => part.split(/[\\/]/).pop() || part).join(' › ')
-                  : t('story.objects_report.sans_nom'));
-                const resume = (noms: string[], total: number) => noms.join(', ')
-                  + (total > noms.length ? ' ' + t('story.objects_report.more', { count: total - noms.length }) : '');
-                const apercus = liste.filter((o) => o.raison === 'apercu');
-                const autres = liste.filter((o) => o.raison !== 'apercu');
-                const phrases: string[] = [];
-                if (autres.length) {
-                  const noms = autres.slice(0, 5).map((o) => {
-                    const raison = RAISONS.includes(String(o.raison)) ? String(o.raison) : 'autre';
-                    return `${nomDe(o)} (${t(`story.objects_report.raisons.${raison}`)})`;
-                  });
-                  phrases.push(t('story.objects_report.intro', { detail: resume(noms, autres.length) }));
-                }
-                if (apercus.length) {
-                  phrases.push(t('story.objects_report.apercus', {
-                    detail: resume(apercus.slice(0, 5).map(nomDe), apercus.length),
-                  }));
-                }
+              // Bilans (images, objets, termes harmonisés) : même phrase qu'à la
+              // réouverture depuis « Mes documents » (lib/avis).
+              if (TYPES_AVIS.includes(type)) {
+                const phrases = phrasesAvis(msg, t);
                 if (phrases.length) {
                   setState((s) => ({ ...s, notice: [s.notice, ...phrases].filter(Boolean).join(' ') }));
                 }

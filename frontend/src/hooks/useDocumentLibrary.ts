@@ -4,6 +4,7 @@ import api, { authFetch } from '../services/api';
 import i18n from '../i18n';
 import { showToast } from '../components/ui/Toast';
 import type { PageStatus } from './useStreamingTranslation';
+import type { Avis } from '../lib/avis';
 
 /** Le serveur refuse l'accès à un document archivé (plus de 30 jours, compte
  *  sans stockage) par un 403 `stockage_requis`. On le dit à l'utilisateur au
@@ -101,6 +102,8 @@ export interface DocMeta {
   pagesADecider?: number;
   /** Scan terminé : pages en relecture (« traduire quand même »). */
   pagesRelues?: number;
+  /** Messages de la traduction, réaffichés à la réouverture (lib/avis). */
+  avis?: Avis[];
   /** Langue source déclarée à l'envoi (`auto` quand elle a été détectée). */
   sourceLang: string;
   /** Document archivé : listé, mais son contenu demande un forfait avec stockage. */
@@ -141,6 +144,7 @@ function toMeta(d: any): DocMeta {
     jobId: d.job_id ?? null,
     pagesADecider: d.pages_a_decider ?? 0,
     pagesRelues: d.pages_relues ?? 0,
+    avis: Array.isArray(d.avis) ? d.avis : [],
     sourceLang: d.source_lang ?? 'auto',
     archive: !!d.archive,
     accesJusquAu: d.acces_jusqu_au ?? null,

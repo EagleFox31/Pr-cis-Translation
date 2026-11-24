@@ -20,7 +20,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import TRANSLATIONS_DIR, logger
-from app.services import beta, extension, images_document, ocr_pages, render_cache, stockage, translation_runner, usage
+from app.services import avis_document, beta, extension, images_document, ocr_pages, render_cache, stockage, translation_runner, usage
 from app.services.beta_meter import BetaCost
 from app.models.plans import get_plan_priority
 from app.services.scheduler import scheduler_scans
@@ -391,6 +391,12 @@ def _doc_response(doc: Document, user: User) -> dict:
         "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
         "archive": acces_archive(user, doc),
         "acces_jusqu_au": fin.isoformat() if fin else None,
+        # Messages de la traduction (OCR, objets, cohérence…) : l'écran les
+        # réaffiche quand on rouvre le document. Pendant la traduction,
+        # `translated_path` n'est pas encore posé : chemin prévu du job. Un
+        # document en erreur n'a pas de traduction à commenter.
+        "avis": [] if doc.status == "error" else avis_document.lire(
+            doc.translated_path or chemin_traduction_du_document(doc)),
     }
 
 

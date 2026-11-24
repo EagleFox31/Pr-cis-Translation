@@ -185,9 +185,17 @@
     "precise_desc": "Uses the reasoning model — slower (~2 min/page) but more reliable on complex layouts.",
     "ocr_notice_one": "{{count}} scanned page: the text will be read page by page during translation. Review the result: fonts and layout in scanned documents remain approximate.",
     "ocr_notice_other": "{{count}} scanned pages: the text will be read page by page during translation. Review the result: fonts and layout in scanned documents remain approximate.",
+    "ocr_notice_done_one": "{{count}} scanned page: the text was read page by page. Review the result: fonts and layout in scanned documents remain approximate.",
+    "ocr_notice_done_other": "{{count}} scanned pages: the text was read page by page. Review the result: fonts and layout in scanned documents remain approximate.",
     "page_ocr": "Reading the scan…",
     "page_ocr_waiting": "Waiting to be read",
     "images_skipped": "The images in this document weren’t translated: they stay in the original language.",
+    "coherence_report": {
+      "intro_one": "Terms harmonised on slide {{detail}} so the whole document uses the same words. The preview is up to date.",
+      "intro_other": "Terms harmonised on slides {{detail}} so the whole document uses the same words. The preview is up to date.",
+      "more_one": "… and {{count}} more",
+      "more_other": "… and {{count}} more"
+    },
     "images_report": {
       "intro": "Images: {{detail}}.",
       "traduites_one": "{{count}} translated",

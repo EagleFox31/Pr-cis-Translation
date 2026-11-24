@@ -33,6 +33,7 @@ import { openNouveautes } from '../components/nouveautes/nouveautesBus';
 import { useNouveautes } from '../hooks/useNouveautes';
 import { creerGesteMolette } from '../lib/molette';
 import type { TranslateConfig } from '../components/upload/TranslationSection';
+import { texteAvis } from '../lib/avis';
 
 
 export default function Home() {
@@ -1098,7 +1099,7 @@ export default function Home() {
           fileMissing={!libraryDocId || !traductionManquante ? null
             : sourceManquante ? 'all' : 'translation'}
           translationError={stream.error}
-          translationNotice={stream.notice}
+          translationNotice={fluxDuDoc && (stream.notice || stream.isTranslating) ? stream.notice : texteAvis(docBiblio?.avis, t)}
           limitReached={stream.limitReached}
           creditsNeeded={stream.creditsNeeded}
           onBuyPages={(p) => setPayPages(p)}

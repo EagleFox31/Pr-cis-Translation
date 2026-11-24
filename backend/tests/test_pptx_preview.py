@@ -500,12 +500,13 @@ def test_coherence(ok) -> None:
     appmod.ai_translator = _FauxTraducteur()
     moteur = _FauxMoteur()
     try:
-        n = appmod._coherence_document(slides, moteur, "en", None,
+        n, touchees = appmod._coherence_document(slides, moteur, "en", None,
                                        fiche="FICHE-GERBEUR")
     finally:
         appmod.ai_translator = vrai
 
     ok("COHERENCE  un seul fragment est repris", n == 1, f"n={n}")
+    ok("COHERENCE  la diapositive modifiée est renvoyée", touchees == [3], str(touchees))
     ok("COHERENCE  seul le fragment fautif est redemandé",
        appels == [["c"]], str(appels))
     ok("COHERENCE  seule la slide touchée est réinjectée",
@@ -527,12 +528,12 @@ def test_coherence(ok) -> None:
     appels.clear()
     appmod.ai_translator = _FauxTraducteur()
     try:
-        n = appmod._coherence_document(
+        n, touchees = appmod._coherence_document(
             {1: slides[1], 2: slides[2]}, _FauxMoteur(), "en", None)
     finally:
         appmod.ai_translator = vrai
     ok("COHERENCE  un document cohérent ne coûte aucun appel",
-       n == 0 and appels == [], f"n={n} appels={appels}")
+       n == 0 and appels == [] and touchees == [], f"n={n} appels={appels}")
 
     # Même titre traduit différemment sur une diapositive : aligné sur la
     # traduction majoritaire, sans appel au modèle.
@@ -545,11 +546,11 @@ def test_coherence(ok) -> None:
     moteur = _FauxMoteur()
     appmod.ai_translator = _FauxTraducteur()
     try:
-        n = appmod._coherence_document(trois, moteur, "fr", None)
+        n, touchees = appmod._coherence_document(trois, moteur, "fr", None)
     finally:
         appmod.ai_translator = vrai
     ok("COHERENCE  même original aligné sur la majorité, sans appel",
-       n == 1 and appels == [] and moteur.reinjections == [3]
+       n == 1 and appels == [] and moteur.reinjections == [3] and touchees == [3]
        and trois[3]["text_elements"][0]["translated_text"]
        == "[[0]]Tableau de suivi[[/0]]",
        f"n={n} appels={appels} {moteur.reinjections}")

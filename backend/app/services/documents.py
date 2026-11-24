@@ -397,7 +397,7 @@ def copie_du_document(doc) -> str:
     La traduction d'origine peut servir à d'autres comptes (magasin partagé) :
     on n'y touche pas. La copie (JSON, table et images) vit à côté, sous un nom
     qui reste une traduction pour le balayage et que seul ce document vise."""
-    from app.services import images_document, render_cache
+    from app.services import avis_document, images_document, render_cache
     trad = doc.translated_path
     copie = copie_prevue(doc)
     if copie == trad:
@@ -415,6 +415,7 @@ def copie_du_document(doc) -> str:
                 shutil.copytree(trad + suffixe, copie + suffixe, dirs_exist_ok=True,
                                 ignore=shutil.ignore_patterns("*.tmp"))
         for source, cible in ((images_document.chemin_table(trad), images_document.chemin_table(copie)),
+                              (avis_document.chemin(trad), avis_document.chemin(copie)),
                               (trad + ".source.pdf", copie + ".source.pdf")):
             if os.path.isfile(source):
                 shutil.copy2(source, cible)

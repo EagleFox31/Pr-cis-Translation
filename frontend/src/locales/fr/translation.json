@@ -185,9 +185,17 @@
     "precise_desc": "Utilise le modèle de raisonnement — plus lent (~2 min/page) mais plus fiable sur les mises en page complexes.",
     "ocr_notice_one": "{{count}} page scannée : le texte sera lu page par page pendant la traduction. Vérifiez le résultat : les polices et la mise en page d’un scan restent approximatives.",
     "ocr_notice_other": "{{count}} pages scannées : le texte sera lu page par page pendant la traduction. Vérifiez le résultat : les polices et la mise en page d’un scan restent approximatives.",
+    "ocr_notice_done_one": "{{count}} page scannée : le texte a été lu page par page. Vérifiez le résultat : les polices et la mise en page d’un scan restent approximatives.",
+    "ocr_notice_done_other": "{{count}} pages scannées : le texte a été lu page par page. Vérifiez le résultat : les polices et la mise en page d’un scan restent approximatives.",
     "page_ocr": "Lecture du scan…",
     "page_ocr_waiting": "En attente de lecture",
     "images_skipped": "Les images de ce document n’ont pas été traduites : elles restent dans la langue d’origine.",
+    "coherence_report": {
+      "intro_one": "Termes harmonisés sur la diapo {{detail}} pour que tout le document emploie les mêmes mots. L’aperçu est à jour.",
+      "intro_other": "Termes harmonisés sur les diapos {{detail}} pour que tout le document emploie les mêmes mots. L’aperçu est à jour.",
+      "more_one": "… et {{count}} autre",
+      "more_other": "… et {{count}} autres"
+    },
     "images_report": {
       "intro": "Images : {{detail}}.",
       "traduites_one": "{{count}} traduite",
