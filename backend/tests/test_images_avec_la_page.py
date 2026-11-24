@@ -105,8 +105,16 @@ class Base(unittest.TestCase):
     def travail(self, data=None, ext="pdf", **kw):
         t = ImagesDuTravail(data or self.pdf, ext, lambda x: x, self.cache, self.trad,
                             langue="fr", lecteur=FauxLecteur(), **kw)
-        self.addCleanup(t.fermer)
+        self.addCleanup(self.fermer, t)
         return t
+
+    @staticmethod
+    def fermer(t):
+        # Attendre le fil : sinon il lit encore pendant le test suivant et
+        # écrit dans le faux traducteur de celui-ci.
+        t.fermer()
+        if t._fil is not None:
+            t._fil.join(15)
 
     def cle_page(self, page):
         return next(i.cle for i in lister(self.pdf, "pdf") if i.pages == [page])

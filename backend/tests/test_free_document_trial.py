@@ -129,7 +129,9 @@ class FreeDocumentTests(unittest.IsolatedAsyncioTestCase):
         async with self.fx.sessions() as db:
             (await db.get(User, self.user.id)).page_credits = 2
             await db.commit()
-        response = await self.upload(docx(2501), "large.docx")
+        # Comptage par les mots : le rendu LibreOffice varie avec les polices installées.
+        with patch("app.services.documents.pages_word", return_value=None):
+            response = await self.upload(docx(2501), "large.docx")
         document = await self.document(response)
         # Document mixte : des pages achetées le rendent téléchargeable.
         self.assertTrue(response.json()["can_download"])

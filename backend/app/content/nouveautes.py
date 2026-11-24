@@ -23,7 +23,7 @@ VERSION doit rester égale au champ "version" du package.json racine
 """
 
 VERSION = "1.11.0"  # x-release-please-version
-DATE_VERSION = "2026-11-21"
+DATE_VERSION = "2026-11-23"
 
 TYPES = ("nouveaute", "amelioration", "correctif")
 DOMAINES = ("documents", "visionneuse", "extension", "compte")
