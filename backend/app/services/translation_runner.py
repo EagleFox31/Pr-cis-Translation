@@ -879,7 +879,8 @@ def run_pptx_progressive_job(
         # le garde, en protégeant la seule zone qui ne supporte pas la
         # concurrence). L'aperçu reste donc page par page, mais alimenté par
         # plusieurs traductions menées de front.
-        _WORKERS = 4
+        from app.config import PPTX_SLIDE_WORKERS
+        _WORKERS = PPTX_SLIDE_WORKERS
         _display_lock = threading.Lock()
         _ = is_admin           # signature conservée ; parallélisme non lié au plan
         # Slide -> son extraction AVEC sa traduction, retenue avant injection.

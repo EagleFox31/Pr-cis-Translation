@@ -106,3 +106,12 @@ Mémoire des incidents et quasi-incidents. Consulter avant de toucher une zone c
 - **Résolution** : cache `actions/cache` des .deb (`Dir::Cache::Archives`), clé hebdomadaire avec `restore-keys`, `autoclean` des versions remplacées ; `apt-get install` inchangé (scripts post-installation exécutés). `awalsh128/cache-apt-pkgs-action` écarté : il restaure des fichiers sans post-installation.
 - **Prévention** : log « Paquets en cache : N » dans l'étape ; second run de la PR mesuré (téléchargement évité).
 - **Leçon** : avant de relancer un job lent, lire son log (une ligne « Fetched … in 20min » suffit au diagnostic) ; tout téléchargement volumineux et stable en CI se met en cache.
+
+## 2026-11-24 — Import PPTX en échec en ligne, correct en local
+
+- **Contexte** : sur le VPS, la traduction d'un PPTX (~19,7 Mo) échouait (« File is not a zip file »), avec des 500 sur `/api/auth/me` ; le même fichier passait en local.
+- **Cause racine** : (1) le backend, plafonné à 1 Go (`docker-compose.vps.yml`), occupait déjà ~960 Mo au repos (arènes glibc fragmentées, arène CPU d'onnxruntime). Le job PPTX (4 diapositives de front + LibreOffice) le faisait tuer par le noyau (7 OOM le 19/11, d'autres le 24/11). En local, pas de plafond. (2) Pendant les redémarrages, `GET /original` était coupé ; le navigateur renvoyait la copie tronquée (4,9 Mo) et le dépôt l'acceptait. (3) `log_error_threadsafe` appelait `asyncio.run` sur le pool global depuis un thread : les connexions revenaient liées à une boucle morte (« attached to a different loop »).
+- **Classification** : écart d'environnement (limites de ressources) + validation d'entrée manquante + bug de concurrence asyncio.
+- **Résolution** : `MALLOC_ARENA_MAX=2`, `malloc_trim` après chaque job (`services/memoire.py`), arène onnxruntime coupée, `PPTX_SLIDE_WORKERS` (2 sur le VPS) ; refus au dépôt d'un Office illisible (`office_illisible`) ; journal écrit via la boucle principale, sinon moteur `NullPool` dédié.
+- **Prévention vérifiable** : `tests/test_charge_prod_pptx.py` et le cas « Office tronqué » de `tests/test_depot.py` ; après déploiement, `journalctl -k | grep "Killed process"` et la mémoire du cgroup backend contrôlés.
+- **Leçon** : « marche en local, pas en ligne » → comparer d'abord les limites de ressources et l'historique OOM du noyau. Tout fichier reçu se valide sur sa structure, pas sur son extension. Une boucle jetable ne touche jamais au pool de la boucle principale.

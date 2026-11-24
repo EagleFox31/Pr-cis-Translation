@@ -119,6 +119,10 @@ class TranslationScheduler:
                 with self._lock:
                     self._running -= 1
                 self._pq.task_done()
+                # Le job a lâché ses objets : les rendre au système, sinon le
+                # processus garde son pic et le job suivant le fait tuer.
+                from app.services.memoire import rendre_memoire
+                rendre_memoire()
                 # Une traduction vient de dépenser : relire le solde DeepSeek.
                 from app.services.solde_ia import verifier_depuis_un_thread
                 verifier_depuis_un_thread()
