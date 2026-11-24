@@ -8,6 +8,19 @@ leurs propres numéros internes.
 
 Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 
+## [1.12.0](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.11.0...v1.12.0) (2026-11-24)
+
+
+### Features
+
+* **preview:** unlimited preview, UX review fixes, reopen unpaid previews, translate again ([#99](https://github.com/EagleFox31/Pr-cis-Translation/issues/99)) ([40bb2d8](https://github.com/EagleFox31/Pr-cis-Translation/commit/40bb2d80e45ca569950d4fcb7cd950b118b5dce5))
+* **upload:** large-file fixes, single upload, paid-pages downloads, notices kept with the document ([#101](https://github.com/EagleFox31/Pr-cis-Translation/issues/101)) ([72fea2d](https://github.com/EagleFox31/Pr-cis-Translation/commit/72fea2d28d552e6e6ca88f1f34d15a6327864835))
+
+
+### Bug Fixes
+
+* **invitations:** missing resend messages; docs: extension store listing and visuals ([#100](https://github.com/EagleFox31/Pr-cis-Translation/issues/100)) ([265694b](https://github.com/EagleFox31/Pr-cis-Translation/commit/265694b3a7d6071c9695aeb8936bacd5645afd59))
+
 ## [1.11.0](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.10.0...v1.11.0) (2026-11-21)
 
 
