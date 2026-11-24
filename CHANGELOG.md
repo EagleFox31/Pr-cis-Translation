@@ -8,6 +8,13 @@ leurs propres numéros internes.
 
 Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 
+## [1.12.1](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.12.0...v1.12.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* **backend:** PPTX import failing in production (OOM, truncated file, event loop) ([#103](https://github.com/EagleFox31/Pr-cis-Translation/issues/103)) ([e7f1903](https://github.com/EagleFox31/Pr-cis-Translation/commit/e7f19032d791455baea9f45a089c2806bdbc388d))
+
 ## [1.12.0](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.11.0...v1.12.0) (2026-11-24)
 
 
