@@ -51,3 +51,17 @@ Corriger les défauts PPTX du PowerPoint de Gerold (R6/R7) selon `docs/etude-ppt
   - lancer les tests ;
   - puis `rm .env`, car il est ignoré par git et ne doit pas rester.
 - Commits : ne mentionner l'IA nulle part et ne pas ajouter de trailer.
+
+## 2026-11-25 06:24 — Landing : positionnement EN, sections « pour qui » et FAQ
+- Branche `feat/landing-international`, PR #105 vers `main` (rebasée sur main 1.12.1, conflits locales/css/Home/PASSATION résolus en gardant les deux côtés). Contexte : offre Précis à vendre à l'international (traducteurs, consultants immigration, bureaux internationaux).
+- EN `hero.*` réécrit (promesse : même fichier en retour, mise en page conservée) ; FR inchangé.
+- Nouveau `components/audience/AudienceSection.tsx` : 3 cartes cibles (`audience.*`) + FAQ 5 questions (`faq.*`, `<details>`), inséré après `FeaturesGrid` dans `Home.tsx` ; CSS `.faq-*` dans `index.css`.
+- `Home.tsx` : `lang`, `<title>` et meta description suivent la langue côté client (`seo.*`) ; le head statique prerendu reste FR → contrat CI SEO intact (1 h1, canonical, `/` → 308 `/home` conservé volontairement).
+- Preuve : `npm run lint` OK, `npm run build` OK (15 pages), preview EN vérifiée (hero, cartes, FAQ).
+- Limites : OG/twitter restent FR (pas de JS côté crawler) ; pas de hreflang (même URL) ; `verify_public_seo.py` non rejoué en local (nginx docker).
+- Restant : fusionner #105 après CI, déployer via `deploy-vps.yml` après fusion ; Paddle live et domaine `.com` optionnel (voir dossier offre).
+
+## 2026-11-25 08:03 — PR #105 ouverte, suivi auto activé
+- PR #105 `feat/landing-international` → `main`, fusionnable après fusion de main 1.12.1 (commit a55c87a), lint/build verts en local, CI absente (facturation GitHub).
+- Suivi auto de la PR activé dans la session (CI, conflits, commentaires). Verrou : fusion sur accord du commanditaire.
+- Prochaine étape : fusion de #105, puis `deploy-vps.yml` ; prospection selon les fichiers d'offre (non suivis par git, racine du dépôt).
