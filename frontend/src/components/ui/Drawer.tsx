@@ -33,7 +33,7 @@ interface DrawerProps {
 export default function Drawer({
   open, onClose, label, side = 'right', width = 'min(440px, 96vw)', children,
 }: DrawerProps) {
-  const panneau = useRef<HTMLElement>(null);
+  const panneau = useRef<HTMLDivElement>(null);
 
   // Échap ferme, et le défilement de la page est gelé tant que le panneau est
   // ouvert (sans quoi la molette fait défiler l'arrière-plan sous le voile).
@@ -77,7 +77,7 @@ export default function Drawer({
             onClick={onClose}
             aria-hidden
           />
-          <motion.aside
+          <motion.div
             ref={panneau}
             className={`ui-drawer ui-drawer--${side}`}
             style={{ width }}
@@ -90,7 +90,7 @@ export default function Drawer({
             transition={{ duration: 0.26, ease: [0.32, 0.72, 0, 1] }}
           >
             {children}
-          </motion.aside>
+          </motion.div>
         </>
       )}
     </AnimatePresence>

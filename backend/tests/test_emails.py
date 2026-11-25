@@ -18,10 +18,15 @@ Aucun réseau, aucun serveur SMTP : on compose le message et on le lit.
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
+from email.header import decode_header, make_header
 
 import racine  # noqa: F401  -- met backend/ sur le chemin
+
+# Sans compte SMTP configure (CI), l'expediteur et le Reply-To seraient vides.
+os.environ.setdefault("SMTP_FROM", "bonjour@example.com")
 
 from app.core.email import (LOGO_CID, _message_verification,  # noqa: E402
                             _logo)
@@ -84,7 +89,7 @@ def main() -> int:
     ok("IDENTITE  aucune image DISTANTE (bloquee par defaut, et mouchard)",
        not re.search(r'<img[^>]+src="https?://', html), html[:200])
     ok("IDENTITE  la marque apparait dans l'expediteur",
-       "Précis" in str(msg["From"]), str(msg["From"]))
+       "Précis" in str(make_header(decode_header(msg["From"]))), str(msg["From"]))
 
     # ── 4. La structure MIME ─────────────────────────────────────────────
     ok("STRUCTURE  le message est `related` (HTML + son image)",

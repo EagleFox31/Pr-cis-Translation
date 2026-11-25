@@ -167,6 +167,12 @@ PROGRESS_EVERY_S = 3.0
 # défaut prudent pour un mono-serveur ; à monter avec le nombre de cœurs.
 TRANSLATION_WORKERS = max(1, int(os.getenv("TRANSLATION_WORKERS", "2")))
 
+# Diapositives menées de front DANS un job PPTX. Chaque fil garde en mémoire sa
+# diapositive, ses images et les réponses du modèle : sur un hôte à mémoire
+# comptée (conteneur plafonné), le baisser évite que le noyau tue le processus
+# en pleine traduction.
+PPTX_SLIDE_WORKERS = max(1, int(os.getenv("PPTX_SLIDE_WORKERS", "4")))
+
 # ── Lecture des scans (OCR) ──────────────────────────────────────────────────
 # Documents scannés : un second ordonnanceur, à part, pour que leur attente
 # devant le guichet OCR n'occupe jamais les workers des documents à texte.
@@ -179,6 +185,9 @@ OCR_FILE_ANTI_FAMINE_S = max(1, int(os.getenv("OCR_FILE_ANTI_FAMINE_S", "300")))
 # Attente maximale au guichet pour une image de l'extension (au-delà : 503,
 # le client réessaie).
 OCR_DELAI_EXTENSION_S = max(5, int(os.getenv("OCR_DELAI_EXTENSION_S", "120")))
+# Offre payante de l'extension (Starter, Pro) mise en avant quand la limite
+# d'une page est atteinte : fermée pendant la bêta ("1" pour l'ouvrir).
+EXTENSION_OFFRE = os.getenv("EXTENSION_OFFRE", "0") == "1"
 
 # ── Modèles de traduction ────────────────────────────────────────────────────
 # Deux modes, choisis par requête via le paramètre `quality` :
@@ -220,7 +229,6 @@ TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY", "")
 # une seule à la fois (throttle), pour signaler qu'il y a du grain à moudre sans
 # noyer sa boîte. Puis il traite (exporte) et supprime : la table ne gonfle que
 # tant qu'on ne s'en occupe pas.
-ERROR_LOG_ALERT_THRESHOLD = int(os.getenv("ERROR_LOG_ALERT_THRESHOLD", "50"))
 ERROR_LOG_ALERT_COOLDOWN = int(os.getenv("ERROR_LOG_ALERT_COOLDOWN", "3600"))  # s
 # Destinataire de repli si AUCUN compte n'a le plan `admin` en base (bootstrap).
 ADMIN_ALERT_EMAIL = os.getenv("ADMIN_ALERT_EMAIL") or None

@@ -1,16 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
-import { Link, NavLink, useNavigate } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { LEGAL_FR, LEGAL_UPDATED as UPDATED_FR } from '../content/legal/fr';
 import { LEGAL_EN, LEGAL_UPDATED as UPDATED_EN } from '../content/legal/en';
 import type { LegalDoc } from '../content/legal/types';
-import MobileMenu from '../components/navbar/MobileMenu';
-import '../components/admin/admin.css';
+import AppBar from '../components/navbar/AppBar';
 import '../legal.css';
 
-const CONTACT_EMAIL = 'contact@trigenys.com';
+const CONTACT_EMAIL = 'support.precis@trigenys.com';
 
 export default function LegalPage({ slug }: { slug: LegalDoc['slug'] }) {
   const { t, i18n } = useTranslation();
@@ -20,9 +17,11 @@ export default function LegalPage({ slug }: { slug: LegalDoc['slug'] }) {
   const doc = docs.find((d) => d.slug === slug) ?? docs[0];
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const navigate = useNavigate();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const links = docs.map((d) => ({ id: `/${d.slug}`, href: `/${d.slug}`, label: d.title }));
+  // Libellés courts (ceux du pied de page) : la 2ᵉ rangée tient sur un téléphone.
+  const court: Record<LegalDoc['slug'], string> = {
+    'mentions-legales': 'footer.legal', conditions: 'footer.terms', confidentialite: 'footer.privacy', cookies: 'footer.cookies',
+  };
+  const links = docs.map((d) => ({ href: `/${d.slug}`, label: court[d.slug] ? t(court[d.slug]) : d.title }));
 
   useEffect(() => {
     document.title = `${doc.title} · Précis`;
@@ -31,49 +30,13 @@ export default function LegalPage({ slug }: { slug: LegalDoc['slug'] }) {
 
   return (
     <div className="legal-page">
-      {/* Même barre que l'administration : logo, documents au centre, FR/EN. */}
-      <nav className="navbar scrolled">
-        <div className="nav-inner">
-          <Link to="/" className="nav-logo" title={t('legal.back')}>
-            <img src="/Logo.png" alt="P" style={{ height: '46px', width: 'auto' }} />
-            <span className="animated-logo-text">
-              {'récis'.split('').map((c, i) => (
-                <span key={i} style={{ animationDelay: `${i / 10}s` }}>{c}</span>
-              ))}
-            </span>
-          </Link>
+      {/* Barre commune ; les documents légaux en 2ᵉ rangée. */}
+      <AppBar sub={{ label: t('legal.nav_label'), links }} />
 
-          <ul className="nav-links" aria-label={t('legal.nav_label')}>
-            {links.map((l) => (
-              <li key={l.id}><NavLink to={l.href}>{l.label}</NavLink></li>
-            ))}
-          </ul>
-
-          <div className="lang-toggle">
-            <button className={fr ? 'active' : ''} onClick={() => i18n.changeLanguage('fr')}>FR</button>
-            <button className={fr ? '' : 'active'} onClick={() => i18n.changeLanguage('en')}>EN</button>
-          </div>
-
-          <button className="hamburger" onClick={() => setMenuOpen((v) => !v)} aria-label="Toggle menu" aria-expanded={menuOpen}>
-            <span style={{ transform: menuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' }} />
-            <span style={{ opacity: menuOpen ? 0 : 1 }} />
-            <span style={{ transform: menuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none' }} />
-          </button>
-        </div>
-      </nav>
-
-      <MobileMenu
-        isOpen={menuOpen} links={links} activeSection={`/${doc.slug}`}
-        onNavClick={(to) => { setMenuOpen(false); navigate(to); }} onClose={() => setMenuOpen(false)}
-      />
-
-      {/* La page tient dans l'écran : Retour et titre restent fixes, seul le texte défile. */}
+      {/* La page tient dans l'écran : le titre reste fixe, seul le texte défile. */}
       <main className="legal-main">
         <div className="legal-head">
           <div className="legal-head__inner">
-            <Link to="/" className="tb-btn ghost admin-btn legal-back">
-              <ArrowLeft size={15} strokeWidth={2.2} /> <span>{t('admin.back', 'Retour')}</span>
-            </Link>
             <h1>{doc.title}</h1>
             <span className="legal-updated">{t('legal.updated', { date: updated })}</span>
           </div>

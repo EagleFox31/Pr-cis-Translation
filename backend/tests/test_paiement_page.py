@@ -21,6 +21,7 @@ Requiert PostgreSQL et la migration 0004.
 """
 from __future__ import annotations
 import asyncio
+import json
 import os
 import shutil
 import sys
@@ -29,7 +30,6 @@ import uuid
 import racine  # noqa: F401  -- met backend/ sur le chemin
 
 import fitz                                              # noqa: E402
-from fastapi import HTTPException                        # noqa: E402
 from sqlalchemy.ext.asyncio import (                     # noqa: E402
     create_async_engine, async_sessionmaker, AsyncSession,
 )
@@ -146,12 +146,11 @@ async def run():
             ok("DOWNLOAD  document payé : la traduction sort en clair",
                SECRET in txt, f"texte={txt[:40]!r}")
 
-            try:
-                await download_document(impaye.id, user=user, db=db)
-                ok("DOWNLOAD  document impayé : 402", False, "aucune exception")
-            except HTTPException as e:
-                ok("DOWNLOAD  document impayé : 402", e.status_code == 402,
-                   f"status={e.status_code}")
+            res = await download_document(impaye.id, user=user, db=db)
+            corps = json.loads(res.body)
+            ok("DOWNLOAD  document impayé : 402 non_paye",
+               res.status_code == 402 and corps.get("reason") == "non_paye",
+               f"status={res.status_code} corps={corps}")
 
             # ── Aperçu ─────────────────────────────────────────────────────
             res = await preview_document(paye.id, user=user, db=db)

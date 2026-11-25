@@ -1,8 +1,10 @@
 import { useState, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { authHeader, accessToken, refreshAccessToken } from '../services/api';
+import { postAvecFichier } from '../services/depot';
 import i18n from '../i18n';
 import { deviceHeaders } from '../lib/device';
+import { phrasesAvis, TYPES_AVIS } from '../lib/avis';
 
 // Pas de valeur de repli : cf. usePdfPreview.ts — une clé écrite ici part dans
 // le dépôt, et le repli rendait l'oubli de `VITE_API_KEY` invisible.
@@ -41,6 +43,10 @@ export type PageStatus =
 export interface StreamingState {
   /** Droit de CE document, confirmé par le serveur après réservation. */
   canReadClear: boolean;
+  /** Pages traduites en aperçu sans être payées (mode libre). */
+  pagesLibres: number;
+  /** Numéros de ces pages libres : l'aperçu les voile une à une. */
+  pagesLibresNumeros: number[];
   /** Document enregistré pour cette traduction (réponse de `/api/translate`) :
    *  permet d'agir sur ses pages illisibles avant même la fin. */
   documentId: string | null;
@@ -82,6 +88,8 @@ export interface StreamingState {
 
 const EMPTY: StreamingState = {
   canReadClear: false,
+  pagesLibres: 0,
+  pagesLibresNumeros: [],
   documentId: null,
   ocrPages: 0,
   isTranslating: false,
@@ -205,6 +213,7 @@ export function useStreamingTranslation(deviceSignals = true) {
       useBeta?: boolean,
       resumeOf?: string,
       images: boolean = false,
+      nbPages?: number,
     ): Promise<{ blob: Blob; filename: string }> => {
       return new Promise(async (resolve, reject) => {
         // Fermer TOUT flux encore ouvert avant d'en démarrer un nouveau. Relancer
@@ -218,7 +227,9 @@ export function useStreamingTranslation(deviceSignals = true) {
         if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
 
-        setState({ ...EMPTY, isTranslating: true });
+        // Total connu dès le clic (analyse) : « 0/75 pages » plutôt que « 0/1 ».
+        // L'événement `start` du serveur le confirme ou le corrige.
+        setState({ ...EMPTY, isTranslating: true, totalPages: nbPages ?? null });
         // Sans ça, un 402 survenant avant le premier partiel du NOUVEAU
         // document résoudrait avec celui du PRÉCÉDENT — on afficherait le
         // mauvais document sans que rien ne signale l'erreur.
@@ -233,29 +244,30 @@ export function useStreamingTranslation(deviceSignals = true) {
           // `quality` et `format_options` ne sont plus envoyés : le moteur PDF v2
           // ne les lit pas (il préserve toujours la mise en page et n'accepte pas
           // de modèle alternatif). Le serveur garde des valeurs par défaut.
-          const formData = new FormData();
-          formData.append('file', file);
-          formData.append('target_lang', targetLang);
-          if (debug) formData.append('debug', '1');
-          if (precise) formData.append('precise', '1');
-          if (pages && pages.trim()) formData.append('pages', pages.trim());
-          // Choix explicite de l'utilisateur après un 402 : ne traduire que les
-          // pages couvertes. Jamais envoyé d'office.
-          if (coverOnly) formData.append('covered_only', '1');
-          if (typeof useBeta === 'boolean') formData.append('use_beta', useBeta ? '1' : '0');
-          if (resumeOf) formData.append('resume_of', resumeOf);
-          if (images) formData.append('images', '1');
+          // Fichier déjà déposé : seul son identifiant part (voir services/depot).
+          const champs = (formData: FormData) => {
+            formData.append('target_lang', targetLang);
+            if (debug) formData.append('debug', '1');
+            if (precise) formData.append('precise', '1');
+            if (pages && pages.trim()) formData.append('pages', pages.trim());
+            // Choix explicite de l'utilisateur après un 402 : ne traduire que les
+            // pages couvertes. Jamais envoyé d'office.
+            if (coverOnly) formData.append('covered_only', '1');
+            if (typeof useBeta === 'boolean') formData.append('use_beta', useBeta ? '1' : '0');
+            if (resumeOf) formData.append('resume_of', resumeOf);
+            if (images) formData.append('images', '1');
+            // Choix explicite après un 402 « limite d'aperçu » : traduire jusqu'à
+            // la limite, le serveur met le document en pause tout seul.
+          };
 
           // `authHeader()` est INDISPENSABLE ici, pas décoratif : le backend lit
           // l'utilisateur via `optional_auth`. Sans token il voit un visiteur
           // anonyme, n'enregistre AUCUN `Document` (la bibliothèque reste vide)
           // et n'applique pas le quota freemium. Un visiteur envoie `{}` et
           // reste anonyme, comme avant.
-          const startRes = await fetch(`${API_BASE}/api/translate`, {
-            method: 'POST',
+          const startRes = await postAvecFichier(`${API_BASE}/api/translate`, file, file.name, champs, {
             headers: { 'X-API-Key': API_KEY, ...authHeader(),
               ...(deviceSignalsRef.current ? await deviceHeaders() : {}) },
-            body: formData,
           });
           if (!startRes.ok) {
             const err = await startRes.json().catch(() => ({}));
@@ -265,6 +277,7 @@ export function useStreamingTranslation(deviceSignals = true) {
             const deviceLimit = err.reason === 'free_limit_device';
             const detail = err.reason === 'beta_inactive' ? t('beta.inactive_error')
               : deviceLimit ? t('story.free_limit_device')
+              : err.detail === 'stockage_requis' ? t('library.storage_required')
               : betaError ? t('beta.translation_error') : err.detail || err.error || t('story.error_default');
             const is402 = startRes.status === 402;
             // 402 « crédits insuffisants » : le serveur dit COMBIEN de pages
@@ -281,17 +294,22 @@ export function useStreamingTranslation(deviceSignals = true) {
             }));
             throw new Error(detail);
           }
-          const { job_id, document_id, ocr_pages, can_download, images: imagesAcceptees } = await startRes.json();
+          const { job_id, document_id, ocr_pages, can_download, read_clear, pages_libres,
+            pages_libres_numeros, images: imagesAcceptees } = await startRes.json();
           setState((s) => ({
             ...s,
-            canReadClear: can_download === true,
+            // Pages payées en clair, même s'il reste des pages libres : le
+            // serveur filigrane celles-ci page par page.
+            canReadClear: (read_clear ?? can_download) === true,
+            pagesLibres: typeof pages_libres === 'number' ? pages_libres : 0,
+            pagesLibresNumeros: Array.isArray(pages_libres_numeros) ? pages_libres_numeros : [],
             documentId: typeof document_id === 'string' ? document_id : null,
             ocrPages: typeof ocr_pages === 'number' ? ocr_pages : 0,
           }));
           // Images demandées mais écartées par le serveur (scan, par exemple) :
           // l'utilisateur doit le savoir, sa figure restera dans la langue d'origine.
           const avis = [
-            ocr_pages > 0 ? t('story.ocr_notice', { count: ocr_pages }) : '',
+            ...phrasesAvis({ type: 'ocr', pages: ocr_pages }, t),
             images && imagesAcceptees === undefined ? t('story.images_skipped') : '',
           ].filter(Boolean).join(' ');
           if (avis) setState((s) => ({ ...s, notice: avis }));
@@ -336,46 +354,10 @@ export function useStreamingTranslation(deviceSignals = true) {
               // worker l'a pris) : on efface l'état d'attente une bonne fois.
               setState((s) => (s.queuePosition === null ? s : { ...s, queuePosition: null }));
 
-              if (type === 'images') {
-                const bilan = ['traduites', 'inchangees', 'sans_credit', 'echecs']
-                  .map((cle) => {
-                    const count = Number(msg[cle]) || 0;
-                    return count > 0 ? t(`story.images_report.${cle}`, { count }) : '';
-                  })
-                  .filter(Boolean)
-                  .join(', ');
-                if (bilan) {
-                  const phrase = t('story.images_report.intro', { detail: bilan });
-                  setState((s) => ({ ...s, notice: [s.notice, phrase].filter(Boolean).join(' ') }));
-                }
-                return;
-              }
-
-              if (type === 'objets') {
-                type ObjetSignale = { cible?: string | null; raison?: string };
-                const liste: ObjetSignale[] = Array.isArray(msg.non_traites) ? msg.non_traites : [];
-                const RAISONS = ['lie', 'visio', 'pdf', 'equation', 'paquet', 'absent',
-                  'conversion', 'erreur', 'profondeur', 'illisible', 'reinjection', 'hors_diapo'];
-                const nomDe = (o: ObjetSignale) => (o.cible
-                  ? String(o.cible).split(' › ').map((part) => part.split(/[\\/]/).pop() || part).join(' › ')
-                  : t('story.objects_report.sans_nom'));
-                const resume = (noms: string[], total: number) => noms.join(', ')
-                  + (total > noms.length ? ' ' + t('story.objects_report.more', { count: total - noms.length }) : '');
-                const apercus = liste.filter((o) => o.raison === 'apercu');
-                const autres = liste.filter((o) => o.raison !== 'apercu');
-                const phrases: string[] = [];
-                if (autres.length) {
-                  const noms = autres.slice(0, 5).map((o) => {
-                    const raison = RAISONS.includes(String(o.raison)) ? String(o.raison) : 'autre';
-                    return `${nomDe(o)} (${t(`story.objects_report.raisons.${raison}`)})`;
-                  });
-                  phrases.push(t('story.objects_report.intro', { detail: resume(noms, autres.length) }));
-                }
-                if (apercus.length) {
-                  phrases.push(t('story.objects_report.apercus', {
-                    detail: resume(apercus.slice(0, 5).map(nomDe), apercus.length),
-                  }));
-                }
+              // Bilans (images, objets, termes harmonisés) : même phrase qu'à la
+              // réouverture depuis « Mes documents » (lib/avis).
+              if (TYPES_AVIS.includes(type)) {
+                const phrases = phrasesAvis(msg, t);
                 if (phrases.length) {
                   setState((s) => ({ ...s, notice: [s.notice, ...phrases].filter(Boolean).join(' ') }));
                 }

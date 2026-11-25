@@ -2,20 +2,20 @@
 
 Date : 06/11/2026. Textes prêts à recopier pour le Chrome Web Store et Edge
 Add-ons. Contexte et décisions : `docs/etude-distribution-extension.md`.
-Archive à envoyer : `npm run package` dans `extension/` (`precis-extension-<version>.zip`, version 0.1.0).
+Archive à envoyer : `npm run package` dans `extension/` (`precis-translator-<version>.zip`, version 1.0.0 au 18/11/2026).
 
 ## 1. Identité
 
 | Champ | Valeur |
 |---|---|
-| Nom | Précis |
+| Nom | Précis Translator |
 | Catégorie Chrome | Productivité (Productivity) |
 | Catégorie Edge | Productivité |
 | Langue principale | Français (traduction anglaise fournie ci-dessous) |
-| Site web | `https://precis-translator.com` |
-| Page d'aide / assistance | `https://precis-translator.com/extension` |
+| Site web | `https://precis-translator.trigenys.com` |
+| Page d'aide / assistance | `https://precis-translator.trigenys.com/extension` |
 | E-mail d'assistance | `contact@trigenys.com` |
-| URL de confidentialité | `https://precis-translator.com/confidentialite` |
+| URL de confidentialité | `https://precis-translator.trigenys.com/confidentialite` |
 | Éditeur | Structure qui exploite le service (compte à créer par le propriétaire du produit) |
 
 ## 2. Résumé (132 caractères au plus)
@@ -41,7 +41,7 @@ Précis traduit une page web entière en un clic : le texte comme les images, av
 
 Comment ça marche
 1. Installez l'extension et épinglez son icône dans la barre d'outils.
-2. Connectez-vous avec votre compte Précis dans la fenêtre de l'extension.
+2. Cliquez sur « Se connecter avec Précis » : le site Précis s'ouvre, connectez-vous (ou créez un compte) puis autorisez l'extension.
 3. Sur une page en langue étrangère, cliquez sur l'icône puis sur « Traduire ».
 
 Ce que vous obtenez
@@ -51,7 +51,7 @@ Ce que vous obtenez
 - Aucune installation de logiciel supplémentaire.
 
 Tarif
-L'extension utilise les crédits de votre compte Précis (précis-translator.com). Aucun abonnement supplémentaire pour l'installer.
+Gratuit avec un compte Précis (precis-translator.trigenys.com) : jusqu'à 30 pages par jour. Les forfaits payants relèvent les limites par page.
 
 Vos données
 - La page n'est lue que lorsque vous cliquez sur l'icône.
@@ -59,7 +59,7 @@ Vos données
 - Aucune donnée de navigation n'est collectée, rien n'est vendu, aucune publicité.
 - L'accès à un site n'est demandé que pour le site affiché, au premier clic sur « Traduire ».
 
-Politique de confidentialité : https://precis-translator.com/confidentialite
+Politique de confidentialité : https://precis-translator.trigenys.com/confidentialite
 ```
 
 ### English
@@ -69,8 +69,8 @@ Précis translates a whole web page in one click: text and images, with the layo
 
 How it works
 1. Install the extension and pin its icon to the toolbar.
-2. Sign in with your Précis account in the extension window.
-3. On a page in a foreign language, click the icon, then "Translate".
+2. Click "Se connecter avec Précis" (Sign in with Précis): the Précis website opens, sign in (or create an account) and authorize the extension.
+3. On a page in a foreign language, click the icon, then "Traduire" (Translate).
 
 What you get
 - The page text replaced by its translation, in the same place.
@@ -78,16 +78,44 @@ What you get
 - A local memory: a page you already translated is not charged again.
 - No extra software to install.
 
+The extension window is in French for now; translated pages can be in many languages.
+
 Pricing
-The extension uses the credits of your Précis account (precis-translator.com). No extra subscription to install it.
+Free with a Précis account (precis-translator.trigenys.com): up to 30 pages per day. Paid plans raise the limits per page.
 
 Your data
 - The page is read only when you click the icon.
 - The page's text and images are sent to Précis servers only to be translated.
 - No browsing data is collected, nothing is sold, no ads.
-- Access to a site is requested for the site you are on only, the first time you click "Translate".
+- Access to a site is requested for the site you are on only, the first time you click "Traduire" (Translate).
 
-Privacy policy: https://precis-translator.com/confidentialite
+Privacy policy: https://precis-translator.trigenys.com/confidentialite
+```
+
+## 3b. Mots-clés (Edge : « Search terms », 7 au plus, 30 caractères chacun, 21 mots en tout)
+
+FR (15 mots) :
+
+```
+traduction page web
+traduire images
+traducteur
+mise en page conservée
+OCR
+Précis
+traduction texte image
+```
+
+EN (13 mots) :
+
+```
+web page translation
+translate images
+translator
+layout preserved
+OCR
+Précis
+image text translation
 ```
 
 ## 4. Objectif unique (single purpose)
@@ -108,7 +136,7 @@ certification » (Edge). Texte anglais pour Chrome, qui l'exige en pratique.
 | `storage` | Keeps the user's sign-in session, preferences and the local translation memory in the extension's own storage. Nothing else is stored. | Conserve la session, les préférences et la mémoire locale de traductions dans le stockage propre de l'extension. |
 | `activeTab` | Gives temporary access to the tab the user is viewing, only after they click the extension icon, to read the page text and images to translate. | Accès temporaire à l'onglet consulté, seulement après un clic sur l'icône, pour lire le texte et les images à traduire. |
 | `scripting` | Injects the content script into the active tab so the translated text and images replace the original ones in place. Used only after the user's click. | Injecte le script dans l'onglet actif pour remplacer le texte et les images par leur traduction. Seulement après un clic. |
-| Hôte `https://precis-translator.com/*` | Lets the extension call the Précis API (sign-in, credit balance, translation) and lets the Précis website detect that the extension is installed (`externally_connectable`). | Appels à l'API Précis (connexion, solde, traduction) et détection de l'extension par le site. |
+| Hôte `https://precis-translator.trigenys.com/*` | Lets the extension call the Précis API (sign-in, credit balance, translation) and lets the Précis website detect that the extension is installed (`externally_connectable`). | Appels à l'API Précis (connexion, solde, traduction) et détection de l'extension par le site. |
 | Hôte facultatif `<all_urls>` | Optional, never requested as a whole. When the user first clicks "Translate" on a site, `chrome.permissions.request` asks for that site's origin only, so images served by the page can be read and translated. The user can revoke each site at any time. | Facultatif, jamais demandé en entier : au premier clic sur « Traduire », seule l'origine du site affiché est demandée. Révocable site par site. |
 
 Points d'attention à l'examen :
@@ -150,7 +178,7 @@ l'extension traite du contenu de page à la demande, sans collecte de navigation
 | Boutique | Réglage au lancement | Passage au public |
 |---|---|---|
 | Chrome Web Store | Visibilité « Non répertorié » (Unlisted) : accessible par lien seulement | Passer en « Public » après le groupe d'essai |
-| Edge Add-ons | Visibilité « Masqué » (Hidden) : accessible par lien seulement | Passer en « Public » |
+| Edge Add-ons | Visibilité « Public » dès la première publication (décision du 13/11 : chercher la notoriété) | — |
 
 Régions : toutes. Gratuit. Une fois la fiche créée, copier l'identifiant et
 l'adresse de la fiche dans `VITE_EXTENSION_ID_*` et `VITE_EXTENSION_URL_*`.
@@ -160,7 +188,7 @@ l'adresse de la fiche dans `VITE_EXTENSION_ID_*` et `VITE_EXTENSION_URL_*`.
 | Visuel | Taille | Remarques |
 |---|---|---|
 | Captures d'écran (1 à 5, viser 4) | 1280×800, PNG ou JPEG 24 bits sans transparence | 1. Page étrangère avant traduction. 2. Même page traduite, mise en page conservée. 3. Fenêtre de l'extension, connexion. 4. Une image dont le texte est traduit. 5. (option) Épinglage de l'icône |
-| Vignette promotionnelle | 440×280 | Obligatoire sur Chrome ; logo et accroche courte |
+| Vignette promotionnelle | 440×280 | Obligatoire sur Chrome. Prête : `docs/boutiques/vignette-440x280-fr.png` et `-en.png` (PNG 24 bits sans transparence), source `docs/boutiques/vignette.html` |
 | Grande vignette promotionnelle | 1400×560 | Facultative |
 | Icône | 128×128 | Déjà dans l'archive (`icones/icone-128.png`) |
 
@@ -171,11 +199,20 @@ pas de données personnelles visibles, pas de logo tiers en gros plan.
 
 ```
 The extension translates the current web page using a Précis account.
-Test account: <e-mail de test> / <mot de passe de test> (credits loaded).
+Test account: 
+Email : extension-test@trigenys.com
+Password: <mot de passe de test>
+Free plan: the extension uses no credits. It translates up to 30 different
+web pages per day, with up to 30,000 characters and 30 images per page.
+You can also create your own free account on https://precis-translator.trigenys.com.
 Steps: open any page in a foreign language, click the extension icon,
-sign in with the test account, then click "Translate".
-The page text is sent to https://precis-translator.com only on that click.
-Optional all-sites access is only requested from the settings of the popup.
+click "Se connecter avec Précis" (sign in with Précis): a tab opens on
+https://precis-translator.trigenys.com, sign in there with the test account and
+click "Autoriser" (Authorize); the tab closes by itself. Then click "Traduire" (Translate).
+The extension never sees the password: it receives its own session through a
+one-time code (60 s, PKCE S256). Signing out of the extension does not sign out the website.
+The page text is sent to https://precis-translator.trigenys.com only on that click.
+Access to a site is requested for that site only (chrome.permissions.request), on the first "Traduire" click there.
 ```
 
 ## 10. Checklist d'envoi
@@ -187,7 +224,8 @@ Optional all-sites access is only requested from the settings of the popup.
 - [ ] Permissions justifiées (§5) et déclarations de données cochées (§6).
 - [ ] URL de confidentialité vérifiée en ligne, section « Extension navigateur » présente (FR et EN).
 - [ ] Captures 1280×800 et vignette 440×280 chargées.
-- [ ] Visibilité : Non répertorié (Chrome) / Masqué (Edge).
+- [ ] Visibilité : Non répertorié (Chrome) / Public (Edge, décision du 13/11).
+- [x] Visuels E.6 : `extension/assets/boutique/` (4 captures 1280×800 + vignette 440×280 + grande 1400×560, en FR et EN).
 - [ ] Compte de test fourni aux examinateurs, crédits suffisants.
 - [ ] Après validation : identifiant et adresse de fiche reportés dans les quatre variables `VITE_EXTENSION_*`, site reconstruit.
 - [ ] Vérifier sur `/extension` : bouton vers la bonne boutique, statut « installée » après installation.

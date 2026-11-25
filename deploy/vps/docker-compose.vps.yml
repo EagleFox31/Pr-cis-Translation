@@ -12,6 +12,10 @@ services:
     mem_limit: 256m
   backend:
     mem_limit: 1g
+    environment:
+      # 1 Go pour tout le backend : deux diapositives de front au lieu de
+      # quatre, sinon un gros PPTX fait tuer le processus par le noyau.
+      PPTX_SLIDE_WORKERS: ${PPTX_SLIDE_WORKERS:-2}
   web:
     mem_limit: 96m
     ports: !reset []

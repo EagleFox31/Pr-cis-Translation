@@ -18,9 +18,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import ADMIN_ALERT_EMAIL, logger
+from app.config import logger
 from app.core.database import get_db
-from app.core.email import send_plain
+from app.core.email import FRONTEND_URL, send_plain
+from app.services.alertes_admin import destinataires
 from app.core.security import require_admin, require_auth
 from app.models import (CATEGORIES, STATUS_OPEN, SupportTicket, TICKET_HANDLED,
                         User)
@@ -53,18 +54,26 @@ async def _notify_admins(db: AsyncSession, ticket: SupportTicket) -> None:
     faire échouer la création du ticket : le ticket est déjà en base, c'est lui
     qui compte."""
     try:
-        rows = (await db.execute(
-            select(User.email).where(User.plan == "admin")
-        )).scalars().all()
-        recipients = [e for e in rows if e] or (
-            [ADMIN_ALERT_EMAIL] if ADMIN_ALERT_EMAIL else [])
+        recipients = await destinataires(db)
         if not recipients:
             return
         body = (f"Nouveau ticket ({ticket.category}) de "
                 f"{ticket.user_email or 'inconnu'} :\n\n"
                 f"{ticket.subject}\n\n{ticket.message}")
+        details = [("Catégorie", ticket.category),
+                   ("De", ticket.user_email or "inconnu")]
+        doc = (ticket.context or {}).get("document_name")
+        if doc:
+            details.append(("Document", doc))
         for to in recipients:
-            await send_plain(to, f"[Support] {ticket.subject}", body)
+            await send_plain(
+                to, f"[Support] {ticket.subject}", body,
+                titre="Nouveau ticket de support",
+                resume="Un client vient d'ouvrir un ticket. Réponds-lui depuis "
+                       "l'espace support.",
+                bandeau="Support", details=details,
+                citation=(ticket.subject, ticket.message),
+                bouton=("Ouvrir le support", f"{FRONTEND_URL}/admin/support"))
     except Exception as e:
         logger.warning("Alerte support non envoyée : %s", e)
 

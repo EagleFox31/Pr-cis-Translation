@@ -436,6 +436,18 @@ def reflow_paragraph(segments, container_lines, lang="fr_FR",
     # visuelle). Le force-fit reste disponible en dernier recours.
     if fixed_scale is not None:
         ss = max(0.3, min(1.0, fixed_scale))
+        # MOT UNIQUE (aucun espace entre les jetons, ex. initiale agrandie +
+        # suite du mot) plus large que la ligne à cette échelle : on le réduit
+        # pour qu'il tienne en une ligne au lieu de le couper au caractère.
+        if tokens and not any(t["space_before"] for t in tokens[1:]) \
+                and not any(t.get("lsp") for t in tokens):
+            b0 = _bounds_at(container_lines,
+                            first_baseline - 0.8 * size_est * ss,
+                            first_baseline + 0.25 * size_est * ss)
+            larg = sum(text_width(t["text"], t["fonts"],
+                                  (t["size"] or 0) * ss, 0.98) for t in tokens)
+            if b0 and larg > (b0[1] - b0[0]) + 0.5 and larg > 0:
+                ss = max(0.3, ss * (b0[1] - b0[0]) / larg * 0.995)
         lines, h, overflow = _layout(tokens, container_lines, first_baseline,
                                      bottom, ss, orig_pitch * ss, 0.98, lang,
                                      size_est * ss, align)

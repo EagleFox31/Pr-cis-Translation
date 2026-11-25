@@ -7,7 +7,13 @@ Ce qui est MESURÉ :
   • `has_original` / `has_translation` reflètent la présence sur disque ;
   • `download_original` rend les octets d'un document d'un AUTRE utilisateur,
     avec un Content-Disposition `filename*=UTF-8''` encodé ;
-  • fichier manquant, traduction absente ou document inconnu -> 404.
+  • fichier manquant, traduction absente ou document inconnu -> 404 ;
+  • aperçu (`source-pdf`, `apercu`) : PDF, sans cache client, routes réservées
+    à l'admin ;
+  • « Créer ma copie » : fiche au nom de l'admin vers les mêmes fichiers,
+    traduction propre `_d<id>`, rien de facturé, idempotente, refusée si le
+    document n'est pas terminé ou déjà à l'admin, et qui survit à la
+    suppression du document du client.
 
 Exécution :  backend/venv/Scripts/python.exe backend/tests/test_admin_documents.py
 Requiert PostgreSQL.
@@ -15,6 +21,7 @@ Requiert PostgreSQL.
 from __future__ import annotations
 import asyncio
 import os
+import shutil
 import sys
 import tempfile
 import uuid
@@ -22,7 +29,7 @@ import uuid
 import racine  # noqa: F401  -- met backend/ sur le chemin
 
 from fastapi import HTTPException                            # noqa: E402
-from sqlalchemy import delete                                # noqa: E402
+from sqlalchemy import delete, select                        # noqa: E402
 from sqlalchemy.ext.asyncio import (                         # noqa: E402
     AsyncSession, async_sessionmaker, create_async_engine,
 )
@@ -31,9 +38,12 @@ from sqlalchemy.pool import NullPool                         # noqa: E402
 from app.core.database import DATABASE_URL                   # noqa: E402
 from app.core.security import require_admin                  # noqa: E402
 from app.models import Document, User                       # noqa: E402
+import app.api.admin_documents as adm                        # noqa: E402
 from app.api.admin_documents import (                        # noqa: E402
-    download_original, download_translated, list_documents,
+    apercu_traduction, creer_copie, download_original, download_translated,
+    list_documents, source_pdf,
 )
+from app.api.documents import STORAGE_BASE, delete_document  # noqa: E402
 
 _eng = create_async_engine(DATABASE_URL, poolclass=NullPool)
 async_session = async_sessionmaker(_eng, class_=AsyncSession, expire_on_commit=False)
@@ -130,7 +140,148 @@ async def main() -> None:
         check(await _statut(download_original("inconnu-" + TOKEN, admin=admin, db=db)) == 404,
               "document inconnu -> 404")
 
+    # ── 5. Aperçu et copie ─────────────────────────────────────────────────────
+    # Le rendu PDF réel (moteur + LibreOffice) est hors sujet ici : on le
+    # remplace, et on vérifie ce que ce module en fait.
+    appels: list[tuple] = []
+
+    def faux_rendu(doc, ext, trad):
+        appels.append((doc.id, ext, trad))
+        return b"%PDF-1.4 rendu complet"
+
+    adm._rendu_pdf_complet = faux_rendu
+    adm.convert_to_pdf_bytes = lambda data, ext: b"%PDF-1.4 converti depuis " + ext.encode()
+
+    racine_job = os.path.join(STORAGE_BASE, f"_test_admindoc_{uuid.uuid4().hex[:8]}")
+    os.makedirs(os.path.join(racine_job, "en"), exist_ok=True)
+    orig_job = os.path.join(racine_job, "original.docx")
+    trad_job = os.path.join(racine_job, "en", "pages.json")
+    json_trad = b'{"pages": [{"page_num": 1, "blocks": []}]}'
+    with open(orig_job, "wb") as fh:
+        fh.write(b"PK octets docx d'origine")
+    with open(trad_job, "wb") as fh:
+        fh.write(json_trad)
+
+    def _client(nom: str, statut: str) -> Document:
+        return Document(user_id=proprio.id, original_name=nom,
+                        source_lang="fr", target_lang="en",
+                        original_path=orig_job, translated_path=trad_job,
+                        size_bytes=1234, storage_charged=1234, status=statut,
+                        page_count=3, pages_done=3, paid=False,
+                        reglages='{"precise": true}')
+
+    d_fini = _client(f"Contrat-{TOKEN}.docx", "done")
+    d_en_cours = _client(f"Cours-{TOKEN}.docx", "translating")
+    d_admin = Document(user_id=admin.id, original_name=f"Mien-{TOKEN}.docx",
+                       source_lang="fr", target_lang="en", original_path=orig_job,
+                       translated_path=trad_job, size_bytes=1, status="done")
+    async with async_session() as db:
+        db.add_all([d_fini, d_en_cours, d_admin])
+        await db.commit()
+        id_fini, id_en_cours, id_admin = d_fini.id, d_en_cours.id, d_admin.id
+
+    def _garde_admin(chemin: str, methode: str) -> bool:
+        for r in create_app().routes:
+            if getattr(r, "path", "") == chemin and methode in getattr(r, "methods", ()):
+                return any(d.call is require_admin for d in r.dependant.dependencies)
+        return False
+
+    for chemin, methode in (("/api/admin/documents/{doc_id}/source-pdf", "GET"),
+                            ("/api/admin/documents/{doc_id}/apercu", "GET"),
+                            ("/api/admin/documents/{doc_id}/copie", "POST")):
+        check(_garde_admin(chemin, methode), f"{methode} {chemin.rsplit('/', 1)[-1]} réservé à l'admin")
+
+    async with async_session() as db:
+        r = await apercu_traduction(id_fini, admin=admin, db=db)
+    check(r.status_code == 200 and r.media_type == "application/pdf"
+          and r.headers.get("cache-control") == "no-store"
+          and r.body == b"%PDF-1.4 rendu complet",
+          "apercu : 200, PDF, sans cache client")
+    check(appels == [(id_fini, "docx", trad_job)], "apercu : rendu complet de la traduction du client")
+    async with async_session() as db:
+        check(await _statut(apercu_traduction(id_manquant, admin=admin, db=db)) == 404,
+              "apercu sans traduction -> 404")
+
+    async with async_session() as db:
+        r = await source_pdf(id_fini, admin=admin, db=db)
+    check(r.status_code == 200 and r.media_type == "application/pdf"
+          and r.body == b"%PDF-1.4 converti depuis docx"
+          and r.headers.get("cache-control") == "no-store",
+          "source-pdf : original converti en PDF")
+    async with async_session() as db:
+        r = await source_pdf(id_ok, admin=admin, db=db)
+    check(r.status_code == 200 and r.body == CONTENU, "source-pdf : un PDF est servi tel quel")
+    async with async_session() as db:
+        check(await _statut(source_pdf(id_manquant, admin=admin, db=db)) == 404,
+              "source-pdf : fichier manquant -> 404")
+
+    # Copie : refus
+    async with async_session() as db:
+        check(await _statut(creer_copie(id_en_cours, admin=admin, db=db)) == 409,
+              "copie d'un document non terminé -> 409")
+    async with async_session() as db:
+        check(await _statut(creer_copie(id_admin, admin=admin, db=db)) == 400,
+              "copie d'un document déjà à l'admin -> 400")
+    async with async_session() as db:
+        check(await _statut(creer_copie("inconnu-" + TOKEN, admin=admin, db=db)) == 404,
+              "copie d'un document inconnu -> 404")
+
+    # Copie : création
+    async with async_session() as db:
+        rep = await creer_copie(id_fini, admin=admin, db=db)
+    check(rep["cree"] is True and rep["id"] not in (id_fini, id_admin), "copie créée : nouvel identifiant")
+    async with async_session() as db:
+        c = await db.get(Document, rep["id"])
+        client = await db.get(Document, id_fini)
+    check(c.user_id == admin.id and c.copie_de == id_fini, "la copie est à l'admin et garde l'origine")
+    check(c.storage_charged == 0 and c.paid is True and c.status == "done",
+          "rien de facturé, lisible en clair, terminée")
+    check(c.original_path == orig_job and c.original_name == client.original_name
+          and c.page_count == 3 and c.reglages == client.reglages
+          and (c.source_lang, c.target_lang) == ("fr", "en"),
+          "mêmes fichiers d'origine et mêmes réglages")
+    check(c.translated_path != trad_job and f"_d{c.id[:12]}" in c.translated_path
+          and os.path.isfile(c.translated_path), "traduction propre à la copie (_d<id>)")
+    check(client.translated_path == trad_job and client.status == "done"
+          and client.storage_charged == 1234 and client.user_id == proprio.id,
+          "le document du client n'est pas modifié")
+    with open(trad_job, "rb") as fh:
+        check(fh.read() == json_trad, "traduction du client inchangée octet pour octet")
+    with open(c.translated_path, "rb") as fh:
+        check(fh.read() == json_trad, "traduction de la copie identique à l'instant T")
+
+    # Copie : idempotence
+    async with async_session() as db:
+        rep2 = await creer_copie(id_fini, admin=admin, db=db)
+        nb = len((await db.execute(select(Document.id).where(
+            Document.copie_de == id_fini))).scalars().all())
+    check(rep2 == {"id": rep["id"], "cree": False} and nb == 1,
+          "seconde demande : même copie, rien de recréé")
+
+    # Copie d'une copie : refusée (demandeur autre que son propriétaire, pour
+    # passer la garde « déjà à vous » ; la route est appelée en direct).
+    async with async_session() as db:
+        check(await _statut(creer_copie(rep["id"], admin=proprio, db=db)) == 400,
+              "copie d'une copie d'admin -> 400")
+
+    async with async_session() as db:
+        res = await list_documents(q=f"Contrat-{TOKEN}", _admin=admin, db=db)
+    liens = {d["id"]: d["copie_de"] for d in res["items"]}
+    check(liens.get(rep["id"]) == id_fini and liens.get(id_fini) is None,
+          "la liste expose copie_de")
+
+    # Le client supprime son document : la copie garde ses fichiers.
+    async with async_session() as db:
+        u = await db.get(User, proprio.id)
+        await delete_document(id_fini, user=u, db=db)
+    async with async_session() as db:
+        c = await db.get(Document, rep["id"])
+        gone = await db.get(Document, id_fini)
+    check(gone is None and os.path.isfile(c.original_path) and os.path.isfile(c.translated_path),
+          "suppression du document client : la copie garde ses fichiers")
+
     # ── Nettoyage ─────────────────────────────────────────────────────────────
+    shutil.rmtree(racine_job, ignore_errors=True)
     async with async_session() as db:
         await db.execute(delete(User).where(User.email.like(f"%{TOKEN}%")))  # cascade
         await db.commit()

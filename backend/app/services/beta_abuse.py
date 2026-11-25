@@ -238,10 +238,11 @@ async def cleanup_loop():
     import asyncio
     import logging
     from app.core.database import async_session
-    from app.services import anti_abus
+    from app.services import alertes_admin, anti_abus, purge_libres
 
     # Chaque tâche a sa propre transaction : l'échec de l'une ne bloque pas les autres.
-    tasks = (purge_signals, anonymize_deleted_accounts, anti_abus.purge)
+    tasks = (purge_signals, anonymize_deleted_accounts, anti_abus.purge,
+             purge_libres.rappeler_et_purger, alertes_admin.recapitulatif_quotidien)
     while True:
         for task in tasks:
             try:

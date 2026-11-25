@@ -1,6 +1,6 @@
 import type { LegalDoc } from './types';
 
-export const LEGAL_UPDATED = 'November 6, 2026';
+export const LEGAL_UPDATED = 'November 18, 2026';
 
 export const LEGAL_EN: LegalDoc[] = [
   {
@@ -12,8 +12,8 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'Publisher',
         paragraphs: [
-          'The Précis website and service are published by Trigenys Group, a collective of independent digital professionals based in Douala, Cameroon. Trigenys Group is not a registered company: the services are provided by the members of the collective, who act together under this name.',
-          'Contact: contact@trigenys.com.',
+          'The Précis website and service are published by Trigenys Group, a collective of independent digital professionals. Trigenys Group is not a registered company: the services are provided by the members of the collective, who act together under this name.',
+          'Contact: support.precis@trigenys.com.',
         ],
       },
       {
@@ -23,7 +23,7 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'Hosting',
         paragraphs: [
-          'The service is hosted by Amazon Web Services, Inc., 410 Terry Avenue North, Seattle, WA 98109, United States. Précis servers run on Amazon EC2.',
+          'The service is hosted by OVH Hosting Inc. (OVHcloud), 800-1801 McGill College, Montréal (Québec) H3A 2N4, Canada. Précis servers are located in the OVHcloud data centre in Beauharnois (Québec, Canada).',
         ],
       },
       {
@@ -40,7 +40,7 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'Reporting content or a problem',
         paragraphs: [
-          'To report content, an error or a malfunction, write to contact@trigenys.com and describe the page concerned. We reply as soon as we can.',
+          'To report content, an error or a malfunction, write to support.precis@trigenys.com and describe the page concerned. We reply as soon as we can.',
         ],
       },
     ],
@@ -61,7 +61,7 @@ export const LEGAL_EN: LegalDoc[] = [
         heading: 'The service',
         paragraphs: [
           'Précis translates documents in txt, pdf, docx, pptx and xlsx formats, up to 100 MB per document, with care taken to faithfully render the meaning and the original layout. Some complex documents (nested tables, unusual layouts) may show minor differences in presentation.',
-          'Translation relies on an automated process that we continuously improve. Like any translation, it may occasionally contain inaccuracies: if you notice one, report it to contact@trigenys.com so that we can correct it and improve the service. For official, legal, medical or contractual use, we recommend having the result reviewed before using it.',
+          'Translation relies on an automated process that we continuously improve. Like any translation, it may occasionally contain inaccuracies: if you notice one, report it to support.precis@trigenys.com so that we can correct it and improve the service. For official, legal, medical or contractual use, we recommend having the result reviewed before using it.',
         ],
       },
       {
@@ -79,8 +79,8 @@ export const LEGAL_EN: LegalDoc[] = [
         paragraphs: [
           'Précis offers a free plan of 5 pages per month, a Starter plan of 100 pages per month and a Pro plan of 500 pages per month. The beta program has its own quotas and a limited duration, stated when you join the program.',
           'Current prices are shown on the site before any payment. They are not listed in these terms because they may change.',
-          'The free plan and the beta programme are partly funded by a promotional mention of Précis, included in translation previews. It is shown to free accounts and to beta testers; a paid account taking part in the beta programme only sees it on translations made with its beta credits. This mention involves no advertising network and uses none of your data.',
-          'Translations made with free pages can be viewed as a preview. All others, whether they come from a paid plan, pages bought one by one or beta credits, can be downloaded.',
+          'Without a plan or balance, you can still translate. Pages translated this way can only be viewed as a preview, with a promotional mention of Précis built into the image. This mention involves no advertising network and uses none of your data.',
+          'Every page translated with a credit belongs to you, whether the credit comes from the free plan\'s offered pages, a paid plan, pages bought one by one or beta credits: its preview is clear and it can be downloaded. A document that still contains pages translated without credit can be downloaded once those pages are paid for, or without them.',
         ],
       },
       {
@@ -100,7 +100,7 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'Refunds',
         paragraphs: [
-          'Pages that have been used are not refundable. However, if you were charged twice, or if a payment was not applied to your account, it is refunded on request to contact@trigenys.com.',
+          'Pages that have been used are not refundable. However, if you were charged twice, or if a payment was not applied to your account, it is refunded on request to support.precis@trigenys.com.',
           'The refund is made through the original payment method when the payment provider allows it.',
         ],
       },
@@ -153,12 +153,12 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'Governing law',
         paragraphs: [
-          'These terms are governed by Cameroonian law. In case of a dispute, we first look for an amicable solution by e-mail at contact@trigenys.com. Failing that, the dispute falls under the jurisdiction of the courts of Douala.',
+          'These terms are governed by the law of the country where the publisher is established. In case of a dispute, we first look for an amicable solution by e-mail at support.precis@trigenys.com. Failing that, the dispute falls under the jurisdiction of the competent courts of that country.',
         ],
       },
       {
         heading: 'Contact',
-        paragraphs: ['For any question about these terms: contact@trigenys.com.'],
+        paragraphs: ['For any question about these terms: support.precis@trigenys.com.'],
       },
     ],
   },
@@ -171,7 +171,7 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'Data controller',
         paragraphs: [
-          'The controller of your data is Trigenys Group, based in Douala (Cameroon). Contact: contact@trigenys.com.',
+          'The controller of your data is Trigenys Group. Contact: support.precis@trigenys.com.',
         ],
       },
       {
@@ -202,7 +202,7 @@ export const LEGAL_EN: LegalDoc[] = [
         paragraphs: ['To run Précis, we rely on the following service providers.'],
         list: [
           'DeepSeek: receives the text of your documents in order to translate it;',
-          'Amazon Web Services: hosting;',
+          'OVHcloud: hosting, in Canada;',
           'Campay, Fapshi and Paddle: payments;',
           'Cloudflare Turnstile: anti-bot check;',
           'Google: sign-in with Google, if you choose it;',
@@ -212,7 +212,7 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'Data transfers',
         paragraphs: [
-          'Some of these providers may process your data outside Cameroon.',
+          'Some of these providers may process your data outside your country.',
         ],
       },
       {
@@ -250,16 +250,27 @@ export const LEGAL_EN: LegalDoc[] = [
         ],
       },
       {
+        heading: '“What\'s new” emails',
+        paragraphs: [
+          'Receiving Précis news by email is optional: nothing is sent without your consent, and the service works the same way without it.',
+        ],
+        list: [
+          'Data used: your email address, your subscription choice and the date you last viewed the news, so that only what is new is shown to you.',
+          'Retention: as long as the account is active; the viewing date is simply replaced on each visit.',
+          'Unsubscribing: through the link included in every email, or with the “Email” switch on the “What\'s new” row of your account panel, at any time.',
+        ],
+      },
+      {
         heading: 'Your rights',
         paragraphs: [
-          'Under Law No. 2024/017 of 23 December 2024 on the protection of personal data in Cameroon, you may request access to your data, its correction or its deletion, and object to certain processing. Your account can be deleted on request by e-mail.',
-          'Write to contact@trigenys.com: we reply within a reasonable time.',
+          'Under the applicable personal data protection rules, you may request access to your data, its correction or its deletion, and object to certain processing. Your account can be deleted on request by e-mail.',
+          'Write to support.precis@trigenys.com: we reply within a reasonable time.',
         ],
       },
       {
         heading: 'No sale of data, no targeted advertising',
         paragraphs: [
-          'We do not sell your data and we use no advertising network. Previews on the free plan and the beta programme carry a promotional mention of Précis, identical for everyone: it uses no personal data and no tracker.',
+          'We do not sell your data and we use no advertising network. Previews of pages translated without credit carry a promotional mention of Précis, identical for everyone: it uses no personal data and no tracker.',
         ],
       },
       {
@@ -270,7 +281,7 @@ export const LEGAL_EN: LegalDoc[] = [
       },
       {
         heading: 'Contact',
-        paragraphs: ['For any question about your data: contact@trigenys.com.'],
+        paragraphs: ['For any question about your data: support.precis@trigenys.com.'],
       },
     ],
   },
@@ -283,7 +294,7 @@ export const LEGAL_EN: LegalDoc[] = [
       {
         heading: 'What we use',
         paragraphs: [
-          'Précis only uses what is necessary for the service to work and to stay secure. We use no advertising cookies and no audience measurement (the promotional mention on free and beta previews is part of the image and sets no cookie), so no consent banner is displayed.',
+          'Précis only uses what is necessary for the service to work and to stay secure. We use no advertising cookies and no audience measurement (the promotional mention on previews without credit is part of the image and sets no cookie), so no consent banner is displayed.',
         ],
       },
       {
@@ -322,7 +333,7 @@ export const LEGAL_EN: LegalDoc[] = [
       },
       {
         heading: 'Contact',
-        paragraphs: ['For any question: contact@trigenys.com.'],
+        paragraphs: ['For any question: support.precis@trigenys.com.'],
       },
     ],
   },

@@ -11,7 +11,7 @@ from app.core.security import require_admin, require_auth
 from app.models import User
 from app.models.beta import BetaApplication, BetaCampaign, BetaEnrollment
 from app.rate_limit import rate_limit_decorator
-from app.services import anti_abus, beta, beta_applications, beta_abuse
+from app.services import alertes_admin, anti_abus, beta, beta_applications, beta_abuse
 from app.services.usage import add_months
 
 router = APIRouter(tags=["Bêta"])
@@ -55,7 +55,7 @@ class CampaignUpdate(BaseModel):
 
 class Invitation(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    email: EmailStr
+    emails: list[EmailStr] = Field(min_length=1, max_length=20)
     primary_format: Literal["pdf", "pptx", "docx", "xlsx"] = "pdf"
     campaign_id: str | None = None
 
@@ -110,6 +110,7 @@ async def apply(body: ApplicationSubmission, request: Request, response: Respons
     device, signals = await _signals(db, request)
     row = await beta_applications.submit(db, user, signals=signals, **body.model_dump())
     await db.commit()
+    await alertes_admin.candidature_beta(db, row, user.name)
     anti_abus.set_cookie(response, device)
     return beta_applications.serialize(row)
 
@@ -117,9 +118,18 @@ async def apply(body: ApplicationSubmission, request: Request, response: Respons
 @router.patch("/api/admin/beta/applications/{application_id}")
 async def review(application_id: str, body: ApplicationReview,
                  admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    before = await db.scalar(select(BetaApplication.state).where(BetaApplication.id == application_id))
     row = await beta_applications.review(db, application_id, body.decision, admin)
     await db.commit()
-    return beta_applications.serialize(row)
+    result = beta_applications.serialize(row)
+    if row.state == "approved" and before != "approved":
+        enrollment = (await db.execute(select(BetaEnrollment).where(
+            BetaEnrollment.campaign_id == row.campaign_id,
+            BetaEnrollment.email == row.email))).scalars().first()
+        if enrollment:
+            result["enrollment_id"] = enrollment.id
+            result["mail_sent"] = await beta.send_invitation_mail(db, enrollment)
+    return result
 
 
 async def _defaults(db):
@@ -232,19 +242,60 @@ async def update_campaign(campaign_id: str, body: CampaignUpdate, _admin: User =
     return await beta.serialize_campaign(db, row)
 
 
-@router.post("/api/admin/beta/invitations", status_code=201)
+@router.post("/api/admin/beta/invitations")
 async def invite(body: Invitation, _admin: User = Depends(require_admin),
                  db: AsyncSession = Depends(get_db)):
-    campaign = None
+    """Invite several registered accounts at once; each address gets its own outcome."""
     if body.campaign_id:
         # The admin invites into the program on screen, never into whichever one is open now.
         campaign = await beta.campaign_by_id(db, body.campaign_id, lock=True)
         if not campaign:
             raise beta.error(404, "campaign_not_found", "Programme introuvable.")
-    row = await beta.invite(db, email=str(body.email), primary_format=body.primary_format,
-                            reviewer_id=_admin.id, campaign=campaign)
+    else:
+        campaign = await beta.campaign_row(db, lock=True)
+    if not campaign or not beta.recruitment_open(campaign):
+        raise beta.error(409, "campaign_closed", "Les inscriptions à la bêta sont fermées.")
+    results, invited = [], []
+    for email in dict.fromkeys(str(e).strip().lower() for e in body.emails):
+        if not await beta.account_for(db, email):
+            # Writing to someone without an account would look like spam.
+            results.append({"email": email, "status": "no_account"})
+            continue
+        try:
+            row = await beta.invite(db, email=email, primary_format=body.primary_format,
+                                    reviewer_id=_admin.id, campaign=campaign)
+        except HTTPException as exc:
+            code = exc.detail.get("code", "error") if isinstance(exc.detail, dict) else "error"
+            results.append({"email": email, "status": code})
+            continue
+        invited.append((len(results), row))
+        results.append({"email": email, "status": "invited"})
     await db.commit()
-    return await beta.serialize_enrollment(db, row)
+    for index, row in invited:
+        results[index]["mail_sent"] = await beta.send_invitation_mail(db, row, campaign=campaign)
+        results[index]["enrollment"] = await beta.serialize_enrollment(db, row)
+    return {"results": results}
+
+
+@router.post("/api/admin/beta/enrollments/{enrollment_id}/email")
+async def resend_invitation_mail(enrollment_id: str, _admin: User = Depends(require_admin),
+                                 db: AsyncSession = Depends(get_db)):
+    """Send the invitation mail again, without touching the invitation itself."""
+    row = await beta.enrollment_by_id(db, enrollment_id)
+    if not row:
+        raise beta.error(404, "enrollment_not_found", "Invitation introuvable.")
+    if row.revoked_at:
+        raise beta.error(409, "invitation_revoked", "Cette invitation a été retirée.")
+    state = beta.enrollment_state(row)
+    if state == "expired":
+        raise beta.error(409, "access_expired", "Cet accès est terminé.")
+    campaign = await beta.campaign_by_id(db, row.campaign_id)
+    if state == "invited" and (not campaign or not beta.recruitment_open(campaign)):
+        raise beta.error(409, "activation_closed", "La période d'activation est terminée.")
+    user = await beta.account_for(db, row.email)
+    if not user:
+        raise beta.error(409, "no_account", "Aucun compte Précis n'utilise cette adresse.")
+    return {"mail_sent": await beta.send_invitation_mail(db, row, user=user, campaign=campaign)}
 
 
 @router.patch("/api/admin/beta/enrollments/{enrollment_id}")

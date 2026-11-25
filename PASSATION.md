@@ -1,176 +1,62 @@
-# PASSATION — 06/11/2026
+# PASSATION — 19/11/2026
+
 ## 1. Objectif en cours
-EN COURS : branche `feat/ocr-file-pages-illisibles`, mission 6.13.11 commitée en local (ee11f03, **non poussée**) ; correctifs de l'essai réel (3 fichiers + 1 test) non commités. P1–P5, 3 bis (rendu sur instantané, `translation_runner._reprendre_retouches`) et 3 ter (`jobs._copie_budget` garde `budget_<job>.json`, `_pages_traduites_de`) faits ; 95 fichiers de tests backend + Docker `test_ocr` + tsc/lint/build verts. Prochain pas : essai live par l'utilisateur (P2 mention dans le fichier téléchargé, P4 vignettes, P5 budget à la page, carte « Crédits insuffisants »), puis push/PR seulement après son feu vert. Toujours proposer des choix concrets avec une recommandation.
+Corriger les défauts PPTX du PowerPoint de Gerold (R6/R7) selon `docs/etude-pptx-qualite-gerold.md`. On est dans le worktree `Precis-Translator-pptx-qualite`, sur la branche `fix/pptx-qualite`. Rien n'est poussé : on attend la validation locale de l'utilisateur.
 
 ## 2. Fait
-- Branche `integration/version-complete` (62708f0, locale, **non poussée**) : `feat/pages-legales` + `feat/paddle-live` + `feat/ocr-v2` réunies ; branches d'origine intactes. Laissées de côté et annoncées : `origin/feat/orchestrator-signed-event-inbox` (#52), `feat/journal-purge-auto`. Migration renommée `0019_extension_avance` (après 0018, idempotente).
-- OCR v2 complet (`backend/app/services/ocr_v2/`, `docs/etude-ocr-v2.md` §7-8, §11) ; extension `extension/` + routes `app/api/extension.py`, `app/services/extension.py`.
-- 6.10 (non commitée) : `docs/bilan-ocr-deploiement.md` + ligne README:112 ; mesures du 05/11 en image réelle (2 CPU, 3 Go), scripts `scratchpad/mesure_ocr.py`, `par_page.py`. Aucun code modifié. Conclusion : ne pas ouvrir l'OCR au public en l'état (§1). · Document test : `C:/Users/IBRAH/Downloads/test-traduction-figure-annotee.docx` (pompe annotée en anglais) ; `analyser` en Docker : 1 image à texte sur 1. Sans 6.8.3, la figure reste en anglais dans l'app.
-- 6.8.3 : `hooks/useAnalyseImages.ts`, case dans `TranslationSection.tsx`, `images=1` et bilan dans `useStreamingTranslation.ts`, bouton « Traduire sans les images » dans `PdfViewer.tsx`. Essai Playwright : analyse réelle du DOCX test, réponses de `/api/translate` simulées ; aucune traduction réelle lancée. · 6.8.4 (334e6aa) : `api/documents.py` `GET`/`PATCH /{id}/images` (copie `…_d<id>` si traduction partagée, cache d'aperçu invalidé par mtime), `images_document.etat_images`/`marquer_originale` (liste `retirees`), `components/preview/DocumentImagesPanel.tsx` branché via `StorySection` `imagesPanel` dans `Home.tsx` ; tests `test_images_retirees.py` (4) ; essai Playwright aller-retour sur le DOCX test (`scratchpad/pw684.py`).
-- Compte rendu PPTX réel (01/11) : textes oubliés corrigés — 8f64c57 aperçu Excel déjà PNG, b421d2c masques + cellules `t="str"`, fa7ad72 classeur incorporé via moteur XLSX, caches de graphiques alignés (`xlsx/engine.py` `_aligner_graphiques`), `<c:f>` réécrits au renommage, `translation_ai.harmoniser` (doublons = une seule traduction). Intitulés de formation désormais traduits, code gardé (règle 6 du prompt, eac85e5) ; limite : formulation parfois variable entre diapositives (« Fictitious » / « Fictional »).
-- 6.8.2 (e85f40a) : `images_document.traduire_images`/`poser_office`/table `<trad>.images.json` + `.images/` ; PDF `engines/pdf/engine.py` `_draw_image(..., images)` + `stream._images_par_xref` ; `translation_runner._preparer_images` (débit unique lié au document, événement `images`) et `_poser_images_fichier` ; `api/translate.py` champ `images=1` → `qsuffix _img`, 402 avec `images_needed`, `reponse["images"]` ; `stockage` garde la table tant que la traduction existe ; étude §9.1.
-- 6.11.6 (b0f96a3, **non poussée**) : `incorpores.py` (`Modifs.restes`, `_relire`, garde-fous `_ratio_ancre`), `pptx/engine.py` `objets_hors_diapositives`, `translation_runner._signaler_objets`, exclusion `apercu_objet` ; registre : deux passes, la 2ᵉ non conforme sans bloquant, corrigée sans 3ᵉ revue.
-- 06/11 : carte « Crédits insuffisants » (`PdfViewer.tsx`, `BOUTON_NEUTRE`) alignée sur `ScanPageOverlay` : sans cadre ni ombre, bouton bleu en contour, secondaire gris neutre, pleine largeur (max 340px). Style validé ; contenu étoffé (titre court + description constat/options `preview.credits_hint_*`, même structure que la carte scan). tsc + lint OK, nouvelle version non vue à l'écran. Rendu de la carte scan validé par l'utilisateur (06/11).
+- a02225c (étapes a, b, e) dans `engines/pptx/engine.py` et `engines/runtags.py` :
+  - un titre coupé par des sauts de ligne manuels est traduit en une seule unité, puis recoupé en lignes équilibrées (`decouper_lignes` et `joindre_lignes`) ;
+  - un libellé court coupé en paragraphes est fusionné de la même façon ;
+  - un symbole seul n'est pas envoyé au modèle, et un préfixe symbole est conservé ;
+  - aucun espace double n'est créé.
+  - Tests : `tests/test_pptx_porteurs.py`.
+- cef7439 (étape d) :
+  - `runtags.traductions_majoritaires` : pour un même original d'au moins deux mots, la majorité stricte (≥ 2) l'emporte ; en cas d'égalité, rien ne change.
+  - Elle est branchée dans `_coherence_document` (`app/services/translation_runner.py` ~l.549), avant la reprise des termes incohérents. Elle ne fait aucun appel au modèle et ne réinjecte que les diapositives touchées.
+  - L'étude, section (d), est mise à jour.
+- Preuves :
+  - test_pptx_porteurs 21 passés ;
+  - test_pptx_preview 38/38 ;
+  - test_runtags 41/41.
+  - Auparavant : reprise_pptx, apercu_progressif, contexte_traduction, ole_apercu, xlsx, rendu_structure, download_format, tous verts.
 
 ## 3. Décisions
-- Scan : seule la détection diffère, ensuite même chemin que le PDF natif. Qualité avant vitesse ; délai OCR 90 s gardé.
-- Extension : 1 crédit/image remplacée, texte au volume (1 500 car. = 1 page, avance cumulée), pas de bascule silencieuse vers le payant ; mémoire locale IndexedDB (rien n'est conservé côté serveur).
-- 6.8 (§8 de l'étude) : 1 page par image remplacée, case non cochée par défaut, tout ou rien + annulation par image sans remboursement en v1 (à confirmer), même règle en gratuit. Débit des images après traduction, lié au document (remboursé si le travail échoue) ; images exclues des scans OCR, de la bêta et du debug en v1 (à confirmer). Option désactivée avec une plage de pages : le serveur compte les images du document entier.
-- Distribution (validé le 02/11) : boutiques Chrome + Edge, `.exe` abandonné ; nom visible Précis, comptes au nom de la structure qui exploite le service (5 $ Chrome, Edge gratuit, à créer par le propriétaire) ; lancement par lien seulement (« Unlisted » / « Hidden »), puis public.
+- d2 abandonné : imposer la traduction d'un libellé partout dans les phrases dégradait le texte (« HRD policy » donnait « Politique HRD » au lieu de « politique RH »). La fiche est un texte libre, pas un glossaire.
+- Mots seuls exclus de l'unification : « Customer » peut donner Accueil ou Client selon l'endroit.
+- Contrôle commun à toutes les étapes : réinjecter la source rend exactement l'original (aller-retour).
 
 ## 4. Plan
-1–5. [x] branche, études OCR v2 + extension, OCR v2 complet.
-6. [~] Extension et documents :
-   - 6.1–6.3b [x] étude, routes, prototype, traduction par bloc ; 6.4a [x], 6.4c [x] images ; 6.6 [x] mesure livret ; 6.7 [x] scans fiables ;
-   - 6.4 [~] essai réel (page locale faite dans Edge) : puis TEAM-GP (G49001) sans cliquer « Début », « Options administrateur », `lbnRegist` ni aucun postback ;
-   - 6.4b [x] ne plus repayer une page (`docs/etude-memoire-extension.md` §8) : 6.4b.1 [x] ; 6.4b.2 [x] `src/lib/memoire.ts` (clé SHA-256 `v1`+compte+langue+contenu, 30 j / 50 000 textes / 200 Mo) + IndexedDB dans `background.ts` ; 6.4b.3 [x] popup « Mémoire : n — Effacer » ; 6.4b.4 [x] vérif (2ᵉ visite = 0 débit) ;
-   - 6.8 [~] (prioritaire) images des documents normaux, étude `docs/etude-images-documents.md` :
-     - 6.8.1 [x] analyse ; 6.8.2 [x] pose + débit (tests : images_document 39, couverture_credits 29, extension 24, moteur PDF verts). Limites : aperçus partiels PPTX/XLSX non vérifiés après LibreOffice ; GIF/WEBP posé en PNG ; cache `images/` jamais purgé ; xlsx absent de `render_translation_bytes` (préexistant) ; débit échoué → images `sans_credit` ; aucun essai réel (→ 6.8.5) ;
-     - 6.8.3 [x] frontend : case, deux totaux, 402 `images_needed`, bilan (tsc/lint/build, Playwright) ;
-     - 6.8.4 [x] annulation par image (bandeau sous l'aperçu, copie propre au document si la traduction est partagée ; tests 4 + essai navigateur) ;
-     - 6.8.5 [x] essai de bout en bout DOCX + PDF à schémas (02/11) : rendu, débit 1 page/image, étiquette serrée corrigée (`placer`, second passage) — étude §9.3 ;
-   - 6.11 [~] (avancé 01/11) objets incorporés, toutes les combinaisons. Étude faite (`docs/etude-objets-incorpores.md`, README:95) : Office dans Docker impossible (pas de Linux, automatisation serveur non prise en charge, KB 257757) → LibreOffice headless + méthode CFAO Academy (`services/apercu/classeurs.py:402-452` zone visible, `:685-736` rognage, `:768-855` cache, `service.py:613-631` relance profil) dans un module commun `engines/incorpores.py`. Décisions §8 (01/11, déléguées) : D1 texte des objets facturé, D2 aperçu LibreOffice, D3 1ʳᵉ page redessinée sauf écart de proportions > 10 %, D4 conversion 97-2003, D5 pas de Draw (Visio/PDF signalés), D6 signalement au client ; plan §7 :
-     - 6.11.1 [x] repérage (`engines/incorpores.py` `reperer`/`rapport`, 21 tests ; repères think-cell `TCLayout` ignorés) ; 6.11.2 [x] extraction/réécriture + garde-fous (`extraire`/`reecrire`/`remplacer_parties`, écrivain CFB, 20 tests ; dépendance `olefile==0.47`) ; 6.11.3a [x] classeur incorporé PPTX via moteur XLSX (fa7ad72) ; 6.11.3b [x] récursion générique (profondeur 2) + 97-2003/OLE2 Package (`relever`/`reinjecter`, `tests/test_incorpores_recursion.py` ; limites dans l'étude, bilan 6.11.3 ; openpyxl absent du venv) ; 6.11.4 [x] redessin des aperçus (`engines/apercus.py` branché dans `reinjecter`, ancien `regenerate_ole_previews` retiré ; 21 tests + essai Docker ; bilan 6.11.4 dans l'étude) ; 6.11.5 [x] graphiques natifs (a–e faits, `tests/test_incorpores_graphiques.py` 6 tests ; bilan 6.11.5 dans l'étude) ; 6.11.6 [x] facturation + exclusion OCR (devis, exclusion OCR et compte rendu client faits ; `tests/test_incorpores_facturation.py` 40 tests ; bilan dans l'étude, registre `docs/revues/objets-incorpores-6.11.6.md` ; phrase client à voir dans un navigateur à la recette 6.11.7) ; 6.11.7 [ ] ← mesure et recette Docker (`--cpus 2 --memory 3g`), un conteneur par document ; **attend 3 documents réels et l'avis de l'utilisateur sur le rendu** (temps, mémoire, comparaison à Office, décision unoserver, EMF orphelin dans PowerPoint) ; y voir aussi la phrase client dans un navigateur et relancer la suite backend complète (non faites) ;
-   - 6.9 [ ] ← (prochaine non bloquée) interface de l'extension : **branding seulement**, normes des pages du site, jetons du `frontend`, impeccable en raffinement ;
-   - 6.12 [ ] distribution de l'extension (décisions §10 prises) : manifest production + icônes, page publique `/extension`, liens et bandeau, détection (`externally_connectable`, absent), bienvenue (`onInstalled`, absent), confidentialité, fiches Chrome + Edge ; connexion par mot de passe seulement (`login-password`), comptes Google à traiter ;
-   - 6.10 [x] bilan OCR pour le déploiement (`docs/bilan-ocr-deploiement.md`) ;
-   - 6.5 [ ] pastille « Traduire ce PDF » (circuit `/api/translate`).
-   - 6.13 [~] OCR avant ouverture (cause = temps, pas stockage ; japonais reporté) : .1 [x] étude ; .2 [x] guichet à priorité `ocr_file.py` (scans, images, extension) ; .3 [x] lecture par page, stockage `.ocr/`, source reconstruite ; .4 [x] boucle moteur + 2ᵉ ordonnanceur, plus d'OCR dans la requête ; .5 [x] remboursement des pages illisibles (`tests/test_ocr_facturation_pages.py`) ; .6 [x] routes GET/PATCH `/documents/{id}/pages-illisibles` (original, vide, traduire quand même ; verrou lecture/écriture des rendus ; `tests/test_ocr_pages_choix.py`) ; .7 [x] panneau `ScanPagesPanel` + i18n + avancement `ocr`/`ocr_attente` (tsc/lint/build) ; .8 [x] suites OCR backend vertes, Docker `test_ocr`/`test_ocr_v2_rendu`/`verify_ocr_runtime` (vraie lecture + DeepSeek, document fictif), Playwright du panneau seul à 1280/360 px (réponses simulées ; pas de thème sombre dans l'app) ; .9 [x] convergence : passe 1 (4 importants, 12 mineurs) + contre-revue (N1–N10) corrigées, N3 différé (bilan §7 3 bis) ; tests de non-régression `tests/test_ocr_report_page.py` ; .10 [x] docs + bilan §1/§3/§5/§7/§8 ; règle essai/crédits posée dans `extension._debiter` (`app/services/extension.py:136-142`) ; N3/3 bis et 3 ter faits ; reste : mesure 5–10 clients.
-     - 6.13.11 [~] ← retours de l'essai (étude §8). Règle : la traduction n'affiche jamais l'original sauf s'il est choisi.
-       - Essai réel 06/11 (option a, **non commitée**) : téléchargement depuis l'aperçu = blob redemandé au serveur (`Home.tsx` `handleDownload`) ; rendu d'arrière-plan réparé (`render_cache.py:173`, import `app.api.documents`, test `tests/test_rendu_cache_fond.py`) ; pas de coche « traduite » avant lancement (`StorySection.tsx` ~403). Contre-essai OK (page blanche « Page blanche », `blanches:[4]`, plus d'avertissement). ← proposer le commit local. Non traités (options b/c) : « Traduire quand même » débite une page qui sort en charabia ; crédit rendu réutilisé pour la page suivante.
-       - P1 [x] carte opaque `ScanPageOverlay.tsx`, notice `ScanPagesNotice.tsx`, vignettes ambre `StorySection.tsx`, hook `usePagesIllisibles.ts` (GET provisoire pendant la traduction, relecture pilotée par l'avancement) ; « Garder l'original » enregistré, rendu rechargé après un choix (`rafraichirRendu` `Home.tsx`, `rendusPerimes` `PdfViewer.tsx`). **Attend l'avis de l'utilisateur** sur le rendu de la carte et l'essai d'un scan en direct.
-       - P2 [x] page illisible sans choix = original + mention « Page non traduite… » (`stream.py` `_poser_mention`, `ocr_pages.pages_originales`) ; la mention survit à un rendu refait. **À montrer dans un fichier téléchargé.**
-       - P3 [x] pages hors sélection : `selection.json` écrit par le job (repli sur les réglages), motif `hors_selection` (hors badge bibliothèque), mention `MENTION_NON_INCLUSE`, choix `traduire` (1 page débitée, `_inclure_page`) / `original` / `retirer` (409 si inadapté) ; Retirer = ôtée du fichier téléchargé (`_sans_pages_retirees`), l'aperçu la garde avec badge « Retirée du fichier » (option A validée 06/11). Tests `test_ocr_hors_selection` 10/10 ; Playwright `scratchpad/pw/hs.js` (compte essai-offert, doc « 3-pages-hors-selection »).
-       - P4 [x] vignettes : illisible ambre « ! », hors sélection et blanche grises en pointillé « – » (« × » si retirée), infobulles `viewer.scan.thumb_hs_*`/`thumb_blanche` ; route GET renvoie `blanches` (`ocr_pages.pages_blanches`, test `test_pages_blanches_listees_a_part`). tsc/lint/build OK, non vu à l'écran. Venv de test : `Precis_Translator_backup_2026-06-10_13-10/backend/venv`.
-       - P5 [x] budget à la page (étude §11, décision utilisateur) : P5.1 lancement mode budget (translate.py) · P5.2 enveloppe budget + budget_<job>.json (runner) · P5.3 moteur hors_budget → mention non incluse · P5.4 clôture : copie propre filtrée + selection + remboursement · P5.5 tests facturation + auditeur. Puis N3/3 bis [x], 3 ter [x], Docker `test_ocr`, commit (sans push).
-       - P6, P7, P8 [x] validés (taille du cadre `tailleCadre` ; pastilles bibliothèque `_suivi_scan`, `DocumentCard.tsx`). Facturation « traduire quand même » vérifiée (402 avant, débit après pose, `_reporter_page`).
-   - 6.14 [ ] messages d'erreur et d'information : étude faite (`docs/etude-notifications.md`, 05/11) — quatre niveaux (en ligne, bandeau de section, notification flottante, fenêtre), erreurs bloquantes persistantes, pause au survol ; à réaliser après 6.13 ; reste à décider : notification du navigateur en fin de travail.
+1. [x] (a) + R6 sauts de ligne et libellés coupés
+2. [x] (b) symboles
+3. [x] (e) espaces doubles
+4. [x] (d) cohérence : même original, majorité
+5. [x] (c) débordement de zone : `engines/pptx/debordement.py` (mesure par largeurs Arial, `ajuster` avec un plancher de 80 %), `engine.py` (`_inject_in_xml`, `debordements`), `translation_runner._compacter_slide` (retraduction plus courte). Tests : `tests/test_pptx_debordement.py`.
+5b. [x] Réduction de police écrite dans le texte (`sz`), avec repli `normAutofit` si la taille vient du masque ; marge de 3 % sur la largeur.
+   - Reste pour l'étape 6 : « Caractéristiques » (diapositive 6) et « Entretien Rappel d'entretien… » (diapositive 10) ne tiennent pas, même à 80 % : il faut la retraduction plus courte.
+   - Bandeau « Niveaux de certification » : `wrap=none` + `spAutoFit`. Il est sur une ligne dans PowerPoint ; seul LibreOffice le coupe.
+6. [ ] ← Rejouer Gerold (`original.pptx` → nouvelle traduction) et montrer seulement les cas qui changent.
+7. [ ] Rapport à l'utilisateur. Push/PR seulement après sa validation locale.
 
-**Hors plan** :
-- Remboursement partiel (préexistant, plus fréquent avec P5) : `doc.paid` n'est pas recalculé après `refund_unfinished`.
-- Clôture rejouée après des débits P3 : rembourserait les pages P3 (théorique, `sync_status` idempotent en pratique).
-- P5 mineurs : `gardees` calculé sur le JSON partagé ; fichiers `budget_<job>.json` jamais purgés ; reprise refusée tant que le solde reste partiel (normal, à dire à l'utilisateur).
-- Échec CI `sync-github-app-user` : côté propriétaire. `frontend/tsconfig.tsbuildinfo` non suivi : à ignorer. · Ne pas tester `POST /api/auth/login` avec une adresse inconnue : cela crée un compte et envoie un vrai e-mail. · Graphiques natifs (revue 6.11.5, sans urgence) : renommage d'onglets apparié par position ; chaque retouche `graphique` relit les deux classeurs (à mettre en cache si un fichier compte beaucoup de graphiques) ; graphique posé sur un modèle de diapositive non vu en traduction progressive ; `_aligner_graphiques` du moteur XLSX déplie toute la plage (énorme plage = lent). · En attente : essai de connexion Google par l'utilisateur, puis objets incorporés dans l'app. `/api/pricing` appelé 10 fois par chargement de `/home` : à regrouper, sans urgence. · Tests de la branche (02/11) : 85 suites, 83 vertes en local ; `test_ocr.py` et `test_ocr_endpoint.py` échouent seulement sans Tesseract et passent dans Docker. Aucun échec dû à la fusion. tsc, lint et build passent. Dans l'image, monter aussi `olefile` et `disposable_email_domains` du venv (`PYTHONPATH`).
+**Hors plan** : la même règle de débordement pour XLSX (accord de l'utilisateur ; branche à part).
 
 ## 5. Pièges / contexte
-- `backend/.env` est en LIVE pour Fapshi : ne jamais valider d'invite réelle. Ne pas afficher les `.env` (`grep -c` seulement). Jamais de clé dans un fichier suivi. Push/PR seulement après vérification locale par l'utilisateur.
-- venv : `C:\Users\IBRAH\Documents\Projets\Precis_Translator_backup_2026-06-10_13-10\backend\venv\Scripts\python.exe`. Lancer : `npm run stop`, puis `PYTHONUTF8=1 <venv>/python.exe scripts/dev.py` (tuer un vieil uvicorn :8000 par PID au besoin).
-- Migrations : `backend/scripts/verifier_migrations.py` (une seule fin de suite : CI + démarrage du conteneur ; `--base` : `scripts/dev.py` met la base à jour ou explique l'écart). Une base migrée depuis une autre branche ne se répare pas seule.
-- Tests backend : unittest, Postgres 5433, jamais la base dev 5432. Docker Desktop puis `docker run -d --rm --name precis-test-pg -p 5433:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=precis postgres:16-alpine` et `python -m alembic upgrade head` (dans `backend/`, avec `DATABASE_URL`). Ex. : `cd backend && PYTHONUTF8=1 <venv>/python.exe tests/test_images_document.py`.
-- OCR de l'app locale : Tesseract 5.4 installé dans `C:\Program Files\Tesseract-OCR`, langues dans `C:/Users/IBRAH/AppData/Local/tessdata-precis` (eng, fra, osd). Lancer `dev.py` avec ce dossier dans `PATH` et `TESSDATA_PREFIX` défini, sinon les images sont signalées « non vérifiées ». Ce dossier doit contenir `configs/` (copié de `Program Files/Tesseract-OCR/tessdata/configs`, fait le 05/11) : sans lui, toute page sort « illisible ». Fichiers d'essai 6.13 : `Downloads/scan-test-1-page-illisible.pdf` (p.2 floue), `scan-test-cas-mixtes.pdf` (p.2 gribouillis, p.3 blanche, p.4 floue) ; générateur `scratchpad/gen_scans.py`. Comptes d'essai (base dev 5432, mot de passe `TestPrecis2026!`, connexion par mot de passe) : `essai-offert@example.com` (Gratuit, 5 pages offertes) et `essai-credits@example.com` (offre épuisée, 10 crédits) ; remise à zéro et état : scripts `comptes.py` et `etat.py` du scratchpad de session (à recréer si perdu : `User` + `hash_password`, `usage.record` KIND_FREE_OFFER). `npm run stop` et le lancement l'un après l'autre, jamais en parallèle.
-- Tests OCR : `MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W):/be" -w /be/tests precis-ocr-test python /be/tests/test_ocr.py` (depuis `backend/`, chemins `/be/...`). Image `precis-ocr-test` sans `olefile` : ajouter `-v "<venv>/Lib/site-packages/olefile:/ole/olefile:ro" -e PYTHONPATH=/ole`.
-- Images 6.8 : clés `xref:<n>` (PDF) / nom de partie média (Office) ; budget lu via `ext_service.couverture` dans `jobs._dans_une_boucle_jetable` ; sémaphore OCR `_slot` remplacé par le guichet en 6.13.
-- Uvicorn local : son rechargement auto rate parfois routes et code OCR → TaskStop puis relancer `dev.py`. Vu 06/11 : un 2e uvicorn orphelin sur 8000 servait l'ancien code (lister `Win32_Process` python, tuer par PID).
-- Réessai d'images : vider `translations/<doc>/<langue>/*_img*` ET `.../images/`. Script d'essai bout en bout : étude images §9.3. Base de test 5433 venue d'une autre branche : `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` puis `alembic upgrade head`.
-- Front : `cd frontend && npx tsc --noEmit -p . ; npm run lint --silent ; npm run build --silent | tail -n 8`. Extension : `cd extension && npm run -s typecheck && npm test && npm run -s build`. · Remote `origin` = EagleFox31. Fichiers en CRLF (locales, ocr-production.md) : éditer avec Edit ou Python binaire, jamais `sed -i`. `verify_ocr_runtime` en Docker : lignes `^DEEPSEEK_` du `.env` dans un fichier temporaire du scratchpad + `--env-file`, supprimé après. `PYTHONUTF8=1` obligatoire pour les tests.
-
-## 2026-11-07 03:42 — Consolidation des 7 PR ouvertes
-
-- **Doublons** : PR empilées. #32 et #35 ⊂ #53 ⊂ #54 ⊂ #55 et #56. Seules #55 (extension), #56 (3 commits OCR) et #52 (inbox orchestrateur, indépendante) portent du travail propre.
-- **Branche** : `integration/pr-consolidation`, fusions dans l'ordre #55, #56, #52 ; PR #57 vers `main`.
-- **Corrigé** : migration de #52 renommée `0020_orchestrator_events` (down_revision `0019_extension_avance`) ; sinon deux têtes Alembic et `upgrade head` en échec au déploiement. Conflits d'import (`api/extension.py`) et de routeurs (`app/__init__.py`) résolus en gardant les deux côtés.
-- **Vérifié en local** : une seule tête Alembic, compilation Python, JSON valides, `npm run lint` et `npm run build` OK. Suites backend complètes : CI de la PR #57.
-- **Reste** : fusionner #57 une fois la CI verte, fermer #32/#35/#53/#54/#55/#56/#52 comme intégrées, fusionner la PR Release Please, puis lancer manuellement le workflow de déploiement AWS.
-
-## 2026-11-07 04:00 — Relecture de la PR #57 en attente, audit SEO/GEO
-
-- **État** : PR #57 (`integration/pr-consolidation`) ouverte, CI 7 vertes / 2 en cours / 0 échec au dernier relevé. Rien fusionné sur `main`, aucune PR fermée.
-- **Verrou** : le commanditaire relit #57 avant toute fusion. Ne pas fusionner sans son accord explicite.
-- **Audit SEO/GEO du site en ligne** : bases correctes (title, description, canonical, OG, JSON-LD, robots, sitemap). Manques : sitemap d'une seule URL, toutes les routes servent le même `<head>` avec canonical `/home`, pas de hreflang ni d'URL anglaise, pas de `llms.txt`, pas de compression gzip/brotli, ~800 Ko de JS. Les nouvelles pages des PR (`/extension`, pages légales) ne sont pas dans `frontend/public/sitemap.xml`.
-- **Prochaine étape** : après accord, fusionner #57, fermer les 7 PR intégrées, fusionner la PR Release Please, déclencher le déploiement AWS manuel, puis traiter le SEO/GEO dans une PR séparée.
-
-## 2026-11-07 04:10 — Correctifs SEO / GEO (branche feat/seo-geo)
-
-- Branche `feat/seo-geo`, partie de `integration/pr-consolidation` (PR #57, toujours en attente de relecture : ne pas fusionner sans accord).
-- Source unique des pages publiques : `frontend/seo/site.json`. `frontend/scripts/prerender.mjs` (lancé par `npm run build`) écrit `dist/<route>.html`, `sitemap.xml` et `llms.txt` ; `frontend/public/sitemap.xml` supprimé.
-- `frontend/nginx.conf` : `gzip_proxied any` (Caddy ajoute `Via`), `try_files $uri $uri.html`, redirection `/index`.
-- `scripts/ci/verify_public_seo.py` étendu ; job CI `seo` lance le prérendu avant nginx.
-- Vérifié localement : build + lint OK, contrôle SEO PASS sur nginx 1.27 (sources et vrai `dist`), JS 802 Ko → 294 Ko en gzip.
-- Non traité : hreflang / URL anglaises (routage i18n à concevoir), FAQ structurée sur `/home` (aucune FAQ visible sur la page React).
-- `public-https-verification` échouera contre la production tant que cette branche n'est pas déployée.
-
-## 2026-11-07 04:29 — Pages d'intention SEO/GEO (branche feat/seo-intent-pages)
-
-- Branche `feat/seo-intent-pages`, partie de `feat/seo-geo` (PR #58). Plan venant de la session « expert-seo-geo », vérifié contre le code avant exécution.
-- P0 : nœud `SoftwareApplication` complété (`offers` gratuit, `featureList`, `inLanguage`) ; `url` de l'Organization → `https://www.trigenys.com` (trigenys.com n'expose pas de JSON-LD, l'`@id` local est gardé).
-- P1 : 9 pages statiques sans JavaScript, décrites dans `frontend/seo/pages/*.json` et déclarées dans `site.json` (`source: "content"`) : `/traduire-pdf`, `/traduire-word`, `/traduire-powerpoint`, `/traduire-excel`, `/traduire-anglais-francais`, `/traduire-francais-anglais`, `/tarifs`, `/confidentialite-documents`, `/comparatif`. Blocs réutilisables (étapes, limites, avant/après, confidentialité) dans `site.json`. FAQPage par page, date `verified`, sources citées pour le comparatif.
-- `verify_public_seo.py` : contrat prix/limites contre le backend, pages de contenu sans script, FAQ visible, lien vers `/home`, `offers`/`featureList`.
-- Vérifié : build + lint OK, prérendu idempotent (octets identiques), contrôle SEO PASS sur nginx 1.27, test de mutation du contrat, rendu mobile sans défilement horizontal de page.
-- À décider : landing `comparison.row_data_precis` (« Supprimées sous 24h ») et `row_ocr_other` contredisent la politique / les faits concurrents. P2 (annuaires, Product Hunt, AlternativeTo, fiche store, article) à créer en issues après accord.
-- Ordre de fusion après accord : #57 → #58 → cette PR. Aucune fusion faite.
-
-## 2026-11-07 10:29 — Issues P2 SEO hors site et synchronisation du board
-
-- Issues activées sur le dépôt (`gh repo edit --enable-issues`, réversible) avec l'accord de l'utilisateur.
-- Créées avec métadonnées `appfactory-project` intégrées (P2, phase Release) : #60 annuaires, #61 Product Hunt, #62 AlternativeTo (S), #63 fiches Chrome/Edge, #64 article de lancement (Documentation). Script idempotent (saute un titre existant).
-- Board : #61 à #63 manquaient (runs annulés par la concurrence du workflow réutilisable) ; resynchronisées via `workflow_dispatch`, les 5 sont en Backlog avec les bons champs. Leçon ajoutée dans `docs/engineering/lessons-learned.md`.
-- PR ouvertes, rien fusionné : #57 (consolidation), #58 (feat/seo-geo), #59 (feat/seo-intent-pages, base #58).
-- Après accord : fusionner #57 → #58 → #59, fermer #32/#35/#52/#53/#54/#55/#56, fusionner la PR Release Please, déployer sur AWS, vérifier la production (`public-https-verification.yml`).
-- Toujours à décider : textes de la landing `comparison.row_data_precis` et `row_ocr_other`.
-
-## 2026-11-07 21:49 — Ré-épinglage appfactory v1.4.0 (PR #65)
-
-- PR #65 (`chore/repin-appfactory-v1.4.0`, base main) : `project-automation.yml` passe de `14d51168` à v1.4.0 `0523510` (concurrence par issue/PR, corrige la perte de syncs en rafale). Testée par `workflow_dispatch` depuis la branche sur #62 : succès, aucun doublon. Non fusionnée.
-- Côté appfactory : PR EagleFox31/appfactory-project-automation#148 (épinglage documenté, test anti-SHA défectueux, LESSON-2026-017), non fusionnée.
-
-## 2026-11-09 08:15 — Audit SEO à froid de la production
-
-- Prod mesurée : sitemap 1 URL, `/extension`, `/tarifs`, `/llms.txt` en 404, pas de gzip. Aucun des travaux #57/#58/#59 n'est en ligne.
-- Estimation : prod ~20/100 ; après déploiement ~45/100 (technique fort, autorité quasi nulle, contenu FR seulement).
-- Prochaine étape inchangée : accord de fusion #57 → #58 → #59 (+ #65, appfactory#148), puis déploiement et Search Console.
-
-## 2026-11-09 09:49 — Fusion, release 1.7.0, déploiement bloqué
-- **Fait** : #59 → #58 → #57 (squash 3bfbdc2) et #65 fusionnées dans main, CI verte ; #32, #35, #52–#56 fermées (renvoi vers #57). Tests de #57 stabilisés (490a598 : `with TestClient`, unicité PPTX par id d'élément).
-- **Release** : v1.7.0 publiée via #66 (PR ouverte à la main : Actions n'a pas le droit de créer des PR ; titre « chore: » de #57 corrigé par `BEGIN_COMMIT_OVERRIDE`).
-- **Verrou** : le job `deploy-production` (reusable-aws-ssm-compose-deploy @9496878) exige ≥ 75 USD de crédits AWS Free Plan ; seuil non atteint, prod toujours sur l'ancienne version. L'utilisatrice vérifie AWS (Billing → Free Tier).
-- **Prochaine étape** : une fois AWS débloqué, `gh workflow run aws-production-deploy.yml --ref main`, vérifier prod (sitemap 15 URL, /extension, /tarifs, /llms.txt, gzip, public-https-verification), puis renvoyer `https://precis-translator.trigenys.com/sitemap.xml` dans Search Console (propriété domaine `sc-domain:trigenys.com`, déjà vérifiée).
-- **Ouvert** : appfactory#148 (non fusionnée, sans accord) ; texte landing « Supprimées sous 24h ».
-
-## 2026-11-09 10:23 — Piste migration vers le VPS OVH
-- Déploiement AWS toujours bloqué (crédits Free Plan < 75 USD). Option étudiée : migrer Précis sur le VPS OVH `ubuntu@15.235.90.215` (infos consignées dans le CLAUDE.md global, section « Infrastructure partagée »).
-- Inventaire en lecture seule : 2 vCPU, 3,7 Go RAM (~2 Go disponibles), swap 2 Go, 16 Go disque libres ; Docker + Compose, Caddy systemd ; 9 conteneurs déjà présents (WAHA ~430 Mo).
-- Prochaine étape : accord explicite avant toute modification du VPS ; puis compose Précis avec limites mémoire, site Caddy, dump/restore Postgres depuis EC2, bascule DNS, EC2 gardé en secours.
-
-## 2026-11-09 11:02 — Migration vers le VPS OVH (stack prête, bascule DNS en attente)
-- Export EC2 : workflow jetable (OIDC + SSM), archive chiffrée RSA/AES, branche et artefact supprimés. Base 43 Ko, 13 tables.
-- VPS : `~/precis-translation/{releases,app-<sha>,current,shared/backend.env (600),migration-ec2}`, projet compose `precis-translation`, overlay `deploy/vps/` (PR #68). Relais `edge` sur 127.0.0.1:8090.
-- Restauration : comptes identiques ; migrations 0014→0020 appliquées. Mémoire : backend ~390 Mo / 1 Go.
-- Reste : installer `deploy/vps/precis-translator.caddy` dans `/etc/caddy/sites/` + reload **après** la bascule DNS (A `precis-translator` 13.36.127.47 → 15.235.90.215, Spaceship, TTL 1800) ; vérifier prod ; resoumettre le sitemap GSC ; EC2 en repli quelques jours.
-- Déploiement CI vers le VPS : nécessite une clé SSH dédiée en secret GitHub (création refusée par le garde-fou, décision utilisateur).
-
-## 2026-11-09 11:20 — Précis en production sur le VPS
-- DNS basculé (A `precis-translator` → 15.235.90.215), site `/etc/caddy/sites/precis-translator.caddy` installé, certificat obtenu (tls-alpn-01).
-- Vérifié via le VPS : 8 routes clés OK, sitemap 15 URLs, gzip, IP client réelle transmise jusqu'au backend, `X-Forwarded-For` falsifié ignoré.
-- GSC : sitemap resoumis, lu le 9 nov. 2026, 15 pages découvertes.
-- EC2 (i-0ce97ff971dd343b2) intact, en repli quelques jours puis à arrêter (coûts).
-- Reste : fusion PR #68 ; déploiement CI vers le VPS (clé SSH dédiée en secret GitHub, accord utilisateur requis) ; texte landing « Supprimées sous 24h » ; appfactory#148 (confirmation).
-- Redéploiement manuel : `git archive` → `~/precis-translation/releases/`, extraire dans `app-<sha>`, lien `current` + `backend/.env` → `shared/backend.env`, puis `docker compose -p precis-translation --env-file backend/.env -f docker-compose.yml -f docker-compose.https.yml -f deploy/vps/docker-compose.vps.yml up -d --build`.
-
-## 2026-11-09 11:57 — Déploiement CI vers le VPS
-- Clé `precis-deploy-ci` dans `~/.ssh/authorized_keys` du VPS avec `restrict,command="/home/ubuntu/precis-translation/bin/deploy.sh"` (copie de `deploy/vps/remote-deploy.sh`) ; sauvegarde `authorized_keys.bak-precis-deploy`. Privée seulement dans le secret GitHub `PRECIS_VPS_SSH_KEY` ; variables `PRECIS_VPS_TARGET`, `PRECIS_VPS_KNOWN_HOSTS`.
-- `deploy-vps.yml` (dispatch + appel depuis `release.yml`) ; job EC2 seulement si `vars.PRECIS_DEPLOY_TARGET=aws`.
-- Testé avec la clé CI : shell refusé, `déployé : 7630ad91a314`, rejeu no-op. PR #68 CI 8/8 verte, **non fusionnée**.
-- Prochaine étape : fusionner #68 (et #67), lancer `deploy-vps.yml` sur main pour valider le chemin GitHub → VPS. Si le script change : réinstaller `bin/deploy.sh` à la main (volontairement hors du flux de déploiement).
-
-## 2026-11-09 12:08 — Chemin GitHub → VPS validé
-- #68 fusionnée (`be46d55`), #67 fusionnée. Pas de release déclenchée (commits `ci`/`docs`).
-- `deploy-vps.yml` lancé sur main (run 42605991292) : succès, `déployé : 865e40a045f0`, contrôles publics OK.
-- Vérifié : /health 200, /tarifs 200, sitemap 15 URLs ; `current -> app-865e40a045f0`, 3 versions gardées ; conteneur db non recréé (données conservées).
-- Restant : arrêter l'EC2 i-0ce97ff971dd343b2 après quelques jours de stabilité ; supprimer ensuite `~/precis-translation/migration-ec2` et `~/.ssh/authorized_keys.bak-precis-deploy` sur le VPS.
-
-## 2026-11-10 14:33 — Sync Project des PR collaborateurs (403 broker) corrigée
-- Cause : le broker AppFactory n'acceptait que le propriétaire comme acteur ; les PR/issues d'Ibrahim (`MbowouIbrah`) échouaient en 403 `personal_owner_required`.
-- Correctif broker : appfactory-project-automation #153 ajoute `EagleFox31/Pr-cis-Translation/.github/workflows/project-automation.yml@refs/heads/main` à `DELEGATED_CALLER_WORKFLOW_REFS` (Workers Builds déployé).
-- Correctif Précis : #72 saute la sync pour les PR qui ne ciblent pas `main` (le broker les refuse par conception : le workflow de la branche de base y est modifiable par le contributeur).
-- Preuve : run 42788870679 (PR #70 d'Ibrahim vers `main`) rejoué → `bootstrap-github-app-user` et `sync-github-app-user` verts.
-- Règle d'équipe : les PR ciblent `main` (sinon ni sync Project ni CI complète). #71 (empilée sur `integration/main-1.7`) sera synchronisée une fois rebasée sur `main` après fusion de #70.
-- Restant : fermer appfactory-project-automation#52 (validation faite) ; EC2 i-0ce97ff971dd343b2 à arrêter après stabilité.
+- Fichiers Gerold : `C:/Users/IBRAH/AppData/Local/Temp/claude/6d6c80c79a7942fb/1158bb8f-57e3-42af-8146-b3911ec69fb7/scratchpad/gerold/{original,traduit}.pptx`.
+- Scripts d'analyse dans `C:/Users/IBRAH/AppData/Local/Temp/claude/6d6c80c79a7942fb/34e53c1c-5d86-4eb3-bd86-a334927c8f09/scratchpad/` :
+  - `verif.py` : diff des extractions et aller-retour ;
+  - `termes.py` : incohérences.
+- Python : il n'y a pas de venv dans le worktree. Utiliser `/c/Users/IBRAH/Documents/Projets/Precis_Translator_backup_2026-06-10_13-10/backend/venv/Scripts/python.exe -X utf8` (pytest y est installé).
+- Beaucoup de tests sont des scripts avec `main()` : les lancer avec `python -X utf8 tests/x.py`, pas avec pytest.
+- Les tests qui ont besoin de la base exigent `backend/.env` :
+  - copier celui du dépôt principal ;
+  - lancer les tests ;
+  - puis `rm .env`, car il est ignoré par git et ne doit pas rester.
+- Commits : ne mentionner l'IA nulle part et ne pas ajouter de trailer.
 
 ## 2026-11-25 06:24 — Landing : positionnement EN, sections « pour qui » et FAQ
-- Branche `feat/landing-international` (non poussée, pas de PR). Contexte : offre Précis à vendre à l'international (traducteurs, consultants immigration, bureaux internationaux).
+- Branche `feat/landing-international`, PR #105 vers `main` (rebasée sur main 1.12.1, conflits locales/css/Home/PASSATION résolus en gardant les deux côtés). Contexte : offre Précis à vendre à l'international (traducteurs, consultants immigration, bureaux internationaux).
 - EN `hero.*` réécrit (promesse : même fichier en retour, mise en page conservée) ; FR inchangé.
 - Nouveau `components/audience/AudienceSection.tsx` : 3 cartes cibles (`audience.*`) + FAQ 5 questions (`faq.*`, `<details>`), inséré après `FeaturesGrid` dans `Home.tsx` ; CSS `.faq-*` dans `index.css`.
 - `Home.tsx` : `lang`, `<title>` et meta description suivent la langue côté client (`seo.*`) ; le head statique prerendu reste FR → contrat CI SEO intact (1 h1, canonical, `/` → 308 `/home` conservé volontairement).
 - Preuve : `npm run lint` OK, `npm run build` OK (15 pages), preview EN vérifiée (hero, cartes, FAQ).
 - Limites : OG/twitter restent FR (pas de JS côté crawler) ; pas de hreflang (même URL) ; `verify_public_seo.py` non rejoué en local (nginx docker).
-- Restant : pousser + PR, déployer via `deploy-vps.yml` après fusion ; Paddle live et domaine `.com` optionnel (voir dossier offre).
+- Restant : fusionner #105 après CI, déployer via `deploy-vps.yml` après fusion ; Paddle live et domaine `.com` optionnel (voir dossier offre).

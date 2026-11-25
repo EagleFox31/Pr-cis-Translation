@@ -1,7 +1,25 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api, { authFetch } from '../services/api';
+import i18n from '../i18n';
+import { showToast } from '../components/ui/Toast';
 import type { PageStatus } from './useStreamingTranslation';
+import type { Avis } from '../lib/avis';
+
+/** Le serveur refuse l'accès à un document archivé (plus de 30 jours, compte
+ *  sans stockage) par un 403 `stockage_requis`. On le dit à l'utilisateur au
+ *  lieu de laisser l'action sans effet. Retourne vrai si la réponse était ce refus. */
+export async function signalerStockageRequis(res: Response): Promise<boolean> {
+  if (res.status !== 403) return false;
+  try {
+    const corps = await res.clone().json();
+    if (corps?.detail !== 'stockage_requis') return false;
+  } catch {
+    return false;
+  }
+  showToast('error', i18n.t('library.storage_required'));
+  return true;
+}
 
 /** Réponse de `/preview`. `pretes` / `etats` ne sont remplis que pour un
  *  document EN COURS de traduction. */
@@ -62,6 +80,11 @@ export interface DocMeta {
   /** Ce document est-il PAYÉ ? C'est lui, et non le plan, qui ouvre le
    *  téléchargement et l'aperçu en clair (miroir de `_may_read_clear`). */
   paid: boolean;
+  /** Pages traduites mais non payées (mode libre) : visibles en aperçu
+   *  filigrané, absentes du fichier tant qu'elles ne sont pas achetées. */
+  pagesLibres: number;
+  /** Numéros de ces pages libres : l'aperçu les voile une à une. */
+  pagesLibresNumeros: number[];
   /** Nombre de pages — sert à calculer ce que coûtera son déblocage. */
   pageCount: number;
   /** `translating` · `done` · `error` · `interrupted` (serveur arrêté en
@@ -79,6 +102,14 @@ export interface DocMeta {
   pagesADecider?: number;
   /** Scan terminé : pages en relecture (« traduire quand même »). */
   pagesRelues?: number;
+  /** Messages de la traduction, réaffichés à la réouverture (lib/avis). */
+  avis?: Avis[];
+  /** Langue source déclarée à l'envoi (`auto` quand elle a été détectée). */
+  sourceLang: string;
+  /** Document archivé : listé, mais son contenu demande un forfait avec stockage. */
+  archive: boolean;
+  /** Date (ISO) jusqu'à laquelle le document restait accessible, si connue. */
+  accesJusquAu: string | null;
   /** Réglages d'origine : « Reprendre » relance avec eux, donc sur les pages
    *  déjà traduites. Absents sur les documents d'avant leur enregistrement. */
   reglages?: { pages: string; precise: boolean; beta: boolean; qsuffix?: string } | null;
@@ -104,6 +135,8 @@ function toMeta(d: any): DocMeta {
     sizeByes: d.size_bytes,
     ext: d.original_name.split('.').pop()?.toLowerCase() ?? 'pdf',
     paid: !!d.paid,
+    pagesLibres: d.pages_libres ?? 0,
+    pagesLibresNumeros: Array.isArray(d.pages_libres_numeros) ? d.pages_libres_numeros : [],
     pageCount: d.page_count ?? 1,
     status: d.status ?? 'done',
     pagesDone: d.pages_done ?? 0,
@@ -111,6 +144,10 @@ function toMeta(d: any): DocMeta {
     jobId: d.job_id ?? null,
     pagesADecider: d.pages_a_decider ?? 0,
     pagesRelues: d.pages_relues ?? 0,
+    avis: Array.isArray(d.avis) ? d.avis : [],
+    sourceLang: d.source_lang ?? 'auto',
+    archive: !!d.archive,
+    accesJusquAu: d.acces_jusqu_au ?? null,
     _blob: undefined,
   };
 }
@@ -129,6 +166,10 @@ export function useDocumentLibrary() {
   const { user, refreshUser } = useAuth();
   const [documents, setDocuments] = useState<DocMeta[]>([]);
   const [loading, setLoading] = useState(false);
+  /** La liste du serveur a été lue au moins une fois (distingue « vide » de « pas encore là »). */
+  const [charge, setCharge] = useState(false);
+  /** La dernière lecture de la liste a échoué (réseau ou serveur). */
+  const [erreur, setErreur] = useState(false);
 
   // Nettoyer les anciennes données localStorage au montage
   useEffect(() => {
@@ -140,8 +181,15 @@ export function useDocumentLibrary() {
    *  document que l'utilisateur vient de régler. */
   const refresh = useCallback(async () => {
     if (!user) return;
-    const res = await api.get('/api/documents');
-    if (res.ok) setDocuments((res.data as any[]).map(toMeta));
+    try {
+      const res = await api.get('/api/documents');
+      if (res.ok) setDocuments((res.data as any[]).map(toMeta));
+      setErreur(!res.ok);
+    } catch {
+      setErreur(true);
+    } finally {
+      setCharge(true);
+    }
   }, [user]);
 
   // Connecté → charger depuis l'API
@@ -187,7 +235,8 @@ export function useDocumentLibrary() {
     // (rien n'est persisté, donc rien n'est payé).
     meta: Omit<DocMeta,
       'id' | 'date' | 'sizeByes' | 'filename' | '_blob'
-      | 'paid' | 'pageCount' | 'status' | 'pagesDone'>,
+      | 'paid' | 'pagesLibres' | 'pagesLibresNumeros' | 'pageCount' | 'status' | 'pagesDone'
+      | 'sourceLang' | 'archive' | 'accesJusquAu'> & { sourceLang?: string },
   ): Promise<string> => {
     const id = crypto.randomUUID();
     const doc: DocMeta = {
@@ -195,9 +244,14 @@ export function useDocumentLibrary() {
       date: new Date().toISOString(),
       sizeByes: blob.size,
       paid: false,
+      pagesLibres: 0,
+      pagesLibresNumeros: [],
       pageCount: 1,
       status: 'done',
       pagesDone: 1,
+      sourceLang: meta.sourceLang ?? 'auto',
+      archive: false,
+      accesJusquAu: null,
       _blob: blob,
     };
     if (user) {
@@ -222,7 +276,8 @@ export function useDocumentLibrary() {
   const getBlob = useCallback(async (id: string): Promise<Blob | undefined> => {
     if (user) {
       const res = await authFetch(`/api/documents/${id}/download`);
-      return res.ok ? res.blob() : undefined;
+      if (!res.ok) { await signalerStockageRequis(res); return undefined; }
+      return res.blob();
     }
     return documents.find(d => d.id === id)?._blob;
   }, [user, documents]);
@@ -248,7 +303,7 @@ export function useDocumentLibrary() {
       if (res.status === 404) {
         return { blob: null, full: false, inProgress: false, pretes: {}, etats: {}, missing: true };
       }
-      if (!res.ok) return undefined;
+      if (!res.ok) { await signalerStockageRequis(res); return undefined; }
       const render = res.headers.get('X-Render');
       const pending = render === 'pending';
       // En cours : le serveur dit quelles pages le fichier montre VRAIMENT
@@ -289,7 +344,8 @@ export function useDocumentLibrary() {
     if (user) {
       const q = asPdf ? '?as=pdf' : '';
       const res = await authFetch(`/api/documents/${id}/original${q}`);
-      return res.ok ? res.blob() : undefined;
+      if (!res.ok) { await signalerStockageRequis(res); return undefined; }
+      return res.blob();
     }
     return undefined;
   }, [user]);
@@ -353,7 +409,7 @@ export function useDocumentLibrary() {
     return { ok: false, message: res.status === 402 || res.status === 409 ? message : null };
   }, [user, refresh]);
 
-  return { documents, loading, refresh, saveDocument, getBlob, getPreviewBlob,
+  return { documents, loading, charge, erreur, refresh, saveDocument, getBlob, getPreviewBlob,
            getOriginalBlob, deleteDocument, clearAll, getDocumentImages, setImageOriginal,
            getIllegiblePages, setIllegiblePages };
 }

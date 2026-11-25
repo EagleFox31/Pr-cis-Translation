@@ -1,5 +1,6 @@
 """Authoritative beta invitations, admission windows and per-format allowances."""
 from __future__ import annotations
+import logging
 from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 from sqlalchemy import and_, func, or_, select
@@ -9,6 +10,8 @@ from app.models.beta import BetaApplication, BetaCampaign, BetaEnrollment, BetaU
 from app.services.beta_meter import BetaCost, DEFAULT_LIMITS, FORMATS, UNIT_NAMES
 from app.services.usage import add_months
 from app.services import beta_abuse
+
+logger = logging.getLogger(__name__)
 
 
 def error(status, code, message, headers=None):
@@ -115,6 +118,7 @@ async def serialize_enrollment(db, enrollment, *, now=None):
         "invited_at": aware(enrollment.invited_at).isoformat(),
         "activated_at": aware(enrollment.activated_at).isoformat() if enrollment.activated_at else None,
         "expires_at": aware(enrollment.expires_at).isoformat() if enrollment.expires_at else None,
+        "mailed_at": aware(enrollment.mailed_at).isoformat() if enrollment.mailed_at else None,
         "limits": limits,
         "formats": {
             fmt: {
@@ -182,6 +186,38 @@ async def invite(db, *, email, primary_format, limits=None, reviewer_id=None, ca
         application.reviewed_at = now_utc()
         application.reviewer_id = reviewer_id
     return item
+
+
+async def account_for(db, email):
+    """The registered account behind an address, or None: only accounts can be invited."""
+    return (await db.execute(select(User).where(
+        func.lower(User.email) == email.strip().lower()))).scalars().first()
+
+
+async def send_invitation_mail(db, enrollment, *, user=None, campaign=None) -> bool:
+    """Tell the invited person, in their account's language. A failure is logged and
+    reported, never raised: the invitation stays valid and the admin can resend it.
+    An access already open (approved application) is announced as open, with its end."""
+    from app.core.email import send_invitation_beta_email
+    user = user or await account_for(db, enrollment.email)
+    campaign = campaign or await campaign_by_id(db, enrollment.campaign_id)
+    if not user or not campaign:
+        return False
+    ends = aware(campaign.recruitment_ends_at) if campaign.recruitment_ends_at else None
+    active = enrollment_state(enrollment) == "active"
+    try:
+        await send_invitation_beta_email(
+            user.email, user.langue or "fr", limites={**DEFAULT_LIMITS, **enrollment.limits},
+            jours=campaign.access_days, date_limite=ends.date().isoformat() if ends else None,
+            fin_acces=aware(enrollment.expires_at).date().isoformat() if active else None)
+    except Exception:
+        # EmailIndisponible, or any fault while building the message: the invitations
+        # are already saved, so the admin must still get the per-person results.
+        logger.exception("Beta invitation mail not sent (enrollment %s)", enrollment.id)
+        return False
+    enrollment.mailed_at = now_utc()
+    await db.commit()
+    return True
 
 
 async def activate(db, user, *, signals=None):

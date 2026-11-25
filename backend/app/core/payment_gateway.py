@@ -347,9 +347,9 @@ class FapshiClient:
         if res.status_code == 403:
             # Identifiants faux ou IP de serveur absente de la liste blanche :
             # rien que le client puisse corriger, mais l'exploitant doit le lire.
-            logger.error("Fapshi refuse l'accès (403) : identifiants ou IP non autorisée")
+            logger.critical("Fapshi refuse l'accès (403) : identifiants ou IP non autorisée")
         elif res.status_code == 400 and "phone" in detail.lower():
-            user_message = "Numéro invalide : seuls les numéros MTN et Orange du Cameroun sont acceptés."
+            user_message = "Numéro invalide : seuls les numéros MTN et Orange Money (+237) sont acceptés."
         return FapshiError(f"{what} refusé ({res.status_code}) : {detail}", user_message)
 
     @_as_fapshi_error
@@ -523,7 +523,7 @@ class PaddleClient:
                      else PADDLE_SANDBOX_HOST)
         if self.cle_incoherente(self.api_key, self.host == PADDLE_LIVE_HOST):
             # Sinon chaque paiement échoue en 403, sans dire pourquoi.
-            logger.error("PADDLE_API_KEY ne correspond pas à PADDLE_ENV=%s",
+            logger.critical("PADDLE_API_KEY ne correspond pas à PADDLE_ENV=%s",
                          os.getenv("PADDLE_ENV", "") or "SANDBOX")
 
     @staticmethod
@@ -547,7 +547,7 @@ class PaddleClient:
         except (ValueError, AttributeError):
             detail = res.text[:200]
         if res.status_code in (401, 403):
-            logger.error("Paddle refuse l'accès (%s) : clé API invalide ou "
+            logger.critical("Paddle refuse l'accès (%s) : clé API invalide ou "
                          "permission manquante", res.status_code)
         return PaddleError(f"{what} refusé ({res.status_code}) : {detail}")
 

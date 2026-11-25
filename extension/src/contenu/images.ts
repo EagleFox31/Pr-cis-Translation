@@ -1,8 +1,13 @@
+import { SITE_TARIFS } from "../config.ts";
 import { DetecteurAnimation } from "../lib/animation.ts";
-import { messageAccord } from "../lib/cout.ts";
-import { afficherErreur, obtenirBandeau } from "./bandeau.ts";
+import { messageAccord, messageLimiteImages } from "../lib/cout.ts";
+import { enParallele } from "../lib/parallele.ts";
+import { cleAccordImages } from "../lib/suivi.ts";
+import { versBackground } from "../pont.ts";
+import { afficherErreur, obtenirBandeau, type Accord as Reponse } from "./bandeau.ts";
 import { poserCalque, retirerCalques } from "./calques.ts";
 import {
+  analyserImage,
   ATTR_UI,
   blobVersCharge,
   canvasVersCharge,
@@ -11,9 +16,11 @@ import {
   estHttp,
   type Charge,
 } from "./commun.ts";
-import type { ReponseImage } from "../types.ts";
+import type { ErreurImage, ReponseAnalyse, ReponseImage } from "../types.ts";
 
 const TAILLE_MIN = 64;
+/** Images traitées à la fois : le serveur en accepte autant par utilisateur. */
+const PARALLELE = 2;
 
 type Genre = "img" | "fond" | "canvas";
 
@@ -24,14 +31,41 @@ interface Candidat {
   src?: string;
 }
 
+/** "oui" : toujours pour ce site ; "inconnu" : chaque nouveau lot est proposé ; "attente" : question ouverte. */
 type Accord = "inconnu" | "attente" | "oui" | "non";
 
-const etat = { accord: "inconnu" as Accord, enCours: false, session: 0, langue: "fr", total: 0, fait: 0 };
+const etat = {
+  accord: "inconnu" as Accord, enCours: false, analyse: false, aRefaire: false,
+  /** Crédits, session ou service : plus d'envoi jusqu'à la prochaine traduction. */
+  bloque: false,
+  session: 0, langue: "fr", total: 0, fait: 0,
+};
+// Origine de l'onglet, même depuis un cadre : c'est celle que la fenêtre de l'extension connaît.
+const origines = location.ancestorOrigins;
+const cleAccord = cleAccordImages(origines?.length ? origines[origines.length - 1] : location.origin);
+
+// Accord retiré depuis la fenêtre de l'extension : les lots suivants sont de nouveau proposés.
+chrome.storage.onChanged.addListener((changements, zone) => {
+  if (zone === "local" && cleAccord in changements && !changements[cleAccord].newValue && etat.accord === "oui") {
+    etat.accord = "inconnu";
+  }
+});
+
+/** Bilan de la page : images traduisibles vues, images remplacées, budget du serveur épuisé. */
+const bilan = { vues: 0, traduites: 0, limite: false };
 
 let traites = new WeakMap<Element, Set<string>>();
 let file = new Map<Element, Candidat>();
+/** Images traduisibles en attente de l'accord de l'utilisateur. */
+let proposees = new Map<Element, Candidat>();
 let restaurations: (() => void)[] = [];
 const resultats = new Map<string, ReponseImage>();
+/** Envois en cours par adresse : une même image affichée deux fois ne part qu'une fois. */
+const enVol = new Map<string, ReturnType<typeof envoyerImage>>();
+/** Analyses par langue et adresse : une même image n'est analysée qu'une fois. */
+const analyses = new Map<string, Promise<ReponseAnalyse>>();
+/** Images visibles en cours d'analyse : pas encore dans la file. */
+const enAnalyse = new Set<Element>();
 
 const detecteur = new DetecteurAnimation();
 const identifiants = new WeakMap<Element, number>();
@@ -75,22 +109,27 @@ function trouverCandidats(): Candidat[] {
   const trouves: Candidat[] = [];
   const ajouter = (el: Element, genre: Genre, src?: string) => {
     const cle = cleDe(el, genre);
-    if (!cle || traites.get(el)?.has(cle) || file.has(el)) return;
+    if (!cle || traites.get(el)?.has(cle) || file.has(el) || proposees.has(el) || enAnalyse.has(el)) return;
     trouves.push({ el, genre, cle, src });
   };
 
+  if (!cadreVisible()) return trouves;
   for (const el of elementsProfonds(document)) {
     if (el.hasAttribute(ATTR_UI)) continue;
     if (el instanceof HTMLImageElement) {
-      const ok = el.complete && el.naturalWidth >= TAILLE_MIN && el.naturalHeight >= TAILLE_MIN;
-      if (ok && el.getClientRects().length > 0 && !detecteur.estAnime(identifiant(el))) {
+      // Taille du fichier et taille affichée : une icône de 50 px n'a pas de texte lisible.
+      // Seules les images à l'écran : chaque traduction coûte un crédit.
+      const r = el.getBoundingClientRect();
+      const ok = el.complete && el.naturalWidth >= TAILLE_MIN && el.naturalHeight >= TAILLE_MIN
+        && r.width >= TAILLE_MIN && r.height >= TAILLE_MIN && aireVisible(el) > 0;
+      if (ok && !detecteur.estAnime(identifiant(el))) {
         ajouter(el, "img", el.currentSrc || el.src);
       }
     } else if (el instanceof HTMLCanvasElement) {
-      if (el.width >= TAILLE_MIN && el.height >= TAILLE_MIN) ajouter(el, "canvas");
+      if (el.width >= TAILLE_MIN && el.height >= TAILLE_MIN && aireVisible(el) > 0) ajouter(el, "canvas");
     } else if (el instanceof HTMLElement) {
       const r = el.getBoundingClientRect();
-      if (r.width < TAILLE_MIN || r.height < TAILLE_MIN) continue;
+      if (r.width < TAILLE_MIN || r.height < TAILLE_MIN || aireVisible(el) === 0) continue;
       const url = urlFond(el);
       if (url) ajouter(el, "fond", url);
     }
@@ -98,7 +137,39 @@ function trouverCandidats(): Candidat[] {
   return trouves;
 }
 
+/** Question posée dans le cadre principal (une seule pour tout l'onglet), sinon sur place. */
+async function demanderAccord(images: number): Promise<Reponse> {
+  const r = await versBackground({ type: "accord_images", images }).catch(() => null);
+  return r ?? obtenirBandeau().demanderAccord(messageAccord(images));
+}
+
+/** Cadre affiché dans la page : un cadre caché ou hors écran a pourtant sa propre fenêtre « visible ». */
+function cadreVisible(): boolean {
+  let w: Window = window;
+  try {
+    while (w !== w.top && w.frameElement) {
+      const cadre = w.frameElement;
+      const parent = w.parent;
+      const r = cadre.getBoundingClientRect();
+      const l = Math.min(r.right, parent.innerWidth) - Math.max(r.left, 0);
+      const h = Math.min(r.bottom, parent.innerHeight) - Math.max(r.top, 0);
+      if (l <= 0 || h <= 0 || !estAffiche(cadre)) return false;
+      w = parent;
+    }
+  } catch {
+    // Cadre d'une autre origine : impossible à vérifier, on le suppose affiché.
+  }
+  return true;
+}
+
+/** Ni caché ni transparent (diapo préchargée, calque masqué). */
+function estAffiche(el: Element): boolean {
+  if (typeof el.checkVisibility !== "function") return true;
+  return el.checkVisibility({ opacityProperty: true, visibilityProperty: true });
+}
+
 function aireVisible(el: Element): number {
+  if (!estAffiche(el)) return 0;
   const r = el.getBoundingClientRect();
   const l = Math.min(r.right, window.innerWidth) - Math.max(r.left, 0);
   const h = Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0);
@@ -122,6 +193,7 @@ function plusVisible(): Candidat {
 
 function appliquer(c: Candidat, rep: ReponseImage): void {
   if (rep.remplacee && rep.image) {
+    bilan.traduites++;
     const uri = `data:${rep.mime};base64,${rep.image}`;
     if (c.genre === "img") remplacerImg(c.el as HTMLImageElement, uri);
     else if (c.genre === "fond") remplacerFond(c.el as HTMLElement, uri);
@@ -193,6 +265,61 @@ async function preparer(c: Candidat): Promise<Charge | null> {
   return null;
 }
 
+type Envoi = { ok: true } | { ok: false; erreur: ErreurImage; offre?: boolean };
+
+/** Le background n'a pas toujours accès à l'hôte de l'image : seconde chance depuis la page. */
+async function avecSecondeChance<R extends Envoi>(charge: Charge, envoyer: (ch: Charge) => Promise<R>): Promise<R> {
+  const rep = await envoyer(charge);
+  if (rep.ok || (rep as Envoi & { ok: false }).erreur !== "illisible" || !charge.src) return rep;
+  const locale = await lireLocalement(charge.src);
+  return locale ? envoyer(locale) : rep;
+}
+
+/** Erreur du serveur : vrai s'il faut tout arrêter (crédits, session, panne, budget de page). */
+function echec(c: Candidat, erreur: ErreurImage, offre = false): boolean {
+  if (erreur === "refusee" || erreur === "illisible") {
+    marquer(c.el, c.cle);
+    return false;
+  }
+  if (erreur === "limite") {
+    // Seules les images à texte remplacées ont usé le budget : on le dit en chiffres.
+    bilan.limite = true;
+    obtenirBandeau().message(
+      messageLimiteImages(bilan.traduites, bilan.vues),
+      offre ? { libelle: "Starter ou Pro pour continuer", href: SITE_TARIFS } : undefined,
+    );
+  } else {
+    if (erreur === "limite_jour") bilan.limite = true;
+    afficherErreur(obtenirBandeau(), erreur, offre);
+  }
+  etat.bloque = true;
+  return true;
+}
+
+type Verdict = "traduisible" | "sans texte" | "arret";
+
+/** Analyse serveur (sans débit) : seules les images traduisibles entrent dans la file. */
+async function analyser(c: Candidat, session: number): Promise<Verdict> {
+  if (c.genre === "img" && detecteur.estAnime(identifiant(c.el))) return "sans texte";
+  if (c.src && resultats.has(c.src)) return resultats.get(c.src)!.blocs.length > 0 ? "traduisible" : "sans texte";
+  const vol = c.src ? `${etat.langue} ${c.src}` : null;
+  let promesse = vol ? analyses.get(vol) : undefined;
+  if (!promesse) {
+    const charge = await preparer(c);
+    if (!charge) return "sans texte";
+    promesse = avecSecondeChance(charge, (ch) => analyserImage(etat.langue, ch));
+    if (vol) {
+      analyses.set(vol, promesse);
+      // Une erreur passagère ne reste pas en mémoire.
+      void promesse.then((r) => !r.ok && analyses.delete(vol));
+    }
+  }
+  const rep = await promesse;
+  if (session !== etat.session) return "arret";
+  if (!rep.ok) return echec(c, rep.erreur, rep.offre) ? "arret" : "sans texte";
+  return rep.traduisible ? "traduisible" : "sans texte";
+}
+
 // Renvoie vrai s'il faut arrêter la file (crédits épuisés, session expirée, service en panne).
 async function traiter(c: Candidat, session: number): Promise<boolean> {
   if (c.genre === "img" && detecteur.estAnime(identifiant(c.el))) return false;
@@ -200,27 +327,31 @@ async function traiter(c: Candidat, session: number): Promise<boolean> {
   const mise = c.src ? resultats.get(c.src) : undefined;
   let reponse = mise ?? null;
 
+  let charge: Awaited<ReturnType<typeof preparer>> = null;
   if (!reponse) {
-    let charge = await preparer(c);
+    charge = await preparer(c);
+    // L'autre travailleur a pu traduire la même image pendant la préparation.
+    reponse = (c.src && resultats.get(c.src)) || null;
+  }
+
+  if (!reponse) {
     if (!charge) {
       marquer(c.el, c.cle);
       return false;
     }
-    let rep = await envoyerImage(etat.langue, charge);
-    if (!rep.ok && rep.erreur === "illisible" && charge.src) {
-      // Le background n'a pas accès à l'hôte de l'image : seconde chance depuis la page.
-      charge = await lireLocalement(charge.src);
-      rep = charge ? await envoyerImage(etat.langue, charge) : rep;
-    }
-    if (session !== etat.session) return true;
-    if (!rep.ok) {
-      if (rep.erreur === "refusee" || rep.erreur === "illisible") {
-        marquer(c.el, c.cle);
-        return false;
+    const envoi = () => avecSecondeChance(charge!, (ch) => envoyerImage(etat.langue, ch));
+    const vol = c.src ? `${etat.langue} ${c.src}` : null;
+    let promesse = vol ? enVol.get(vol) : undefined;
+    if (!promesse) {
+      promesse = envoi();
+      if (vol) {
+        enVol.set(vol, promesse);
+        void promesse.finally(() => enVol.delete(vol));
       }
-      afficherErreur(obtenirBandeau(), rep.erreur);
-      return true;
     }
+    const rep = await promesse;
+    if (session !== etat.session) return true;
+    if (!rep.ok) return echec(c, rep.erreur, rep.offre);
     reponse = rep.reponse;
     if (c.src) resultats.set(c.src, reponse);
   }
@@ -235,17 +366,31 @@ async function boucle(): Promise<void> {
   etat.enCours = true;
   const session = etat.session;
   try {
-    while (file.size > 0 && session === etat.session) {
-      const c = plusVisible();
-      file.delete(c.el);
-      etat.fait++;
-      if (!c.el.isConnected) continue;
+    // Le plus visible d'abord, repris à chaque place libérée (l'utilisateur a pu défiler).
+    const prendre = (): Candidat | undefined => {
+      while (file.size > 0 && session === etat.session) {
+        const c = plusVisible();
+        file.delete(c.el);
+        // Sortie de l'écran entre-temps : abandonnée, reprise au prochain défilement.
+        if (!c.el.isConnected || aireVisible(c.el) === 0) {
+          etat.total--;
+          bilan.vues--;
+          continue;
+        }
+        etat.fait++;
+        return c;
+      }
+      return undefined;
+    };
+    await enParallele(PARALLELE, prendre, async (c) => {
       obtenirBandeau().progression(`Traduction… ${etat.fait}/${etat.total}`);
       if (await traiter(c, session)) {
-        file.clear();
-        break;
+        // Une session plus récente a sa propre file : on ne la vide pas.
+        if (session === etat.session) file.clear();
+        return true;
       }
-    }
+      return false;
+    });
   } finally {
     if (session === etat.session) {
       etat.enCours = false;
@@ -256,41 +401,124 @@ async function boucle(): Promise<void> {
   }
 }
 
+/** Analyse les images visibles, deux à la fois ; vrai s'il faut tout arrêter. */
+async function analyserVisibles(session: number): Promise<boolean> {
+  const candidats = trouverCandidats();
+  if (candidats.length === 0) return false;
+  for (const c of candidats) enAnalyse.add(c.el);
+  if (!etat.enCours) obtenirBandeau().progression("Analyse des images…");
+  let arret = false;
+  let i = 0;
+  try {
+    await enParallele(PARALLELE, () => candidats[i++], async (c) => {
+      const verdict = await analyser(c, session);
+      if (verdict === "arret") return (arret = true);
+      if (verdict === "sans texte") marquer(c.el, c.cle);
+      else {
+        bilan.vues++;
+        // Toujours pour ce site : traduite sans attendre la fin de l'analyse.
+        if (etat.accord === "oui") {
+          file.set(c.el, c);
+          etat.total++;
+          void boucle();
+        } else proposees.set(c.el, c);
+      }
+      return false;
+    });
+  } finally {
+    // Une session plus récente a vidé puis rempli son propre ensemble.
+    if (session === etat.session) {
+      for (const c of candidats) enAnalyse.delete(c.el);
+      if (!etat.enCours) obtenirBandeau().progression(null);
+    }
+  }
+  return arret;
+}
+
 export async function scannerImages(): Promise<void> {
-  if (etat.accord === "non") return;
+  if (etat.accord === "non" || bilan.limite || etat.bloque) return;
+  // Une analyse à la fois : un défilement pendant l'analyse la relance à la fin.
+  if (etat.analyse) {
+    etat.aRefaire = true;
+    return;
+  }
   const session = etat.session;
-  for (const c of trouverCandidats()) {
+  etat.analyse = true;
+  let arret: boolean;
+  try {
+    arret = await analyserVisibles(session);
+  } finally {
+    if (session === etat.session) etat.analyse = false;
+  }
+  if (session !== etat.session) return;
+  if (arret) {
+    file.clear();
+    proposees.clear();
+    return;
+  }
+  if (etat.aRefaire) {
+    etat.aRefaire = false;
+    relancer();
+  }
+  // Rien de nouveau à proposer, ou une question déjà ouverte (le lot suivant attend sa réponse).
+  if (proposees.size === 0 || etat.accord !== "inconnu") return;
+
+  etat.accord = "attente";
+  const cle = cleAccord;
+  const stock = await chrome.storage.local.get(cle);
+  if (session !== etat.session) return;
+  let lot = [...proposees.values()];
+  if (stock[cle]) {
+    etat.accord = "oui";
+    lot = [...proposees.values()];
+  } else {
+    const reponse = await demanderAccord(lot.length);
+    if (session !== etat.session) return;
+    if (!reponse.accepte) {
+      // Refus pour ce lot seulement : ces images ne sont plus proposées, les suivantes le seront.
+      for (const c of lot) {
+        marquer(c.el, c.cle);
+        proposees.delete(c.el);
+      }
+      etat.accord = "inconnu";
+      if (proposees.size > 0) relancer();
+      return;
+    }
+    if (reponse.toujours) {
+      await chrome.storage.local.set({ [cle]: true });
+      etat.accord = "oui";
+      lot = [...proposees.values()];
+    } else {
+      // Accord pour ce lot seulement : les images suivantes seront proposées à leur tour.
+      etat.accord = "inconnu";
+    }
+  }
+  for (const c of lot) {
+    proposees.delete(c.el);
     file.set(c.el, c);
     etat.total++;
   }
-  if (file.size === 0) return;
+  void boucle();
+  // Images arrivées pendant la question : proposées à leur tour.
+  if (proposees.size > 0) relancer();
+}
 
-  if (etat.accord === "inconnu") {
-    etat.accord = "attente";
-    const cle = `accord:${location.origin}`;
-    const stock = await chrome.storage.local.get(cle);
-    if (session !== etat.session) return;
-    if (stock[cle]) {
-      etat.accord = "oui";
-    } else {
-      const reponse = await obtenirBandeau().demanderAccord(messageAccord(file.size));
-      if (session !== etat.session) return;
-      if (!reponse.accepte) {
-        etat.accord = "non";
-        file.clear();
-        return;
-      }
-      if (reponse.toujours) await chrome.storage.local.set({ [cle]: true });
-      etat.accord = "oui";
-    }
-  }
-  if (etat.accord === "oui") void boucle();
+function relancer(): void {
+  clearTimeout(minuteurChargement);
+  minuteurChargement = window.setTimeout(() => void scannerImages(), 300);
 }
 
 function surChargement(e: Event): void {
-  if (!(e.target instanceof HTMLImageElement)) return;
-  clearTimeout(minuteurChargement);
-  minuteurChargement = window.setTimeout(() => void scannerImages(), 300);
+  if (e.target instanceof HTMLImageElement) relancer();
+}
+
+// Défilement (page ou bloc interne), fenêtre redimensionnée, clic (diapo suivante, onglet) :
+// de nouvelles images peuvent arriver à l'écran.
+const EVENEMENTS_VUE = ["scroll", "resize", "click"] as const;
+
+/** Vrai tant que la file d'images de ce cadre se traite (bouton du popup en chargement). */
+export function imagesEnCours(): boolean {
+  return etat.enCours || etat.analyse;
 }
 
 export function demarrerImages(langue: string): Promise<void> {
@@ -309,6 +537,7 @@ export function demarrerImages(langue: string): Promise<void> {
     subtree: true,
   });
   document.addEventListener("load", surChargement, true);
+  for (const nom of EVENEMENTS_VUE) window.addEventListener(nom, relancer, { capture: true, passive: true });
   return scannerImages();
 }
 
@@ -316,13 +545,20 @@ function arreterImages(): void {
   etat.session++;
   etat.accord = "inconnu";
   etat.enCours = false;
+  etat.analyse = false;
+  etat.aRefaire = false;
+  etat.bloque = false;
   etat.total = 0;
   etat.fait = 0;
+  Object.assign(bilan, { vues: 0, traduites: 0, limite: false });
   file = new Map();
+  proposees = new Map();
+  enAnalyse.clear();
   clearTimeout(minuteurChargement);
   observateurSrc?.disconnect();
   observateurSrc = null;
   document.removeEventListener("load", surChargement, true);
+  for (const nom of EVENEMENTS_VUE) window.removeEventListener(nom, relancer, { capture: true });
 }
 
 export function restaurerImages(): void {
@@ -332,4 +568,5 @@ export function restaurerImages(): void {
   retirerCalques();
   traites = new WeakMap();
   resultats.clear();
+  analyses.clear();
 }

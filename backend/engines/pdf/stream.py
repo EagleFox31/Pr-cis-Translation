@@ -188,10 +188,10 @@ def _ajouter_polices(eng, data, doc):
 def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                               pages=None, partial_path=None, on_event=None,
                               debug=False, cache_path=None, engine=None,
-                              arret=None, images=None, lecteur_ocr=None,
+                              arret=None, images=None, lecteur_ocr=None, avant_page=None,
                               pages_vides=None, pages_originales=None,
                               signaler_illisibles=False,
-                              pages_non_incluses=None):
+                              pages_non_incluses=None, images_travail=None):
     """Traduit `pdf_path` page par page vers `output_path`.
 
     pages        : ensemble de numéros 1-basés à traduire (None = toutes) ; les
@@ -215,6 +215,9 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                    `pages_originales` (original choisi par l'utilisateur).
     pages_non_incluses : pages hors sélection qui reçoivent la mention « page
                    non incluse », sauf celles de `pages_originales`.
+    images_travail : images traduites avec leur page (`demander([page])` au
+                   début de la page, `attendre(page)` -> table, avant son
+                   rendu) ; elles s'ajoutent à `images`.
     """
     eng = engine or PDFObjectEngine()
     images = _images_par_xref(images)
@@ -323,8 +326,18 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
                                  "done": human, "total": total})
                 continue
 
+            # Limite d'aperçu : contrôlée devant toute page de la sélection,
+            # avant la lecture OCR et le cache. Une page déjà traduite (cache
+            # partagé entre comptes) au-delà du plafond serait sinon livrée
+            # sans être ni payée ni comptée.
+            if avant_page is not None:
+                avant_page(human)
             page_src, page_idx = src, page_num
             lecture = lecteur_ocr(human, src, page_num) if lecteur_ocr else None
+            if images_travail is not None and lecture is None:
+                # Page lue depuis l'original : ses images partent avec elle.
+                # Une page lue par OCR (ou hors budget) ne les lit jamais.
+                images_travail.demander([human])
             if lecture is not None:
                 if lecture.statut != "ok":
                     out.insert_pdf(src, from_page=page_num, to_page=page_num)
@@ -436,6 +449,8 @@ def translate_pdf_progressive(pdf_path, output_path, target_lang="fr",
             _emit(on_event, {"type": "page", "page": human,
                              "status": "rendering",
                              "done": human - 1, "total": total})
+            if images_travail is not None and page_src is src:
+                images = {**images, **_images_par_xref(images_travail.attendre(human))}
             eng.render_page_into(out, page_data, draw_borders=debug,
                                  translated=not debug, src_doc=page_src,
                                  images=None if page_src is not src else images)

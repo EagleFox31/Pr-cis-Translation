@@ -87,9 +87,23 @@ def cas_banc():
     print(f"  banc : flèche 100 % gardée, uni {db:.1f} dB")
 
 
+def cas_halo():
+    # Lettres bleues entourées d'un halo pâle (lueur, flou d'agrandissement) :
+    # le halo, sous le seuil d'Otsu, doit partir avec les lettres.
+    fond = np.full((H, W, 3), 255, np.uint8)
+    img = fond.copy()
+    cv2.putText(img, "Halo 42", (100, 82), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (200, 120, 0), 9, cv2.LINE_AA)
+    img = cv2.GaussianBlur(img, (0, 0), 3)
+    cv2.putText(img, "Halo 42", (100, 82), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (200, 80, 0), 3, cv2.LINE_AA)
+    out, choix = effacer(img, [BOITE])
+    reste = int(np.abs(out.astype(int) - fond).max(2).max())
+    assert reste <= 12, (choix, reste)
+    print(f"  halo : {choix[0]}, écart max {reste}")
+
+
 def main():
     debut = time.monotonic()
-    for cas in (cas_degrade, cas_trait_traversant, cas_texture, cas_banc):
+    for cas in (cas_degrade, cas_trait_traversant, cas_texture, cas_halo, cas_banc):
         cas()
     print(f"OK effacement ({time.monotonic() - debut:.1f} s)")
 

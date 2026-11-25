@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import (KIND_CREDITS, KIND_FREE_OFFER, KIND_LEGACY, UsageRecord,
+from app.models import (KIND_CREDITS, KIND_FREE_OFFER, KIND_LEGACY, KIND_PLAN, UsageRecord,
                         User, get_plan_monthly_pages)
 
 
@@ -138,10 +138,8 @@ async def refund_unfinished(db: AsyncSession, document_id: str, gardees: int) ->
     d'abord les pages ACHETÉES (le titre le plus cher pour le client), puis
     le quota. Une ligne réduite à zéro passe `refunded` ; les autres gardent
     leur nombre de pages réduit. Limite : `rebill_for_document` ne rétablit
-    que les lignes remboursées en entier, pas une ligne réduite ; et l'ordre
-    des verrous (Document puis compte, depuis `sync_status`) est l'inverse de
-    celui d'une reprise : interblocage possible, mais seulement avec deux
-    processus simultanés (déploiement à un seul processus)."""
+    que les lignes remboursées en entier, pas une ligne réduite. Les
+    appelants verrouillent le compte avant le document (ordre unique)."""
     from app.services import beta
     await beta.refund_unfinished(db, document_id, gardees)
     rows = (await db.execute(
@@ -234,3 +232,44 @@ def _mois_suivant() -> datetime:
     if debut.month == 12:
         return debut.replace(year=debut.year + 1, month=1)
     return debut.replace(month=debut.month + 1)
+
+
+async def regler_pages_libres(db: AsyncSession, user_id: str, doc) -> int:
+    """Paie avec le solde ce qu'il peut des pages libres de `doc` (étude
+    traduction libre, §9). Renvoie le nombre de pages débitées ; le commit
+    revient à l'appelant.
+
+    Ordre : le quota du mois d'un forfait payant, puis les pages achetées.
+    L'offre gratuite du mois n'est jamais prise ici : son contrôle
+    anti-abus n'a lieu qu'au lancement d'une traduction. Les pages réglées
+    sont les PREMIÈRES pages libres ; les libres restantes sont donc
+    toujours les dernières de la sélection."""
+    libres = doc.pages_libres or 0
+    if libres <= 0:
+        return 0
+    # `populate_existing` : l'authentification a déjà chargé ce compte dans la
+    # même session ; sans lui, le verrou rend l'objet en mémoire et son solde
+    # lu AVANT le verrou (double dépense entre deux règlements simultanés).
+    user = (await db.execute(
+        select(User).where(User.id == user_id).with_for_update()
+        .execution_options(populate_existing=True)
+    )).scalar_one_or_none()
+    if user is None:
+        return 0
+    reste_plan = 0
+    if user.plan != "free":
+        monthly = get_plan_monthly_pages(user.plan)
+        reste_plan = (libres if monthly is None else
+                      max(0, monthly - await pages_used_this_month(db, user)))
+    du_plan = min(libres, reste_plan)
+    achetees = min(libres - du_plan, max(0, user.page_credits))
+    if du_plan:
+        record(db, user.id, doc.id, KIND_PLAN, du_plan)
+    if achetees:
+        user.page_credits -= achetees
+        record(db, user.id, doc.id, KIND_CREDITS, achetees)
+    regle = du_plan + achetees
+    if regle:
+        doc.pages_libres = libres - regle
+        doc.paid = True
+    return regle

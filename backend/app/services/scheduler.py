@@ -66,9 +66,11 @@ class TranslationScheduler:
             # Un worker est-il disponible tout de suite ? Sinon, ce job attend
             # DERRIÈRE ceux déjà en file. `ahead` est une estimation d'affichage,
             # pas un contrat : il ne tient pas compte des priorités relatives,
-            # juste du nombre de gens devant.
+            # juste du nombre de gens devant. Les jobs mis en pause ou annulés
+            # pendant leur attente restent dans la file jusqu'à ce qu'un worker
+            # les écarte : ils ne comptent pas.
             will_wait = self._running >= self._workers
-            ahead = self._pq.qsize() if will_wait else 0
+            ahead = self._attente_reelle() if will_wait else 0
         # -priority : PriorityQueue sert le plus PETIT en premier, or on veut le
         # plus prioritaire d'abord.
         self._pq.put((-priority, seq, job_id, target, args))
@@ -76,6 +78,13 @@ class TranslationScheduler:
             jobs.emit(job_id, "queued", {"ahead": ahead})
             logger.info("Job %s en file (priorité %s, %s devant)",
                         job_id, priority, ahead)
+
+    def _attente_reelle(self) -> int:
+        """Jobs en file qui seront vraiment traités (ni en pause ni annulés)."""
+        with self._pq.mutex:
+            en_file = [entree[2] for entree in self._pq.queue]
+        return sum(1 for jid in en_file
+                   if not (jobs.get(jid) or {}).get("arret"))
 
     # ── Boucle worker ────────────────────────────────────────────────────────
     def _worker(self) -> None:
@@ -110,6 +119,10 @@ class TranslationScheduler:
                 with self._lock:
                     self._running -= 1
                 self._pq.task_done()
+                # Le job a lâché ses objets : les rendre au système, sinon le
+                # processus garde son pic et le job suivant le fait tuer.
+                from app.services.memoire import rendre_memoire
+                rendre_memoire()
                 # Une traduction vient de dépenser : relire le solde DeepSeek.
                 from app.services.solde_ia import verifier_depuis_un_thread
                 verifier_depuis_un_thread()

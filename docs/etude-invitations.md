@@ -51,7 +51,7 @@ après la première traduction réussie (non fait, à valider).
 | Débit | 5 requêtes/min par IP | Empêche le script de rafale |
 | Adresses par envoi | 10 | Une invitation n'est pas une campagne |
 | Quota | 20 invitations/jour/compte | Plafond de l'usage normal |
-| Doublon | même adresse : une fois par 7 jours | Personne ne reçoit trois relances |
+| Renvoi (révisé le 16/11, § 6) | même compte → même adresse : 10 min d'écart, 3 par 7 jours ; une adresse : 5 par 7 jours, tous comptes | Renvoi possible si l'e-mail se perd, sans relances en rafale |
 | Comptes existants | écartés **sans le dire** | Pas d'énumération des inscrits |
 | Contenu | nom et mot échappés, sujet sur une ligne | Pas de lien piégé ni d'injection d'en-tête |
 | Échec SMTP | aucune trace enregistrée, 503 si tout échoue | Le quota ne paie pas les pannes |
@@ -102,3 +102,64 @@ après la première traduction réussie (non fait, à valider).
   bout en bout).
 - Vérification de la fenêtre dans le navigateur.
 - `alembic upgrade head` au déploiement (migration 0013).
+
+## 6. Révision (16/11) : renvoi d'une invitation
+
+### Constat
+
+La règle « même adresse : une fois par 7 jours » s'applique **tous inviteurs
+confondus**, et l'interface affiche quand même « envoyé ». Exemple : Paul
+invite Marie lundi, l'e-mail tombe en spam ou se perd ; mardi Paul réessaie,
+rien ne part, et Paul croit que c'est reparti. Pire : si Jeanne a invité Marie
+la veille, l'invitation de Paul n'est jamais envoyée. Un envoi refusé par le
+serveur libère déjà la trace (§2), mais un e-mail accepté puis perdu (spam,
+filtre) ne peut plus être renvoyé.
+
+### Pratique courante (Slack, Notion, GitHub, Dropbox)
+
+- Le doublon se compte **par couple inviteur → adresse**, pas par adresse seule.
+- **Renvoi permis** avec un délai d'attente entre deux envois et un nombre
+  maximal de renvois sur une période.
+- Un **plafond par adresse, tous inviteurs confondus**, protège le destinataire
+  du harcèlement (plus large que le plafond par couple).
+- Le quota journalier par compte reste le garde-fou contre le spam.
+
+### Options
+
+| Option | Pour | Contre |
+|---|---|---|
+| A. Garder la règle actuelle | Rien à faire | Invitation perdue = impossible à renvoyer ; un tiers bloque l'envoi d'un autre |
+| B. Doublon par couple inviteur → adresse (7 j), sans renvoi | Simple | Toujours aucun renvoi si l'e-mail se perd |
+| **C. B + renvoi encadré + plafond par adresse** | Conforme à l'usage ; renvoi possible ; destinataire protégé | Trois compteurs au lieu d'un |
+
+### Choix recommandé : C
+
+| Règle | Valeur proposée |
+|---|---|
+| Délai entre deux envois du même inviteur à la même adresse | 10 min |
+| Envois du même inviteur à la même adresse | 3 par 7 jours (1 envoi + 2 renvois) |
+| Envois à une même adresse, tous inviteurs confondus | 5 par 7 jours |
+| Quota par compte | 20/jour (inchangé) |
+| Comptes existants | toujours écartés sans le dire (anti-énumération, inchangé) |
+| Envoi refusé par le serveur | trace effacée, ne compte pas (inchangé) |
+
+### Impacts
+
+- Données : aucune migration ; la table `invitations` a déjà `inviter_id`,
+  `email`, `created_at`. Index simples sur `email` et `created_at` : suffisants
+  (table purgée à 30 jours).
+- Code : la requête `recentes` de `backend/app/api/invitations.py` devient deux
+  comptages (couple, adresse) et un contrôle du dernier envoi ; tests associés.
+- Interface : message « Déjà invité » quand l'inviteur relance trop tôt ou
+  dépasse 3 envois (429, `detail.code` = `renvoi_trop_tot` / `renvoi_limite`) ;
+  le reste de la réponse reste muet sur ce qui a été écarté.
+- RGPD : conservation 30 jours inchangée.
+
+### Décisions (16/11/2026)
+
+1. Valeurs retenues : 10 min / 3 par 7 j / 5 par 7 j.
+2. Message à l'inviteur pour SON propre renvoi : oui (ne révèle rien sur les
+   comptes, il sait déjà qui il a invité).
+
+Fait : `backend/app/api/invitations.py`, `InviteModal.tsx` (+ traductions fr/en),
+`backend/tests/test_invitations_api.py` (25/25).

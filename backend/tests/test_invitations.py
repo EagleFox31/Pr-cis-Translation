@@ -14,7 +14,9 @@ CE QUI EST VÉRIFIÉ
 """
 from __future__ import annotations
 
+import re
 import sys
+from email.header import decode_header, make_header
 
 import racine  # noqa: F401  -- met backend/ sur le chemin
 
@@ -50,7 +52,9 @@ def main() -> int:
           repr(msg["Subject"]))
     check("pas d'en-tête Bcc injecté", msg["Bcc"] is None)
     check("Reply-To = inviteur", msg["Reply-To"] == "eve@exemple.com")
-    check("expéditeur de marque", str(msg["From"]).startswith(MARQUE["nom"]))
+    # Le nom est encodé (RFC 2047) : on compare sa forme décodée.
+    expediteur = str(make_header(decode_header(msg["From"])))
+    check("expéditeur de marque", expediteur.startswith(MARQUE["nom"]), expediteur)
     check("destinataire", msg["To"] == "ami@exemple.com")
 
     # 3. Contenu
@@ -67,7 +71,9 @@ def main() -> int:
     check("structure related > alternative",
           msg.get_content_type() == "multipart/related"
           and msg.get_payload()[0].get_content_type() == "multipart/alternative")
-    check("pas d'accolade non remplie", "{" not in html and "{" not in texte)
+    # Le bloc <style> (media query de la carte) contient des accolades légitimes.
+    corps = re.sub(r"<style>.*?</style>", "", html, flags=re.S)
+    check("pas d'accolade non remplie", "{" not in corps and "{" not in texte)
 
     # 5. Langue
     en = _message_invitation("a@b.c", "Eve", "eve@exemple.com", None, "en")

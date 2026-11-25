@@ -104,7 +104,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(24))"   # POSTGRES_PASSW
 | `DEEPSEEK_API_KEY` | la clé réelle — sans elle, aucune traduction |
 | `ALLOWED_ORIGINS` | `https://votre-domaine` **seul**, sans localhost |
 | `FRONTEND_URL` | `https://votre-domaine` |
-| `SMTP_*`, `EMAIL_ENABLED` | ou `EMAIL_ENABLED=false`, et alors aucun compte ne s'active |
+| `SMTP_*` (dont `SMTP_FROM` : alias expéditeur, `SMTP_REPLY_TO` : adresse de réponse), `EMAIL_ENABLED` | ou `EMAIL_ENABLED=false`, et alors aucun compte ne s'active |
 | `ADMIN_ALERT_EMAIL` | destinataire des alertes d'erreurs et des tickets |
 | `ADMIN_EMAIL` | comptes administrateurs créés au démarrage, plusieurs adresses séparées par des virgules (`seed_admin.py`, défaut `mbowouibrah@gmail.com`) ; connexion par code e-mail ou Google |
 
@@ -251,6 +251,14 @@ La vue **`/admin/logs`** regroupe les erreurs par empreinte et alerte par e-mail
 au-delà d'un seuil ; **`/admin/support`** reçoit les demandes des utilisateurs.
 Les consulter vaut mieux que lire les journaux.
 
+Le journal se tient seul : au démarrage (donc à chaque déploiement), les
+erreurs déclarées corrigées dans `backend/app/erreurs_resolues.py` passent à
+« traitées » — seules leurs occurrences antérieures au démarrage, une rechute
+reste visible. Puis, chaque jour, le traité de plus de `ERROR_LOG_RETENTION_DAYS`
+jours (30) est supprimé et chaque groupe est plafonné à
+`ERROR_LOG_MAX_PAR_GROUPE` occurrences (200, les plus récentes gardées). Une PR
+qui corrige une erreur vue dans `/admin/logs` ajoute donc son entrée au registre.
+
 ## Revenir en arrière
 
 ```bash
@@ -260,3 +268,26 @@ git checkout v1.0.0 && ./scripts/precis.sh rebuild
 Les volumes survivent : ni les comptes, ni les documents ne sont perdus. Une
 migration de base, en revanche, ne se dé-applique pas toute seule — vérifier
 `CHANGELOG.md` pour savoir si la version quittée en a introduit une.
+
+## Production sur le VPS OVH (depuis le 09/11/2026)
+
+La production tourne sur le VPS OVH, déployée par `.github/workflows/deploy-vps.yml` (overlay `deploy/vps/`). Historique de la bascule et procédure de redéploiement manuel : [journal-mise-en-production-2026-11.md](journal-mise-en-production-2026-11.md).
+
+### Annonce WhatsApp de la release
+
+Après un déploiement réussi (VPS ou EC2), le job `announce-release` de `release.yml` lance `scripts/ci/release_announcement.py` :
+
+1. lit `/api/nouveautes` ; si `version` n'est pas celle du tag publié, rien n'est envoyé et le job échoue ;
+2. compose le message : titre, une puce par élément daté du jour de la version (`DATE_VERSION`), puis le lien du site ;
+3. l'envoie via WAHA (`POST https://notify.trigenys.com/api/sendText`, module générique `scripts/ci/waha_notify.py`).
+
+Un re-run ne renvoie rien : le statut de commit `release/whatsapp-announcement` sur le SHA de la release vaut `success` une fois l'annonce partie. S'il reste `pending` (envoi interrompu), le job échoue et dit quel statut poser.
+
+| Réglage (Settings → Secrets and variables → Actions, niveau dépôt) | Type | Valeur |
+|---|---|---|
+| `NOTIFY_SESSION` | variable | `trigenys-test` |
+| `NOTIFY_CHAT_ID` | variable | `120363408459165821@g.us` (TRIGENYS GROUP) |
+| `NOTIFY_API_KEY` | secret | clé WAHA (`WAHA_API_KEY` du conteneur `trigenys-waha`) |
+| `NOTIFY_BASE_URL` | variable, facultative | défaut `https://notify.trigenys.com` |
+
+Sans `NOTIFY_SESSION` ni `NOTIFY_CHAT_ID`, l'annonce est désactivée (no-op). Aperçu sans envoi : `python3 scripts/ci/release_announcement.py --tag vX.Y.Z --dry-run`.

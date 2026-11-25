@@ -1,10 +1,12 @@
 import { useTranslation } from 'react-i18next';
-import { motion, useScroll, useTransform } from 'motion/react';
+import { motion, useReducedMotion, useTransform } from 'motion/react';
+import { useScrollProgress } from '../../lib/useScrollProgress';
 import { useEffect, useRef } from 'react';
-import { Check, Minus, X } from 'lucide-react';
+import { Check, Lock, Minus, X } from 'lucide-react';
 import TranslationSection from '../upload/TranslationSection';
 import type { TranslateConfig } from '../upload/TranslationSection';
 import ViewerToolbar from '../preview/ViewerToolbar';
+import type { Ajustement } from '../preview/ViewerToolbar';
 import DocumentPreview from '../preview/DocumentPreview';
 import type { PageStatus, StopMode } from '../../hooks/useStreamingTranslation';
 import { baseCode } from '../../lib/languages';
@@ -26,7 +28,15 @@ interface StorySectionProps {
   currentPage: number;
   numPages: number;
   zoom: number;
+  /** Ajustement du zoom (`null` = manuel) et rideau de comparaison. */
+  ajustement?: Ajustement;
+  onAjustementChange?: (mode: Ajustement) => void;
+  /** Reçoit le zoom calculé par la visionneuse (sans quitter l'ajustement). */
+  onZoomAjuste?: (z: number) => void;
+  rideau?: boolean;
+  onRideauChange?: (actif: boolean) => void;
   isTrialMode: boolean;
+  pagesVoilees?: number[];
   targetLang?: string;
   isTranslating: boolean;
   pageStatuses: Record<number, PageStatus>;
@@ -48,6 +58,8 @@ interface StorySectionProps {
   creditsNeeded?: number | null;
   /** Ouvre le paiement à la page pour `n` pages. */
   onBuyPages?: (pages: number) => void;
+  /** Achat des pages libres d'un document déjà traduit (ligne sous l'aperçu). */
+  onBuyLibres?: (pages: number) => void;
   /** Pages déjà couvertes par le solde, si on peut ne traduire qu'elles. */
   pagesCovered?: number | null;
   /** Motif du refus à afficher au-dessus de l'achat (pages offertes refusées
@@ -57,6 +69,10 @@ interface StorySectionProps {
   onTranslateCovered?: () => void;
   /** Pages du manque dues aux images demandées. */
   imagesNeeded?: number | null;
+  /** Pages traduites en aperçu mais non payées (mode libre). */
+  pagesLibres?: number;
+  /** Numéros des pages d'aperçu non payées : cadenas sur leur vignette. */
+  pagesNonPayees?: number[];
   /** Relance du document sans ses images. */
   onTranslateWithoutImages?: () => void;
   /** Mode agrandi (focus) actif ? */
@@ -68,10 +84,16 @@ interface StorySectionProps {
   onToggleFocus?: () => void;
   /** Pause / Annuler la traduction affichée (barre d'aperçu). */
   onStop?: (mode: StopMode) => Promise<void>;
+  /** Traduction pas encore acceptée par le serveur : rien à arrêter. */
+  demarrage?: boolean;
+  /** Admin regardant le document d'un client : « Créer ma copie ». */
+  onCopy?: () => void;
+  copyBusy?: boolean;
   onZoomChange: (z: number) => void;
   onPageChange: (p: number) => void;
   onDownload: () => void;
   onDownloadOriginal?: () => void;
+  onRetranslate?: () => void;
   onPagesLoaded: (n: number) => void;
   onLibraryOpen?: () => void;
   /** Bandeau sous la barre d'aperçu (images traduites d'un document de la bibliothèque). */
@@ -91,7 +113,13 @@ export default function StorySection({
   currentPage,
   numPages,
   zoom,
+  ajustement = null,
+  onAjustementChange,
+  onZoomAjuste,
+  rideau = false,
+  onRideauChange,
   isTrialMode,
+  pagesVoilees,
   targetLang,
   isTranslating,
   pageStatuses,
@@ -104,10 +132,13 @@ export default function StorySection({
   limitReached = false,
   creditsNeeded = null,
   onBuyPages,
+  onBuyLibres,
   pagesCovered = null,
   creditsReason = null,
   onTranslateCovered,
   imagesNeeded = null,
+  pagesLibres = 0,
+  pagesNonPayees,
   onTranslateWithoutImages,
   focus = false,
   onStartTranslate,
@@ -115,10 +146,14 @@ export default function StorySection({
   onUnlock,
   onToggleFocus,
   onStop,
+  demarrage,
+  onCopy,
+  copyBusy,
   onZoomChange,
   onPageChange,
   onDownload,
   onDownloadOriginal,
+  onRetranslate,
   onPagesLoaded,
   onLibraryOpen,
   imagesPanel,
@@ -129,6 +164,22 @@ export default function StorySection({
     (s) => s === 'done' || s === 'copied',
   ).length;
   const { t } = useTranslation();
+  // La page courante est-elle traduite ET téléchargée ? Pilote le panneau
+  // traduit et le rideau de comparaison.
+  const pageTraduitePrete =
+    // `previewRendering` PRIME sur tout le reste. Pendant le rendu d'une page
+    // (bibliothèque), le blob affiché est encore celui de la page PRÉCÉDENTE —
+    // laisser le canevas visible montrait la page recopiée de l'original, donc
+    // en langue source : en tournant les pages, on ne voyait QUE de l'anglais,
+    // alors que le français arrivait 10 s plus tard. Un spinner honnête vaut
+    // mieux qu'une page fausse.
+    !previewRendering && (
+      (!isTranslating && Object.keys(pageStatuses).length === 0)
+      // Le STATUT ne suffit pas : `done` arrive avant que le nouveau partiel
+      // soit téléchargé, et le partiel PPTX montre l'original à la place des
+      // pages non greffées. Seul `readyPages` dit ce que le fichier affiché contient.
+      || !!readyPages[currentPage]
+    );
   const storyRef = useRef<HTMLElement>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
 
@@ -155,11 +206,10 @@ export default function StorySection({
     'pdf'
   ).toLowerCase();
 
-  const { scrollYProgress: storyScrollProgress } = useScroll({
-    target: storyRef,
-    offset: ['start end', 'end start'],
-  });
+  const storyScrollProgress = useScrollProgress(storyRef, 'cross');
   const storyVisualY = useTransform(storyScrollProgress, [0, 1], [40, -40]);
+  // Glissement de la carte coupé si l'utilisateur réduit les animations.
+  const reduireAnimations = useReducedMotion();
 
   return (
     <section
@@ -175,74 +225,6 @@ export default function StorySection({
         padding: showPreview ? '0' : '40px 0',
       }}
     >
-      {/* Floating BG elements (only when not in preview) */}
-      {!showPreview && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            pointerEvents: 'none',
-            zIndex: 0,
-          }}
-        >
-          <motion.div
-            animate={{ y: [0, 20, 0], rotate: [0, -10, 0] }}
-            transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }}
-            style={{
-              position: 'absolute',
-              top: '20%',
-              right: '10%',
-              opacity: 0.1,
-              color: 'var(--blue)',
-            }}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth="1.5"
-              stroke="currentColor"
-              style={{ width: '90px', height: '90px' }}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-.778.099-1.533.284-2.253"
-              />
-            </svg>
-          </motion.div>
-          <motion.div
-            animate={{ y: [0, -20, 0], rotate: [0, 15, 0] }}
-            transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut', delay: 2 }}
-            style={{
-              position: 'absolute',
-              bottom: '15%',
-              left: '10%',
-              opacity: 0.1,
-              color: 'var(--gold)',
-            }}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth="1.5"
-              stroke="currentColor"
-              style={{ width: '80px', height: '80px' }}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607zM10.5 7.5v6m3-3h-6"
-              />
-            </svg>
-          </motion.div>
-        </div>
-      )}
-
       <div
         className="section-inner"
         style={{
@@ -268,11 +250,11 @@ export default function StorySection({
               />
               <p className="section-desc">{t('story.desc')}</p>
 
-              <div className="story-steps">
+              <ol className="story-steps">
                 {[1, 2, 3, 4].map((step) => (
-                  <div key={step} className="story-step">
+                  <li key={step} className="story-step">
                     <div className="story-step-line">
-                      <div className="story-step-num">
+                      <div className="story-step-num" aria-hidden="true">
                         {String(step).padStart(2, '0')}
                       </div>
                       {step < 4 && <div className="story-step-connector" />}
@@ -281,32 +263,19 @@ export default function StorySection({
                       <h3>{t(`story.step${step}_title`)}</h3>
                       <p>{t(`story.step${step}_desc`)}</p>
                     </div>
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ol>
             </div>
 
             {/* Right: Translation Widget */}
             <motion.div
               className="story-visual"
-              style={{ height: '100%', y: storyVisualY }}
+              style={{ height: '100%', y: reduireAnimations ? 0 : storyVisualY }}
             >
-              <div
-                style={{
-                  backgroundColor: 'white',
-                  padding: '26px 30px',
-                  borderRadius: '16px',
-                  boxShadow: 'var(--shadow-lg)',
-                  border: '1px solid var(--gray-100)',
-                  height: '100%',
-                  // Plancher : la carte ne rétrécit plus sous les états courts
-                  // (aucun fichier choisi), donc l'en-tête et la zone de dépôt
-                  // gardent la même position d'un état à l'autre.
-                  minHeight: '580px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                }}
-              >
+              {/* Carte sur grand écran ; à plat, pleine largeur sur mobile
+                  (`.story-form-card`, index.css) pour rendre la place au formulaire. */}
+              <div className="story-form-card">
                 <TranslationSection onStartTranslate={onStartTranslate} isTranslating={isTranslating} onLibraryOpen={onLibraryOpen} />
               </div>
             </motion.div>
@@ -395,6 +364,7 @@ export default function StorySection({
                   {Array.from({ length: numPages }).map((_, i) => {
                     const pageNo = i + 1;
                     const status = pageStatuses[pageNo];
+                    const nonPayee = !!pagesNonPayees?.includes(pageNo);
                     // Pendant la traduction, « Page traduite » ne s'affiche que si l'aperçu
                     // MONTRE la traduction (`readyPages`), pas sur le seul statut
                     // de page : un lot échoué laissait une page « terminée » en
@@ -429,6 +399,7 @@ export default function StorySection({
                           illisible ? t(`viewer.scan.thumb_${illisible.choix ?? 'pending'}`)
                           : horsSel ? t(`viewer.scan.thumb_hs_${horsSel.choix ?? 'pending'}`)
                           : blanche ? t('viewer.scan.thumb_blanche')
+                          : isReady && nonPayee ? t('story.page_ready_unpaid')
                           : isReady ? t('story.page_ready', 'Page traduite')
                           : status === 'ocr' ? t('story.page_ocr')
                           : status === 'ocr_attente' ? t('story.page_ocr_waiting')
@@ -497,12 +468,13 @@ export default function StorySection({
                               style={{
                                 position: 'absolute', top: '3px', right: '3px',
                                 width: '16px', height: '16px', borderRadius: '50%',
-                                background: '#16a34a', color: '#fff',
+                                // Page d'aperçu non payée : cadenas, absente du fichier téléchargé.
+                                background: nonPayee ? '#64748b' : '#16a34a', color: '#fff',
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 boxShadow: '0 0 0 2px #fff',
                               }}
                             >
-                              <Check size={11} strokeWidth={3.2} />
+                              {nonPayee ? <Lock size={9} strokeWidth={3} /> : <Check size={11} strokeWidth={3.2} />}
                             </span>
                           )}
                           {/* Voile « en cours » sur la vignette active du travail */}
@@ -536,7 +508,6 @@ export default function StorySection({
                     zoom={zoom}
                     currentPage={currentPage}
                     numPages={numPages}
-                    isTrialMode={isTrialMode}
                     sourceFilename={selectedFile?.name}
                     translatedFilename={translatedFilename}
                     targetLang={targetLang}
@@ -544,16 +515,23 @@ export default function StorySection({
                     doneCount={doneCount}
                     focus={focus}
                     onZoomChange={onZoomChange}
+                    ajustement={ajustement}
+                    onAjustementChange={onAjustementChange}
+                    rideau={rideau}
+                    rideauDispo={pageTraduitePrete}
+                    onRideauChange={onRideauChange}
                     onPageChange={onPageChange}
                     onBack={onBack}
                     onDownload={onDownload}
                     onDownloadOriginal={onDownloadOriginal}
-                    onUnlock={onUnlock}
+                    onRetranslate={onRetranslate}
                     onToggleFocus={onToggleFocus}
                     onStop={onStop}
+                    demarrage={demarrage}
+                    onCopy={onCopy}
+                    copyBusy={copyBusy}
                   />
                   {imagesPanel}
-
                   <div className="scroll" id="scroll">
                     <DocumentPreview
                       sourceFile={selectedFile}
@@ -573,30 +551,17 @@ export default function StorySection({
                       }
                       currentPage={currentPage}
                       zoom={zoom}
+                      ajustement={ajustement}
+                      onZoomAjuste={onZoomAjuste}
+                      rideau={rideau}
                       isTrialMode={isTrialMode}
+                      pagesVoilees={pagesVoilees}
                       previewLoading={previewRendering}
                       fileMissing={fileMissing}
                       // Présentation : cadres 16:9 avant même le premier PDF.
                       formatHint={['pptx', 'ppt', 'odp', 'key'].includes(previewExt) ? 'landscape' : 'portrait'}
                       onPagesLoaded={onPagesLoaded}
-                      translatedPageReady={
-                        // `previewRendering` PRIME sur tout le reste. Pendant
-                        // le rendu d'une page (bibliothèque), le blob affiché
-                        // est encore celui de la page PRÉCÉDENTE — laisser le
-                        // canevas visible montrait la page recopiée de
-                        // l'original, donc en langue source : en tournant les
-                        // pages, on ne voyait QUE de l'anglais, alors que le
-                        // français arrivait 10 s plus tard. Un spinner honnête
-                        // vaut mieux qu'une page fausse.
-                        !previewRendering && (
-                          (!isTranslating && Object.keys(pageStatuses).length === 0)
-                          // Le STATUT ne suffit pas : `done` arrive avant que le
-                          // nouveau partiel soit téléchargé, et le partiel PPTX
-                          // montre l'original à la place des pages non greffées.
-                          // Seul `readyPages` dit ce que le fichier affiché contient.
-                          || !!readyPages[currentPage]
-                        )
-                      }
+                      translatedPageReady={pageTraduitePrete}
                       // Arrêtée, une page « en attente » ne tourne plus : sablier, pas spinner.
                       translatedPageStatus={previewRendering ? 'rendering'
                         : !isTranslating && pageStatuses[currentPage] === 'waiting' ? undefined
@@ -614,6 +579,11 @@ export default function StorySection({
                       imagesNeeded={imagesNeeded}
                       onTranslateWithoutImages={onTranslateWithoutImages}
                       onUnlock={onUnlock}
+                      // Pages d'aperçu non payées : dites dans le bas de la page
+                      // traduite. Règlement possible une fois la traduction
+                      // finie (avant, le serveur le refuse : 409).
+                      pagesLibres={pagesLibres}
+                      onBuyLibres={onBuyLibres && !isTranslating ? () => onBuyLibres(pagesLibres) : undefined}
                       scanPages={scanPages}
                     />
                   </div>

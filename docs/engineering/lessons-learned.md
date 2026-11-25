@@ -54,3 +54,64 @@ Mémoire des incidents et quasi-incidents. Consulter avant de toucher une zone c
 - **Résolution** : repérage via des runs incohérents ; nom pris depuis `git remote get-url origin`.
 - **Prévention vérifiable** : dans ce dépôt, ne jamais taper `-R` à la main : `R=$(gh repo view --json nameWithOwner -q .nameWithOwner)` depuis la copie locale.
 - **Leçon** : un identifiant de ressource se découvre (remote, API), il ne se reconstitue pas de mémoire ; une réponse vide n'est pas une preuve.
+
+## 2026-11-10 — PR collaborateur : sync Project en 403, puis conflit PASSATION
+
+- **Contexte** : PR #70/#71 d'Ibrahim (`MbowouIbrah`) ; job `bootstrap-github-app-user` en 403 `personal_owner_required`. Après correctif, l'ajout d'une entrée PASSATION sur `main` (#73) a mis #70 et #71 en conflit.
+- **Cause racine** : (1) le broker AppFactory n'autorisait que le propriétaire, et refuse par conception tout workflow hors de la branche par défaut (modifiable par le contributeur) ; #71 était empilée sur `integration/main-1.7`. (2) La branche d'intégration réécrivait `PASSATION.md` (sections d'état) et supprimait le journal daté ; tout ajout sur `main` entrait alors en conflit, et une fusion telle quelle aurait effacé le journal.
+- **Classification** : intégration CI (échec visible) + near miss de perte de journal.
+- **Résolution** : broker appfactory #153 (délégation du workflow de `main`), #72 (sync sautée hors `main`), rejeu du run 42788870679 vert ; conflit résolu en gardant l'état d'Ibrahim (sections 1 à 5) puis le journal daté complet de `main`, sur `integration/main-1.7` et `feat/connexion-extension-site`.
+- **Prévention vérifiable** : les PR ciblent `main` (sinon ni sync Project ni CI complète) ; une PR qui retire des entrées datées de `PASSATION.md` est refusée en relecture (`git diff main -- PASSATION.md` ne doit montrer que des ajouts sous les sections d'état).
+- **Leçon** : un fichier « en ajout seulement » partagé entre branches ne se réécrit pas en entier ; on met à jour l'état en tête, on n'efface jamais le journal.
+
+## 2026-11-15 — Release 1.8.0 : version codée en dur, puis disque VPS plein
+- **Contexte** : la PR de release 1.8.0 échouait sur `test_version_alignee` ; une fois corrigée, le premier déploiement VPS échouait en `npm ci` / extraction de couche.
+- **Cause racine** : (1) `VERSION` et l'instantané SEO recopiaient la version de `package.json` sans être déclarés à Release Please ; (2) disque partagé à 99 %, cache de build Docker jamais purgé (~4 Go).
+- **Classification** : configuration de release incomplète ; capacité d'hôte non surveillée.
+- **Résolution** : `extra-files` dans `release-please-config.json` (#78) ; purge du cache de build et des images orphelines, relance du job.
+- **Prévention vérifiable** : `test_version_suivie_par_release_please` ; avant un déploiement VPS, vérifier `df -h /` (≥ 5 Go libres) — à automatiser dans `remote-deploy.sh` (refus explicite plutôt qu'échec en plein build).
+- **Leçon** : toute copie d'une donnée versionnée doit être soit dérivée au build, soit déclarée à l'outil de release ; un hôte partagé a besoin d'un garde-fou de capacité avant chaque build.
+
+## 2026-11-15 — Faux « retour arrière en échec » après un build VPS raté
+- **Contexte** : lors du déploiement 1.8.0 (disque plein), `remote-deploy.sh` a affiché « retour arrière en échec : intervention requise » alors que la prod tournait toujours sur 865e40a.
+- **Cause racine** : le lien `current` était basculé avant le build ; sur tout échec, le script restaurait le lien puis lançait `compose up -d --build`, qui reconstruisait l'ancienne version sur le même disque plein et échouait à nouveau. Les conteneurs, eux, n'avaient jamais été recréés (l'échec précédait `up`).
+- **Classification** : near miss — diagnostic trompeur pouvant pousser à une intervention inutile sur une prod saine.
+- **Résolution** : garde-fou de capacité avant toute écriture (`PRECIS_MIN_FREE_GB`, défaut 5 Go, refus code 73 avec `docker builder prune` proposé, non lancé) ; échec de build traité à part (lien restauré, santé vérifiée, ni `up` ni rebuild) ; le retour arrière avec rebuild est réservé aux échecs après `up`. No-op d'une version déjà saine : plus aucune écriture.
+- **Prévention vérifiable** : `scripts/ci/test-vps-remote-deploy.sh` (job CI `production-deploy`) couvre disque bas, seuil configurable, no-op, build en échec avec prod saine ou KO, échec après `up`, succès.
+- **Leçon** : un message de retour arrière doit refléter l'état réellement touché ; distinguer les phases sans effet sur la prod (build) de celles qui la modifient (`up`).
+
+## 2026-11-18 — PR empilée fusionnée dans sa branche de base au lieu de `main`
+- **Contexte** : release 1.9.0. #85 (traduction libre) ciblait `feat/retours-clients`, la branche de #83. #83 a été fusionnée la première dans `main` par squash, puis #85 a été fusionnée. GitHub l'a marquée « MERGED », mais `main` n'a pas bougé : le contenu était arrivé dans `feat/retours-clients`.
+- **Cause racine** : la base d'une PR empilée n'est pas reciblée sur `main` quand la PR parente est fusionnée par squash sans suppression de branche. Le contrôle avant fusion ne regardait que la mergeabilité et la CI, pas `baseRefName`. Sur cette branche, la CI de #85 n'avait d'ailleurs pas tourné (seul « Project automation », ignoré).
+- **Classification** : near miss. La release aurait été publiée sans la fonctionnalité annoncée.
+- **Résolution** : branche d'intégration `feat/retours-clients` + `main` (un conflit dans `Home.tsx`, résolu côté #85), puis #86 vers `main`. Diff vérifié identique à #85 (37 fichiers, +1742/−107), CI complète verte avant la fusion.
+- **Prévention vérifiable** : avant de fusionner un lot, `gh pr list --json number,baseRefName` ; toute PR dont la base n'est pas `main` est reciblée (`gh pr edit N --base main`) avant la fusion. Après chaque fusion, vérifier que `git ls-remote origin refs/heads/main` a bien changé.
+- **Leçon** : « MERGED » ne veut pas dire « sur `main` ». Pour une PR empilée, la base fait partie du contrôle avant fusion, au même titre que la CI.
+
+## 2026-11-18 — Nouveautés 1.8.0 et 1.9.0 absentes du catalogue (date du 9 novembre)
+- **Contexte** : après la release 1.9.0, le panneau « Nouveautés » de l'app affichait la date du 9 novembre et aucune des fonctionnalités de 1.8.0 (texte des images, connexion de l'extension par le site…) ni de 1.9.0 (traduction libre, solde par forfait…).
+- **Cause racine** : le catalogue `backend/app/content/nouveautes.py` est tenu à la main ; seule une case du modèle de PR rappelait de l'alimenter. Release Please monte `VERSION`, pas `DATE_VERSION` ni les entrées, et `test_version_alignee` ne compare la date qu'au contenu du catalogue lui-même : un catalogue oublié reste cohérent.
+- **Classification** : oubli répété (deux releases de suite) — un rappel en prose ne suffit pas, il faut un contrôle bloquant.
+- **Résolution** : 9 entrées FR/EN ajoutées (dont 1 réservée aux admins), `DATE_VERSION` = 2026-11-18, instantané SEO régénéré.
+- **Prévention vérifiable** : `test_version_avec_fonctionnalites_publiee_au_catalogue` lit `CHANGELOG.md` ; si la section de la version courante contient « ### Features », au moins un élément public doit être daté après la version précédente. Il échoue donc sur la PR de release elle-même. Vérifié : avec l'ancien catalogue, le test échoue sur 1.9.0 avec un message qui indique quoi faire.
+- **Near miss associé** : `test_nouveautes_api.py` codait en dur 19 éléments et comptait l'entrée admin parmi les nouveautés d'un client ; seul `test_nouveautes_catalogue.py` avait été lancé en local, la CI « Suites backend » l'a vu. Attentes désormais dérivées du catalogue ; avant de pousser une modification du catalogue, `grep -rn nouveautes backend/tests` pour lister toutes les suites concernées.
+- **Near miss associé (2)** : le garde-fou a bloqué la PR de release 1.10.0, dont la seule « Feature » était de l'outillage (`release:` annonce WhatsApp, #88) et dont la date égalait celle de 1.9.0. Cause : règle écrite pour le cas observé sans cas limites. Prévention : logique isolée dans `ecart_catalogue()`, testée sur des CHANGELOG synthétiques (outillage seul, release le même jour, non-régression 1.9.0) ; portées internes listées dans `PORTEES_INTERNES`. Leçon : un garde-fou se teste aussi sur ce qu'il doit laisser passer.
+- **Leçon** : une étape manuelle répétée à chaque release doit être reliée à un artefact que la release produit (ici le CHANGELOG) et vérifiée par un test, pas par une case à cocher.
+
+## 2026-11-18 — « Suites backend » bloquée 20 min sur l'apt de LibreOffice
+
+- **Contexte** : CI de #88 puis de la PR de release #94 ; deux relances, la release a pris ~1 h de plus.
+- **Cause racine** : l'étape « LibreOffice et polices » retéléchargeait ~120 Mo à chaque run ; le miroir Ubuntu a servi ~100 ko/s (« Fetched 120 MB in 20min 7s », job 134808707042). Dépendance réseau non mise en cache.
+- **Classification** : fragilité CI, dépendance externe.
+- **Résolution** : cache `actions/cache` des .deb (`Dir::Cache::Archives`), clé hebdomadaire avec `restore-keys`, `autoclean` des versions remplacées ; `apt-get install` inchangé (scripts post-installation exécutés). `awalsh128/cache-apt-pkgs-action` écarté : il restaure des fichiers sans post-installation.
+- **Prévention** : log « Paquets en cache : N » dans l'étape ; second run de la PR mesuré (téléchargement évité).
+- **Leçon** : avant de relancer un job lent, lire son log (une ligne « Fetched … in 20min » suffit au diagnostic) ; tout téléchargement volumineux et stable en CI se met en cache.
+
+## 2026-11-24 — Import PPTX en échec en ligne, correct en local
+
+- **Contexte** : sur le VPS, la traduction d'un PPTX (~19,7 Mo) échouait (« File is not a zip file »), avec des 500 sur `/api/auth/me` ; le même fichier passait en local.
+- **Cause racine** : (1) le backend, plafonné à 1 Go (`docker-compose.vps.yml`), occupait déjà ~960 Mo au repos (arènes glibc fragmentées, arène CPU d'onnxruntime). Le job PPTX (4 diapositives de front + LibreOffice) le faisait tuer par le noyau (7 OOM le 19/11, d'autres le 24/11). En local, pas de plafond. (2) Pendant les redémarrages, `GET /original` était coupé ; le navigateur renvoyait la copie tronquée (4,9 Mo) et le dépôt l'acceptait. (3) `log_error_threadsafe` appelait `asyncio.run` sur le pool global depuis un thread : les connexions revenaient liées à une boucle morte (« attached to a different loop »).
+- **Classification** : écart d'environnement (limites de ressources) + validation d'entrée manquante + bug de concurrence asyncio.
+- **Résolution** : `MALLOC_ARENA_MAX=2`, `malloc_trim` après chaque job (`services/memoire.py`), arène onnxruntime coupée, `PPTX_SLIDE_WORKERS` (2 sur le VPS) ; refus au dépôt d'un Office illisible (`office_illisible`) ; journal écrit via la boucle principale, sinon moteur `NullPool` dédié.
+- **Prévention vérifiable** : `tests/test_charge_prod_pptx.py` et le cas « Office tronqué » de `tests/test_depot.py` ; après déploiement, `journalctl -k | grep "Killed process"` et la mémoire du cgroup backend contrôlés.
+- **Leçon** : « marche en local, pas en ligne » → comparer d'abord les limites de ressources et l'historique OOM du noyau. Tout fichier reçu se valide sur sa structure, pas sur son extension. Une boucle jetable ne touche jamais au pool de la boucle principale.

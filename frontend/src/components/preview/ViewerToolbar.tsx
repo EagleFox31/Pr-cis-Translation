@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
-  Download, Loader2, CheckCircle2, ArrowRight, Lock,
-  Maximize2, Minimize2, Flag, FileDown, Pause, X,
+  Download, Loader2, CheckCircle2,
+  Maximize2, Minimize2, Flag, FileDown, Languages, Pause, X,
+  RectangleVertical, MoveHorizontal, SquareSplitHorizontal, CopyPlus,
 } from 'lucide-react';
 
 import type { StopMode } from '../../hooks/useStreamingTranslation';
@@ -11,17 +12,26 @@ import type { StopMode } from '../../hooks/useStreamingTranslation';
 import { baseCode } from '../../lib/languages';
 import ProgressBar from '../ui/ProgressBar';
 import { openSupport } from '../support/supportBus';
-import { goToSection } from '../../lib/sectionBus';
 
 // Le badge de langue passait par une table `LANG_LABELS` codée à la main —
 // dix entrées, à tenir à jour à chaque langue ajoutée, et un doublon de ce que
 // `baseCode` fait déjà (et que `DocumentCard` utilise). « en-US » -> « EN ».
 
+/** Mode d'ajustement du zoom : `null` = zoom manuel. */
+export type Ajustement = 'page' | 'largeur' | null;
+
 interface ViewerToolbarProps {
   zoom: number;
+  /** Ajustement actif (le zoom est alors recalculé par la visionneuse). */
+  ajustement?: Ajustement;
+  onAjustementChange?: (mode: Ajustement) => void;
+  /** Rideau de comparaison actif ? */
+  rideau?: boolean;
+  /** La traduction de la page est-elle prête (sinon rien à comparer) ? */
+  rideauDispo?: boolean;
+  onRideauChange?: (actif: boolean) => void;
   currentPage: number;
   numPages: number;
-  isTrialMode: boolean;
   sourceFilename?: string;
   translatedFilename?: string;
   targetLang?: string;
@@ -36,18 +46,28 @@ interface ViewerToolbarProps {
   onDownload: () => void;
   /** Récupérer le fichier d'origine tel qu'il a été déposé. */
   onDownloadOriginal?: () => void;
-  /** Essai : quitter l'aperçu pour les tarifs (ils sont SOUS la surcouche). */
-  onUnlock?: () => void;
+  /** « Traduire à nouveau » ce document (langue au choix). */
+  onRetranslate?: () => void;
   onToggleFocus?: () => void;
   /** Pause / Annuler la traduction en cours. Absent : pas de job à arrêter. */
   onStop?: (mode: StopMode) => Promise<void>;
+  /** Traduction pas encore acceptée par le serveur : « Démarrage… » à la
+   *  place de Pause / Annuler, qui n'auraient encore rien à arrêter. */
+  demarrage?: boolean;
+  /** Admin regardant le document d'un client : en garder une copie à son nom. */
+  onCopy?: () => void;
+  copyBusy?: boolean;
 }
 
 export default function ViewerToolbar({
   zoom,
+  ajustement = null,
+  onAjustementChange,
+  rideau = false,
+  rideauDispo = true,
+  onRideauChange,
   currentPage,
   numPages,
-  isTrialMode,
   sourceFilename,
   translatedFilename,
   targetLang,
@@ -59,9 +79,12 @@ export default function ViewerToolbar({
   onBack,
   onDownload,
   onDownloadOriginal,
-  onUnlock,
+  onRetranslate,
   onToggleFocus,
   onStop,
+  demarrage = false,
+  onCopy,
+  copyBusy = false,
 }: ViewerToolbarProps) {
   const { t } = useTranslation();
   // Arrêt demandé : le serveur finit d'abord la page en cours, ce qui peut
@@ -88,7 +111,7 @@ export default function ViewerToolbar({
         style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
       >
         <ArrowLeft size={15} strokeWidth={2.2} />
-        <span>{t('viewer.back', 'Retour')}</span>
+        <span className="docbar-libelle">{t('viewer.back', 'Retour')}</span>
       </button>
 
       {/* Zoom */}
@@ -124,34 +147,63 @@ export default function ViewerToolbar({
         >
           <ZoomIn size={15} strokeWidth={2.2} />
         </button>
+        {/* Ajustement : un clic active le mode (le zoom suit la fenêtre), un
+            second clic le quitte et rend la main au zoom manuel. */}
+        {onAjustementChange && (['page', 'largeur'] as const).map((mode) => {
+          const libelle = mode === 'page' ? t('viewer.fit_page', 'Pleine page') : t('viewer.fit_width', 'Largeur');
+          return (
+            <button
+              key={mode}
+              onClick={() => onAjustementChange(ajustement === mode ? null : mode)}
+              className="tb-btn ghost"
+              aria-pressed={ajustement === mode}
+              aria-label={libelle}
+              title={libelle}
+              style={{ display: 'flex', alignItems: 'center', padding: '6px' }}
+            >
+              {mode === 'page'
+                ? <RectangleVertical size={15} strokeWidth={2.2} />
+                : <MoveHorizontal size={15} strokeWidth={2.2} />}
+            </button>
+          );
+        })}
+        {/* Rideau : la traduction par-dessus l'original, découpée par une poignée. */}
+        {onRideauChange && (
+          <button
+            onClick={() => onRideauChange(!rideau)}
+            className="tb-btn ghost"
+            aria-pressed={rideau}
+            disabled={!rideau && !rideauDispo}
+            aria-label={t('viewer.compare', 'Comparer')}
+            title={!rideau && !rideauDispo
+              ? t('viewer.compare_wait', 'Disponible quand la traduction de la page est prête')
+              : t('viewer.compare', 'Comparer')}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px', padding: '0 8px', marginLeft: '2px',
+              opacity: !rideau && !rideauDispo ? 0.45 : 1,
+              cursor: !rideau && !rideauDispo ? 'not-allowed' : 'pointer',
+            }}
+          >
+            <SquareSplitHorizontal size={15} strokeWidth={2.2} />
+            <span className="docbar-libelle">{t('viewer.compare', 'Comparer')}</span>
+          </button>
+        )}
       </div>
 
-      {/* Fil du document : source → traduction */}
+      {/* Fil du document : nom d'origine et langue d'arrivée */}
       {(sourceFilename || translatedFilename) ? (
         <div className="docbar-fil" style={{
           display: 'flex', alignItems: 'center', gap: '7px',
           borderLeft: '1px solid var(--color-border-secondary)', paddingLeft: '12px', marginLeft: '6px',
           flex: 1, overflow: 'hidden', minWidth: 0,
         }}>
-          {sourceFilename && (
-            <span style={{
-              fontSize: '12px', color: 'var(--color-text-secondary)',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '130px',
-            }} title={sourceFilename}>
-              {sourceFilename}
-            </span>
-          )}
-          {sourceFilename && translatedFilename && (
-            <ArrowRight size={13} strokeWidth={2} style={{ flexShrink: 0, opacity: 0.4 }} />
-          )}
-          {translatedFilename && (
-            <span style={{
-              fontSize: '12px', fontWeight: 600, color: 'var(--color-text-primary)',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '150px',
-            }} title={translatedFilename}>
-              {translatedFilename}
-            </span>
-          )}
+          {/* Nom d'origine seul : le nom traduit n'apprend rien et se faisait couper. */}
+          <span style={{
+            fontSize: '12px', fontWeight: 600, color: 'var(--color-text-primary)',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, maxWidth: '280px',
+          }} title={translatedFilename ? `${sourceFilename || ''} → ${translatedFilename}` : sourceFilename}>
+            {sourceFilename || translatedFilename}
+          </span>
           {targetLang && (
             <span style={{
               fontSize: '10px', fontWeight: 700, letterSpacing: '0.03em',
@@ -189,6 +241,8 @@ export default function ViewerToolbar({
             }}>
               {arret
                 ? t('viewer.stopping', 'Arrêt après la page en cours…')
+                : isTranslating && demarrage
+                ? t('viewer.starting', 'Démarrage…')
                 : isTranslating && numPages === 0
                 ? t('preview.loading', "Préparation de l'aperçu…")
                 : isTranslating
@@ -201,7 +255,7 @@ export default function ViewerToolbar({
               height={3}
             />
           </div>
-          {isTranslating && onStop && (
+          {isTranslating && onStop && !demarrage && (
             <>
               <button
                 onClick={() => demanderArret('pause')}
@@ -260,6 +314,31 @@ export default function ViewerToolbar({
         <Flag size={15} strokeWidth={2.2} />
       </button>
 
+      {onCopy && (
+        <button
+          onClick={onCopy}
+          disabled={copyBusy}
+          className="tb-btn ghost"
+          aria-label={t('admin_docs.create_copy', 'Créer ma copie')}
+          title={t('admin_docs.create_copy', 'Créer ma copie')}
+        >
+          {copyBusy ? <Loader2 size={15} strokeWidth={2.2} className="ui-spin" /> : <CopyPlus size={15} strokeWidth={2.2} />}
+          <span className="docbar-libelle">{t('admin_docs.create_copy', 'Créer ma copie')}</span>
+        </button>
+      )}
+
+      {onRetranslate && (
+        <button
+          onClick={onRetranslate}
+          className="tb-btn ghost"
+          aria-label={t('library.retranslate')}
+          title={t('library.retranslate')}
+          style={{ display: 'flex', alignItems: 'center', padding: '6px' }}
+        >
+          <Languages size={15} strokeWidth={2.2} />
+        </button>
+      )}
+
       {/* Original — toujours disponible : c'est le fichier de l'utilisateur,
           ni l'essai ni une traduction en cours ne le retiennent. */}
       {onDownloadOriginal && (
@@ -274,35 +353,26 @@ export default function ViewerToolbar({
         </button>
       )}
 
-      {/* Téléchargement — indisponible tant que la traduction n'est pas finie */}
+      {/* Téléchargement — indisponible tant que la traduction n'est pas finie.
+          Même action pour tous les forfaits : le téléchargement partagé
+          demande au serveur ce qui est payé et explique le reste. */}
       <button
-        onClick={() => {
-          if (isTrialMode) {
-            // Défiler vers #pricing sans fermer l'aperçu ne montrait rien :
-            // la grille est sous la surcouche fixe.
-            if (onUnlock) onUnlock();
-            else goToSection('pricing');
-            return;
-          }
-          onDownload();
-        }}
+        onClick={onDownload}
         className="tb-btn ghost"
-        disabled={!canDownload && !isTrialMode}
+        disabled={!canDownload}
         aria-label={t('viewer.download', 'Télécharger la traduction')}
         title={
-          isTrialMode
-            ? t('viewer.download_locked', 'Version d’essai — débloquez le téléchargement')
-            : canDownload
-              ? t('viewer.download', 'Télécharger la traduction')
-              : t('viewer.download_wait', 'Disponible à la fin de la traduction')
+          canDownload
+            ? t('viewer.download', 'Télécharger la traduction')
+            : t('viewer.download_wait', 'Disponible à la fin de la traduction')
         }
         style={{
           display: 'flex', alignItems: 'center', gap: '6px',
-          opacity: !canDownload && !isTrialMode ? 0.45 : 1,
-          cursor: !canDownload && !isTrialMode ? 'not-allowed' : 'pointer',
+          opacity: canDownload ? 1 : 0.45,
+          cursor: canDownload ? 'pointer' : 'not-allowed',
         }}
       >
-        {isTrialMode ? <Lock size={15} strokeWidth={2.2} /> : <Download size={15} strokeWidth={2.2} />}
+        <Download size={15} strokeWidth={2.2} />
       </button>
     </div>
   );
@@ -317,6 +387,19 @@ function PageNav({ className, currentPage, numPages, onPageChange }: {
   onPageChange: (page: number) => void;
 }) {
   const { t } = useTranslation();
+  // Saisie directe : un clic sur « n / N » ouvre un champ numérique.
+  // Entrée valide (hors bornes ou illisible : ignoré), Échap ou perte de focus annule.
+  const [saisie, setSaisie] = useState<string | null>(null);
+  const champ = useRef<HTMLInputElement>(null);
+  const edition = saisie !== null;
+  useEffect(() => {
+    if (edition) champ.current?.select();
+  }, [edition]);
+  const valider = () => {
+    const n = Number(saisie);
+    if (saisie && Number.isInteger(n) && n >= 1 && n <= numPages) onPageChange(n);
+    setSaisie(null);
+  };
   return (
     <div className={className}>
       <button
@@ -327,9 +410,41 @@ function PageNav({ className, currentPage, numPages, onPageChange }: {
       >
         <ChevronLeft size={14} strokeWidth={2.4} />
       </button>
-      <span className="pg-num" style={{ fontVariantNumeric: 'tabular-nums' }}>
-        {currentPage} / {numPages}
-      </span>
+      {saisie === null ? (
+        <button
+          type="button"
+          className="pg-num pg-num-champ"
+          style={{ fontVariantNumeric: 'tabular-nums', height: '26px' }}
+          onClick={() => setSaisie(String(currentPage))}
+          aria-label={`${t('viewer.go_to_page', 'Aller à la page')} (${currentPage} / ${numPages})`}
+          title={t('viewer.go_to_page', 'Aller à la page')}
+        >
+          {currentPage} / {numPages}
+        </button>
+      ) : (
+        <input
+          ref={champ}
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={numPages}
+          value={saisie}
+          className="pg-num pg-num-champ"
+          // Même encombrement que « n / N » : largeur calée sur ses chiffres.
+          style={{
+            fontVariantNumeric: 'tabular-nums', height: '26px', boxSizing: 'border-box',
+            width: `${String(currentPage).length + String(numPages).length + 3}ch`,
+            minWidth: '36px',
+          }}
+          aria-label={t('viewer.go_to_page', 'Aller à la page')}
+          onChange={(e) => setSaisie(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); valider(); }
+            else if (e.key === 'Escape') { e.preventDefault(); setSaisie(null); }
+          }}
+          onBlur={() => setSaisie(null)}
+        />
+      )}
       <button
         className="pg-arrow"
         onClick={() => onPageChange(Math.min(numPages, currentPage + 1))}

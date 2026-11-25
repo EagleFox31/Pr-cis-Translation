@@ -11,11 +11,40 @@ import os
 import re
 import shutil
 import threading
+from datetime import datetime, timedelta, timezone
 
 from app.config import TRANSLATIONS_DIR, logger
 from app.core.files import pages_token
+from app.models.plans import get_plan_storage
+
+# Sans stockage inclus, un document reste accessible ce temps après sa
+# traduction ; ensuite il est ARCHIVÉ : listé, grisé, jamais effacé, et rouvert
+# dès que le compte passe à un forfait avec stockage (étude Nouveautés §11).
+ACCES_SANS_STOCKAGE = timedelta(days=30)
+
+
+def acces_jusqu_au(user, doc) -> datetime | None:
+    """Fin de l'accès à CE document, ou `None` si l'accès est illimité."""
+    if get_plan_storage(user.plan) > 0 or doc.created_at is None:
+        return None
+    debut = doc.created_at
+    if debut.tzinfo is None:                 # SQLite rend des dates naïves
+        debut = debut.replace(tzinfo=timezone.utc)
+    return debut + ACCES_SANS_STOCKAGE
+
+
+def acces_archive(user, doc, maintenant: datetime | None = None) -> bool:
+    """Le document est-il archivé (listé mais plus ouvrable) pour ce compte ?
+    Une traduction en cours ne l'est jamais."""
+    if doc.status == "translating":
+        return False
+    fin = acces_jusqu_au(user, doc)
+    return fin is not None and (maintenant or datetime.now(timezone.utc)) >= fin
 
 WORDS_PER_PAGE = 500
+
+# Formats à vraies pages : aperçu filigrané et fichier limité aux pages payées.
+FORMATS_LIBRES = frozenset({"pdf", "docx", "pptx"})
 
 
 def text_pages(words: int) -> int:
@@ -115,6 +144,27 @@ def cap_pages_for_plan(pages_set, ext: str, page_limit: int):
     return pages_set
 
 
+def pages_word(file_bytes: bytes) -> int | None:
+    """Nombre de pages réel d'un .docx, d'après sa conversion en PDF.
+
+    `None` si la conversion échoue (LibreOffice absent, fichier invalide,
+    délai dépassé) : l'appelant retombe alors sur le comptage des mots.
+    """
+    try:
+        import fitz
+
+        from app.services.office import convert_to_pdf_bytes
+        pdf = convert_to_pdf_bytes(file_bytes, "docx")
+        with fitz.open(stream=pdf, filetype="pdf") as doc:
+            return doc.page_count or None
+    except Exception as e:  # noqa: BLE001
+        # Niveau erreur : le journal admin la reçoit et l'admin est prévenu,
+        # car le repli par les mots sous-estime les pages (images, tableaux).
+        logger.error("Pages Word non mesurées (conversion impossible : %s) — "
+                     "comptage par les mots.", e)
+        return None
+
+
 def count_pages(file_bytes: bytes, ext: str) -> int:
     """Nombre de pages/diapositives du fichier déposé.
 
@@ -127,13 +177,21 @@ def count_pages(file_bytes: bytes, ext: str) -> int:
     sait fabriquer un en-tête invalide. Le vrai refus viendra de l'extraction,
     quelques lignes plus loin, avec un message qui parle.
     """
-    # Office/TXT n'ont pas de pagination fiable sans rendu. Compter le texte
-    # réellement extrait par nos moteurs évite qu'un classeur immense coûte
-    # une seule page. Les formules, nombres et cellules vides ne sont pas des mots.
+    # Office/TXT : l'extraction du texte valide d'abord le fichier (un faux
+    # .docx est refusé ici ; LibreOffice, lui, en ferait une page de texte).
+    # Excel/TXT n'ont pas de pagination fiable sans rendu : compter le texte
+    # réellement extrait évite qu'un classeur immense coûte une seule page.
+    # Les formules, nombres et cellules vides ne sont pas des mots.
     if ext in ("docx", "xlsx"):
         from app.services.beta_meter import office_cost
         cost = office_cost(file_bytes, ext)
-        return text_pages(cost.units if ext == "docx" else cost.words)
+        if ext == "xlsx":
+            return text_pages(cost.words)
+        # Word : les vraies pages, celles que l'utilisateur voit dans son
+        # traitement de texte. La conversion LibreOffice est mise en cache par
+        # contenu : l'aperçu de l'original la réutilise sans la refaire. Si
+        # elle échoue, repli sur les mots.
+        return pages_word(file_bytes) or text_pages(cost.units)
     if ext == "txt":
         from app.services.beta_meter import word_count
         words = word_count(file_bytes.decode("utf-8-sig", errors="replace"))
@@ -232,6 +290,56 @@ def pages_selectionnees(doc) -> set[int] | None:
     return sel[2] if sel else None
 
 
+def pages_libres_du_document(doc) -> set[int]:
+    """Numéros (1-basés) des pages libres : les DERNIÈRES de la sélection (les
+    premières sont les pages payées). Vide si le document n'en a pas.
+    Les pages non facturables relevées dans cette zone à la clôture
+    (`hors_libres`) n'en font plus partie : la zone ne se décale pas."""
+    n = doc.pages_libres or 0
+    if n <= 0:
+        return set()
+    sel = pages_selectionnees(doc)
+    visees = sorted(sel) if sel else list(range(1, (doc.page_count or 0) + 1))
+    reglages = reglages_de(doc)
+    plafond = int(reglages.get("plafond") or 0)
+    if plafond > 0:
+        # Pause à la limite d'aperçu : la sélection s'arrête au plafond.
+        visees = visees[:plafond]
+    hors = {int(p) for p in reglages.get("hors_libres") or []}
+    visees = [p for p in visees if p not in hors]
+    return set(visees[-n:])
+
+
+def borner_libres_a_l_arret(doc) -> int:
+    """Pause ou annulation d'un document en aperçu : ses pages libres se
+    réduisent à celles déjà traduites (les premières de leur zone) et la
+    sélection s'arrête juste après (`plafond`), pour qu'une reprise les
+    retrouve. Renvoie le nombre de pages libres non traduites, à rendre au
+    plafond de 24 h."""
+    import json
+    zone = sorted(pages_libres_du_document(doc))
+    sel = _selection_du_document(doc)
+    if not zone or sel is None:
+        return 0
+    chemin, ext, pages = sel
+    faites = pages_traduites(chemin, ext, pages, doc.page_count or 0)
+    # Atteintes : toutes les pages de la zone jusqu'à la dernière traduite
+    # (le moteur avance dans l'ordre). Une page vide ou illisible au milieu
+    # a été parcourue : elle ne rend pas au plafond les pages vues après elle.
+    k = max((i + 1 for i, p in enumerate(zone) if p in faites), default=0)
+    if k == len(zone):
+        return 0
+    visees = sorted(pages) if pages else list(range(1, (doc.page_count or 0) + 1))
+    reglages = reglages_de(doc)
+    if visees.index(zone[0]) + k > 0:
+        reglages["plafond"] = visees.index(zone[0]) + k
+    else:
+        reglages.pop("plafond", None)   # 0 se lirait « pas de plafond »
+    doc.reglages = json.dumps(reglages)
+    doc.pages_libres = k
+    return len(zone) - k
+
+
 def chemin_traduction_du_document(doc) -> str | None:
     """Fichier de traduction (partielle) d'un Document : le ménage doit le
     garder tant que le document peut être repris."""
@@ -289,7 +397,7 @@ def copie_du_document(doc) -> str:
     La traduction d'origine peut servir à d'autres comptes (magasin partagé) :
     on n'y touche pas. La copie (JSON, table et images) vit à côté, sous un nom
     qui reste une traduction pour le balayage et que seul ce document vise."""
-    from app.services import images_document, render_cache
+    from app.services import avis_document, images_document, render_cache
     trad = doc.translated_path
     copie = copie_prevue(doc)
     if copie == trad:
@@ -307,6 +415,7 @@ def copie_du_document(doc) -> str:
                 shutil.copytree(trad + suffixe, copie + suffixe, dirs_exist_ok=True,
                                 ignore=shutil.ignore_patterns("*.tmp"))
         for source, cible in ((images_document.chemin_table(trad), images_document.chemin_table(copie)),
+                              (avis_document.chemin(trad), avis_document.chemin(copie)),
                               (trad + ".source.pdf", copie + ".source.pdf")):
             if os.path.isfile(source):
                 shutil.copy2(source, cible)

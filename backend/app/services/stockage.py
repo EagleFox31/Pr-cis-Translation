@@ -38,8 +38,9 @@ _RENDU_CACHE = re.compile(r"^(?P<trad>.+)\.render\.(?P<version>.+)\.pdf(\.tmp)?$
 _TRADUCTION = re.compile(r"^(pages|translated).*\.json$")
 # Table des images traduites, gardée à côté d'une traduction (`<trad>.images.json`
 # et dossier `<trad>.images/`) : elle suit la traduction, jamais seule. Même
-# règle pour le dossier `<trad>.ocr/` (lecture des scans, page par page).
-_TABLE_IMAGES = re.compile(r"^(?P<trad>.+\.json)\.images\.json(\.tmp)?$")
+# règle pour le dossier `<trad>.ocr/` (lecture des scans, page par page) et
+# pour les messages de la traduction (`<trad>.avis.json`, avis_document).
+_TABLE_IMAGES = re.compile(r"^(?P<trad>.+\.json)\.(images|avis)\.json(\.tmp)?$")
 
 
 def _dans_magasin(path: str, magasin: str) -> bool:

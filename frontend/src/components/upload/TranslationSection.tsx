@@ -6,16 +6,18 @@ import CheckboxOption from '../ui/CheckboxOption';
 import {
   Check, ArrowRight, Loader2, Languages, Wand2, FileText,
   SlidersHorizontal, ChevronDown, ScanSearch, Info,
-  Image as ImageIcon,
+  AlertTriangle,
 } from 'lucide-react';
 import FileUploader from './FileUploader';
 import LanguagePicker from './LanguagePicker';
 import { useAuth } from '../../contexts/AuthContext';
-import { findLang, isLangAvailable } from '../../lib/languages';
+import { baseCode, findLang, isLangAvailable } from '../../lib/languages';
 import { Link } from 'react-router-dom';
 import { useBeta, type BetaFormat } from '../../hooks/useBeta';
+import { useBetaPreference } from '../../hooks/useBetaPreference';
 import { BETA_FORMATS } from '../library/BetaAllowances';
-import { useAnalyseImages, formatAvecImages } from '../../hooks/useAnalyseImages';
+import { useAnalyseImages } from '../../hooks/useAnalyseImages';
+import { useDepot } from '../../hooks/useDepot';
 import ExtensionBanner from './ExtensionBanner';
 
 export interface TranslateConfig {
@@ -37,6 +39,8 @@ export interface TranslateConfig {
   beta?: boolean;
   /** Traduire aussi le texte des images (1 page par image remplacée). */
   images?: boolean;
+  /** Nombre de pages déjà connu par l'analyse : affiché dès le clic. */
+  nbPages?: number;
 }
 
 interface TranslationSectionProps {
@@ -73,10 +77,19 @@ function StepBadge({ n, done }: { n: number; done?: boolean }) {
   );
 }
 
+/** Nom de la langue dans la langue de l'interface : « anglais », « English »… */
+function nomLangue(code: string, interfaceLang: string): string {
+  try {
+    return new Intl.DisplayNames([interfaceLang], { type: 'language' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
 export default function TranslationSection({
   onStartTranslate, isTranslating, onLibraryOpen,
 }: TranslationSectionProps) {
-  const { t } = useI18n();
+  const { t, i18n } = useI18n();
 
   const [file, setFile] = useState<File | null>(null);
   const [targetLang, setTargetLang] = useState('en-US');
@@ -84,14 +97,13 @@ export default function TranslationSection({
   const [structureMode, setStructureMode] = useState(false);
   const { user } = useAuth();
   const betaAccess = useBeta(file?.name);
-  const [useBetaCredits, setUseBetaCredits] = useState(true);
+  const [useBetaCredits, setUseBetaCredits] = useBetaPreference();
   // La case ne sert que pour un accès actif et un format couvert par la bêta.
   const betaUsable = betaAccess.data?.enrollment?.state === 'active'
     && BETA_FORMATS.includes(file?.name.split('.').pop()?.toLowerCase() as BetaFormat);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [preciseMode, setPreciseMode] = useState(false);
   const [justReset, setJustReset] = useState(false);
-  const [traduireImages, setTraduireImages] = useState(false);
 
   const ext = file?.name.split('.').pop()?.toLowerCase() ?? '';
   const isPdf = ext === 'pdf';
@@ -122,24 +134,20 @@ export default function TranslationSection({
   const handleFile = (f: File | null) => {
     setFile(f);
     setPages('');          // une plage est propre à un document
-    setTraduireImages(false);   // un choix qui coûte des pages se refait à chaque document
     if (f) setJustReset(false);
   };
 
-  // Images à texte : l'analyse ne débite rien mais exige un compte. Le serveur
-  // compte les images du document ENTIER : avec une plage de pages, l'utilisateur
-  // paierait des images hors de sa sélection, d'où l'option désactivée.
-  const { analyse, enCours: analyseEnCours } = useAnalyseImages(file, !!user && formatAvecImages(ext));
-  const imagesTrouvees = analyse?.images ?? 0;
-  const imagesBloquees = betaUsable && useBetaCredits ? 'beta'
-    : supportsStructure && structureMode ? 'structure'
-    : supportsPages && pages.trim() ? 'pages'
-    : null;
-  const imagesActives = imagesTrouvees > 0 && traduireImages && !imagesBloquees;
+  // Analyse du dépôt : langue du document (les images sont traduites avec leur page).
+  // Le fichier part une seule fois, dès qu'il est choisi ; l'analyse attend
+  // la fin de l'envoi pour n'envoyer que son identifiant.
+  const depot = useDepot(file, !!user);
+  const { analyse } = useAnalyseImages(file, !!user && !depot.enCours);
+  // Langue d'arrivée identique à celle du document : simple avertissement.
+  const memeLangue = !!analyse?.langue && analyse.langue === baseCode(targetLang);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file || isTranslating) return;
+    if (!file || isTranslating || depot.enCours) return;
     if (!user) { window.location.href = '/login'; return; }
     onStartTranslate({
       file,
@@ -148,12 +156,14 @@ export default function TranslationSection({
       debug: supportsStructure && structureMode,
       precise: supportsPrecise && preciseMode,
       beta: betaAccess.data ? betaUsable && useBetaCredits : undefined,
-      images: imagesActives,
+      images: false,
+      // Document entier seulement : une plage de pages change le total.
+      nbPages: supportsPages && !pages.trim() && analyse?.pages ? analyse.pages : undefined,
       onAccepted: () => { void betaAccess.refresh(); },
     });
   };
 
-  const ready = !!file && !isTranslating;
+  const ready = !!file && !isTranslating && !depot.enCours;
   // Ne compter que les options RÉELLEMENT applicables au format courant : une
   // case cochée sur un PDF puis un passage à un format qui ne la gère pas ne
   // doit pas afficher un badge mensonger.
@@ -168,7 +178,6 @@ export default function TranslationSection({
       onSubmit={submit}
       style={{ display: 'flex', flexDirection: 'column', gap: '18px', flex: 1, width: '100%' }}
     >
-      <ExtensionBanner />
       {betaAccess.data?.enrollment && (
         <div className="beta-upload">
           {betaUsable && <label><input type="checkbox" checked={useBetaCredits} disabled={isTranslating}
@@ -268,47 +277,21 @@ export default function TranslationSection({
           </div>
           <span style={{
             display: 'inline-flex', alignItems: 'center', gap: '5px',
-            marginTop: '7px', fontSize: '11.5px', color: 'var(--gray-500)',
+            marginTop: '7px', fontSize: '12.5px', color: 'var(--gray-500)',
           }}>
             <Wand2 size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
             {t('story.source_auto', 'La langue du document est détectée automatiquement.')}
           </span>
+          {memeLangue && (
+            <span role="status" style={{
+              display: 'flex', alignItems: 'flex-start', gap: '5px',
+              marginTop: '6px', fontSize: '12px', color: 'var(--gray-700)',
+            }}>
+              <AlertTriangle size={13} strokeWidth={2} style={{ flexShrink: 0, marginTop: '1px', color: 'var(--gold)' }} />
+              {t('story.same_language', { langue: nomLangue(analyse?.langue ?? '', i18n.language) })}
+            </span>
+          )}
         </div>
-
-        {/* Images à texte : l'option n'existe que si l'analyse en a trouvé. */}
-        {analyseEnCours && (
-          <span role="status" style={{
-            display: 'inline-flex', alignItems: 'center', gap: '6px',
-            fontSize: '11.5px', color: 'var(--gray-500)',
-          }}>
-            <Loader2 size={12} strokeWidth={2} className="animate-spin" style={{ flexShrink: 0 }} />
-            {t('story.images_analysing')}
-          </span>
-        )}
-        {imagesTrouvees > 0 && analyse && (
-          <CheckboxOption
-            id="images"
-            checked={imagesActives}
-            onChange={setTraduireImages}
-            disabled={isTranslating || !!imagesBloquees}
-            icon={<ImageIcon size={14} strokeWidth={2} />}
-            label={t('story.images_label', { count: imagesTrouvees })}
-            description={imagesBloquees
-              ? t(`story.images_blocked_${imagesBloquees}`)
-              : [
-                  analyse.pages > 0
-                    ? t('story.images_totals', { count: analyse.pages, avec: analyse.pages + imagesTrouvees })
-                    : t('story.images_total_only', { count: imagesTrouvees }),
-                  t('story.images_unchanged_free'),
-                  analyse.incomplet ? t('story.images_incomplete') : '',
-                ].filter(Boolean).join(' ')}
-          />
-        )}
-        {imagesTrouvees === 0 && analyse?.indisponible && (
-          <span role="status" style={{ fontSize: '11.5px', color: 'var(--gray-500)' }}>
-            {t('story.images_unavailable')}
-          </span>
-        )}
 
         {/* Options avancées — repliées : elles servent à des cas particuliers
             (extrait, diagnostic) et n'apparaissent que pour les formats qui les
@@ -484,16 +467,27 @@ export default function TranslationSection({
         </motion.button>
 
         {/* Le bouton désactivé dit POURQUOI il l'est. */}
+        {file && depot.enCours && !isTranslating && (
+          <span role="status" style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+            marginTop: '8px', fontSize: '11.5px', color: 'var(--gray-500)',
+          }}>
+            <Loader2 size={12} strokeWidth={2} />
+            {t('story.upload_progress', { pct: depot.pct, defaultValue: 'Envoi du fichier : {{pct}} %' })}
+          </span>
+        )}
         {!file && !isTranslating && (
           <span style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
-            marginTop: '8px', fontSize: '11.5px', color: 'var(--gray-500)',
+            marginTop: '8px', fontSize: '12.5px', color: 'var(--gray-500)',
           }}>
             <Info size={12} strokeWidth={2} />
             {t('story.cta_hint', 'Choisissez un document pour commencer.')}
           </span>
         )}
       </div>
+      {/* Après la tâche, jamais avant : une ligne discrète, refermable. */}
+      <ExtensionBanner discret />
     </form>
   );
 }

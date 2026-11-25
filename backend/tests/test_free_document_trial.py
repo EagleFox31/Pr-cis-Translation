@@ -8,6 +8,7 @@ from datetime import timedelta
 import io
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 from urllib.parse import urlsplit
 import uuid
 
@@ -72,7 +73,7 @@ class FreeDocumentTests(unittest.IsolatedAsyncioTestCase):
         async with self.fx.sessions() as db:
             return await db.get(Document, identifier)
 
-    async def test_all_five_formats_share_five_pages_as_preview_only(self):
+    async def test_all_five_formats_share_five_pages_and_download(self):
         initial = await self.summary()
         self.assertEqual(initial["monthly_pages"], 5)
         self.assertEqual(initial["pages_remaining"], 5)
@@ -80,27 +81,37 @@ class FreeDocumentTests(unittest.IsolatedAsyncioTestCase):
                 ("c.docx", docx(20)), ("d.xlsx", fixtures.xlsx(20)), ("e.txt", b"Bonjour le monde")]:
             response = await self.upload(data, filename)
             document = await self.document(response)
-            # Pages gratuites : aperçu seulement, pas de téléchargement.
-            self.assertFalse(response.json()["can_download"])
-            self.assertFalse(document.paid)
+            # Pages offertes : couvertes par le forfait Gratuit, donc en clair
+            # et téléchargeables (règle a, docs/etude-traduction-libre.md).
+            self.assertTrue(response.json()["can_download"])
+            self.assertTrue(document.paid)
             self.assertEqual(document.page_count, 1)
             result = Path(self.fx.temp.name) / filename
             result.write_bytes(data)
             jobs.set(response.json()["job_id"], state="done", result_path=str(result), result_filename=filename)
             download = await self.client.get("/api/translate/result/" + response.json()["job_id"], headers=self.headers)
-            self.assertEqual(download.status_code, 402, filename)
+            self.assertEqual(download.status_code, 200, filename)
         self.assertEqual((await self.summary())["pages_remaining"], 0)
-        denied = await self.upload()
+        denied = await self.upload(covered_only="1")
         self.assertEqual(denied.status_code, 402)
         self.assertEqual(denied.json()["pages_missing"], 1)
         self.assertEqual(len(self.fx.queued), 5)
+        # Par défaut : traduit quand même, en aperçu non payé (mode libre).
+        libre = await self.upload()
+        self.assertEqual(libre.json()["pages_libres"], 1)
+        self.assertFalse(libre.json()["can_download"])
 
     async def test_office_and_txt_costs_use_actual_text_and_reject_oversized_free_upload(self):
-        for ext, data in [("docx", docx(501)), ("xlsx", fixtures.xlsx(501)),
+        for ext, data in [("xlsx", fixtures.xlsx(501)),
                           ("txt", ("bonjour " * 501).encode()), ("txt", ("漢" * 501).encode())]:
             with self.subTest(ext=ext):
                 self.assertEqual(count_pages(data, ext), 2)
-        self.assertEqual(count_pages(docx(500), "docx"), 1)
+        # Word : les vraies pages du rendu ; sans conversion, repli sur les mots.
+        with patch("app.services.documents.pages_word", return_value=3):
+            self.assertEqual(count_pages(docx(501), "docx"), 3)
+        with patch("app.services.documents.pages_word", return_value=None):
+            self.assertEqual(count_pages(docx(501), "docx"), 2)
+            self.assertEqual(count_pages(docx(500), "docx"), 1)
         # A compressed file containing one enormous token cannot buy unlimited
         # model input by pretending it contains just one word.
         huge_token = await self.upload(("a" * 150001).encode(), "unbroken.txt")
@@ -118,7 +129,9 @@ class FreeDocumentTests(unittest.IsolatedAsyncioTestCase):
         async with self.fx.sessions() as db:
             (await db.get(User, self.user.id)).page_credits = 2
             await db.commit()
-        response = await self.upload(docx(2501), "large.docx")
+        # Comptage par les mots : le rendu LibreOffice varie avec les polices installées.
+        with patch("app.services.documents.pages_word", return_value=None):
+            response = await self.upload(docx(2501), "large.docx")
         document = await self.document(response)
         # Document mixte : des pages achetées le rendent téléchargeable.
         self.assertTrue(response.json()["can_download"])
@@ -146,7 +159,7 @@ class FreeDocumentTests(unittest.IsolatedAsyncioTestCase):
         async with self.fx.sessions() as db:
             await db.delete(await db.get(Document, document.id))
             await db.commit()
-        self.assertEqual((await self.upload()).status_code, 402)
+        self.assertEqual((await self.upload(covered_only="1")).status_code, 402)
         async with self.fx.sessions() as db:
             record = (await db.execute(select(UsageRecord).where(UsageRecord.user_id == self.user.id))).scalar_one()
             self.assertIsNone(record.document_id)
@@ -156,10 +169,13 @@ class FreeDocumentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.upload()).status_code, 200)
 
     async def test_partial_pdf_requires_explicit_choice_and_charges_only_selection(self):
-        rejected = await self.upload(fixtures.pdf(7), pages="2-7")
-        self.assertEqual(rejected.status_code, 402)
-        self.assertEqual(rejected.json()["pages_missing"], 1)
-        self.assertEqual(len(self.fx.queued), 0)
+        # Par défaut : sélection entière, la page non couverte en aperçu.
+        libre = await self.document(await self.upload(fixtures.pdf(7), pages="2-7"))
+        self.assertEqual((libre.page_count, libre.pages_libres), (6, 1))
+        async with self.fx.sessions() as db:
+            await db.delete(await db.get(Document, libre.id))
+            await db.execute(delete(UsageRecord).where(UsageRecord.user_id == self.user.id))
+            await db.commit()
         accepted = await self.upload(fixtures.pdf(7), pages="2-7", covered_only="1")
         document = await self.document(accepted)
         self.assertEqual(document.page_count, 5)
@@ -243,9 +259,11 @@ class PostgreSQLFreeQuotaRace(unittest.IsolatedAsyncioTestCase):
                     current_user=account, db=db)
         try:
             results = await asyncio.gather(upload(), upload())
-            self.assertEqual(sorted(getattr(result, "status_code", 200) for result in results), [200, 402])
+            # La seconde passe en mode libre pour ce qui dépasse : jamais 6 pages
+            # offertes sur 5.
+            self.assertEqual(sorted(getattr(result, "status_code", 200) for result in results), [200, 200])
             async with sessions() as db:
-                self.assertEqual(await usage.free_pages_used(db, user.id), 3)
+                self.assertEqual(await usage.free_pages_used(db, user.id), 5)
         finally:
             async with sessions() as db:
                 await db.execute(delete(User).where(User.id == user.id))

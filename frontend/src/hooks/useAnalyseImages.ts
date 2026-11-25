@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { authHeader, refreshAccessToken } from '../services/api';
+import { postAvecFichier } from '../services/depot';
 
 const API_KEY = import.meta.env.VITE_API_KEY || '';
 const API_BASE = import.meta.env.VITE_API_BASE || '';
@@ -19,6 +20,8 @@ export interface AnalyseImages {
   incomplet: boolean;
   /** Lecture des images impossible pour le moment. */
   indisponible: boolean;
+  /** Langue probable du document ('en', 'fr'…), absente si incertaine. */
+  langue?: string | null;
 }
 
 export const formatAvecImages = (ext: string) => FORMATS_AVEC_IMAGES.includes(ext);
@@ -36,16 +39,11 @@ export function useAnalyseImages(file: File | null, active: boolean) {
   useEffect(() => {
     if (!file || !active) return;
     const ctrl = new AbortController();
-    const envoyer = () => {
-      const body = new FormData();
-      body.append('file', file);
-      return fetch(`${API_BASE}/api/translate/analyse`, {
-        method: 'POST',
-        headers: { 'X-API-Key': API_KEY, ...authHeader() },
-        body,
-        signal: ctrl.signal,
-      });
-    };
+    // Appelé une fois le dépôt fini : seul son identifiant part.
+    const envoyer = () => postAvecFichier(`${API_BASE}/api/translate/analyse`, file, file.name, () => {}, {
+      headers: { 'X-API-Key': API_KEY, ...authHeader() },
+      signal: ctrl.signal,
+    });
     (async () => {
       let analyse: AnalyseImages | null = null;
       try {

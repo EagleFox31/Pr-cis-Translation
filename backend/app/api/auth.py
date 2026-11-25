@@ -152,6 +152,9 @@ def _user_response(user: User) -> dict:
         # autorise 2 Go — la barre de quota mentait, dans le sens qui frustre.
         # On dérive donc du plan, comme l'enforcement.
         "storage_limit": get_plan_storage(user.plan),
+        "abonne_nouveautes": user.abonne_nouveautes,
+        "nouveautes_vues_le": (user.nouveautes_vues_le.isoformat()
+                               if user.nouveautes_vues_le else None),
         "created_at": user.created_at.isoformat() if user.created_at else None,
     }
 
@@ -275,11 +278,11 @@ def _check_password_strength(pw: str) -> None:
         )
 
 
-async def _issue(db: AsyncSession, user: User) -> AuthResponse:
-    """Couple de jetons pour une session ouverte."""
+async def _issue(db: AsyncSession, user: User, client: str = "site") -> AuthResponse:
+    """Couple de jetons pour une session ouverte (`client` : site ou extension)."""
     return AuthResponse(
         access_token=create_access_token(user.id, user.email),
-        refresh_token=await create_refresh_token(db, user.id),
+        refresh_token=await create_refresh_token(db, user.id, client),
         user=_user_response(user),
     )
 
@@ -424,8 +427,8 @@ async def logout(
     user: User = Depends(require_auth),
     db: AsyncSession = Depends(get_db),
 ):
-    """Révoque tous les refresh tokens de l'utilisateur."""
-    await revoke_user_tokens(db, user.id)
+    """Révoque les sessions du site ; celle de l'extension a sa propre sortie."""
+    await revoke_user_tokens(db, user.id, client="site")
     return {"message": "Déconnecté."}
 
 

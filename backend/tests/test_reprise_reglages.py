@@ -98,7 +98,7 @@ async def run():
             reg = doc_api(doc_id).get("reglages")
             ok("les réglages d'origine sont renvoyés à la bibliothèque",
                reg == {"pages": "2,3", "precise": False, "beta": False, "deja": 0,
-                      "qsuffix": ""}, str(reg))
+                      "qsuffix": "", "images": True}, str(reg))
             ok("2 pages réservées", utilisees() == 2, str(utilisees()))
 
             # La page 2 est traduite sur disque quand le serveur s'arrête.
