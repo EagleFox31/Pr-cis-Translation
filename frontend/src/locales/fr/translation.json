@@ -178,9 +178,19 @@
       "more_one": "… et {{count}} autre",
       "more_other": "… et {{count}} autres",
       "raisons": {
-        "lie": "lié", "visio": "Visio", "pdf": "PDF", "equation": "équation",
-        "paquet": "paquet", "absent": "introuvable", "conversion": "conversion impossible",
-        "erreur": "erreur", "profondeur": "trop imbriqué", "illisible": "illisible", "reinjection": "remise en place impossible", "hors_diapo": "sur un masque, une disposition ou des notes", "autre": "non pris en charge"
+        "lie": "lié",
+        "visio": "Visio",
+        "pdf": "PDF",
+        "equation": "équation",
+        "paquet": "paquet",
+        "absent": "introuvable",
+        "conversion": "conversion impossible",
+        "erreur": "erreur",
+        "profondeur": "trop imbriqué",
+        "illisible": "illisible",
+        "reinjection": "remise en place impossible",
+        "hors_diapo": "sur un masque, une disposition ou des notes",
+        "autre": "non pris en charge"
       }
     }
   },
@@ -1067,5 +1077,34 @@
       "link": "Découvrir l'extension",
       "close": "Fermer cette proposition"
     }
+  },
+  "audience": {
+    "tag": "Pour qui",
+    "title": "Pensé pour ceux dont <strong>le livrable est le document</strong>",
+    "desc": "La traduction automatique est résolue. La remise en page, non. Précis traduit à l’intérieur de la structure du document : le résultat s’ouvre comme l’original.",
+    "card_translators_title": "Traducteurs indépendants et assermentés",
+    "card_translators_desc": "Livrez actes, contrats et rapports avec la mise en page attendue par votre client. Facturez la traduction, pas la remise en page.",
+    "card_immigration_title": "Consultants en immigration et relocation",
+    "card_immigration_desc": "Diplômes, relevés et actes d’état civil reviennent traduits, lisibles, dans la même structure, prêts à joindre au dossier.",
+    "card_offices_title": "Bureaux internationaux et ONG",
+    "card_offices_desc": "Brochures, présentations et tableurs en plusieurs langues sans refaire la maquette à chaque fois."
+  },
+  "faq": {
+    "tag": "Questions",
+    "title": "Questions <strong>fréquentes</strong>",
+    "q_certified": "La traduction est-elle certifiée ?",
+    "a_certified": "Non. Précis produit le fichier traduit avec sa mise en page. La certification et la signature restent au traducteur assermenté, qui relit le texte avant de signer.",
+    "q_formats": "Quels formats et quelles langues ?",
+    "a_formats": "PDF, DOCX, PPTX, XLSX et TXT, en 23 langues et 36 variantes régionales. Le fichier traduit garde le format d’origine.",
+    "q_scans": "Et les PDF scannés ?",
+    "a_scans": "Les pages sans couche de texte (photos de papier) sont détectées et signalées avant la traduction. Elles ne sont pas traduites dans la version actuelle : vous le savez avant de payer.",
+    "q_data": "Que deviennent mes documents ?",
+    "a_data": "Ils sont traités sur nos serveurs et supprimés sous 24 heures. Votre bibliothèque privée se vide quand vous le souhaitez.",
+    "q_trial": "Puis-je essayer avant de payer ?",
+    "a_trial": "Oui. Créez un compte et traduisez un document avec l’essai gratuit avant de choisir une formule ou d’acheter des pages."
+  },
+  "seo": {
+    "home_title": "Précis Translator — Traduction PDF, Word et documents | Trigenys",
+    "home_description": "Traduction de documents PDF, Word, PowerPoint et Excel, avec aperçu et conservation de la mise en page."
   }
 }

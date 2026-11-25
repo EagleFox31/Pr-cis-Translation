@@ -165,3 +165,12 @@ EN COURS : branche `feat/ocr-file-pages-illisibles`, mission 6.13.11 commitée e
 - Preuve : run 42788870679 (PR #70 d'Ibrahim vers `main`) rejoué → `bootstrap-github-app-user` et `sync-github-app-user` verts.
 - Règle d'équipe : les PR ciblent `main` (sinon ni sync Project ni CI complète). #71 (empilée sur `integration/main-1.7`) sera synchronisée une fois rebasée sur `main` après fusion de #70.
 - Restant : fermer appfactory-project-automation#52 (validation faite) ; EC2 i-0ce97ff971dd343b2 à arrêter après stabilité.
+
+## 2026-11-25 06:24 — Landing : positionnement EN, sections « pour qui » et FAQ
+- Branche `feat/landing-international` (non poussée, pas de PR). Contexte : offre Précis à vendre à l'international (traducteurs, consultants immigration, bureaux internationaux).
+- EN `hero.*` réécrit (promesse : même fichier en retour, mise en page conservée) ; FR inchangé.
+- Nouveau `components/audience/AudienceSection.tsx` : 3 cartes cibles (`audience.*`) + FAQ 5 questions (`faq.*`, `<details>`), inséré après `FeaturesGrid` dans `Home.tsx` ; CSS `.faq-*` dans `index.css`.
+- `Home.tsx` : `lang`, `<title>` et meta description suivent la langue côté client (`seo.*`) ; le head statique prerendu reste FR → contrat CI SEO intact (1 h1, canonical, `/` → 308 `/home` conservé volontairement).
+- Preuve : `npm run lint` OK, `npm run build` OK (15 pages), preview EN vérifiée (hero, cartes, FAQ).
+- Limites : OG/twitter restent FR (pas de JS côté crawler) ; pas de hreflang (même URL) ; `verify_public_seo.py` non rejoué en local (nginx docker).
+- Restant : pousser + PR, déployer via `deploy-vps.yml` après fusion ; Paddle live et domaine `.com` optionnel (voir dossier offre).

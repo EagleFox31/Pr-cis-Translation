@@ -3374,3 +3374,23 @@ html.preview-active .scroll {
   .docbar-pages, .docbar-fil, .docbar-agrandir { display: none !important; }
   .cv-bascule button { min-height: 32px; padding: 4px 14px; white-space: nowrap; }
 }
+
+/* FAQ — accordéon natif (<details>), aucun script */
+.faq-list { display: grid; gap: 10px; max-width: 820px; margin: 0 auto 24px; }
+.faq-item {
+  background: var(--white);
+  border: 1px solid var(--gray-100);
+  border-radius: 14px;
+  padding: 0 18px;
+  transition: border-color .3s cubic-bezier(.4,0,.2,1);
+}
+.faq-item[open], .faq-item:hover { border-color: rgba(26,77,199,.3); }
+.faq-item summary {
+  cursor: pointer; list-style: none;
+  padding: 16px 0; font-weight: 600; font-size: 15px; color: var(--navy);
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+}
+.faq-item summary::-webkit-details-marker { display: none; }
+.faq-item summary::after { content: '+'; color: var(--blue); font-size: 20px; line-height: 1; transition: transform .25s; }
+.faq-item[open] summary::after { transform: rotate(45deg); }
+.faq-item p { margin: 0 0 16px; font-size: 14px; line-height: 1.6; color: var(--gray-500); }
