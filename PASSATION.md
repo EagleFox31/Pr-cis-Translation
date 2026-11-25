@@ -60,3 +60,8 @@ Corriger les défauts PPTX du PowerPoint de Gerold (R6/R7) selon `docs/etude-ppt
 - Preuve : `npm run lint` OK, `npm run build` OK (15 pages), preview EN vérifiée (hero, cartes, FAQ).
 - Limites : OG/twitter restent FR (pas de JS côté crawler) ; pas de hreflang (même URL) ; `verify_public_seo.py` non rejoué en local (nginx docker).
 - Restant : fusionner #105 après CI, déployer via `deploy-vps.yml` après fusion ; Paddle live et domaine `.com` optionnel (voir dossier offre).
+
+## 2026-11-25 08:03 — PR #105 ouverte, suivi auto activé
+- PR #105 `feat/landing-international` → `main`, fusionnable après fusion de main 1.12.1 (commit a55c87a), lint/build verts en local, CI absente (facturation GitHub).
+- Suivi auto de la PR activé dans la session (CI, conflits, commentaires). Verrou : fusion sur accord du commanditaire.
+- Prochaine étape : fusion de #105, puis `deploy-vps.yml` ; prospection selon les fichiers d'offre (non suivis par git, racine du dépôt).
