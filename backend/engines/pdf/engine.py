@@ -1139,6 +1139,21 @@ def _serialize_drawing(d):
 # ════════════════════════════════════════════════════════════════════════════
 # Moteur
 # ════════════════════════════════════════════════════════════════════════════
+# Lettres qu'une traduction peut demander à une police (R2 : une police par
+# famille). Base commune à toutes les langues latines, plus celles de la langue
+# cible ; une langue absente du tableau se contente de la base.
+_ALPHABET_COMMUN = ("ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                    "abcdefghijklmnopqrstuvwxyz0123456789")
+_LETTRES_ATTENDUES = {
+    "fr": "àâçéèêëîïôûùüÿœÀÂÇÉÈÊËÎÏÔÛÙÜŒ",
+    "es": "áéíóúñüÁÉÍÓÚÑÜ¿¡",
+    "de": "äöüßÄÖÜ",
+    "it": "àèéìíòóùúÀÈÉÌÒÙ",
+    "pt": "áâãàçéêíóôõúÁÂÃÀÇÉÊÍÓÔÕÚ",
+    "nl": "ëïéËÏÉ",
+}
+
+
 class PDFObjectEngine:
     """Extraction/réinjection objet par objet, sans fusion ni interprétation."""
 
@@ -4037,6 +4052,7 @@ class PDFObjectEngine:
         l'image d'origine."""
         page = doc.new_page(width=page_data["width"],
                             height=page_data["height"])
+        self._rendu_traduit = bool(translated)
         # Flux vertical (Étape E) : calcule DÉCALAGE + croissance de
         # chaque paragraphe traduit AVANT de peindre (place récupérée par
         # push-down des blocs libres, borné par les objets ancrés ;
@@ -5058,6 +5074,9 @@ class PDFObjectEngine:
         if primary is not None:
             chars = set(c for c in txt if not c.isspace())
             use_embedded = all(self._renders_glyph(primary, c) for c in chars)
+        if use_embedded and self._famille_remplacee(font_raw, m.get("bold"),
+                                                    m.get("italic")):
+            use_embedded = False
         # Police unique du segment (couverture None = universelle), + base-14 en
         # secours pour un éventuel glyphe non couvert.
         size = m.get("size", 10) or 10
@@ -5200,12 +5219,14 @@ class PDFObjectEngine:
         weight = _weight_class(font_raw, bold)
         key = (clean, weight, bool(bold), bool(italic))
         f = cache.get(key)
+        couches = self.__dict__.setdefault("_fallback_couche", {})
         famille, poids, ital = polices.analyser_nom(font_raw)
         if f is None and polices.cle(famille) in ("helvetica", "times", "courier"):
             # Base-14 : la police de MuPDF EST l'originale (mêmes chasses).
             try:
                 f = cache[key] = fitz.Font(_base14_full_name(
                     font_raw, bold or (poids or 400) >= 600, italic or ital))
+                couches[key] = "identique"
             except Exception:
                 f = None
         if f is None:
@@ -5217,6 +5238,8 @@ class PDFObjectEngine:
                 path = None                     # le nom désigne une famille assortie
             if path:
                 f = self._font_from_file(path)
+                if f is not None:
+                    couches[key] = couche
             if f is None:
                 f = _load_matched_font(fam, bold, italic, weight=weight)
             if f is None:                       # aucune police assortie : base-14
@@ -5226,6 +5249,39 @@ class PDFObjectEngine:
                     f = fitz.Font("Helvetica")
             cache[key] = f
         return f
+
+    def _famille_remplacee(self, font_raw, bold, italic):
+        """R2 — une seule police par famille dans un document traduit.
+
+        Le sous-ensemble embarqué ne contient que les lettres du texte
+        d'origine : une traduction en demande d'autres, et le choix segment
+        par segment mélangeait alors l'original et son remplaçant dans une
+        même page (Calibri et Carlito). Si le sous-ensemble ne couvre pas
+        l'alphabet de la langue cible (`_LETTRES_ATTENDUES`) et que le
+        remplaçant est la MÊME police ou son clone métrique, tout le texte de
+        cette police prend le remplaçant. Une police « proche » seulement
+        reste au cas par cas : la substituer partout trahirait davantage."""
+        if not getattr(self, "_rendu_traduit", False):
+            return False
+        cache = self.__dict__.setdefault("_familles_remplacees", {})
+        clean = (font_raw or "").split("+")[-1]
+        key = (clean, bool(bold), bool(italic))
+        if key in cache:
+            return cache[key]
+        langue = str(getattr(self, "reflow_lang", "") or "")[:2].lower()
+        attendu = _ALPHABET_COMMUN + _LETTRES_ATTENDUES.get(langue, "")
+        res = False
+        emb = self._pick_font(font_raw, attendu)
+        if emb is not None and not all(self._renders_glyph(emb, c)
+                                       for c in attendu):
+            fb = self._full_fallback_font(font_raw, bold, italic)
+            couche = self._fallback_couche.get(
+                (clean, _weight_class(font_raw, bold), bool(bold),
+                 bool(italic)))
+            res = (couche in ("identique", "clone")
+                   and all(self._renders_glyph(fb, c) for c in attendu))
+        cache[key] = res
+        return res
 
     def _font_from_file(self, path):
         """fitz.Font d'un fichier, une seule fois par processus de rendu."""
@@ -5363,8 +5419,12 @@ class PDFObjectEngine:
             # celle de la lettre d'origine, aucune cible à imposer.
             target_w = None
 
-        # 1) Police source embarquée (fidélité exacte de police + glyphes).
+        # 1) Police source embarquée (fidélité exacte de police + glyphes),
+        #    sauf famille remplacée dans tout le document (R2).
         font = self._pick_font(run.get("font", ""), text)
+        if font is not None and self._famille_remplacee(
+                run.get("font", ""), run.get("bold"), run.get("italic")):
+            font = None
         # Gras synthétique : la police embarquée est la Regular → la repeindre
         # remplie + contourée, comme la source.
         rm = 2 if font is not None and run.get("synth_bold") else 0
