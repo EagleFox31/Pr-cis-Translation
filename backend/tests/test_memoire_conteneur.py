@@ -194,6 +194,27 @@ class Tuiles(unittest.TestCase):
         self.assertEqual(max(vus[3]), 800, "une petite image ne doit pas changer")
 
 
+class ArenePPOCR(unittest.TestCase):
+    """Demander à ONNX Runtime de réduire une arène désactivée fait échouer
+    CHAQUE passe de détection : plus aucune image n'est lue (CI de #106)."""
+
+    def test_retrait_d_arene_seulement_si_arene_active(self):
+        import onnxruntime as ort
+        vues = []
+
+        def session(_chemin, opts, providers=None):
+            vues.append(opts)
+            return object()
+
+        lecteur = ppocr.PPOCR(dossier="inexistant")
+        with mock.patch.object(ort, "InferenceSession", session), \
+                mock.patch.object(ppocr, "lire_dictionnaire", lambda _c: ["a"]):
+            lecteur._charger()
+        self.assertTrue(vues)
+        if not all(o.enable_cpu_mem_arena for o in vues):
+            self.assertIsNone(lecteur._rendre)
+
+
 class TailleAffichee(unittest.TestCase):
     """Côté utile = plus grande taille affichée à 150 points par pouce."""
 
