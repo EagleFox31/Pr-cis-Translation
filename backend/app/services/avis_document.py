@@ -47,6 +47,22 @@ def lire(translation_path: str | None) -> list[dict]:
     return [a for a in brut if isinstance(a, dict) and a.get("type") in TYPES]
 
 
+def pour_document(avis: list[dict], statut: str, demarre: bool) -> list[dict]:
+    """Messages à montrer pour un document dans cet état. Le fichier d'avis est
+    partagé par tous les envois du même fichier : sans ce tri, un document
+    encore en file affichait « Termes harmonisés… L'aperçu est à jour »,
+    hérité d'une traduction précédente.
+
+    - terminé : tous ; en erreur ou pas encore commencé : aucun ;
+    - commencé mais pas fini (en cours, pause, annulé…) : pas d'harmonisation,
+      qui n'a lieu qu'à la fin du traitement."""
+    if statut == "done":
+        return avis
+    if statut == "error" or not demarre:
+        return []
+    return [a for a in avis if a.get("type") != "coherence"]
+
+
 def ajouter(translation_path: str | None, type_: str, donnees: dict | None) -> None:
     """Enregistre l'avis `type_` ; `donnees` None le retire (plus rien à dire)."""
     if not translation_path or type_ not in TYPES:

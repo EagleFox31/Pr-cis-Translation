@@ -11,6 +11,7 @@ import LanguageMarquee from '../components/hero/LanguageMarquee';
 import FeaturesGrid from '../components/features/FeaturesGrid';
 import AudienceSection from '../components/audience/AudienceSection';
 import StorySection from '../components/story/StorySection';
+import type { QueueEta } from '../components/story/QueueBanner';
 import type { Ajustement } from '../components/preview/ViewerToolbar';
 import PricingSection from '../components/pricing/PricingSection';
 import AboutSection from '../components/about/AboutSection';
@@ -138,6 +139,8 @@ export default function Home() {
   // traduction. Sans lui, toutes les pages passaient pour traduites.
   const [suiviBiblio, setSuiviBiblio] = useState<{
     pretes: Record<number, true>; etats: Record<number, PageStatus>;
+    /** En file d'attente : même bandeau que la traduction en direct. */
+    file: { ahead: number; eta: QueueEta } | null;
   } | null>(null);
   // Admin regardant le document d'un AUTRE compte : tout passe par les routes
   // admin (lecture seule), rien n'est retraduit ni débité, et Retour ramène à
@@ -334,7 +337,7 @@ export default function Home() {
       setSourceManquante(false);
       setLibraryCanReadClear(req.paid);
       // En cours : rien n'est tenu pour traduit avant la réponse du serveur.
-      setSuiviBiblio(req.enCours ? { pretes: {}, etats: {} } : null);
+      setSuiviBiblio(req.enCours ? { pretes: {}, etats: {}, file: null } : null);
       setCurrentPage(1);
       setAjustement('page');
       setRideau(false);
@@ -574,7 +577,17 @@ export default function Home() {
         }
         echecsSuivi.current = 0;
         enSuivi.current = res.inProgress;
-        setSuiviBiblio(res.inProgress ? { pretes: res.pretes, etats: res.etats } : null);
+        const a = res.attente;
+        setSuiviBiblio((prec) => {
+          if (!res.inProgress) return null;
+          // Heure de réception gardée tant que l'estimation ne change pas :
+          // le bandeau décompte depuis elle (sinon il resterait figé).
+          const meme = a && prec?.file && prec.file.ahead === a.ahead
+            && prec.file.eta.attenteS === a.attenteS;
+          const file = !a ? null : meme ? prec!.file
+            : { ahead: a.ahead, eta: { attenteS: a.attenteS, seuilS: a.seuilS, recuA: Date.now() } };
+          return { pretes: res.pretes, etats: res.etats, file };
+        });
         if (res.inProgress) {
           // Document rouvert PENDANT sa traduction : on montre ce qui est
           // traduit (rien en cache, ça change) et on redemande jusqu'au rendu
@@ -1106,14 +1119,16 @@ export default function Home() {
           targetLang={targetLang}
           isTranslating={stream.isTranslating || !!suiviBiblio}
           pageStatuses={suiviBiblio?.etats ?? stream.pageStatuses}
-          queuePosition={stream.queuePosition}
-          queueEta={stream.queueEta}
+          queuePosition={fluxDuDoc ? stream.queuePosition : suiviBiblio?.file?.ahead ?? null}
+          queueEta={fluxDuDoc ? stream.queueEta : suiviBiblio?.file?.eta ?? null}
           readyPages={suiviBiblio?.pretes ?? stream.readyPages}
           previewRendering={previewLoading}
           fileMissing={!libraryDocId || !traductionManquante ? null
             : sourceManquante ? 'all' : 'translation'}
           translationError={stream.error}
-          translationNotice={fluxDuDoc && (stream.notice || stream.isTranslating) ? stream.notice : texteAvis(docBiblio?.avis, t)}
+          translationNotice={fluxDuDoc && (stream.notice || stream.isTranslating) ? stream.notice
+            : docBiblio && STATUTS_REPRENABLES.includes(docBiblio.status) ? t(`story.stopped_${docBiblio.status}`)
+            : texteAvis(docBiblio?.avis, t)}
           limitReached={stream.limitReached}
           creditsNeeded={stream.creditsNeeded}
           onBuyPages={(p) => setPayPages(p)}

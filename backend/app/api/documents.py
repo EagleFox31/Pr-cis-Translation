@@ -23,7 +23,7 @@ from app.config import TRANSLATIONS_DIR, logger
 from app.services import avis_document, beta, extension, images_document, ocr_pages, render_cache, stockage, translation_runner, usage
 from app.services.beta_meter import BetaCost
 from app.models.plans import get_plan_priority
-from app.services.scheduler import scheduler_scans
+from app.services.scheduler import etat_file, scheduler_scans
 from app.services.documents import copie_du_document as _copie_du_document, copie_prevue as _copie_prevue
 from app.services.documents import acces_archive, acces_jusqu_au
 from app.services.documents import (chemin_traduction_du_document, pages_libres_du_document,
@@ -369,6 +369,11 @@ def _pause_apercu(doc: Document) -> dict:
 
 def _doc_response(doc: Document, user: User) -> dict:
     fin = acces_jusqu_au(user, doc)
+    job_id = jobs.id_for_document(doc.id) if doc.status == "translating" else None
+    # En file d'attente : la bibliothèque et l'écran rouvert l'annoncent (sans
+    # le flux de la traduction, ils montraient « Traduction en cours »).
+    attente = etat_file(job_id)
+    demarre = bool(doc.pages_done) or (job_id is not None and attente is None)
     return {
         **_suivi_scan(doc),
         "id": doc.id,
@@ -386,7 +391,8 @@ def _doc_response(doc: Document, user: User) -> dict:
         "reglages": json.loads(doc.reglages) if doc.reglages else None,
         # Pause / Annuler depuis la bibliothèque. Le propriétaire est revérifié
         # par la route d'arrêt : la liste ne fait que nommer le job.
-        "job_id": jobs.id_for_document(doc.id) if doc.status == "translating" else None,
+        "job_id": job_id,
+        "attente": attente,
         "created_at": doc.created_at.isoformat() if doc.created_at else None,
         "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
         "archive": acces_archive(user, doc),
@@ -394,9 +400,10 @@ def _doc_response(doc: Document, user: User) -> dict:
         # Messages de la traduction (OCR, objets, cohérence…) : l'écran les
         # réaffiche quand on rouvre le document. Pendant la traduction,
         # `translated_path` n'est pas encore posé : chemin prévu du job. Un
-        # document en erreur n'a pas de traduction à commenter.
-        "avis": [] if doc.status == "error" else avis_document.lire(
-            doc.translated_path or chemin_traduction_du_document(doc)),
+        # document en erreur n'a pas de traduction à commenter. Le fichier est
+        # partagé par les envois du même fichier : tri selon l'état (pour_document).
+        "avis": avis_document.pour_document(avis_document.lire(
+            doc.translated_path or chemin_traduction_du_document(doc)), doc.status, demarre),
     }
 
 
@@ -655,17 +662,22 @@ async def original_document(
 
 # ── GET /documents/{id}/preview ──────────────────────────────────────────────
 
-def _entetes_pages(job: dict | None) -> dict[str, str]:
+def _entetes_pages(job: dict | None, doc_id: str) -> dict[str, str]:
     """Où en est chaque page d'un document EN COURS. Rouvert depuis la
     bibliothèque, l'aperçu n'a pas le flux de la traduction : sans ces
     en-têtes, il tenait toutes les pages pour traduites (vertes, et le texte
     d'origine affiché à la place de la traduction)."""
     if not job:
-        return {"X-Pages-Pretes": "", "X-Pages-Etats": ""}
+        return {"X-Pages-Pretes": "", "X-Pages-Etats": "", "X-File-Attente": ""}
     pretes, etats = jobs.pages_etat(job)
+    # En file : « rang:attente_s:seuil_s » (seuil vide = aucun), comme
+    # l'événement `queued` du flux que l'écran rouvert n'a pas.
+    file = etat_file(jobs.id_for_document(doc_id))
     return {
         "X-Pages-Pretes": ",".join(map(str, pretes)),
         "X-Pages-Etats": ",".join(f"{p}:{s}" for p, s in sorted(etats.items())),
+        "X-File-Attente": (f"{file['ahead']}:{file['attente_s']}:{file['seuil_s'] or ''}"
+                           if file else ""),
     }
 
 
@@ -747,14 +759,14 @@ async def preview_document(
                 raise HTTPException(status_code=404, detail="Traduction indisponible. Relancez-la depuis la bibliothèque.")
             return Response(status_code=202, headers={"Cache-Control": "no-store",
                                                       "X-Render": "pending",
-                                                      **_entetes_pages(job)})
+                                                      **_entetes_pages(job, doc.id)})
         data = await run_in_threadpool(_lire, chemin)
         filigrane, cibles = pages_filigranees(user, doc, job.get("pages"))
         if filigrane:
             # Même règle que /translate/partial : un plan d'essai ne reçoit
             # que des pixels, et seules les pages traduites sont à protéger.
             data = await run_in_threadpool(rasterize_for_trial, data, cibles)
-        entetes = _entetes_pages(job) if rendu == "partial" else {}
+        entetes = _entetes_pages(job, doc.id) if rendu == "partial" else {}
         return Response(content=data, media_type="application/pdf",
                         headers={"Cache-Control": "no-store",
                                  "X-Render": rendu, **entetes})

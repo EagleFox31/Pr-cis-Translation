@@ -95,6 +95,16 @@ def estimer_attente(ahead: int) -> int:
     return int(tours * duree_type())
 
 
+def etat_file(job_id: str | None) -> dict | None:
+    """Dernière position annoncée à ce travail, s'il attend encore : l'écran
+    rouvert depuis la bibliothèque n'a pas le flux qui l'a reçue."""
+    etat = _dernier_signal.get(job_id) if job_id else None
+    if etat is None:
+        return None
+    seuil_s = FILE_ATTENTE_SEUIL_MIN * 60 if FILE_ATTENTE_SEUIL_MIN else None
+    return {"ahead": etat[0], "attente_s": etat[1], "seuil_s": seuil_s}
+
+
 def signaler_file() -> None:
     """Renvoie à chaque travail en attente sa position et son attente, s'ils ont
     changé. À appeler sous `budget.verrou`."""

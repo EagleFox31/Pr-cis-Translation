@@ -113,6 +113,7 @@
   "story": {
     "stopped_paused": "Translation paused. Resume it from your library: work already done is kept and nothing is charged twice.",
     "stopped_cancelled": "Translation cancelled. Work already done is kept; you can resume it from your library.",
+    "stopped_interrupted": "Translation interrupted. Work already done is kept; you can resume it from your library.",
     "stop_failed": "Could not stop the translation",
     "tag": "Our translation process",
     "title": "How does it <em>work</em> ?",
@@ -276,6 +277,7 @@
     "empty_message": "Your translated documents will appear here after each translation.",
     "empty_formats": "PDF · DOCX · PPTX · XLSX · TXT",
     "status_running": "Translating",
+    "status_queued": "Queued",
     "status_failed": "Translation failed",
     "unlock_hint": "Pay for this document's pages to download it",
     "report_problem": "Report a problem",

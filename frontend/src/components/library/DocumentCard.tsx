@@ -189,7 +189,9 @@ export default function DocumentCard({
   } else if (enCours) {
     sousLigne = (
       <>
-        <span className="st st--run">{arret ? t('viewer.stopping') : t('library.status_running')}</span>
+        <span className="st st--run">
+          {arret ? t('viewer.stopping') : doc.attente ? t('library.status_queued') : t('library.status_running')}
+        </span>
         {separateur}
         <span className="tab">{doc.pagesDone}/{doc.pageCount}</span>
       </>

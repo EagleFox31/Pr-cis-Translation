@@ -115,6 +115,10 @@ class FileCommune(unittest.TestCase):
             self.assertEqual(dernier_queued(c)["ahead"], 1)
             self.assertEqual(dernier_queued(c)["attente_s"], 300)
             self.assertEqual(dernier_queued(c)["seuil_s"], 15 * 60)
+            # Lisible sans le flux : l'écran rouvert depuis la bibliothèque.
+            self.assertIsNone(sched_mod.etat_file(a))
+            self.assertEqual(sched_mod.etat_file(c),
+                             {"ahead": 1, "attente_s": 300, "seuil_s": 15 * 60})
 
             # D annulé pendant l'attente : il ne compte plus pour personne.
             jobs.demander_arret(d, "cancelled")

@@ -29,9 +29,14 @@ export interface PreviewResult {
   inProgress: boolean;
   pretes: Record<number, true>;
   etats: Record<number, PageStatus>;
+  /** En file d'attente (`X-File-Attente`) : rang et attente estimée. */
+  attente?: FileAttente | null;
   /** 404 : la traduction n'existe plus sur le serveur. */
   missing?: boolean;
 }
+
+/** Place d'un document dans la file d'attente du serveur. */
+export interface FileAttente { ahead: number; attenteS: number; seuilS: number | null }
 
 /** Image traduite d'un document (`GET /api/documents/{id}/images`). */
 export interface DocImage {
@@ -104,6 +109,8 @@ export interface DocMeta {
   pagesRelues?: number;
   /** Messages de la traduction, réaffichés à la réouverture (lib/avis). */
   avis?: Avis[];
+  /** En file d'attente : pas encore commencé, en attente d'une place. */
+  attente?: FileAttente | null;
   /** Langue source déclarée à l'envoi (`auto` quand elle a été détectée). */
   sourceLang: string;
   /** Document archivé : listé, mais son contenu demande un forfait avec stockage. */
@@ -145,6 +152,7 @@ function toMeta(d: any): DocMeta {
     pagesADecider: d.pages_a_decider ?? 0,
     pagesRelues: d.pages_relues ?? 0,
     avis: Array.isArray(d.avis) ? d.avis : [],
+    attente: d.attente ? { ahead: d.attente.ahead, attenteS: d.attente.attente_s, seuilS: d.attente.seuil_s ?? null } : null,
     sourceLang: d.source_lang ?? 'auto',
     archive: !!d.archive,
     accesJusquAu: d.acces_jusqu_au ?? null,
@@ -305,7 +313,9 @@ export function useDocumentLibrary() {
       }
       if (!res.ok) { await signalerStockageRequis(res); return undefined; }
       const render = res.headers.get('X-Render');
-      const pending = render === 'pending';
+      // 202 = rien encore : même si `X-Render` n'est pas lisible (autre origine),
+      // un corps vide ne doit jamais passer pour la traduction.
+      const pending = render === 'pending' || res.status === 202;
       // En cours : le serveur dit quelles pages le fichier montre VRAIMENT
       // traduites, et l'étape de chacune — l'aperçu rouvert n'a pas le flux.
       const pretes: Record<number, true> = {};
@@ -317,7 +327,12 @@ export function useDocumentLibrary() {
         const [p, s] = e.split(':');
         if (p && s) etats[Number(p)] = s as PageStatus;
       }
+      // En file : « rang:attente_s:seuil_s » — l'aperçu rouvert n'a pas
+      // l'événement `queued` du flux, il n'aurait rien dit de l'attente.
+      const [rang, attenteS, seuilS] = (res.headers.get('X-File-Attente') ?? '').split(':');
+      const attente = rang ? { ahead: Number(rang), attenteS: Number(attenteS), seuilS: seuilS ? Number(seuilS) : null } : null;
       return {
+        attente,
         blob: pending ? null : await res.blob(),
         full: render === 'full',
         inProgress: pending || render === 'partial',

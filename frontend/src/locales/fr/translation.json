@@ -113,6 +113,7 @@
   "story": {
     "stopped_paused": "Traduction en pause. Reprenez-la depuis votre bibliothèque : le travail déjà fait est gardé et rien n'est facturé deux fois.",
     "stopped_cancelled": "Traduction annulée. Le travail déjà fait est gardé ; vous pouvez la reprendre depuis votre bibliothèque.",
+    "stopped_interrupted": "Traduction interrompue. Le travail déjà fait est gardé ; vous pouvez la reprendre depuis votre bibliothèque.",
     "stop_failed": "Impossible d'arrêter la traduction",
     "tag": "Notre processus de traduction",
     "title": "Comment ça <em>marche</em> ?",
@@ -276,6 +277,7 @@
     "empty_message": "Vos documents traduits apparaîtront ici après chaque traduction.",
     "empty_formats": "PDF · DOCX · PPTX · XLSX · TXT",
     "status_running": "Traduction en cours",
+    "status_queued": "En file d'attente",
     "status_failed": "Échec de la traduction",
     "unlock_hint": "Réglez les pages de ce document pour le télécharger",
     "report_problem": "Signaler un problème",
