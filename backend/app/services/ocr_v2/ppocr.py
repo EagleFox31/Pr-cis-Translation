@@ -12,6 +12,8 @@ d'espaces : une ligne japonaise reste un seul `Mot`.
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import json
 import math
 import os
@@ -20,6 +22,9 @@ import time
 
 import cv2
 import numpy as np
+
+from app.config import logger
+from app.services import memoire
 
 from .detect import LectureEchouee, Mot
 
@@ -33,6 +38,40 @@ SEUIL_PIXEL = 0.2
 SEUIL_BOITE = 0.45
 DILATATION = 1.4
 COTE_MIN, COTE_MAX = 64, 4000
+# Le modèle de détection consomme des Go sur une image de 4000 px (conteneur
+# de 1 Go tué) : au-delà de TUILE px, l'image est analysée par morceaux qui se
+# recouvrent de RECOUVREMENT px de chaque côté, et seuls leurs centres sont
+# recollés. Multiples de 32, comme les côtés passés au modèle.
+TUILE, RECOUVREMENT = 1024, 128
+# Quand la mémoire manque, morceaux plus petits : même carte (seuls les centres
+# sont gardés), mémoire divisée par 4 à 512 px, au prix de passes plus nombreuses.
+TUILES_REDUITES = (768, 512)
+# Mémoire demandée par une passe du modèle de détection : ~190 octets par point
+# analysé (mesuré sous Docker : +225 Mo pour une tuile de 1024 × 1024), plus
+# une marge.
+OCTETS_PAR_POINT, MARGE_DETECTION = 220, 64 * 1024 * 1024
+# Une seule détection à la fois sur tout le serveur (un seul processus,
+# plusieurs fils) : deux grandes images en même temps dépassaient la mémoire.
+# Si même les plus petits morceaux ne tiennent pas, la détection attend que la
+# mémoire revienne (au plus memoire.ATTENTE_MAX_S) : partir sans marge fait
+# tuer le serveur et tous les travaux en cours.
+ATTENTE_DETECTION_S = None
+_VERROU_DETECTION = threading.Lock()
+# Côté maximal pour l'image en cours de ce fil (taille affichée dans le
+# document), posé par `plafond`. None : seul COTE_MAX s'applique.
+_PLAFOND = contextvars.ContextVar("ppocr_plafond", default=None)
+
+
+@contextlib.contextmanager
+def plafond(cote):
+    """Analyse au plus à `cote` px de côté les images lues dans ce bloc (None :
+    aucun plafond de plus). Une image affichée petite dans un document n'a pas
+    besoin d'être analysée en pleine définition."""
+    jeton = _PLAFOND.set(cote)
+    try:
+        yield
+    finally:
+        _PLAFOND.reset(jeton)
 HAUTEUR_REC = 48
 LOT_REC = 8
 
@@ -71,6 +110,7 @@ class PPOCR:
     def __init__(self, dossier=DOSSIER):
         self.dossier = dossier
         self._sessions = None
+        self._rendre = None
         self._verrou = threading.Lock()
 
     def manquant(self):
@@ -103,6 +143,13 @@ class PPOCR:
                                                  providers=["CPUExecutionProvider"])
                             for f in FICHIERS[:2])
                 self._chars = ["", *lire_dictionnaire(os.path.join(self.dossier, FICHIERS[2])), " "]
+                # ONNX Runtime garde sinon une réserve à la taille du plus gros
+                # passage vu, sans jamais la rendre : après une grande image, le
+                # serveur restait à 967 Mo sur 1 Go. Rendue après chaque passe de
+                # détection (mesuré : quasi sans coût de temps).
+                self._rendre = ort.RunOptions()
+                self._rendre.add_run_config_entry(
+                    "memory.enable_memory_arena_shrinkage", "cpu:0")
                 self._sessions = (det, rec)
         return self._sessions
 
@@ -114,12 +161,11 @@ class PPOCR:
     def _detecter(self, det, image):
         h, w = image.shape[:2]
         r = max(1.0, COTE_MIN / min(h, w))
-        if max(h, w) * r > COTE_MAX:
-            r = COTE_MAX / max(h, w)
+        cote_max = min(COTE_MAX, _PLAFOND.get() or COTE_MAX)
+        if max(h, w) * r > cote_max:
+            r = max(cote_max, COTE_MIN) / max(h, w)
         rh, rw = (max(32, int(round(v * r / 32)) * 32) for v in (h, w))
-        x = cv2.resize(image, (rw, rh)).astype(np.float32) / 255.0
-        x = (x - (0.485, 0.456, 0.406)) / (0.229, 0.224, 0.225)
-        carte = det.run(None, {"x": x.transpose(2, 0, 1)[None].astype(np.float32)})[0][0, 0]
+        carte = self._probabilites(det, cv2.resize(image, (rw, rh)), self._rendre)
         binaire = (carte > SEUIL_PIXEL).astype(np.uint8)
         contours, _ = cv2.findContours(binaire, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
         sx, sy = w / rw, h / rh
@@ -156,6 +202,51 @@ class PPOCR:
                 else:
                     break
         return boites
+
+    @staticmethod
+    def _probabilites(det, image, options=None):
+        """Carte de probabilité de texte d'une image BGR aux côtés multiples de 32.
+
+        Recoller les cartes (et non les boîtes) garde d'un seul tenant une ligne
+        à cheval sur deux tuiles. Une image qui tient dans une tuile est
+        analysée d'un bloc, exactement comme avant.
+        """
+        rh, rw = image.shape[:2]
+
+        def besoin(t):
+            return min(rh, t) * min(rw, t) * OCTETS_PAR_POINT + MARGE_DETECTION
+
+        def passe(morceau):
+            x = morceau.astype(np.float32) / 255.0
+            x = (x - (0.485, 0.456, 0.406)) / (0.229, 0.224, 0.225)
+            x = x.transpose(2, 0, 1)[None].astype(np.float32)
+            return det.run(None, {"x": x}, options)[0][0, 0]
+
+        with _VERROU_DETECTION:
+            # Plus grands morceaux qui tiennent dans la mémoire libre ; sinon
+            # les plus petits, après attente (LibreOffice, rendus, autres
+            # travaux libèrent de la place) plutôt que de faire tuer le serveur.
+            tailles = (TUILE,) + tuple(t for t in TUILES_REDUITES if t < TUILE)
+            libre = memoire.disponible()
+            tuile = next((t for t in tailles if libre is None or besoin(t) <= libre), None)
+            if tuile is None:
+                tuile = tailles[-1]
+                memoire.attendre(besoin(tuile), "détection d'image", max_s=ATTENTE_DETECTION_S)
+            if tuile < TUILE:
+                logger.info("Mémoire : détection en morceaux de %d px", tuile)
+            if max(rh, rw) <= tuile:
+                return passe(image)
+            carte = np.empty((rh, rw), np.float32)
+            pas = tuile - 2 * RECOUVREMENT
+            for y in range(0, rh, pas):
+                y0 = max(0, min(y - RECOUVREMENT, rh - tuile))
+                y1, yc = min(rh, y0 + tuile), min(rh, y + pas)
+                for x in range(0, rw, pas):
+                    x0 = max(0, min(x - RECOUVREMENT, rw - tuile))
+                    x1, xc = min(rw, x0 + tuile), min(rw, x + pas)
+                    morceau = passe(image[y0:y1, x0:x1])
+                    carte[y:yc, x:xc] = morceau[y - y0:yc - y0, x - x0:xc - x0]
+            return carte
 
     # ── Reconnaissance ──────────────────────────────────────────────────────
     @staticmethod

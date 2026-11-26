@@ -1321,6 +1321,18 @@ class PPTXTranslatorEngine:
                     r_id = el.get(f"{{{NAMESPACES['r']}}}id")
                     if r_id not in r_id_to_slide_num:
                         sld_list.remove(el)
+                # Sections (p14:sectionLst) : elles listent les slides par leur
+                # id ; un id disparu fait planter LibreOffice (Signal 6). On ne
+                # garde que les ids conservés, et les sections non vides.
+                gardes = {el.get("id") for el in sld_list}
+                for sec_list in pres_tree.xpath(
+                        "//*[local-name()='sectionLst']"):
+                    for section in list(sec_list):
+                        for ref in section.xpath(".//*[local-name()='sldId']"):
+                            if ref.get("id") not in gardes:
+                                ref.getparent().remove(ref)
+                        if not section.xpath(".//*[local-name()='sldId']"):
+                            sec_list.remove(section)
             control_bytes[pres_rel] = etree.tostring(
                 pres_tree, encoding="utf-8", xml_declaration=True)
 
@@ -1348,6 +1360,15 @@ class PPTXTranslatorEngine:
             control_bytes.update(
                 self._figer_numeros(temp_path, rels_path, pres_path, garder))
 
+        # 5. Liens entre diapositives (menu de navigation, sommaire) : dans un
+        # deck partiel, LibreOffice 7.4 plante (Signal 6) sur ces sauts, même
+        # vers une slide présente (lien de la slide vers elle-même). On retire
+        # la relation ET le lien qui la cite, dans le zip partiel seulement
+        # (aperçu) ; le fichier final n'exclut rien et garde ses liens.
+        if exclus:
+            control_bytes.update(
+                self._retirer_liens_diapos(temp_path, garder, control_bytes))
+
         # ── Reconstruire le ZIP (atomique) : contrôle depuis la mémoire, le reste du disque ──
         tmp_out = output_path + ".tmp"
         with zipfile.ZipFile(tmp_out, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -1359,6 +1380,46 @@ class PPTXTranslatorEngine:
                 if part_path.exists():
                     zf.write(part_path, rel)
         os.replace(tmp_out, output_path)
+
+    @staticmethod
+    def _retirer_liens_diapos(temp_path, garder: set[int],
+                              deja: dict[str, bytes]) -> dict[str, bytes]:
+        """Rels et XML des slides gardées, purgés de leurs liens vers d'autres
+        slides. Part de la version déjà recalculée (`deja`) si elle existe."""
+        rel_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+        a = NAMESPACES["a"]
+        sortie: dict[str, bytes] = {}
+        for num in garder:
+            rels_name = f"ppt/slides/_rels/slide{num}.xml.rels"
+            rels_file = temp_path / rels_name
+            if not rels_file.exists():
+                continue
+            rels_tree = etree.parse(str(rels_file))
+            morts = set()
+            for rel in list(rels_tree.getroot()):
+                if rel.get("TargetMode") == "External":
+                    continue
+                m = re.fullmatch(r"(?:\.\./slides/|/ppt/slides/)?slide(\d+)\.xml",
+                                 rel.get("Target", ""))
+                if m:
+                    morts.add(rel.get("Id"))
+                    rels_tree.getroot().remove(rel)
+            if not morts:
+                continue
+            sortie[rels_name] = etree.tostring(
+                rels_tree, encoding="utf-8", xml_declaration=True)
+            slide_name = f"ppt/slides/slide{num}.xml"
+            brut = deja.get(slide_name)
+            if brut is None:
+                brut = (temp_path / slide_name).read_bytes()
+            root = etree.fromstring(brut)
+            for tag in ("hlinkClick", "hlinkHover"):
+                for el in list(root.iter(f"{{{a}}}{tag}")):
+                    if el.get(f"{{{rel_ns}}}id") in morts:
+                        el.getparent().remove(el)
+            sortie[slide_name] = etree.tostring(
+                root, encoding="utf-8", xml_declaration=True, standalone=True)
+        return sortie
 
     @staticmethod
     def _figer_numeros(temp_path, rels_path, pres_path,

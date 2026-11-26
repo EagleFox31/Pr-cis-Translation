@@ -144,6 +144,11 @@ PREVIEW_CACHE_MAX_BYTES = int(os.getenv("PREVIEW_CACHE_MAX_MB", "500")) * 1024 *
 # ce délai : le temps qu'une relance après échec reprenne les pages déjà
 # traduites (et payées en appels IA) au lieu de tout refaire.
 TRADUCTION_ORPHELINE_GRACE_S = int(os.getenv("TRADUCTION_ORPHELINE_GRACE_JOURS", "7")) * 86400
+# Espace disque gardé libre : en dessous, les nouveaux envois sont refusés (507)
+# et les admins alertés. La base partage ce disque : pleine, elle s'arrête et
+# tout le site avec. « none » ou 0 = pas de garde.
+_disque_min = (os.getenv("DISQUE_LIBRE_MIN_MO") or "2048").strip().lower()
+DISQUE_LIBRE_MIN_MO: int | None = (int(_disque_min) or None) if _disque_min.isdigit() else None
 
 # ── Rétention des jobs ───────────────────────────────────────────────────────
 # Un job terminé reste consultable (partiel/résultat) pendant cette durée, puis
@@ -177,6 +182,18 @@ PPTX_SLIDE_WORKERS = max(1, int(os.getenv("PPTX_SLIDE_WORKERS", "4")))
 # Documents scannés : un second ordonnanceur, à part, pour que leur attente
 # devant le guichet OCR n'occupe jamais les workers des documents à texte.
 OCR_SCAN_WORKERS = max(1, int(os.getenv("OCR_SCAN_WORKERS", "3")))
+
+# Budget mémoire (voir services/memoire.py) : nombre de travaux simultanés =
+# (plafond du conteneur − socle − détection d'image) ÷ part d'un travail.
+# À 1 Go : (1024 − 300 − 284) ÷ 150 = 2 places. 0 = pas de budget.
+MEMOIRE_TRAVAIL_MO = max(0, int(os.getenv("MEMOIRE_TRAVAIL_MO", "150")))
+MEMOIRE_SOCLE_MO = max(0, int(os.getenv("MEMOIRE_SOCLE_MO", "300")))
+# File d'attente affichée : au-delà de ce seuil, l'écran écrit « plus de N min »
+# au lieu d'un chiffre (none/0 = toujours le chiffre). Durée supposée d'un
+# travail tant qu'aucun n'a été mesuré depuis le démarrage (PPTX TSA ≈ 150 s).
+_seuil_file = (os.getenv("FILE_ATTENTE_SEUIL_MIN") or "15").strip().lower()
+FILE_ATTENTE_SEUIL_MIN: int | None = (int(_seuil_file) or None) if _seuil_file.isdigit() else None
+FILE_ATTENTE_DUREE_DEFAUT_S = max(1, int(os.getenv("FILE_ATTENTE_DUREE_DEFAUT_S", "150")))
 # Temps accordé à la lecture d'UNE page (le délai ne court qu'une fois le tour
 # obtenu au guichet).
 OCR_DELAI_PAGE_S = max(5, int(os.getenv("OCR_DELAI_PAGE_S", "90")))

@@ -41,6 +41,7 @@ from PIL import Image
 
 from app.services import ocr_file
 from app.services.ocr_v2 import image as ocr_image
+from app.services.ocr_v2 import ppocr
 from app.services.ocr_v2.image import ImageRefusee
 from engines import incorpores
 
@@ -52,6 +53,10 @@ COUVERTURE_SCAN = 0.8       # part de la page couverte par une image de scan
 ENTREES_MAX = 10_000
 OCTETS_ZIP_MAX = 128 * 1024 * 1024
 VECTORIELLES = (".emf", ".wmf", ".svg", ".emz", ".wmz")
+# Une image n'est pas lue plus finement que sa taille affichée dans le document
+# à POINTS_PAR_POUCE (comme « Compresser les images » de PowerPoint) : un texte
+# de 8 pt y fait encore 17 px, assez pour la détection. Jamais sous COTE_LECTURE_MIN.
+POINTS_PAR_POUCE, COTE_LECTURE_MIN, EMU_PAR_POUCE = 150, 960, 914400
 _MEDIA = {"docx": "word", "pptx": "ppt", "xlsx": "xl"}
 # Formats dont les images à texte sont traduites avec leur page : ceux dont
 # le rendu à la demande pose la table d'images (pas le xlsx).
@@ -68,6 +73,7 @@ class ImageDoc:
     hauteur: int = 0
     exclusion: str | None = None
     octets: bytes | None = None
+    cote_max: int | None = None     # px utiles pour la lecture (taille affichée)
 
 
 @dataclass
@@ -177,6 +183,54 @@ def _pages_diapos(archive: zipfile.ZipFile) -> dict[str, list[int]]:
     return pages
 
 
+def _cotes_affichees(archive: zipfile.ZipFile, ext: str) -> dict[str, int | None]:
+    """Partie média -> côté utile en px (plus grande taille affichée, à
+    POINTS_PAR_POUCE). None si une de ses utilisations n'a pas de taille lisible
+    (fond de diapositive…) : aucun plafond alors."""
+    racine = _MEDIA[ext]
+    pouces: dict[str, float | None] = {}
+    for e in archive.infolist():
+        if (not e.filename.startswith(racine + "/") or not e.filename.endswith(".xml")
+                or e.file_size > 8 * 1024 * 1024):
+            continue
+        dossier, nom = posixpath.split(e.filename)
+        try:
+            rels = archive.read(f"{dossier}/_rels/{nom}.rels").decode("utf-8", errors="replace")
+        except KeyError:
+            continue
+        cibles = {}
+        for balise in re.findall(r"<Relationship\b[^>]*>", rels):
+            rid = re.search(r'\bId\s*=\s*"([^"]*)"', balise)
+            cible = re.search(r'\bTarget\s*=\s*"([^"]*)"', balise)
+            if rid and cible:
+                c = cible.group(1)
+                c = (c.lstrip("/") if c.startswith("/")
+                     else posixpath.normpath(posixpath.join(dossier, c)))
+                if c.startswith(racine + "/media/"):
+                    cibles[rid.group(1)] = c
+        if not cibles:
+            continue
+        xml = archive.read(e).decode("utf-8", errors="replace")
+        for m in re.finditer(r'r:(?:embed|link)\s*=\s*"([^"]*)"', xml):
+            partie = cibles.get(m.group(1))
+            if partie is None:
+                continue
+            if ext == "docx":   # <wp:extent> précède l'image dans son <w:drawing>
+                debut = xml.rfind("<w:drawing", 0, m.start())
+                tailles = re.findall(r'<wp:extent\s+cx="(\d+)"\s+cy="(\d+)"', xml[debut:m.start()]) if debut >= 0 else []
+            else:               # <a:ext> suit l'image dans son <p:pic> / <xdr:pic>
+                fin = re.search(r"</(?:p|xdr):pic>|<(?:p|xdr):pic[ >]", xml[m.end():])
+                zone = xml[m.end():m.end() + fin.start()] if fin else ""
+                tailles = re.findall(r'<a:ext\s+cx="(\d+)"\s+cy="(\d+)"', zone)
+            if not tailles:
+                pouces[partie] = None
+            elif partie not in pouces or pouces[partie] is not None:
+                cote = max(int(v) for v in tailles[-1 if ext == "docx" else 0]) / EMU_PAR_POUCE
+                pouces[partie] = max(pouces.get(partie) or 0.0, cote)
+    return {p: (None if v is None else max(COTE_LECTURE_MIN, round(v * POINTS_PAR_POUCE)))
+            for p, v in pouces.items()}
+
+
 def _lister_office(data: bytes, ext: str) -> list[ImageDoc]:
     motif = re.compile(rf"^{_MEDIA[ext]}/media/[^/]+$")
     # Aperçus d'objets incorporés : redessinés depuis l'objet traduit (ou
@@ -185,11 +239,16 @@ def _lister_office(data: bytes, ext: str) -> list[ImageDoc]:
         # Après les garde-fous du zip : `reperer` décompresse.
         apercus = {o.apercu.lower() for o in incorpores.reperer(data) if o.apercu}
         diapos = _pages_diapos(archive) if ext == "pptx" else {}
+        try:
+            cotes = _cotes_affichees(archive, ext)
+        except Exception:
+            cotes = {}
         out = []
         for e in sorted(archive.infolist(), key=lambda e: e.filename):
             if e.is_dir() or not motif.match(e.filename):
                 continue
-            img = ImageDoc(e.filename, sorted(diapos.get(e.filename, [])))
+            img = ImageDoc(e.filename, sorted(diapos.get(e.filename, [])),
+                           cote_max=cotes.get(e.filename))
             if e.filename.lower() in apercus:
                 img.exclusion = "apercu_objet"
             elif e.filename.lower().endswith(VECTORIELLES):
@@ -242,7 +301,9 @@ def detecter(images: list[ImageDoc], lecteur=None, delai_s: float = 20.0) -> Ana
             res.incomplet = True
             break
         try:
-            if len(lecteur.detecter_image(_bgr(img.octets))):
+            with ppocr.plafond(img.cote_max):
+                trouvees = len(lecteur.detecter_image(_bgr(img.octets)))
+            if trouvees:
                 res.a_texte.append(img)
         except Exception:
             pass                # image illisible : traitée comme sans texte
@@ -732,14 +793,16 @@ class ImagesDuTravail:
         if img.octets is None:          # déjà lue pour une autre page
             return
         try:
-            if not len(lecteur.detecter_image(_bgr(img.octets))):
-                return
+            with ppocr.plafond(img.cote_max):
+                if not len(lecteur.detecter_image(_bgr(img.octets))):
+                    return
             sha = hashlib.sha256(img.octets).hexdigest()
             trouve = _lire_cache(self._dossier, sha)
             if trouve is None:
-                rendu = ocr_image.traduire_image(
-                    img.octets, self._traduire,
-                    tour=lambda: ocr_file.tour(arret=self._arret), langue=self._langue)
+                with ppocr.plafond(img.cote_max):
+                    rendu = ocr_image.traduire_image(
+                        img.octets, self._traduire,
+                        tour=lambda: ocr_file.tour(arret=self._arret), langue=self._langue)
                 trouve = (rendu.remplacee, rendu.mime, rendu.data)
                 _ecrire_cache(self._dossier, sha, *trouve)
             remplacee, mime, octets = trouve

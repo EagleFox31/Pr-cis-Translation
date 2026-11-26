@@ -1107,6 +1107,7 @@ export default function Home() {
           isTranslating={stream.isTranslating || !!suiviBiblio}
           pageStatuses={suiviBiblio?.etats ?? stream.pageStatuses}
           queuePosition={stream.queuePosition}
+          queueEta={stream.queueEta}
           readyPages={suiviBiblio?.pretes ?? stream.readyPages}
           previewRendering={previewLoading}
           fileMissing={!libraryDocId || !traductionManquante ? null

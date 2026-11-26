@@ -2,7 +2,9 @@ import {
   createContext, useContext, useState, useEffect, useCallback,
   type ReactNode,
 } from 'react';
-import api, { setTokens, onTokensRefreshed, onForceLogout } from '../services/api';
+import api, {
+  setTokens, onTokensRefreshed, onForceLogout, jetonRefuse, attendre, ATTENTES_REPRISE_MS,
+} from '../services/api';
 import i18n from '../i18n';
 
 export interface AuthUser {
@@ -80,19 +82,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
     window.addEventListener('storage', onStorage);
 
+    // Seul un jeton refusé déconnecte. Un 5xx ou une coupure réseau (serveur
+    // qui redémarre) effaçait les jetons : on réessaie, et s'il ne revient pas,
+    // les jetons restent pour qu'un rechargement reconnecte sans code.
+    let annule = false;
     (async () => {
       const tokens = loadTokens();
       if (!tokens) { setLoading(false); return; }
       setTokens(tokens.access, tokens.refresh);
-      const res = await api.get('/api/auth/me');
-      if (res.ok) {
-        setUser(res.data as AuthUser);
-      } else {
-        clearTokens();
+      for (let essai = 0; !annule; essai++) {
+        const res = await api.get('/api/auth/me').catch(() => null);
+        if (annule) return;
+        if (res?.ok) { setUser(res.data as AuthUser); break; }
+        if (res && jetonRefuse(res.status)) { clearTokens(); break; }
+        if (essai >= ATTENTES_REPRISE_MS.length) break;
+        await attendre(ATTENTES_REPRISE_MS[essai]);
       }
-      setLoading(false);
+      if (!annule) setLoading(false);
     })();
-    return () => window.removeEventListener('storage', onStorage);
+    return () => { annule = true; window.removeEventListener('storage', onStorage); };
   }, []);
 
   const login = useCallback(async (email: string, turnstileToken?: string) => {

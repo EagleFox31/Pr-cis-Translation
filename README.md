@@ -135,6 +135,8 @@ aperçus non-PDF.
 | [`docs/etude-traduction-auto-extension.md`](docs/etude-traduction-auto-extension.md) | Étude : traduction automatique de l'extension (fenêtre popup, « toujours » par site, raccourci, proposition par détection de langue) |
 | [`docs/etude-apercu-admin.md`](docs/etude-apercu-admin.md) | Étude : aperçu admin d'un gros document (une seule conversion, bouton original, copie ouvrable, Journal des erreurs et lenteurs) |
 | [`docs/etude-nouveautes.md`](docs/etude-nouveautes.md) | Étude : page Nouveautés, fenêtre à la connexion (accueil puis « depuis votre dernière visite »), abonnement e-mail |
+| [`docs/etude-deconnexion-oom.md`](docs/etude-deconnexion-oom.md) | Étude : serveur tué par manque de mémoire (détection des images par tuiles, une à la fois) et déconnexion pendant le redémarrage |
+| [`docs/etude-file-attente.md`](docs/etude-file-attente.md) | Étude : file d’attente visible (position juste, durée estimée, mise à jour en continu) |
 | [`docs/fiches-boutiques-extension.md`](docs/fiches-boutiques-extension.md) | Textes à recopier pour les fiches Chrome Web Store et Edge Add-ons (permissions, données, visuels) |
 | [`docs/guide-premiere-mise-en-ligne.md`](docs/guide-premiere-mise-en-ligne.md) | Pas à pas de la toute première mise en ligne |
 | [`infra/aws/README.md`](infra/aws/README.md) | L'infrastructure AWS (CloudFormation, OIDC, secrets) |
