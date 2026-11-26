@@ -8,6 +8,18 @@ leurs propres numéros internes.
 
 Rubriques : `Ajouté`, `Modifié`, `Corrigé`, `Retiré`, `Sécurité`.
 
+## [1.13.0](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.12.1...v1.13.0) (2026-11-26)
+
+
+### Features
+
+* **landing:** positionnement EN, sections pour-qui et FAQ, titre et lang dynamiques ([#105](https://github.com/EagleFox31/Pr-cis-Translation/issues/105)) ([c5c7ae2](https://github.com/EagleFox31/Pr-cis-Translation/commit/c5c7ae2674736589373781bb9aa8ea7045806377))
+
+
+### Bug Fixes
+
+* keep the server alive under load, library status texts, Chrome Type3 PDF fonts ([#106](https://github.com/EagleFox31/Pr-cis-Translation/issues/106)) ([e50be9c](https://github.com/EagleFox31/Pr-cis-Translation/commit/e50be9c93ae6b556da138f4d2ec161f0be68a9b7))
+
 ## [1.12.1](https://github.com/EagleFox31/Pr-cis-Translation/compare/v1.12.0...v1.12.1) (2026-11-24)
 
 
