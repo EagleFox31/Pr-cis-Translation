@@ -82,6 +82,9 @@ export interface StreamingState {
   /** En file d'attente : aucun worker libre. `null` = pas en file (démarré ou
    *  terminé). Le nombre est une estimation des demandes devant la vôtre. */
   queuePosition: number | null;
+  /** Début estimé (s), seuil au-delà duquel rester vague (s, `null` = aucun),
+   *  et heure de réception : l'écran décompte le temps écoulé depuis. */
+  queueEta: { attenteS: number; seuilS: number | null; recuA: number } | null;
   /** 402 : pages du manque dues aux images demandées. `null` = sans images. */
   imagesNeeded: number | null;
 }
@@ -105,6 +108,7 @@ const EMPTY: StreamingState = {
   pagesCovered: null,
   creditsReason: null,
   queuePosition: null,
+  queueEta: null,
   imagesNeeded: null,
 };
 
@@ -347,12 +351,15 @@ export function useStreamingTranslation(deviceSignals = true) {
                 // Aucun worker libre : le job attend son tour dans la file de
                 // priorité. On l'affiche sans rien changer d'autre.
                 const ahead = (msg.ahead as number) ?? 0;
-                setState((s) => ({ ...s, queuePosition: ahead }));
+                const queueEta = typeof msg.attente_s === 'number'
+                  ? { attenteS: msg.attente_s, seuilS: (msg.seuil_s as number | null) ?? null, recuA: Date.now() }
+                  : null;
+                setState((s) => ({ ...s, queuePosition: ahead, queueEta }));
                 return;
               }
               // Tout autre événement veut dire que le job a QUITTÉ la file (un
               // worker l'a pris) : on efface l'état d'attente une bonne fois.
-              setState((s) => (s.queuePosition === null ? s : { ...s, queuePosition: null }));
+              setState((s) => (s.queuePosition === null ? s : { ...s, queuePosition: null, queueEta: null }));
 
               // Bilans (images, objets, termes harmonisés) : même phrase qu'à la
               // réouverture depuis « Mes documents » (lib/avis).
@@ -482,7 +489,7 @@ export function useStreamingTranslation(deviceSignals = true) {
                 // Les pages en vol sont abandonnées par le serveur : elles
                 // repassent « en attente », sans quoi leurs vignettes tournaient.
                 setState((s) => ({
-                  ...s, isTranslating: false, queuePosition: null,
+                  ...s, isTranslating: false, queuePosition: null, queueEta: null,
                   pageStatuses: Object.fromEntries(Object.entries(s.pageStatuses).map(
                     ([p, st]) => [p, st === 'done' || st === 'copied' ? st : 'waiting'])),
                   notice: t(msg.mode === 'cancelled' ? 'story.stopped_cancelled' : 'story.stopped_paused'),

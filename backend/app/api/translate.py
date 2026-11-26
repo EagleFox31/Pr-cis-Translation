@@ -37,7 +37,7 @@ from app.services.documents import (build_job_paths, cap_pages_for_plan,
                                     count_pages, pages_avec_texte, pages_faites,
                                     pages_selectionnees, reglages_de,
                                     translation_path_for)
-from app.services import depots, usage
+from app.services import depots, stockage, usage
 from app.services import anti_abus
 from app.services import beta
 from app.services import avis_document
@@ -125,6 +125,7 @@ async def upload_endpoint(
     ext = nom.rsplit(".", 1)[-1].lower() if "." in nom else ""
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"Type non supporté : .{ext}")
+    await stockage.refuser_si_disque_plein()
     trop_gros = "Fichier trop volumineux (max 100 Mo)."
     try:
         annonce = int(request.headers.get("content-length") or 0)
@@ -185,6 +186,7 @@ async def _fichier_recu(file: "UploadFile | None", upload_id: str,
         return trouve
     if file is None or not hasattr(file, "read"):
         raise HTTPException(status_code=400, detail="Aucun fichier reçu.")
+    await stockage.refuser_si_disque_plein()
     try:
         return file.filename or "", await file.read()
     except Exception:

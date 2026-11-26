@@ -170,6 +170,8 @@ def _garder(cle: str, lus: list) -> None:
 
 
 async def _lire_image(file: UploadFile) -> bytes:
+    from app.services.stockage import refuser_si_disque_plein
+    await refuser_si_disque_plein()
     data = await file.read(OCTETS_MAX + 1)
     try:
         verifier(data)

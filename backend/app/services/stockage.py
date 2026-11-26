@@ -27,7 +27,7 @@ import re
 import shutil
 import time
 
-from app.config import (PREVIEW_CACHE_DIR, PREVIEW_CACHE_MAX_BYTES,
+from app.config import (DISQUE_LIBRE_MIN_MO, PREVIEW_CACHE_DIR, PREVIEW_CACHE_MAX_BYTES,
                         TRADUCTION_ORPHELINE_GRACE_S, TRANSLATIONS_DIR, logger)
 
 # Une racine de job = l'empreinte du contenu, en hexadécimal. Tout le reste
@@ -260,3 +260,39 @@ async def balayer_au_demarrage() -> None:
             f"rendu(s) périmé(s), {compte['traductions']} traduction(s) "
             f"orpheline(s), {apercus} aperçu(s) — "
             f"{compte['octets'] / 1e6:.1f} Mo libérés.")
+
+
+DISQUE_PLEIN = ("Le service est momentanément saturé : les nouveaux documents ne "
+                "peuvent pas être enregistrés. Vos documents restent accessibles. "
+                "Réessayez plus tard.")
+
+
+def disque_insuffisant(minimum_mo: int | None = None,
+                       magasin: str = TRANSLATIONS_DIR) -> int | None:
+    """Mo libres si le disque du magasin est sous le seuil, sinon None (seuil
+    absent, ou espace illisible : on ne bloque rien sur une mesure ratée)."""
+    minimum_mo = DISQUE_LIBRE_MIN_MO if minimum_mo is None else minimum_mo
+    if not minimum_mo:
+        return None
+    try:
+        libre_mo = shutil.disk_usage(magasin).free // (1024 * 1024)
+    except OSError:
+        return None
+    return libre_mo if libre_mo < minimum_mo else None
+
+
+async def refuser_si_disque_plein() -> None:
+    """Avant d'enregistrer un nouveau fichier : 507 si le disque est presque
+    plein, et alerte critique aux admins (une par heure au plus, le journal
+    regroupe les occurrences)."""
+    from fastapi import HTTPException
+    from fastapi.concurrency import run_in_threadpool
+    libre = await run_in_threadpool(disque_insuffisant)
+    if libre is None:
+        return
+    logger.warning("Disque presque plein : %d Mo libres, nouveaux envois refusés", libre)
+    from app.services.error_log import log_error
+    await log_error("backend", "Disque presque plein : nouveaux envois refusés",
+                    level="critical", location="stockage",
+                    context={"libre_mo": libre, "minimum_mo": DISQUE_LIBRE_MIN_MO})
+    raise HTTPException(status_code=507, detail=DISQUE_PLEIN)

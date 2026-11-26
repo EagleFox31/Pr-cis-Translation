@@ -8,6 +8,8 @@ import type { TranslateConfig } from '../upload/TranslationSection';
 import ViewerToolbar from '../preview/ViewerToolbar';
 import type { Ajustement } from '../preview/ViewerToolbar';
 import DocumentPreview from '../preview/DocumentPreview';
+import QueueBanner from './QueueBanner';
+import type { QueueEta } from './QueueBanner';
 import type { PageStatus, StopMode } from '../../hooks/useStreamingTranslation';
 import { baseCode } from '../../lib/languages';
 import { goToSection } from '../../lib/sectionBus';
@@ -44,6 +46,8 @@ interface StorySectionProps {
   /** En file d'attente (aucun worker libre) : nombre de demandes devant, ou
    *  `null` si le job a démarré / n'attend pas. */
   queuePosition?: number | null;
+  /** Début estimé de la file (voir `QueueBanner`). */
+  queueEta?: QueueEta | null;
   /** Aperçu ouvert depuis la bibliothèque, document encore en route. Distinct
    *  de `isTranslating` : rien n'est traduit ici, on attend un rendu. */
   previewRendering?: boolean;
@@ -124,6 +128,7 @@ export default function StorySection({
   isTranslating,
   pageStatuses,
   queuePosition = null,
+  queueEta = null,
   readyPages,
   previewRendering = false,
   fileMissing = null,
@@ -286,25 +291,7 @@ export default function StorySection({
               Interface de prévisualisation de traduction de document côte-à-côte
             </h2>
 
-            {queuePosition !== null && (
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: '12px',
-                padding: '14px 18px', marginBottom: '16px', borderRadius: '12px',
-                background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af',
-                fontSize: '14px', lineHeight: 1.5,
-              }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                  style={{ flexShrink: 0, animation: 'spin 1.2s linear infinite' }}>
-                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-                </svg>
-                <span style={{ flex: 1 }}>
-                  {queuePosition > 0
-                    ? t('story.queued_ahead', { count: queuePosition })
-                    : t('story.queued_soon')}
-                </span>
-              </div>
-            )}
+            {queuePosition !== null && <QueueBanner ahead={queuePosition} eta={queueEta} />}
 
             {/* Le manque de crédits (402) n'est PLUS une bannière en tête : il
                 s'affiche directement DANS la zone du document (voir plus bas),

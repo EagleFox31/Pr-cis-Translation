@@ -34,6 +34,18 @@ def run() -> int:
         ok("LECTURE  aucun fichier = aucun message", avis_document.lire(trad) == [])
         ok("LECTURE  sans chemin = aucun message", avis_document.lire(None) == [])
 
+        # 0) Quels messages montrer selon l'état du document. Le fichier est
+        #    partagé entre les envois d'un même fichier : un document en file
+        #    héritait de « Termes harmonisés… L'aperçu est à jour ».
+        tous = [{"type": "ocr", "pages": [3]}, {"type": "coherence", "slides": [2]}]
+        pour = avis_document.pour_document
+        ok("ETAT  terminé : tous les messages", pour(tous, "done", True) == tous)
+        ok("ETAT  en erreur : aucun", pour(tous, "error", True) == [])
+        ok("ETAT  pas encore commencé : aucun", pour(tous, "translating", False) == [])
+        ok("ETAT  en cours : pas d'harmonisation (fin de traitement)",
+           pour(tous, "translating", True) == [tous[0]])
+        ok("ETAT  en pause : pas d'harmonisation", pour(tous, "paused", True) == [tous[0]])
+
         # 1) Message émis pendant la traduction : envoyé ET gardé
         runner._avis("job-1", trad, "coherence", {"slides": [1, 2, 4]})
         ok("EMIS  l'écran ouvert reçoit le message",

@@ -115,3 +115,12 @@ Mémoire des incidents et quasi-incidents. Consulter avant de toucher une zone c
 - **Résolution** : `MALLOC_ARENA_MAX=2`, `malloc_trim` après chaque job (`services/memoire.py`), arène onnxruntime coupée, `PPTX_SLIDE_WORKERS` (2 sur le VPS) ; refus au dépôt d'un Office illisible (`office_illisible`) ; journal écrit via la boucle principale, sinon moteur `NullPool` dédié.
 - **Prévention vérifiable** : `tests/test_charge_prod_pptx.py` et le cas « Office tronqué » de `tests/test_depot.py` ; après déploiement, `journalctl -k | grep "Killed process"` et la mémoire du cgroup backend contrôlés.
 - **Leçon** : « marche en local, pas en ligne » → comparer d'abord les limites de ressources et l'historique OOM du noyau. Tout fichier reçu se valide sur sa structure, pas sur son extension. Une boucle jetable ne touche jamais au pool de la boucle principale.
+
+## 2026-11-26 — Deux correctifs mémoire ONNX Runtime incompatibles (#103 + #106)
+
+- **Contexte** : #106 ajoute à la détection PP-OCR la demande de retrait d'arène (`memory.enable_memory_arena_shrinkage`) ; #103, déjà en prod, avait désactivé l'arène CPU (`enable_cpu_mem_arena = False`). La CI de #106 échoue : `test_images_document.Reel.test_ppocr` ne trouve plus de texte.
+- **Cause racine** : retirer une arène qui n'existe pas fait échouer chaque `run` (« Did not find an arena based allocator registered… »). L'échec était avalé en « pas de texte » : aucune image n'aurait été lue en prod.
+- **Classification** : conflit sémantique entre deux branches fusionnées sans conflit Git.
+- **Résolution** : option de retrait supprimée (2dff66e) ; l'arène reste désactivée, comme en prod.
+- **Prévention vérifiable** : `test_memoire_conteneur.ArenePPOCR` (sans poids) ; `test_ppocr` (avec poids, en CI) reste le garde-fou de bout en bout.
+- **Leçon** : deux réglages qui visent la même ressource se relisent ensemble lors d'une fusion. Une lecture qui échoue ne doit pas se confondre silencieusement avec « rien à lire ».

@@ -252,6 +252,13 @@ def _line_segments(line):
     def emit(sig, s):
         if not s:
             return
+        # Un mot peint avec deux objets police au MÊME style visible (Type3 de
+        # Skia : un objet par lot de glyphes) reste d'un seul tenant.
+        if (segs and segs[-1]["sig"] != sig
+                and segs[-1]["sig"][1:] == sig[1:]
+                and last_char and last_char != " "
+                and not s.startswith(" ")):
+            sig = segs[-1]["sig"]
         if segs and segs[-1]["sig"] == sig:
             segs[-1]["text"] += s
         else:

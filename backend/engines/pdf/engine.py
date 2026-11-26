@@ -48,6 +48,69 @@ def _glyph_key(c):
     return (c["c"], round(c["origin"][0], 1), round(c["origin"][1], 1))
 
 
+_TYPE3_RE = re.compile(r"Type3 \((\d+) 0 R\)")
+
+
+def _type3_desc(doc, xref):
+    """(nom, gras, italique) d'une police Type3 lus dans son /FontDescriptor,
+    ou None. Skia (Chrome « Enregistrer en PDF ») écrit le texte en polices
+    Type3 que PyMuPDF nomme « Type3 (N 0 R) », sans flags : sans le nom réel,
+    gras, italique et police d'origine étaient perdus."""
+    cache = getattr(doc, "_precis_type3", None)
+    if cache is None:
+        cache = {}
+        try:
+            doc._precis_type3 = cache
+        except Exception:
+            pass
+    if xref in cache:
+        return cache[xref]
+    r = None
+    try:
+        m = re.search(r"/FontDescriptor (\d+) 0 R", doc.xref_object(xref))
+        if m:
+            fd = doc.xref_object(int(m.group(1)))
+            n = re.search(r"/FontName /([^\s/\[\]<>()]+)", fd)
+            w = re.search(r"/FontWeight (\d+)", fd)
+            a = re.search(r"/ItalicAngle (-?[\d.]+)", fd)
+            if n:
+                nom = n.group(1)
+                gras = (int(w.group(1)) if w else 400) >= 600 or "Bold" in nom
+                ital = (bool(a and float(a.group(1)) != 0)
+                        or "Italic" in nom or "Oblique" in nom)
+                # Police variable : Chrome garde le nom de l'instance par
+                # défaut (« Lora-Regular ») pour un tracé en 700 ; la sortie
+                # choisit la variante par le nom, on le recompose.
+                if ((gras and "Bold" not in nom)
+                        or (ital and "Italic" not in nom
+                            and "Oblique" not in nom)):
+                    base = re.sub(r"-(Regular|Roman|Book|Medium|Italic)$",
+                                  "", nom)
+                    nom = (f"{base}-{'Bold' if gras else ''}"
+                           f"{'Italic' if ital else ''}")
+                r = (nom, gras, ital)
+    except Exception:
+        r = None
+    cache[xref] = r
+    return r
+
+
+def _normaliser_type3(doc, raw):
+    """Remplace, dans un `rawdict`, le nom « Type3 (N 0 R) » par la police
+    réelle et pose les flags gras (16) / italique (2) du descripteur."""
+    for block in raw.get("blocks", []):
+        for line in block.get("lines", ()):
+            for span in line.get("spans", ()):
+                m = _TYPE3_RE.fullmatch(span.get("font") or "")
+                d = m and _type3_desc(doc, int(m.group(1)))
+                if d:
+                    span["font"] = d[0]
+                    span["flags"] = (span.get("flags", 0)
+                                     | (16 if d[1] else 0)
+                                     | (2 if d[2] else 0))
+    return raw
+
+
 def _synth_bold_keys(page):
     """Glyphes d'un GRAS SYNTHÉTIQUE : police non grasse peinte remplie ET
     contourée (mode 2) — seul `char_flags` le dit, ni le nom ni les flags de
@@ -57,6 +120,7 @@ def _synth_bold_keys(page):
     keys = set()
     raw = page.get_text("rawdict", flags=fitz.TEXT_PRESERVE_WHITESPACE
                         | fitz.TEXT_COLLECT_STYLES)
+    _normaliser_type3(page.parent, raw)
     for block in raw.get("blocks", []):
         for line in block.get("lines", ()):
             for span in line.get("spans", ()):
@@ -1591,6 +1655,7 @@ class PDFObjectEngine:
         # Le texte, lui, reste INTACT (les espaces de tête sont un signal pour
         # les titres à lettres espacées), et `origin` aussi (peinture source).
         raw = page.get_text("rawdict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
+        _normaliser_type3(page.parent, raw)
         synth_b, synth_i = _synth_bold_keys(page), _synth_italic_keys(page)
         hidden, formes = _hidden_chars(page, draw_els)
         # Passe 1 : caractères retenus de chaque span (contrôle et cachés par

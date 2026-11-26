@@ -120,26 +120,39 @@ export function refreshAccessToken(): Promise<string | null> {
   return _refreshing;
 }
 
+/**
+ * Le serveur ne refuse un jeton qu'avec 401 (ou 403). Un 5xx, un 429 ou une
+ * coupure réseau (serveur qui redémarre) déconnectait l'utilisateur : on
+ * réessaie en espaçant les essais, environ une minute au total.
+ */
+export const ATTENTES_REPRISE_MS = [1000, 2000, 4000, 8000, 15000, 30000];
+export const jetonRefuse = (status: number) => status === 401 || status === 403;
+export const attendre = (ms: number) => new Promise<void>((fin) => setTimeout(fin, ms));
+
 async function doRefreshAccessToken(): Promise<string | null> {
-  if (!_refreshToken) return null;
-  try {
-    const res = await fetch(`${API_BASE}/api/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: _refreshToken }),
-    });
-    if (!res.ok) {
-      _onForceLogout?.();
-      return null;
-    }
-    const data = await res.json();
-    _accessToken = data.access_token;
-    _refreshToken = data.refresh_token;
-    _onTokensRefreshed?.(data.access_token, data.refresh_token);
-    return data.access_token;
-  } catch {
-    return null;
+  for (let essai = 0; _refreshToken; essai++) {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: _refreshToken }),
+      });
+      if (jetonRefuse(res.status)) {
+        _onForceLogout?.();
+        return null;
+      }
+      if (res.ok) {
+        const data = await res.json();
+        _accessToken = data.access_token;
+        _refreshToken = data.refresh_token;
+        _onTokensRefreshed?.(data.access_token, data.refresh_token);
+        return data.access_token;
+      }
+    } catch { /* réseau coupé : on réessaie */ }
+    if (essai >= ATTENTES_REPRISE_MS.length) return null;
+    await attendre(ATTENTES_REPRISE_MS[essai]);
   }
+  return null;
 }
 
 async function request(

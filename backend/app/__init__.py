@@ -158,7 +158,7 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["X-Pages-Pretes", "X-Pages-Etats"],
+        expose_headers=["X-Render", "X-Pages-Pretes", "X-Pages-Etats", "X-File-Attente"],
     )
 
     @application.middleware("http")
