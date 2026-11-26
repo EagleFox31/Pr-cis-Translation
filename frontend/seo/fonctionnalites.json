@@ -1,7 +1,16 @@
 {
   "version": "1.13.0",
-  "date_version": "2026-11-23",
+  "date_version": "2026-11-26",
   "elements": [
+    {
+      "id": "file-attente-visible",
+      "date": "2026-11-26",
+      "type": "amelioration",
+      "domaine": "documents",
+      "titre": "Votre document attend son tour au lieu d'échouer",
+      "resume": "Quand le service est très sollicité, votre document passe en file d'attente et démarre dès qu'une place se libère.",
+      "detail": "Vous voyez combien de documents passent avant le vôtre et une estimation du début. Les PDF créés depuis Chrome gardent aussi leurs vraies polices, en gras et en italique."
+    },
     {
       "id": "images-traduites-avec-la-page",
       "date": "2026-11-23",

@@ -23,7 +23,7 @@ VERSION doit rester égale au champ "version" du package.json racine
 """
 
 VERSION = "1.13.0"  # x-release-please-version
-DATE_VERSION = "2026-11-23"
+DATE_VERSION = "2026-11-26"
 
 TYPES = ("nouveaute", "amelioration", "correctif")
 DOMAINES = ("documents", "visionneuse", "extension", "compte")
@@ -32,6 +32,24 @@ AUDIENCES = ("tous", "admin")
 
 FONCTIONNALITES: list[dict] = [
     # ── Fonctionnalités ─────────────────────────────────────────────────
+    {
+        "id": "file-attente-visible",
+        "date": "2026-11-26",
+        "type": "amelioration",
+        "domaine": "documents",
+        "importance": 2,
+        "phare": False,
+        "fr": {
+            "titre": "Votre document attend son tour au lieu d'échouer",
+            "resume": "Quand le service est très sollicité, votre document passe en file d'attente et démarre dès qu'une place se libère.",
+            "detail": "Vous voyez combien de documents passent avant le vôtre et une estimation du début. Les PDF créés depuis Chrome gardent aussi leurs vraies polices, en gras et en italique.",
+        },
+        "en": {
+            "titre": "Your document waits its turn instead of failing",
+            "resume": "When the service is busy, your document joins a queue and starts as soon as a slot frees up.",
+            "detail": "You can see how many documents are ahead of yours and an estimated start time. PDFs created from Chrome also keep their real fonts, including bold and italic.",
+        },
+    },
     {
         "id": "traduction-libre",
         "date": "2026-11-18",
