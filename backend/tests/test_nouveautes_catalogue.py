@@ -24,7 +24,7 @@ PORTEES_INTERNES = {"release", "ci", "build", "deps", "infra", "deploy"}
 
 def test_nombre_et_ids_uniques():
     ids = [e["id"] for e in cat.FONCTIONNALITES]
-    assert len(ids) == 29
+    assert len(ids) == 30
     assert len(set(ids)) == len(ids)
 
 
@@ -76,7 +76,7 @@ def test_phares():
 
 def test_elements_par_langue():
     fr, en = cat.elements("fr"), cat.elements("en")
-    assert len(fr) == len(en) == 28
+    assert len(fr) == len(en) == 29
     assert [e["date"] for e in fr] == sorted((e["date"] for e in fr), reverse=True)
     assert cat.elements("de") == fr  # langue inconnue : repli sur le français
 
