@@ -1,6 +1,7 @@
 """Polices Type3 de Skia (Chrome « Enregistrer en PDF ») : nom réel, gras et
 italique lus dans le /FontDescriptor ; un mot peint avec deux objets police au
 même style visible reste un seul segment."""
+import racine  # noqa: F401
 import fitz
 
 from engines.pdf import engine
@@ -77,3 +78,17 @@ def test_police_variable_nom_regular_poids_gras():
         "spans"][0]
     assert span["font"] == "AAAAAA+Lora-Bold"
     assert span["flags"] & 16
+
+
+if __name__ == "__main__":
+    import sys
+    echecs = 0
+    for nom, f in sorted(globals().items()):
+        if nom.startswith("test_") and callable(f):
+            try:
+                f()
+                print("  OK  ", nom)
+            except Exception as e:
+                echecs += 1
+                print("  ECHEC", nom, e)
+    sys.exit(1 if echecs else 0)

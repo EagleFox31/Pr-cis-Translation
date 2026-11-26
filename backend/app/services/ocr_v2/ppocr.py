@@ -143,13 +143,6 @@ class PPOCR:
                                                  providers=["CPUExecutionProvider"])
                             for f in FICHIERS[:2])
                 self._chars = ["", *lire_dictionnaire(os.path.join(self.dossier, FICHIERS[2])), " "]
-                # ONNX Runtime garde sinon une réserve à la taille du plus gros
-                # passage vu, sans jamais la rendre : après une grande image, le
-                # serveur restait à 967 Mo sur 1 Go. Rendue après chaque passe de
-                # détection (mesuré : quasi sans coût de temps).
-                self._rendre = ort.RunOptions()
-                self._rendre.add_run_config_entry(
-                    "memory.enable_memory_arena_shrinkage", "cpu:0")
                 self._sessions = (det, rec)
         return self._sessions
 
