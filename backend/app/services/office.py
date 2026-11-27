@@ -11,18 +11,22 @@ format d'origine.
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import threading
 import zipfile
 from contextlib import contextmanager
 from io import BytesIO
+from typing import Callable
 
 from app.config import PREVIEW_CACHE_DIR, note
 from app.core.files import get_file_hash
+from app.services.file_libreoffice import ConversionAbandonnee, file_conversions
 from engines.office import SOFFICE_PATH, preview_lock, prewarm
 
-__all__ = ["SOFFICE_PATH", "preview_lock", "prewarm", "convert_to_pdf_bytes"]
+__all__ = ["SOFFICE_PATH", "preview_lock", "prewarm", "convert_to_pdf_bytes",
+           "preparer_apercu", "ConversionAbandonnee"]
 
 if SOFFICE_PATH:
     note(logging.INFO, f"LibreOffice  ~  {SOFFICE_PATH}")
@@ -61,7 +65,7 @@ def office_illisible(data: "bytes | str | os.PathLike", ext: str) -> bool:
 
 
 def convert_to_pdf_bytes(file_bytes: bytes, ext: str,
-                         use_cache: bool = True) -> bytes:
+                         use_cache: bool = True, _en_file: bool = False) -> bytes:
     """Convertit un document en PDF (bytes) pour l'aperçu. Les PDF sont
     renvoyés tels quels. Lève une exception si la conversion échoue.
 
@@ -69,13 +73,19 @@ def convert_to_pdf_bytes(file_bytes: bytes, ext: str,
     d'un job, qui change à chaque diapositive traduite : le mettre en cache
     emplirait `_previews` d'un fichier par état intermédiaire, dont aucun ne
     resservira jamais.
+
+    Toute conversion passe par la file LibreOffice, en priorité URGENTE (un
+    écran l'attend) ; `_en_file` : l'appelant a déjà son tour (voir
+    `preparer_apercu`).
     """
     if ext == "pdf":
         return file_bytes
 
     from engines.office import convert_to_pdf
+    tour = contextlib.nullcontext if _en_file else file_conversions.tour
     if not use_cache:
-        return convert_to_pdf(file_bytes, ext)
+        with tour():
+            return convert_to_pdf(file_bytes, ext)
 
     file_hash = get_file_hash(file_bytes)
     os.makedirs(PREVIEW_CACHE_DIR, exist_ok=True)
@@ -88,7 +98,9 @@ def convert_to_pdf_bytes(file_bytes: bytes, ext: str,
     # (aperçu ouvert deux fois, onglets) lançaient trois conversions complètes
     # l'une après l'autre — 3 × 40 s sur un gros PPTX. La deuxième et la
     # troisième attendent la première et repartent avec son résultat.
-    with _verrou_fichier(file_hash):
+    # Le tour de file se prend AVANT le verrou du fichier : une conversion à
+    # l'avance qui attend ne retient pas une demande urgente du même fichier.
+    with tour(), _verrou_fichier(file_hash):
         data = _lire_cache(cache_path)
         if data is not None:
             return data
@@ -100,6 +112,18 @@ def convert_to_pdf_bytes(file_bytes: bytes, ext: str,
     from app.services.stockage import limiter_apercus
     limiter_apercus()
     return data
+
+
+def preparer_apercu(chemin: str, ext: str,
+                    abandon: "Callable[[], bool] | None" = None) -> None:
+    """Convertit à l'avance un fichier déposé, pour que l'aperçu le retrouve en
+    cache. Passe APRÈS les conversions urgentes ; le fichier n'est lu qu'à son
+    tour (la file ne retient aucun octet). Lève `ConversionAbandonnee` si la
+    file est pleine ou si `abandon()` dit que le fichier est remplacé."""
+    with file_conversions.tour(a_l_avance=True, abandon=abandon):
+        with open(chemin, "rb") as f:
+            donnees = f.read()
+        convert_to_pdf_bytes(donnees, ext, _en_file=True)
 
 
 def _lire_cache(cache_path: str) -> bytes | None:

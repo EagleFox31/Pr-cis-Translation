@@ -13,6 +13,7 @@ import functools
 import json
 import os
 import queue
+import threading
 import secrets
 import time
 from typing import Literal
@@ -40,7 +41,7 @@ from app.services.documents import (build_job_paths, cap_pages_for_plan,
                                     count_pages, pages_avec_texte, pages_faites,
                                     pages_selectionnees, reglages_de,
                                     translation_path_for)
-from app.services import depots, stockage, usage
+from app.services import depots, memoire, stockage, usage
 from app.services import anti_abus
 from app.services import beta
 from app.services import avis_document
@@ -49,7 +50,8 @@ from app.services.images_document import IMAGES_PROPOSABLES, lister as lister_im
 from app.services.ocr import OCR_VERSION
 from app.services.ocr_v2.detect import Tesseract
 from app.services.jobs import STATUTS_ARRET, STATUTS_REPRENABLES, jobs
-from app.services.office import convert_to_pdf_bytes, office_illisible
+from app.services.office import (ConversionAbandonnee, convert_to_pdf_bytes,
+                                 office_illisible, preparer_apercu)
 from app.services.scheduler import refus_admission, scheduler, scheduler_scans
 from app.services.translation_runner import (run_pdf_v2_job,
                                              run_pptx_progressive_job,
@@ -155,6 +157,8 @@ _TAMPON_DEPOT = 1024 * 1024
 # Garde une référence aux conversions lancées au dépôt (sinon le ramasse-miettes
 # peut les couper en route).
 _conversions_depot: set = set()
+# Dernière conversion préparée à l'avance, par compte (voir `upload_endpoint`).
+_conversions_par_compte: dict = {}
 
 
 @router.post("/api/upload")
@@ -237,16 +241,28 @@ async def upload_endpoint(
     if ext != "pdf":
         chemin_depot = os.path.join(depots.DOSSIER, depot_id, "fichier")
 
-        def convertir_depot() -> None:
-            with open(chemin_depot, "rb") as f:
-                donnees = f.read()
-            convert_to_pdf_bytes(donnees, ext)
+        # Un nouvel envoi du même compte remplace le précédent : la conversion
+        # encore en file de l'ancien fichier est abandonnée. Elle l'est aussi
+        # si le dépôt a disparu (expiré, supprimé) avant son tour.
+        remplace = threading.Event()
+        ancien = _conversions_par_compte.get(current_user.id)
+        _conversions_par_compte[current_user.id] = remplace
+        if ancien is not None:
+            ancien.set()
+
+        def abandon() -> bool:
+            return remplace.is_set() or not os.path.isfile(chemin_depot)
 
         async def convertir():
             try:
-                await asyncio.to_thread(convertir_depot)
+                await asyncio.to_thread(preparer_apercu, chemin_depot, ext, abandon)
+            except ConversionAbandonnee as e:
+                logger.info(f"Aperçu préparé au dépôt : ignoré ({e}).")
             except Exception as e:
                 logger.warning(f"Aperçu préparé au dépôt : conversion échouée ({e}).")
+            finally:
+                if _conversions_par_compte.get(current_user.id) is remplace:
+                    del _conversions_par_compte[current_user.id]
         tache = asyncio.create_task(convertir())
         _conversions_depot.add(tache)
         tache.add_done_callback(_conversions_depot.discard)
@@ -1221,7 +1237,9 @@ async def translation_partial(job_id: str, x_api_key: str = Header(None),
     else:
         filigrane, cibles = pages_filigranees(current_user, doc, job.get("pages"))
     if filigrane:
-        data = await run_in_threadpool(rasterize_for_trial, data, cibles)
+        # Place prise avant le thread : l'attente n'en occupe aucun.
+        async with memoire.rasterisation.place_async():
+            data = await run_in_threadpool(rasterize_for_trial, data, cibles)
 
     headers = {"Cache-Control": "no-store"}
     if pages_pretes is not None:

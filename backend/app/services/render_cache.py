@@ -50,6 +50,8 @@ if _REPO_ROOT not in sys.path:
 from engines.pdf import polices
 from engines.pdf.version import ENGINE_VERSION
 
+from app.services import memoire
+
 logger = logging.getLogger(__name__)
 
 
@@ -171,7 +173,11 @@ def ensure_background_build(original_path: str, translation_path: str,
             # `documents.render_translation_bytes` — passer par l'attribut au
             # moment de l'appel respecte leur substitution.
             from app.api import documents as _app
-            with build_lock(translation_path):
+            # Compartiment « rendus », en travail de FOND : après tout rendu
+            # qu'un écran attend, et le plus récemment demandé d'abord. La
+            # place se prend AVANT le verrou du document (même ordre que les
+            # routes : jamais une place attendue en tenant un verrou).
+            with memoire.rendus.place(fond=True), build_lock(translation_path):
                 if cache_valid(translation_path):
                     return          # une requête l'a construit entre-temps
                 marque, avant = marque_polices(), mtime_de(translation_path)

@@ -53,7 +53,8 @@ OCTETS_PAR_POINT, MARGE_DETECTION = 220, 64 * 1024 * 1024
 # Une seule détection à la fois sur tout le serveur (un seul processus,
 # plusieurs fils) : deux grandes images en même temps dépassaient la mémoire.
 # Si même les plus petits morceaux ne tiennent pas, la détection attend que la
-# mémoire revienne (au plus memoire.ATTENTE_MAX_S) : partir sans marge fait
+# mémoire revienne (sans limite de durée : après memoire.ATTENTE_MAX_S, le journal le
+# signale mais la détection ne part pas sans marge) : partir sans marge fait
 # tuer le serveur et tous les travaux en cours.
 ATTENTE_DETECTION_S = None
 _VERROU_DETECTION = threading.Lock()
@@ -224,7 +225,8 @@ class PPOCR:
             tuile = next((t for t in tailles if libre is None or besoin(t) <= libre), None)
             if tuile is None:
                 tuile = tailles[-1]
-                memoire.attendre(besoin(tuile), "détection d'image", max_s=ATTENTE_DETECTION_S)
+                memoire.attendre(besoin(tuile), "détection d'image", max_s=ATTENTE_DETECTION_S,
+                                 jusqu_a_marge=True)
             if tuile < TUILE:
                 logger.info("Mémoire : détection en morceaux de %d px", tuile)
             if max(rh, rw) <= tuile:

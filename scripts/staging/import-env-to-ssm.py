@@ -162,6 +162,7 @@ def make_production(backend: dict[str, str], frontend: dict[str, str],
         'ADMIN_EMAIL', 'PAYMENT_METHODS', 'DEEPSEEK_BASE_URL', 'DEEPSEEK_TIMEOUT_S',
         'DEEPSEEK_SOLDE_ALERTE', 'DEEPSEEK_DEPENSE_JOUR_ALERTE',
         'DEEPSEEK_SOLDE_INTERVALLE_S',
+        'COMPARTIMENT_RENDUS_MAX', 'COMPARTIMENT_RASTER_MAX', 'LIBREOFFICE_FILE_MAX',
     )
     for name in allowed:
         if backend.get(name):
