@@ -214,6 +214,17 @@ COMPARTIMENT_RASTER_MAX: int | None = (int(_raster_max) or None) if _raster_max.
 # demande. none/0 = aucune limite.
 _lo_max = (os.getenv("LIBREOFFICE_FILE_MAX") or "20").strip().lower()
 LIBREOFFICE_FILE_MAX: int | None = (int(_lo_max) or None) if _lo_max.isdigit() else None
+# Rendus de FOND (aucun écran n'attend) en attente d'une place : au-delà, le plus
+# ancien est écarté (il se refera à la demande). none/0 = aucune limite.
+_fond_max = (os.getenv("RENDUS_FOND_ATTENTE_MAX") or "8").strip().lower()
+RENDUS_FOND_ATTENTE_MAX: int | None = (int(_fond_max) or None) if _fond_max.isdigit() else None
+# Mémoire estimée retenue par un travail des compartiments (voir services/memoire.py).
+MEMOIRE_RENDU_MO = max(1, int(os.getenv("MEMOIRE_RENDU_MO", "200")))
+MEMOIRE_RASTER_MO = max(1, int(os.getenv("MEMOIRE_RASTER_MO", "100")))
+# Attente maximale, en secondes, de la mémoire par la détection d'une image :
+# au-delà, la page échoue proprement au lieu d'attendre sans fin. none/0 = aucune limite.
+_ocr_mem = (os.getenv("OCR_ATTENTE_MEMOIRE_MAX_S") or "120").strip().lower()
+OCR_ATTENTE_MEMOIRE_MAX_S: int | None = (int(_ocr_mem) or None) if _ocr_mem.isdigit() else None
 # Temps accordé à la lecture d'UNE page (le délai ne court qu'une fois le tour
 # obtenu au guichet).
 OCR_DELAI_PAGE_S = max(5, int(os.getenv("OCR_DELAI_PAGE_S", "90")))

@@ -39,6 +39,7 @@ from app.services import extension as ext_service
 from app.services import avis_document, images_document, ocr, ocr_file, ocr_pages, render_cache
 from engines import runtags
 from app.services.jobs import ArretDemande, _dans_une_boucle_jetable, jobs
+from app.services.ocr_v2 import ppocr
 from app.services.office import convert_to_pdf_bytes
 from app.services.progressive_preview import (ProgressivePreview,
                                               ecrire_atomiquement)
@@ -1347,7 +1348,8 @@ def _lecteur_ocr(translation_path: str, arret, on_event):
             if lecture is not None:
                 return lecture
             annoncer("ocr")
-            lecture = ocr.lire_page(src, page)
+            with ppocr.arret(arret):
+                lecture = ocr.lire_page(src, page)
             ocr_pages.ecrire(translation_path, page, lecture.statut,
                              lecture.motif, lecture.pdf)
         return lecture

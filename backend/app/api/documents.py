@@ -30,7 +30,7 @@ from app.services.documents import (chemin_traduction_du_document, pages_libres_
                                     pages_selectionnees, reglages_de,
                                     traduction_partielle_du_document)
 from app.services.jobs import STATUTS_ARRET, STATUTS_REPRENABLES, jobs
-from app.services.office import convert_to_pdf_bytes
+from app.services.office import convert_to_pdf_bytes, tour_conversion
 from app.services.documents import FORMATS_LIBRES
 from app.services.translation_runner import render_translation_bytes
 from app.core.database import get_db
@@ -550,9 +550,18 @@ async def download_document(
             raise HTTPException(status_code=402, detail="Aucune page payée à livrer.")
     # Rendu déjà en cache : une simple lecture, sans place à attendre. Sinon la
     # place du compartiment « rendus » se prend AVANT le thread.
-    if ext == "pdf" and livrables is None and render_cache.cache_valid(trad):
-        data = await run_in_threadpool(_build)
-    else:
+    # La lecture ne passe PAS par `_build` : si le cache disparaît entre le test
+    # et la lecture (traduction complétée, purge), on retombe sur le chemin
+    # normal, où `_build` ne s'exécute jamais sans sa place.
+    data = None
+    if ext == "pdf" and livrables is None:
+        cache = render_cache.cache_valid(trad)
+        if cache:
+            try:
+                data = await run_in_threadpool(_lire, cache)
+            except OSError:
+                data = None
+    if data is None:
         async with memoire.rendus.place_async():
             data = await run_in_threadpool(_build)
     if retirer and livrables is None and ext == "docx":
@@ -658,7 +667,9 @@ async def original_document(
 
     if as_ == "pdf" and ext != "pdf":
         try:
-            data = await run_in_threadpool(convert_to_pdf_bytes, data, ext)
+            async with tour_conversion(data, ext) as tour_pris:
+                data = await run_in_threadpool(convert_to_pdf_bytes, data, ext,
+                                               tour_pris=tour_pris)
         except Exception:
             raise HTTPException(
                 status_code=500,

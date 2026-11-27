@@ -22,7 +22,8 @@ import threading
 import time
 from typing import Callable
 
-from app.config import COMPARTIMENT_RASTER_MAX, COMPARTIMENT_RENDUS_MAX, logger
+from app.config import (COMPARTIMENT_RASTER_MAX, COMPARTIMENT_RENDUS_MAX, MEMOIRE_RASTER_MO,
+                        MEMOIRE_RENDU_MO, RENDUS_FOND_ATTENTE_MAX, logger)
 
 _CGROUP = "/sys/fs/cgroup"
 MO = 1024 * 1024
@@ -34,8 +35,8 @@ DETECTION_MO = 284
 LIBREOFFICE_MO = 234
 # Pic estimé d'un travail des compartiments (voir `Compartiment`) : reconstruire
 # un document traduit prend ~3 fois sa taille ; rastériser une page, bien moins.
-RENDU_MO = 200
-RASTER_MO = 100
+RENDU_MO = MEMOIRE_RENDU_MO
+RASTER_MO = MEMOIRE_RASTER_MO
 # Une attente ne dure jamais plus longtemps : mieux vaut tenter le travail que
 # le bloquer sans fin si la mesure se trompe.
 ATTENTE_MAX_S = max(1, int(os.getenv("MEMOIRE_ATTENTE_MAX_S", "600")))
@@ -51,31 +52,38 @@ def _lire(nom: str) -> str | None:
 
 
 _reserve = 0
+# Mémoire utilisée relevée quand la PREMIÈRE réservation d'une série démarre
+# (None tant qu'aucune n'est en cours, ou si la mesure est inconnue).
+_base: int | None = None
 _reserve_verrou = threading.Lock()
 
 
 def reserver(octets: int) -> None:
     """Retient une estimation de mémoire pour un travail qui démarre : sa
     consommation réelle n'apparaît dans la mesure qu'au fil du travail."""
-    global _reserve
+    global _reserve, _base
+    mesure = _mesure() if _reserve == 0 else None
     with _reserve_verrou:
+        if _reserve == 0:
+            _base = mesure[1] if mesure else None
         _reserve += octets
 
 
 def liberer(octets: int) -> None:
-    global _reserve
+    global _reserve, _base
     with _reserve_verrou:
         _reserve = max(0, _reserve - octets)
+        if _reserve == 0:
+            _base = None
 
 
 def reserve() -> int:
     return _reserve
 
 
-def disponible() -> int | None:
-    """Octets encore utilisables dans le conteneur (estimations réservées par
-    les compartiments déduites), None si inconnu (pas de limite, ou hors
-    conteneur : on ne bride alors rien)."""
+def _mesure() -> tuple[int, int] | None:
+    """(plafond, mémoire utilisée) du conteneur en octets, None si inconnu (pas de
+    limite, ou hors conteneur)."""
     limite, courant, stat = _lire("memory.max"), _lire("memory.current"), _lire("memory.stat")
     if not limite or not courant or limite.strip() == "max":
         return None
@@ -89,9 +97,33 @@ def disponible() -> int | None:
             utilise = champs["anon"] + champs.get("kernel", 0) + champs.get("shmem", 0)
         else:
             utilise = int(courant) - champs.get("inactive_file", 0)
-        return int(limite) - utilise - _reserve
+        return int(limite), utilise
     except ValueError:
         return None
+
+
+def disponible() -> int | None:
+    """Octets encore utilisables dans le conteneur (estimations réservées par
+    les compartiments déduites), None si inconnu (pas de limite, ou hors
+    conteneur : on ne bride alors rien).
+
+    Un travail réservé qui a déjà consommé une part de son estimation est
+    compté dans la mémoire mesurée ET dans la réservation : deux fois. Le plus
+    simple : la mémoire occupée est au moins « base + réservations » (la base
+    est la mémoire mesurée quand la première réservation a démarré), et c'est
+    la mesure réelle dès qu'elle dépasse ce plancher. La réservation ne pèse
+    donc que pour la part pas encore consommée."""
+    mesure = _mesure()
+    if mesure is None:
+        return None
+    limite, utilise = mesure
+    with _reserve_verrou:
+        reservee, base = _reserve, _base
+    if reservee and base is not None:
+        utilise = max(utilise, base + reservee)
+    elif reservee:
+        utilise += reservee
+    return limite - utilise
 
 
 def limite() -> int | None:
@@ -172,37 +204,76 @@ def rendre_au_systeme() -> None:
     rendre_memoire()
 
 
+class _Veille:
+    """Un pas d'attente de mémoire : `pas()` rend None (continuer d'attendre) ou
+    le résultat final. Commun à `attendre` (thread) et `attendre_async`."""
+
+    def __init__(self, besoin, quoi, arret, max_s, jusqu_a_marge, verifier, sauf):
+        self.besoin, self.quoi, self.arret = besoin, quoi, arret
+        self.jusqu_a_marge, self.verifier, self.sauf = jusqu_a_marge, verifier, sauf
+        self.fin = time.monotonic() + (ATTENTE_MAX_S if max_s is None else max_s)
+        self.signale = self.depasse = False
+
+    def pas(self) -> bool | None:
+        if self.verifier is not None:
+            self.verifier()
+        if self.sauf is not None and self.sauf():
+            return True
+        libre = disponible()
+        if libre is None or libre >= self.besoin:
+            if self.signale:
+                logger.info("Mémoire : %s reprend (%d Mo libres)", self.quoi,
+                            libre // MO if libre else -1)
+            return True
+        if not self.signale:
+            logger.warning("Mémoire : %s attend (%d Mo libres, %d Mo requis)",
+                           self.quoi, libre // MO, self.besoin // MO)
+            self.signale = True
+        if self.arret is not None and self.arret.is_set():
+            logger.warning("Mémoire : %s lancé sans marge après attente", self.quoi)
+            return False
+        if time.monotonic() > self.fin:
+            if not self.jusqu_a_marge:
+                logger.warning("Mémoire : %s lancé sans marge après attente", self.quoi)
+                return False
+            if not self.depasse:
+                self.depasse = True
+                logger.warning("Mémoire : %s attend toujours ; il ne démarre pas sans marge",
+                               self.quoi)
+        return None
+
+
 def attendre(besoin: int, quoi: str, arret: threading.Event | None = None,
-             max_s: float | None = None, jusqu_a_marge: bool = False) -> bool:
+             max_s: float | None = None, jusqu_a_marge: bool = False,
+             verifier: Callable[[], None] | None = None,
+             sauf: Callable[[], bool] | None = None) -> bool:
     """Attend que `besoin` octets soient disponibles. Rend True si la marge est
     là (ou inconnue), False si l'attente a dépassé `max_s` (ATTENTE_MAX_S par
-    défaut) ou si `arret` est levé : l'appelant continue quand même.
+    défaut) ou si `arret` est levé : l'appelant décide alors s'il continue.
 
     `jusqu_a_marge` : le travail ne démarre jamais sans marge. Passé le délai,
-    l'attente est signalée au journal puis continue ; seul `arret` y met fin."""
-    fin = time.monotonic() + (ATTENTE_MAX_S if max_s is None else max_s)
-    signale = depasse = False
+    l'attente est signalée au journal puis continue ; seul `arret` y met fin.
+    `verifier` : appelé à chaque pas, il lève pour interrompre l'attente (arrêt
+    d'un job). `sauf` : si elle rend True, l'attente cesse (rend True)."""
+    veille = _Veille(besoin, quoi, arret, max_s, jusqu_a_marge, verifier, sauf)
     while True:
-        libre = disponible()
-        if libre is None or libre >= besoin:
-            if signale:
-                logger.info("Mémoire : %s reprend (%d Mo libres)", quoi, libre // MO if libre else -1)
-            return True
-        if not signale:
-            logger.warning("Mémoire : %s attend (%d Mo libres, %d Mo requis)",
-                           quoi, libre // MO, besoin // MO)
-            signale = True
-        if arret is not None and arret.is_set():
-            logger.warning("Mémoire : %s lancé sans marge après attente", quoi)
-            return False
-        if time.monotonic() > fin:
-            if not jusqu_a_marge:
-                logger.warning("Mémoire : %s lancé sans marge après attente", quoi)
-                return False
-            if not depasse:
-                depasse = True
-                logger.warning("Mémoire : %s attend toujours ; il ne démarre pas sans marge", quoi)
+        resultat = veille.pas()
+        if resultat is not None:
+            return resultat
         time.sleep(_PAS_S)
+
+
+async def attendre_async(besoin: int, quoi: str, arret: threading.Event | None = None,
+                         max_s: float | None = None, jusqu_a_marge: bool = False,
+                         verifier: Callable[[], None] | None = None,
+                         sauf: Callable[[], bool] | None = None) -> bool:
+    """Comme `attendre`, sans occuper de thread : seule la coroutine attend."""
+    veille = _Veille(besoin, quoi, arret, max_s, jusqu_a_marge, verifier, sauf)
+    while True:
+        resultat = veille.pas()
+        if resultat is not None:
+            return resultat
+        await asyncio.sleep(_PAS_S)
 
 
 # ── Compartiments : travaux lourds hors traduction ───────────────────────────
@@ -214,20 +285,25 @@ def attendre(besoin: int, quoi: str, arret: threading.Event | None = None,
 # un nombre fixe de places, prises AVANT d'entrer dans un thread (une attente
 # n'en occupe aucun), et une estimation de mémoire retenue le temps du travail
 # (`reserver`), que `disponible()` déduit pour les traductions qui attendent.
+# Réciproquement, un travail attend la marge mémoire avant de démarrer, sauf s'il
+# serait le seul de son compartiment en cours (sinon la famine serait totale).
+
+class PlaceEcartee(Exception):
+    """Un rendu de fond en attente a été écarté : trop d'autres attendaient
+    derrière lui (`fond_attente_max`). Il se refera à la demande."""
+
 
 class _Attente:
-    __slots__ = ("fond", "evenement", "boucle", "futur", "accordee")
+    __slots__ = ("fond", "evenement", "boucle", "futur", "accordee", "ecartee")
 
     def __init__(self, fond: bool, boucle):
         self.fond = fond
         self.boucle = boucle
-        self.accordee = False
+        self.accordee = self.ecartee = False
         self.evenement = threading.Event() if boucle is None else None
         self.futur = boucle.create_future() if boucle is not None else None
 
-    def reveiller(self) -> bool:
-        """Donne la place à ce demandeur. Faux s'il a disparu (boucle fermée)."""
-        self.accordee = True
+    def _eveiller(self) -> bool:
         if self.boucle is None:
             self.evenement.set()
             return True
@@ -235,8 +311,20 @@ class _Attente:
             self.boucle.call_soon_threadsafe(self._poser)
             return True
         except RuntimeError:
+            return False
+
+    def reveiller(self) -> bool:
+        """Donne la place à ce demandeur. Faux s'il a disparu (boucle fermée)."""
+        self.accordee = True
+        if not self._eveiller():
             self.accordee = False
             return False
+        return True
+
+    def ecarter(self) -> None:
+        """Retire ce demandeur de la file : il lèvera `PlaceEcartee`."""
+        self.ecartee = True
+        self._eveiller()
 
     def _poser(self) -> None:
         if not self.futur.done():
@@ -250,12 +338,17 @@ class Compartiment:
     (rendus lancés sans qu'un écran les attende) ne passent qu'après tous les
     demandeurs interactifs, et le plus RÉCENT d'entre eux d'abord : ce que
     l'utilisateur vient de rouvrir compte plus que ce qu'il a survolé avant.
-    `places` None : aucune limite (la mémoire reste réservée)."""
+    `places` None : aucune limite (la mémoire reste réservée).
+    `fond_attente_max` : au plus ce nombre de travaux de fond en attente ; le
+    plus ancien est écarté (`PlaceEcartee`) pour faire de la place. None : sans limite."""
 
-    def __init__(self, nom: str, places: int | None, mo: int):
+    def __init__(self, nom: str, places: int | None, mo: int,
+                 fond_attente_max: int | None = None):
         self.nom, self.places, self.mo = nom, places, mo
+        self.fond_attente_max = fond_attente_max
         self._verrou = threading.Lock()
         self._occupees = 0
+        self._actifs = 0        # places dont la mémoire est réservée (travail en cours)
         self._attente: list[_Attente] = []
 
     @property
@@ -273,6 +366,14 @@ class Compartiment:
                 return None
             attente = _Attente(fond, boucle)
             self._attente.append(attente)
+            if fond and self.fond_attente_max:
+                en_fond = [a for a in self._attente if a.fond]
+                if len(en_fond) > self.fond_attente_max:
+                    ancienne = en_fond[0]
+                    self._attente.remove(ancienne)
+                    ancienne.ecarter()
+                    logger.info("Compartiment %s : rendu de fond écarté (%d déjà en attente)",
+                                self.nom, self.fond_attente_max)
             return attente
 
     def _choisir(self) -> _Attente:
@@ -291,10 +392,13 @@ class Compartiment:
             self._occupees = max(0, self._occupees - 1)
 
     def prendre(self, fond: bool = False) -> None:
-        """Prend une place, en bloquant le THREAD appelant (code synchrone)."""
+        """Prend une place, en bloquant le THREAD appelant (code synchrone).
+        Lève `PlaceEcartee` si un travail de fond a été écarté de la file."""
         attente = self._entrer(fond)
         if attente is not None:
             attente.evenement.wait()
+            if attente.ecartee:
+                raise PlaceEcartee(self.nom)
 
     async def prendre_async(self, fond: bool = False) -> None:
         """Prend une place SANS occuper de thread : seule la coroutine attend."""
@@ -311,29 +415,56 @@ class Compartiment:
             if donnee:
                 self._rendre_place()    # annulée après avoir reçu la place
             raise
+        if attente.ecartee:
+            raise PlaceEcartee(self.nom)
+
+    def _autres_actifs(self) -> bool:
+        return self._actifs > 0
+
+    def _demarrer(self) -> None:
+        with self._verrou:
+            self._actifs += 1
+        reserver(self.mo * MO)
+
+    def _terminer(self) -> None:
+        liberer(self.mo * MO)
+        with self._verrou:
+            self._actifs = max(0, self._actifs - 1)
+        self._rendre_place()
 
     @contextlib.contextmanager
     def place(self, fond: bool = False):
         self.prendre(fond)
-        reserver(self.mo * MO)
+        try:
+            # Marge mémoire d'abord, sauf si ce travail serait le seul en cours.
+            attendre(self.mo * MO, f"rendu {self.nom}", sauf=lambda: not self._autres_actifs())
+            self._demarrer()
+        except BaseException:
+            self._rendre_place()
+            raise
         try:
             yield
         finally:
-            liberer(self.mo * MO)
-            self._rendre_place()
+            self._terminer()
 
     @contextlib.asynccontextmanager
     async def place_async(self, fond: bool = False):
         await self.prendre_async(fond)
-        reserver(self.mo * MO)
+        try:
+            await attendre_async(self.mo * MO, f"rendu {self.nom}",
+                                 sauf=lambda: not self._autres_actifs())
+            self._demarrer()
+        except BaseException:
+            self._rendre_place()
+            raise
         try:
             yield
         finally:
-            liberer(self.mo * MO)
-            self._rendre_place()
+            self._terminer()
 
 
-rendus = Compartiment("rendus", COMPARTIMENT_RENDUS_MAX, RENDU_MO)
+rendus = Compartiment("rendus", COMPARTIMENT_RENDUS_MAX, RENDU_MO,
+                      fond_attente_max=RENDUS_FOND_ATTENTE_MAX)
 rasterisation = Compartiment("rasterisation", COMPARTIMENT_RASTER_MAX, RASTER_MO)
 
 

@@ -51,6 +51,10 @@ from engines.pdf import polices
 from engines.pdf.version import ENGINE_VERSION
 
 from app.services import memoire
+from app.services.file_libreoffice import ConversionAbandonnee, FileConversions
+
+# Priorité des conversions LibreOffice lancées en fond (aucun écran n'attend).
+A_L_AVANCE = FileConversions.A_L_AVANCE
 
 logger = logging.getLogger(__name__)
 
@@ -176,17 +180,31 @@ def ensure_background_build(original_path: str, translation_path: str,
             # Compartiment « rendus », en travail de FOND : après tout rendu
             # qu'un écran attend, et le plus récemment demandé d'abord. La
             # place se prend AVANT le verrou du document (même ordre que les
-            # routes : jamais une place attendue en tenant un verrou).
-            with memoire.rendus.place(fond=True), build_lock(translation_path):
+            # routes : jamais une place attendue en tenant un verrou). Le
+            # nombre de rendus de fond en attente est borné : le plus ancien
+            # est écarté (`PlaceEcartee`), il se refera à la demande.
+            with memoire.rendus.place(fond=True):
+                # Le rendu a pu être construit pendant l'attente de la place :
+                # inutile alors d'attendre le verrou du document.
                 if cache_valid(translation_path):
-                    return          # une requête l'a construit entre-temps
-                marque, avant = marque_polices(), mtime_de(translation_path)
-                data = _app.render_translation_bytes(
-                    original_path, translation_path, ext, target_lang)
-                if ext != "pdf":
-                    data = _app.convert_to_pdf_bytes(data, ext)
-                store_render(data, translation_path, marque, avant)
+                    return
+                with build_lock(translation_path):
+                    if cache_valid(translation_path):
+                        return          # une requête l'a construit entre-temps
+                    marque, avant = marque_polices(), mtime_de(translation_path)
+                    data = _app.render_translation_bytes(
+                        original_path, translation_path, ext, target_lang)
+                    if ext != "pdf":
+                        # Priorité À L'AVANCE : aucun écran n'attend ce rendu,
+                        # il ne doit pas passer devant un aperçu urgent.
+                        data = _app.convert_to_pdf_bytes(
+                            data, ext, priorite=A_L_AVANCE)
+                    store_render(data, translation_path, marque, avant)
             logger.info("Rendu complet mis en cache (PDF) : %s", cp)
+        except memoire.PlaceEcartee:
+            logger.info("Rendu de fond abandonné (trop en attente) : %s", cp)
+        except ConversionAbandonnee as e:
+            logger.info("Rendu de fond abandonné (%s) : %s", e, cp)
         except Exception as e:
             logger.warning("Construction du rendu en cache échouée (%s) : %s",
                            cp, e)

@@ -17,6 +17,7 @@ Deux priorités :
 """
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import threading
 from typing import Callable
@@ -26,6 +27,8 @@ from app.config import LIBREOFFICE_FILE_MAX
 # Un demandeur en attente vérifie son abandon à cette cadence : une conversion
 # devenue inutile libère sa place sans attendre son tour.
 _VEILLE_S = 0.5
+# Cadence à laquelle une attente asynchrone revérifie son tour (sans thread).
+_VEILLE_ASYNC_S = 0.05
 
 
 class ConversionAbandonnee(Exception):
@@ -58,19 +61,26 @@ class FileConversions:
     def _tete(self) -> _Demande:
         return min(self._attente, key=lambda d: (d.priorite, d.numero))
 
+    def _inscrire(self, a_l_avance: bool, abandon) -> _Demande:
+        """Entre dans la file (verrou `_cond` tenu) ; refuse une conversion à
+        l'avance quand la file est pleine."""
+        if a_l_avance and self.maximum and len(self._attente) >= self.maximum:
+            raise ConversionAbandonnee("file LibreOffice pleine")
+        self._numero += 1
+        demande = _Demande(self.A_L_AVANCE if a_l_avance else self.URGENTE,
+                           self._numero, abandon if a_l_avance else None)
+        self._attente.append(demande)
+        return demande
+
     @contextlib.contextmanager
     def tour(self, a_l_avance: bool = False,
              abandon: Callable[[], bool] | None = None):
         """Attend son tour de conversion. Lève `ConversionAbandonnee` pour une
         conversion à l'avance ignorée ou devenue inutile ; ne lève jamais pour
-        une conversion urgente."""
+        une conversion urgente. Bloque le THREAD appelant : le code asynchrone
+        prend `tour_async`."""
         with self._cond:
-            if a_l_avance and self.maximum and len(self._attente) >= self.maximum:
-                raise ConversionAbandonnee("file LibreOffice pleine")
-            self._numero += 1
-            demande = _Demande(self.A_L_AVANCE if a_l_avance else self.URGENTE,
-                               self._numero, abandon if a_l_avance else None)
-            self._attente.append(demande)
+            demande = self._inscrire(a_l_avance, abandon)
             try:
                 while True:
                     if demande.abandon is not None and demande.abandon():
@@ -84,6 +94,37 @@ class FileConversions:
                 raise
             self._attente.remove(demande)
             self._en_cours += 1
+        try:
+            yield
+        finally:
+            with self._cond:
+                self._en_cours -= 1
+                self._cond.notify_all()
+
+    @contextlib.asynccontextmanager
+    async def tour_async(self, a_l_avance: bool = False,
+                         abandon: Callable[[], bool] | None = None):
+        """Comme `tour`, sans occuper de thread : seule la coroutine attend.
+        Même file, mêmes priorités, même plafond que `tour`. Une coroutine
+        annulée quitte la file proprement (sa place ne bloque personne)."""
+        with self._cond:
+            demande = self._inscrire(a_l_avance, abandon)
+        try:
+            while True:
+                with self._cond:
+                    if demande.abandon is not None and demande.abandon():
+                        raise ConversionAbandonnee("fichier remplacé ou supprimé")
+                    if self._en_cours < self.simultanees and self._tete() is demande:
+                        self._attente.remove(demande)
+                        self._en_cours += 1
+                        break
+                await asyncio.sleep(_VEILLE_ASYNC_S)
+        except BaseException:
+            with self._cond:
+                if demande in self._attente:
+                    self._attente.remove(demande)
+                self._cond.notify_all()
+            raise
         try:
             yield
         finally:

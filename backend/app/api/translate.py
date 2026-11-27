@@ -51,7 +51,8 @@ from app.services.ocr import OCR_VERSION
 from app.services.ocr_v2.detect import Tesseract
 from app.services.jobs import STATUTS_ARRET, STATUTS_REPRENABLES, jobs
 from app.services.office import (ConversionAbandonnee, convert_to_pdf_bytes,
-                                 office_illisible, preparer_apercu)
+                                 office_illisible, preparer_apercu_async,
+                                 tour_conversion)
 from app.services.scheduler import refus_admission, scheduler, scheduler_scans
 from app.services.translation_runner import (run_pdf_v2_job,
                                              run_pptx_progressive_job,
@@ -255,7 +256,7 @@ async def upload_endpoint(
 
         async def convertir():
             try:
-                await asyncio.to_thread(preparer_apercu, chemin_depot, ext, abandon)
+                await preparer_apercu_async(chemin_depot, ext, abandon)
             except ConversionAbandonnee as e:
                 logger.info(f"Aperçu préparé au dépôt : ignoré ({e}).")
             except Exception as e:
@@ -315,7 +316,9 @@ async def preview_pdf_endpoint(
         raise HTTPException(status_code=400, detail="Fichier trop volumineux pour l'aperçu.")
 
     try:
-        pdf_bytes = await asyncio.to_thread(convert_to_pdf_bytes, file_bytes, ext)
+        async with tour_conversion(file_bytes, ext) as tour_pris:
+            pdf_bytes = await asyncio.to_thread(
+                convert_to_pdf_bytes, file_bytes, ext, tour_pris=tour_pris)
     except Exception as e:
         logger.error(f"Conversion aperçu PDF échouée : {e}")
         raise HTTPException(status_code=500, detail="La conversion du PDF a échoué. Vérifiez que le fichier est un PDF valide et non corrompu.")
@@ -1206,7 +1209,9 @@ async def translation_partial(job_id: str, x_api_key: str = Header(None),
             and resultat.lower().endswith(".docx") and os.path.exists(resultat)):
         from app.api.documents import _lire
         word = await run_in_threadpool(_lire, resultat)
-        data = await run_in_threadpool(convert_to_pdf_bytes, word, "docx")
+        async with tour_conversion(word, "docx") as tour_pris:
+            data = await run_in_threadpool(convert_to_pdf_bytes, word, "docx",
+                                           tour_pris=tour_pris)
         pages_pretes = None
     elif not path or not os.path.exists(path):
         raise HTTPException(status_code=202, detail="Aucune page prête pour l'instant.")

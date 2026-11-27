@@ -10,7 +10,13 @@ G3, G4, M4).
   (e) file pleine : la conversion à l'avance est ignorée, l'urgente passe ;
       une conversion à l'avance dont le fichier est remplacé est abandonnée ;
   (f) plus de démarrage sans marge après le délai d'attente de la mémoire ;
-  (g) rendus de fond : après les demandeurs interactifs, le plus récent d'abord.
+  (g) rendus de fond : après les demandeurs interactifs, le plus récent d'abord ;
+  (h) détection d'image : attente de mémoire sans verrou, arrêtable, bornée ;
+  (i) `tour_async` : mêmes priorités que `tour`, annulation = file libérée ;
+  (j) fil d'exécution saturé de préparations : l'aperçu urgent passe d'abord ;
+  (k) un rendu de fond ne prend pas la priorité urgente ;
+  (l) une place de compartiment attend la marge mémoire ;
+  (m) rendus de fond en attente bornés : le plus ancien est écarté.
 
 Exécution :  cd backend && venv/Scripts/python.exe -m pytest tests/test_tenue_en_charge_lot2.py -q
 Ne touche ni au réseau ni à la base.
@@ -30,6 +36,10 @@ from unittest import mock
 import racine  # noqa: F401  -- met backend/ sur le chemin
 
 from app.api import documents as docs                  # noqa: E402
+from app.services import office, render_cache          # noqa: E402
+from app.services.jobs import ArretDemande             # noqa: E402
+from app.services.ocr_v2 import ppocr                  # noqa: E402
+from app.services.ocr_v2.detect import LectureEchouee  # noqa: E402
 from app.services import memoire                       # noqa: E402
 from app.services.file_libreoffice import ConversionAbandonnee, FileConversions  # noqa: E402
 
@@ -334,6 +344,298 @@ class PasDeDemarrageSansMarge(unittest.TestCase):
              mock.patch.object(memoire, "ATTENTE_MAX_S", 0.1), \
              mock.patch.object(memoire, "_PAS_S", 0.02):
             self.assertFalse(memoire.attendre(300 * memoire.MO, "rendu"))
+
+
+# ── (h) détection d'image : attente de mémoire sans verrou, arrêtable, bornée ─
+class DetectionAttendMemoire(unittest.TestCase):
+    @staticmethod
+    def _besoin(t):
+        return t * memoire.MO
+
+    def _lancer(self, resultat, verifier=None):
+        def run():
+            try:
+                with ppocr.arret(verifier):
+                    with ppocr._creneau_detection([2, 1], self._besoin) as tuile:
+                        resultat.append(("tuile", tuile))
+            except BaseException as e:               # noqa: BLE001
+                resultat.append(("erreur", type(e)))
+        t = threading.Thread(target=run)
+        t.start()
+        return t
+
+    def test_arret_du_job_pendant_l_attente_sans_tenir_le_verrou(self):
+        arret = threading.Event()
+
+        def verifier():
+            if arret.is_set():
+                raise ArretDemande("stop")
+
+        resultat: list = []
+        with mock.patch.object(memoire, "disponible", return_value=0), \
+             mock.patch.object(memoire, "_PAS_S", 0.02), \
+             mock.patch.object(ppocr, "ATTENTE_DETECTION_S", None):
+            t = self._lancer(resultat, verifier)
+            time.sleep(0.3)
+            self.assertTrue(t.is_alive())
+            # Pendant l'attente, le verrou de détection est libre.
+            self.assertTrue(ppocr._VERROU_DETECTION.acquire(blocking=False))
+            ppocr._VERROU_DETECTION.release()
+            arret.set()
+            t.join(3)
+        self.assertFalse(t.is_alive())
+        self.assertEqual(resultat, [("erreur", ArretDemande)])
+        self.assertFalse(ppocr._VERROU_DETECTION.locked())
+
+    def test_delai_depasse_la_page_echoue_proprement(self):
+        resultat: list = []
+        with mock.patch.object(memoire, "disponible", return_value=0), \
+             mock.patch.object(memoire, "_PAS_S", 0.02), \
+             mock.patch.object(ppocr, "ATTENTE_DETECTION_S", 0.2):
+            t = self._lancer(resultat)
+            t.join(3)
+        self.assertFalse(t.is_alive())
+        self.assertEqual(resultat, [("erreur", LectureEchouee)])
+        self.assertFalse(ppocr._VERROU_DETECTION.locked())
+
+    def test_la_memoire_revenue_la_detection_passe_et_rend_le_verrou(self):
+        libre = [0]
+        resultat: list = []
+        with mock.patch.object(memoire, "disponible", side_effect=lambda: libre[0]), \
+             mock.patch.object(memoire, "_PAS_S", 0.02), \
+             mock.patch.object(ppocr, "ATTENTE_DETECTION_S", None):
+            t = self._lancer(resultat)
+            time.sleep(0.2)
+            self.assertTrue(t.is_alive())
+            libre[0] = 10 * memoire.MO
+            t.join(3)
+        self.assertEqual(resultat, [("tuile", 2)])
+        self.assertFalse(ppocr._VERROU_DETECTION.locked())
+
+
+# ── (i) file LibreOffice sans thread (`tour_async`) ──────────────────────────
+class FileLibreOfficeAsync(unittest.TestCase):
+    def test_l_urgente_passe_avant_celles_a_l_avance(self):
+        file = FileConversions(20)
+        ordre: list[str] = []
+
+        async def conv(nom, a_l_avance, tenue=None):
+            async with file.tour_async(a_l_avance=a_l_avance):
+                ordre.append(nom)
+                if tenue is not None:
+                    await tenue.wait()
+
+        async def scenario():
+            tenue = asyncio.Event()
+            taches = [asyncio.create_task(conv("en_cours", True, tenue))]
+            while ordre != ["en_cours"]:
+                await asyncio.sleep(0.01)
+            for nom in ("a1", "a2", "a3"):
+                taches.append(asyncio.create_task(conv(nom, True)))
+            await asyncio.sleep(0.1)
+            taches.append(asyncio.create_task(conv("urgente", False)))
+            await asyncio.sleep(0.1)
+            tenue.set()
+            await asyncio.gather(*taches)
+
+        asyncio.run(scenario())
+        self.assertEqual(ordre, ["en_cours", "urgente", "a1", "a2", "a3"])
+
+    def test_file_pleine_l_avance_est_refusee(self):
+        file = FileConversions(1)
+
+        async def scenario():
+            tenue = asyncio.Event()
+
+            async def occupe():
+                async with file.tour_async():
+                    await tenue.wait()
+
+            async def en_file():
+                async with file.tour_async(a_l_avance=True):
+                    pass
+
+            t1 = asyncio.create_task(occupe())
+            await asyncio.sleep(0.1)
+            t2 = asyncio.create_task(en_file())     # prend l'unique place de file
+            await asyncio.sleep(0.1)
+            with self.assertRaises(ConversionAbandonnee):
+                async with file.tour_async(a_l_avance=True):
+                    self.fail("ne devait pas démarrer")
+            tenue.set()
+            await asyncio.gather(t1, t2)
+
+        asyncio.run(scenario())
+
+    def test_l_annulation_libere_la_file(self):
+        file = FileConversions(20)
+
+        async def scenario():
+            tenue = asyncio.Event()
+
+            async def occupe():
+                async with file.tour_async():
+                    await tenue.wait()
+
+            async def attend():
+                async with file.tour_async(a_l_avance=True):
+                    pass
+
+            t1 = asyncio.create_task(occupe())
+            await asyncio.sleep(0.1)
+            t2 = asyncio.create_task(attend())
+            await asyncio.sleep(0.1)
+            self.assertEqual(file.en_attente, 1)
+            t2.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await t2
+            self.assertEqual(file.en_attente, 0)
+            tenue.set()
+            await t1
+            # Le tour est rendu : une nouvelle conversion démarre aussitôt.
+            async with file.tour_async():
+                pass
+
+        asyncio.run(scenario())
+        self.assertEqual(file._en_cours, 0)
+
+
+# ── (j) fil d'exécution saturé par des préparations : l'urgente passe d'abord ─
+class ApercuUrgentSurFilSature(unittest.TestCase):
+    def test_apercu_urgent_avant_les_preparations(self):
+        rep = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, rep, True)
+        chemin = os.path.join(rep, "a.docx")
+        with open(chemin, "wb") as f:
+            f.write(b"x")
+        file = FileConversions(500)
+        ordre: list[str] = []
+        libere = threading.Event()
+
+        def fausse_conversion(donnees, ext, **k):
+            ordre.append("prep")
+            libere.wait(10)
+            return b"%PDF"
+
+        async def scenario():
+            n = 40                               # plus que les fils du pool par défaut
+            preps = [asyncio.create_task(office.preparer_apercu_async(chemin, "docx"))
+                     for _ in range(n)]
+            while len(ordre) < 1:
+                await asyncio.sleep(0.01)
+            await asyncio.sleep(0.2)             # les 39 autres attendent, sans fil
+
+            async def urgente():
+                async with office.tour_conversion(b"y", "docx", use_cache=False):
+                    ordre.append("urgente")
+
+            tache = asyncio.create_task(urgente())
+            await asyncio.sleep(0.2)
+            libere.set()
+            await asyncio.wait_for(tache, 10)
+            self.assertEqual(ordre[:2], ["prep", "urgente"])
+            await asyncio.gather(*preps)
+
+        with mock.patch.object(office, "file_conversions", file), \
+             mock.patch.object(office, "convert_to_pdf_bytes", fausse_conversion):
+            asyncio.run(scenario())
+        self.assertEqual(ordre.count("prep"), 40)
+
+
+# ── (k) un rendu de fond ne prend pas la priorité urgente ────────────────────
+class RenduDeFondSansPriorite(unittest.TestCase):
+    def test_le_rendu_de_fond_demande_la_priorite_a_l_avance(self):
+        rep = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, rep, True)
+        orig = os.path.join(rep, "o.docx")
+        trad = os.path.join(rep, "t.json")
+        for c in (orig, trad):
+            with open(c, "wb") as f:
+                f.write(b"x")
+        appels: list[dict] = []
+
+        def conv(data, ext, **k):
+            appels.append(k)
+            return b"%PDF-1.4"
+
+        with mock.patch.object(docs, "render_translation_bytes", lambda *a, **k: b"docx"), \
+             mock.patch.object(docs, "convert_to_pdf_bytes", conv):
+            render_cache.ensure_background_build(orig, trad, "docx", "fr")
+            self.assertTrue(_attendre(lambda: appels))
+            self.assertTrue(_attendre(lambda: not render_cache._building))
+        self.assertEqual(appels[0].get("priorite"), FileConversions.A_L_AVANCE)
+
+
+# ── (l) compartiment : la place attend la marge mémoire ──────────────────────
+class PlaceAttendLaMarge(unittest.TestCase):
+    def test_la_deuxieme_place_attend_la_marge(self):
+        comp = memoire.Compartiment("t", 2, 100)
+        libre = [0]
+        etat: list[str] = []
+        with mock.patch.object(memoire, "disponible", side_effect=lambda: libre[0]), \
+             mock.patch.object(memoire, "_PAS_S", 0.02):
+            with comp.place():                      # seule en cours : part sans attendre
+                def second():
+                    with comp.place():
+                        etat.append("parti")
+                t = threading.Thread(target=second)
+                t.start()
+                time.sleep(0.3)
+                self.assertEqual(etat, [], "parti sans marge mémoire")
+                libre[0] = 1000 * memoire.MO
+                t.join(3)
+        self.assertEqual(etat, ["parti"])
+        self.assertEqual(comp.occupees, 0)
+
+    def test_place_async_attend_aussi_et_se_libere_si_annulee(self):
+        comp = memoire.Compartiment("t", 2, 100)
+
+        async def scenario():
+            with mock.patch.object(memoire, "disponible", return_value=0), \
+                 mock.patch.object(memoire, "_PAS_S", 0.02):
+                async with comp.place_async():
+                    async def second():
+                        async with comp.place_async():
+                            self.fail("parti sans marge mémoire")
+                    t = asyncio.create_task(second())
+                    await asyncio.sleep(0.3)
+                    self.assertFalse(t.done())
+                    t.cancel()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await t
+                    self.assertEqual(comp.occupees, 1)   # sa place est rendue
+
+        asyncio.run(scenario())
+        self.assertEqual(comp.occupees, 0)
+
+
+# ── (m) rendus de fond en attente : bornés, le plus ancien est écarté ────────
+class AttenteDeFondBornee(unittest.TestCase):
+    def test_le_plus_ancien_est_ecarte(self):
+        comp = memoire.Compartiment("t", 1, 10, fond_attente_max=2)
+        comp.prendre()                              # place tenue
+        resultat: dict[str, str] = {}
+
+        def fond(nom):
+            try:
+                with comp.place(fond=True):
+                    resultat[nom] = "fait"
+            except memoire.PlaceEcartee:
+                resultat[nom] = "ecarte"
+
+        threads = []
+        for nom in ("f1", "f2", "f3"):
+            t = threading.Thread(target=fond, args=(nom,))
+            t.start()
+            threads.append(t)
+            time.sleep(0.05)
+        self.assertTrue(_attendre(lambda: resultat.get("f1") == "ecarte"))
+        self.assertEqual(comp.en_attente, 2)
+        comp._rendre_place()
+        for t in threads:
+            t.join(5)
+        self.assertEqual(resultat, {"f1": "ecarte", "f2": "fait", "f3": "fait"})
+        self.assertEqual(comp.occupees, 0)
 
 
 if __name__ == "__main__":

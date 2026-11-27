@@ -793,13 +793,13 @@ class ImagesDuTravail:
         if img.octets is None:          # déjà lue pour une autre page
             return
         try:
-            with ppocr.plafond(img.cote_max):
+            with ppocr.arret(self._arret), ppocr.plafond(img.cote_max):
                 if not len(lecteur.detecter_image(_bgr(img.octets))):
                     return
             sha = hashlib.sha256(img.octets).hexdigest()
             trouve = _lire_cache(self._dossier, sha)
             if trouve is None:
-                with ppocr.plafond(img.cote_max):
+                with ppocr.arret(self._arret), ppocr.plafond(img.cote_max):
                     rendu = ocr_image.traduire_image(
                         img.octets, self._traduire,
                         tour=lambda: ocr_file.tour(arret=self._arret), langue=self._langue)
