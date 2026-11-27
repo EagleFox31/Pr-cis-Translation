@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import queue
 import re
 import threading
@@ -193,6 +194,9 @@ class JobManager:
                         os.remove(f)
                     except OSError:
                         pass
+            # Pages de l'aperçu PPTX, rangées à côté du partiel.
+            if j.get("partial_path"):
+                shutil.rmtree(j["partial_path"] + ".pages", ignore_errors=True)
 
     # ── Accès ────────────────────────────────────────────────────────────
     def get(self, job_id: str) -> dict | None:

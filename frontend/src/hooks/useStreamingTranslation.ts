@@ -218,7 +218,7 @@ export function useStreamingTranslation(deviceSignals = true) {
       resumeOf?: string,
       images: boolean = false,
       nbPages?: number,
-    ): Promise<{ blob: Blob; filename: string }> => {
+    ): Promise<{ blob: Blob; filename: string; apercu?: Blob | null }> => {
       return new Promise(async (resolve, reject) => {
         // Fermer TOUT flux encore ouvert avant d'en démarrer un nouveau. Relancer
         // une traduction alors qu'une était en cours (ou quittée par Retour)
@@ -459,13 +459,29 @@ export function useStreamingTranslation(deviceSignals = true) {
                     throw new Error(err.detail || i18n.t('common.download_failed'));
                   }
                   const blob = await dlRes.blob();
+                  // Aperçu : un résultat PDF se montre tel quel. Pour un autre
+                  // format (PPTX…), on garde l'aperçu PDF du serveur, complet à
+                  // ce stade : reconvertir le fichier final laissait les pages
+                  // en « Préparation de l'aperçu… » après « Traduction terminée ».
+                  let apercu: Blob | null = blob;
+                  if (!filename.toLowerCase().endsWith('.pdf')) {
+                    apercu = lastPartialRef.current;
+                    try {
+                      const pr = await fetch(`${API_BASE}/api/translate/partial/${job_id}`, {
+                        headers: { 'X-API-Key': API_KEY, ...authHeader() },
+                      });
+                      if (pr.status === 200) apercu = await pr.blob();
+                    } catch {
+                      // réseau : on garde le dernier partiel reçu
+                    }
+                  }
                   setState((s) => {
                     // Résultat final : toutes les pages sont traduites.
                     const ready: Record<number, true> = {};
                     for (let p = 1; p <= (s.totalPages ?? 0); p++) ready[p] = true;
-                    return { ...s, isTranslating: false, partialBlob: blob, readyPages: ready, result: { blob, filename } };
+                    return { ...s, isTranslating: false, partialBlob: apercu, readyPages: ready, result: { blob, filename } };
                   });
-                  resolve({ blob, filename });
+                  resolve({ blob, filename, apercu });
                 } catch (dlErr) {
                   const m = dlErr instanceof Error ? dlErr.message : t('story.error_translation_failed');
                   setState((s) => ({ ...s, isTranslating: false, error: m }));

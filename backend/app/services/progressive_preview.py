@@ -173,6 +173,128 @@ class ProgressivePreview:
             return sortie.tobytes()
 
 
+class ApercuParPage:
+    """L'aperçu d'un deck SANS socle : chaque page rendue vit seule sur disque.
+
+    POURQUOI PLUS DE SOCLE (docs/etude-apercu-par-page.md) : convertir le deck
+    ENTIER (TSA, 75 diapositives) a coûté 107 s et 1 494 Mo à LibreOffice, ce
+    qui tuait le serveur à 1 Go. Une diapositive seule : 200 à 300 Mo ; cinq
+    d'un coup : 642 Mo. On convertit donc `par_conversion` diapositives au plus
+    à la fois, et rien d'autre.
+
+    Une page rendue est écrite dans `dossier/{n}.pdf` et n'occupe plus la
+    mémoire. Une page pas encore rendue est montrée « en attente » : une page
+    blanche au format de la diapositive, pour que le lecteur ne saute pas.
+
+    :param extraire: `(chemin_sortie, pages) -> None`, comme `ProgressivePreview`.
+    :param convertir: `(octets_du_document) -> octets_pdf`.
+    :param total: nombre de pages du document.
+    :param taille: (largeur, hauteur) d'une page en points.
+    """
+
+    def __init__(self, extraire: Callable[[str, set[int]], None],
+                 convertir: Callable[[bytes], bytes], dossier: str, total: int,
+                 taille: tuple[float, float], extension: str = "pptx",
+                 par_conversion: int = 1):
+        self._extraire = extraire
+        self._convertir = convertir
+        self._dossier = dossier
+        self._total = total
+        self._taille = taille
+        self._extension = extension
+        self._par_conversion = max(1, par_conversion)
+        self._pretes: set[int] = set()
+
+    def chemin_page(self, num: int) -> str:
+        return os.path.join(self._dossier, f"{num}.pdf")
+
+    @property
+    def liste_pages(self) -> list[int]:
+        """Pages rendues, donc montrées traduites dans le dernier assemblage."""
+        return sorted(self._pretes)
+
+    @property
+    def pages_traduites(self) -> int:
+        return len(self._pretes)
+
+    def reprendre(self, pages: list[int]) -> list[int]:
+        """Pages déjà rendues sur disque (job relancé) : elles ne sont pas
+        reconverties. Renvoie celles qui manquent encore."""
+        manquent = []
+        for n in pages:
+            if os.path.isfile(self.chemin_page(n)):
+                self._pretes.add(n)
+            else:
+                manquent.append(n)
+        return manquent
+
+    def greffer(self, pages: list[int]) -> bytes:
+        """Rend ces pages, `par_conversion` au plus par appel à LibreOffice,
+        les range sur disque, puis renvoie l'aperçu assemblé.
+
+        Mêmes gardes que `ProgressivePreview.greffer` : une page hors du
+        document, ou un rendu dont le nombre de pages ne correspond pas, lève
+        AVANT d'écrire quoi que ce soit pour ce lot.
+        """
+        ordonnees = sorted(set(pages))
+        hors = [n for n in ordonnees if not (1 <= n <= self._total)]
+        if hors:
+            raise ValueError(
+                f"page(s) {hors} hors du document ({self._total} pages)")
+        os.makedirs(self._dossier, exist_ok=True)
+        for i in range(0, len(ordonnees), self._par_conversion):
+            lot_nums = ordonnees[i:i + self._par_conversion]
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
+                lot_path = os.path.join(td, f"lot.{self._extension}")
+                self._extraire(lot_path, set(lot_nums))
+                with open(lot_path, "rb") as f:
+                    rendu = self._convertir(f.read())
+            with fitz.open(stream=rendu, filetype="pdf") as lot:
+                if lot.page_count != len(lot_nums):
+                    raise ValueError(
+                        f"{lot.page_count} page(s) rendue(s) pour "
+                        f"{len(lot_nums)} demandée(s) : appariement incertain")
+                for j, num in enumerate(lot_nums):
+                    une = fitz.open()
+                    une.insert_pdf(lot, from_page=j, to_page=j)
+                    ecrire_atomiquement(self.chemin_page(num), une.tobytes())
+                    une.close()
+                    self._pretes.add(num)
+        return self.assembler()
+
+    def assembler(self) -> bytes:
+        """Pages rendues + pages « en attente », dans l'ordre du document.
+
+        Lit chaque page depuis le disque : la mémoire ne tient que le PDF de
+        sortie (environ 0,2 Mo par page), jamais le deck converti.
+        """
+        largeur, hauteur = self._taille
+        with fitz.open() as sortie:
+            for num in range(1, self._total + 1):
+                chemin = self.chemin_page(num)
+                if num in self._pretes and os.path.isfile(chemin):
+                    with fitz.open(chemin) as une:
+                        sortie.insert_pdf(une, from_page=0, to_page=0)
+                else:
+                    sortie.new_page(width=largeur, height=hauteur)
+            return sortie.tobytes()
+
+
+def taille_diapositive(chemin_pptx: str) -> tuple[float, float]:
+    """Format des diapositives d'un PPTX, en points (16:9 par défaut)."""
+    import re
+    import zipfile
+    try:
+        with zipfile.ZipFile(chemin_pptx) as z:
+            xml = z.read("ppt/presentation.xml").decode("utf-8", "replace")
+        m = re.search(r'<p:sldSz[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"', xml)
+        if m:
+            return int(m.group(1)) / 12700, int(m.group(2)) / 12700
+    except (OSError, KeyError, zipfile.BadZipFile):
+        pass
+    return 960.0, 540.0
+
+
 def ecrire_atomiquement(chemin: str, donnees: bytes) -> None:
     """Écrit sans jamais exposer un fichier à moitié écrit.
 
