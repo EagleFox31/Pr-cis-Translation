@@ -14,20 +14,22 @@ from app.services.documents import WORDS_PER_PAGE
 from app.core.security import require_admin, require_auth
 from app.models import (PLAN_LABELS, User, get_plan_monthly_pages,
                         get_plan_priority, get_plan_storage)
-from app.rate_limit import rate_limit_decorator
 from app import versions
 
 router = APIRouter(tags=["Service"])
 
 
 @router.get("/health")
-@rate_limit_decorator("10/minute")
-async def health_check(request: Request):
+async def health_check():
     """État du service et versions de ses composants.
 
     Les versions y figurent parce que c'est la PREMIÈRE chose qu'on interroge
     en exploitation : « quelle version tourne sur cette machine ? ». La deviner
     depuis un tag git suppose que le déploiement corresponde au dépôt.
+
+    Sans limite de débit : c'est la sonde de santé de l'hébergeur ; la limiter
+    ferait échouer la sonde, donc redémarrer un service pourtant sain. Elle ne
+    touche ni la base ni un moteur.
     """
     return {
         "status": "healthy",

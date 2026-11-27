@@ -194,6 +194,13 @@ MEMOIRE_SOCLE_MO = max(0, int(os.getenv("MEMOIRE_SOCLE_MO", "300")))
 _seuil_file = (os.getenv("FILE_ATTENTE_SEUIL_MIN") or "15").strip().lower()
 FILE_ATTENTE_SEUIL_MIN: int | None = (int(_seuil_file) or None) if _seuil_file.isdigit() else None
 FILE_ATTENTE_DUREE_DEFAUT_S = max(1, int(os.getenv("FILE_ATTENTE_DUREE_DEFAUT_S", "150")))
+# Admission bornée : au-delà de ce nombre de travaux EN ATTENTE (tous comptes),
+# ou de ce nombre par compte, une nouvelle traduction est refusée (503 +
+# Retry-After) AVANT tout débit. none/0 = aucune limite.
+_attente_max = (os.getenv("FILE_ATTENTE_MAX") or "20").strip().lower()
+FILE_ATTENTE_MAX: int | None = (int(_attente_max) or None) if _attente_max.isdigit() else None
+_attente_compte = (os.getenv("FILE_ATTENTE_MAX_PAR_COMPTE") or "3").strip().lower()
+FILE_ATTENTE_MAX_PAR_COMPTE: int | None = (int(_attente_compte) or None) if _attente_compte.isdigit() else None
 # Temps accordé à la lecture d'UNE page (le délai ne court qu'une fois le tour
 # obtenu au guichet).
 OCR_DELAI_PAGE_S = max(5, int(os.getenv("OCR_DELAI_PAGE_S", "90")))

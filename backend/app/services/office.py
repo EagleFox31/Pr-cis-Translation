@@ -39,8 +39,10 @@ _PARTIE_PRINCIPALE = {
 }
 
 
-def office_illisible(data: bytes, ext: str) -> bool:
+def office_illisible(data: "bytes | str | os.PathLike", ext: str) -> bool:
     """Vrai si `data` n'est pas un document Office lisible pour `ext`.
+    `data` est le contenu OU le chemin du fichier (relu sans le charger en
+    mémoire).
 
     Un .docx/.pptx/.xlsx est une archive ZIP dont la table des matières est À
     LA FIN : un envoi coupé en route (réseau, redémarrage du serveur) donne un
@@ -51,7 +53,8 @@ def office_illisible(data: bytes, ext: str) -> bool:
     if partie is None:
         return False
     try:
-        with zipfile.ZipFile(BytesIO(data)) as archive:
+        source = BytesIO(data) if isinstance(data, (bytes, bytearray)) else data
+        with zipfile.ZipFile(source) as archive:
             return partie not in archive.namelist()
     except (zipfile.BadZipFile, ValueError, OSError, EOFError):
         return True

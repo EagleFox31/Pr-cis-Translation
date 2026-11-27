@@ -150,6 +150,7 @@
     "error_too_large": "Fichier trop volumineux. Maximum 100 Mo.",
     "error_unsupported": "Format non pris en charge. Utilisez PDF, DOCX, PPTX, XLSX ou TXT.",
     "error_default": "Une erreur est survenue",
+    "service_busy": "Le service est très sollicité en ce moment. Réessayez dans {{minutes}} min.",
     "free_limit_device": "Les pages offertes ne sont pas disponibles pour ce compte sur cet appareil. Vous pouvez acheter des pages pour continuer.",
     "error_translation_failed": "La traduction a échoué. Réessayez ou contactez le support.",
     "queued_ahead_one": "En file d’attente : {{count}} document devant le vôtre.",

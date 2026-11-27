@@ -8,7 +8,8 @@ DEUX DÉFAUTS QUE CETTE SUITE VERROUILLE
    voyage dans le bundle), n'importe quelle page pouvait déclencher nos
    conversions LibreOffice — des secondes de CPU chacune.
 
-2. DÉBIT — seule `/health` portait un plafond. Les routes qui ENVOIENT un
+2. DÉBIT — seule `/health` portait un plafond (retiré depuis : c'est la sonde
+   de l'hébergeur). Les routes qui ENVOIENT un
    e-mail n'en avaient aucun : notre compte SMTP expédiait autant de messages
    qu'on le lui demandait, vers n'importe quelle adresse. C'est du spam à notre
    nom, et une mise en liste noire du domaine.
@@ -70,12 +71,11 @@ def main() -> int:
            repr(r.headers.get("access-control-allow-origin")))
 
         # ── 2. Plafond de débit ──────────────────────────────────────────
-        # `/health` : 10/minute, et aucune base n'est touchée.
+        # `/health` n'est PAS plafonnée : c'est la sonde de l'hébergeur, et la
+        # limiter la ferait échouer. Aucune base n'est touchée.
         codes = [client.get("/health").status_code for _ in range(14)]
-        ok("DÉBIT  /health finit par refuser (429)", 429 in codes,
-           f"{codes.count(200)} acceptés, {codes.count(429)} refusés")
-        ok("DÉBIT  les premiers appels passent (le plafond n'est pas 0)",
-           codes[0] == 200, str(codes[:3]))
+        ok("DÉBIT  /health n'est pas plafonnée (sonde de santé)",
+           set(codes) == {200}, str(codes))
 
         # Une route d'ENVOI D'E-MAIL. L'adresse n'existe pas : la route répond
         # sans rien envoyer, mais le plafond, lui, s'applique quand même —
