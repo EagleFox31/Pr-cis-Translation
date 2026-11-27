@@ -9,7 +9,6 @@ import { reportClientError } from '../lib/errorReporting';
 import HeroSection from '../components/hero/HeroSection';
 import LanguageMarquee from '../components/hero/LanguageMarquee';
 import FeaturesGrid from '../components/features/FeaturesGrid';
-import AudienceSection from '../components/audience/AudienceSection';
 import StorySection from '../components/story/StorySection';
 import type { QueueEta } from '../components/story/QueueBanner';
 import type { Ajustement } from '../components/preview/ViewerToolbar';
@@ -41,16 +40,6 @@ import { texteAvis } from '../lib/avis';
 export default function Home() {
   const { t, i18n } = useTranslation();
   const [isAnnual, setIsAnnual] = useState(false);
-
-  // Le <head> prérendu est en français (contrat vérifié par la CI SEO). Une
-  // fois l'application chargée, titre, description et `lang` suivent la
-  // langue de l'interface, pour que l'onglet et le lecteur d'écran d'un
-  // visiteur anglophone ne restent pas en français.
-  useEffect(() => {
-    document.documentElement.lang = i18n.language.slice(0, 2);
-    document.title = t('seo.home_title');
-    document.querySelector('meta[name="description"]')?.setAttribute('content', t('seo.home_description'));
-  }, [i18n.language, t]);
   const [activeSection, setActiveSection] = useState('hero');
   const [showPreview, setShowPreview] = useState(false);
   // Lu à la fin d'une traduction : l'aperçu ouvert annonce déjà l'état.
@@ -1101,8 +1090,6 @@ export default function Home() {
         <HeroSection />
 
         <FeaturesGrid />
-
-        <AudienceSection />
 
         <StorySection
           showPreview={showPreview}

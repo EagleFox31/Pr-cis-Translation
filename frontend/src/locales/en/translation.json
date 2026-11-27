@@ -40,12 +40,12 @@
     "error": "Download failed. Please try again in a moment."
   },
   "hero": {
-    "badge": "Built for translators who deliver finished documents",
-    "title_before": "Translate a PDF or Office file",
-    "title_key": "and get the",
-    "title_mid": "same file back,",
-    "title_layout": "layout preserved",
-    "subtitle": "Fonts, columns, tables, images, stamps and signatures stay where they were. No re-formatting after translation: upload, review page by page, download the finished document.",
+    "badge": "Layout engine v2",
+    "title_before": "Translate your documents",
+    "title_key": "without losing",
+    "title_mid": "their",
+    "title_layout": "page layout",
+    "subtitle": "Fonts, columns, tables, images — everything stays in place. As if the document was natively written in the target language.",
     "btn_start": "Translate a document",
     "btn_how": "See pricing",
     "beta_badge": "Beta open",
@@ -1578,34 +1578,5 @@
     "cancel": "Cancel",
     "confirm": "Translate",
     "close": "Close"
-  },
-  "audience": {
-    "tag": "Who it is for",
-    "title": "Built for people whose <strong>deliverable is the document</strong>",
-    "desc": "Machine translation is solved. Re-formatting is not. Précis translates inside the document structure, so the output opens like the original.",
-    "card_translators_title": "Freelance and sworn translators",
-    "card_translators_desc": "Deliver certificates, contracts and reports with the layout your client expects. Bill the translation, not the formatting.",
-    "card_immigration_title": "Immigration and relocation consultants",
-    "card_immigration_desc": "Diplomas, transcripts and civil records come back translated, legible and in the same structure, ready to attach to the file.",
-    "card_offices_title": "International offices and NGOs",
-    "card_offices_desc": "Brochures, decks and spreadsheets in several languages without redoing the design each time."
-  },
-  "faq": {
-    "tag": "Questions",
-    "title": "Frequently asked <strong>questions</strong>",
-    "q_certified": "Is the translation certified?",
-    "a_certified": "No. Précis produces the translated file with its layout. Certification and signature stay with the sworn translator, who reviews the text before signing.",
-    "q_formats": "Which formats and languages are supported?",
-    "a_formats": "PDF, DOCX, PPTX, XLSX and TXT, in 23 languages and 36 regional variants. The translated file keeps the original format.",
-    "q_scans": "What about scanned PDFs?",
-    "a_scans": "Pages without a text layer (photos of paper) are detected and flagged before translation. They are not translated in the current version, so you know before you pay.",
-    "q_data": "What happens to my documents?",
-    "a_data": "They are processed on our servers and deleted within 24 hours. Your private library can be cleared whenever you want.",
-    "q_trial": "Can I test it before paying?",
-    "a_trial": "Yes. Create an account and translate a document with the free trial before choosing a plan or buying pages."
-  },
-  "seo": {
-    "home_title": "Précis Translator — Translate PDF, Word, PowerPoint & Excel, layout preserved",
-    "home_description": "Upload a PDF, DOCX, PPTX or XLSX and download it translated with fonts, tables and images in place. Page-by-page preview. Files deleted within 24 hours."
   }
 }
