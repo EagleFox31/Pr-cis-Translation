@@ -23,7 +23,7 @@ import time
 import cv2
 import numpy as np
 
-from app.config import logger
+from app.config import OCR_ATTENTE_MEMOIRE_MAX_S, logger
 from app.services import memoire
 
 from .detect import LectureEchouee, Mot
@@ -53,10 +53,16 @@ OCTETS_PAR_POINT, MARGE_DETECTION = 220, 64 * 1024 * 1024
 # Une seule détection à la fois sur tout le serveur (un seul processus,
 # plusieurs fils) : deux grandes images en même temps dépassaient la mémoire.
 # Si même les plus petits morceaux ne tiennent pas, la détection attend que la
-# mémoire revienne (au plus memoire.ATTENTE_MAX_S) : partir sans marge fait
-# tuer le serveur et tous les travaux en cours.
-ATTENTE_DETECTION_S = None
+# mémoire revienne, SANS tenir le verrou (une autre détection, plus petite, peut
+# passer) et sans jamais partir sans marge : partir sans marge fait tuer le
+# serveur et tous les travaux en cours. L'attente s'interrompt à l'arrêt du job
+# (`arret`) et, passé OCR_ATTENTE_MEMOIRE_MAX_S, la page échoue proprement
+# (`LectureEchouee`, donc l'erreur de lecture habituelle). None : sans limite.
+ATTENTE_DETECTION_S = OCR_ATTENTE_MEMOIRE_MAX_S
 _VERROU_DETECTION = threading.Lock()
+# Contrôle d'arrêt du job pour lequel ce fil lit une image (lève `ArretDemande`),
+# posé par `arret`. None : l'attente de mémoire ne s'interrompt que par son délai.
+_ARRET = contextvars.ContextVar("ppocr_arret", default=None)
 # Côté maximal pour l'image en cours de ce fil (taille affichée dans le
 # document), posé par `plafond`. None : seul COTE_MAX s'applique.
 _PLAFOND = contextvars.ContextVar("ppocr_plafond", default=None)
@@ -72,6 +78,62 @@ def plafond(cote):
         yield
     finally:
         _PLAFOND.reset(jeton)
+
+
+@contextlib.contextmanager
+def arret(verifier):
+    """Dans ce bloc, la détection qui attend de la mémoire appelle `verifier()`
+    à chaque pas : il lève (`ArretDemande`) quand le job est arrêté."""
+    jeton = _ARRET.set(verifier)
+    try:
+        yield
+    finally:
+        _ARRET.reset(jeton)
+
+
+@contextlib.contextmanager
+def _creneau_detection(tailles, besoin):
+    """Rend la taille de tuile à utiliser, en tenant `_VERROU_DETECTION`.
+
+    Toute attente (mémoire, verrou) se fait SANS le verrou, par pas courts qui
+    contrôlent l'arrêt du job ; la mémoire est revérifiée une fois le verrou
+    pris (la détection précédente a pu la consommer) et, si elle manque, le
+    verrou est rendu avant de réattendre."""
+    verifier = _ARRET.get()
+    limite = ATTENTE_DETECTION_S
+    fin = None if limite is None else time.monotonic() + limite
+
+    def trouver():
+        libre = memoire.disponible()
+        return next((t for t in tailles if libre is None or besoin(t) <= libre), None)
+
+    while True:
+        tuile = trouver()
+        if tuile is None:
+            reste = None if fin is None else max(0.0, fin - time.monotonic())
+            if not memoire.attendre(besoin(tailles[-1]), "détection d'image", max_s=reste,
+                                    jusqu_a_marge=fin is None, verifier=verifier):
+                raise LectureEchouee("mémoire insuffisante pour lire l'image")
+            continue
+        while not _VERROU_DETECTION.acquire(timeout=0.5):
+            if verifier is not None:
+                verifier()
+        garde = True
+        try:
+            tuile = trouver()
+            if tuile is None:
+                continue                # la mémoire a disparu : verrou rendu, on réattend
+            garde = False
+            break
+        finally:
+            if garde:
+                _VERROU_DETECTION.release()
+    try:
+        yield tuile
+    finally:
+        _VERROU_DETECTION.release()
+
+
 HAUTEUR_REC = 48
 LOT_REC = 8
 
@@ -215,16 +277,11 @@ class PPOCR:
             x = x.transpose(2, 0, 1)[None].astype(np.float32)
             return det.run(None, {"x": x}, options)[0][0, 0]
 
-        with _VERROU_DETECTION:
-            # Plus grands morceaux qui tiennent dans la mémoire libre ; sinon
-            # les plus petits, après attente (LibreOffice, rendus, autres
-            # travaux libèrent de la place) plutôt que de faire tuer le serveur.
-            tailles = (TUILE,) + tuple(t for t in TUILES_REDUITES if t < TUILE)
-            libre = memoire.disponible()
-            tuile = next((t for t in tailles if libre is None or besoin(t) <= libre), None)
-            if tuile is None:
-                tuile = tailles[-1]
-                memoire.attendre(besoin(tuile), "détection d'image", max_s=ATTENTE_DETECTION_S)
+        # Plus grands morceaux qui tiennent dans la mémoire libre ; sinon les
+        # plus petits, après attente (LibreOffice, rendus, autres travaux
+        # libèrent de la place) plutôt que de faire tuer le serveur.
+        tailles = (TUILE,) + tuple(t for t in TUILES_REDUITES if t < TUILE)
+        with _creneau_detection(tailles, besoin) as tuile:
             if tuile < TUILE:
                 logger.info("Mémoire : détection en morceaux de %d px", tuile)
             if max(rh, rw) <= tuile:

@@ -194,6 +194,37 @@ MEMOIRE_SOCLE_MO = max(0, int(os.getenv("MEMOIRE_SOCLE_MO", "300")))
 _seuil_file = (os.getenv("FILE_ATTENTE_SEUIL_MIN") or "15").strip().lower()
 FILE_ATTENTE_SEUIL_MIN: int | None = (int(_seuil_file) or None) if _seuil_file.isdigit() else None
 FILE_ATTENTE_DUREE_DEFAUT_S = max(1, int(os.getenv("FILE_ATTENTE_DUREE_DEFAUT_S", "150")))
+# Admission bornée : au-delà de ce nombre de travaux EN ATTENTE (tous comptes),
+# ou de ce nombre par compte, une nouvelle traduction est refusée (503 +
+# Retry-After) AVANT tout débit. none/0 = aucune limite.
+_attente_max = (os.getenv("FILE_ATTENTE_MAX") or "20").strip().lower()
+FILE_ATTENTE_MAX: int | None = (int(_attente_max) or None) if _attente_max.isdigit() else None
+_attente_compte = (os.getenv("FILE_ATTENTE_MAX_PAR_COMPTE") or "3").strip().lower()
+FILE_ATTENTE_MAX_PAR_COMPTE: int | None = (int(_attente_compte) or None) if _attente_compte.isdigit() else None
+# Compartiments (voir services/memoire.py) : nombre de travaux lourds hors
+# traduction menés en même temps. « rendus » = reconstruction d'un document
+# traduit (téléchargement, aperçu, rendu de fond) ; « rasterisation » = pages
+# filigranées des comptes d'essai. none/0 = aucune limite.
+_rendus_max = (os.getenv("COMPARTIMENT_RENDUS_MAX") or "2").strip().lower()
+COMPARTIMENT_RENDUS_MAX: int | None = (int(_rendus_max) or None) if _rendus_max.isdigit() else None
+_raster_max = (os.getenv("COMPARTIMENT_RASTER_MAX") or "2").strip().lower()
+COMPARTIMENT_RASTER_MAX: int | None = (int(_raster_max) or None) if _raster_max.isdigit() else None
+# File des conversions LibreOffice en attente : au-delà, une conversion
+# « préparée à l'avance » (après un envoi) est ignorée et se refera à la
+# demande. none/0 = aucune limite.
+_lo_max = (os.getenv("LIBREOFFICE_FILE_MAX") or "20").strip().lower()
+LIBREOFFICE_FILE_MAX: int | None = (int(_lo_max) or None) if _lo_max.isdigit() else None
+# Rendus de FOND (aucun écran n'attend) en attente d'une place : au-delà, le plus
+# ancien est écarté (il se refera à la demande). none/0 = aucune limite.
+_fond_max = (os.getenv("RENDUS_FOND_ATTENTE_MAX") or "8").strip().lower()
+RENDUS_FOND_ATTENTE_MAX: int | None = (int(_fond_max) or None) if _fond_max.isdigit() else None
+# Mémoire estimée retenue par un travail des compartiments (voir services/memoire.py).
+MEMOIRE_RENDU_MO = max(1, int(os.getenv("MEMOIRE_RENDU_MO", "200")))
+MEMOIRE_RASTER_MO = max(1, int(os.getenv("MEMOIRE_RASTER_MO", "100")))
+# Attente maximale, en secondes, de la mémoire par la détection d'une image :
+# au-delà, la page échoue proprement au lieu d'attendre sans fin. none/0 = aucune limite.
+_ocr_mem = (os.getenv("OCR_ATTENTE_MEMOIRE_MAX_S") or "120").strip().lower()
+OCR_ATTENTE_MEMOIRE_MAX_S: int | None = (int(_ocr_mem) or None) if _ocr_mem.isdigit() else None
 # Temps accordé à la lecture d'UNE page (le délai ne court qu'une fois le tour
 # obtenu au guichet).
 OCR_DELAI_PAGE_S = max(5, int(os.getenv("OCR_DELAI_PAGE_S", "90")))

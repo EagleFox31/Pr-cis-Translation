@@ -26,7 +26,7 @@ from app.core.database import get_db
 from app.core.security import require_admin
 from app.models import Document, User
 from app.services.documents import copie_du_document as _copie_du_document
-from app.services.office import convert_to_pdf_bytes
+from app.services.office import convert_to_pdf_bytes, tour_conversion
 
 router = APIRouter(prefix="/api/admin/documents", tags=["Administration"])
 
@@ -174,7 +174,9 @@ async def source_pdf(
     ext = os.path.splitext(doc.original_name)[1].lstrip(".").lower()
     if ext != "pdf":
         try:
-            data = await run_in_threadpool(convert_to_pdf_bytes, data, ext)
+            async with tour_conversion(data, ext) as tour_pris:
+                data = await run_in_threadpool(convert_to_pdf_bytes, data, ext,
+                                               tour_pris=tour_pris)
         except Exception:
             logger.exception("Conversion de l'original impossible (doc %s)", doc.id)
             raise HTTPException(

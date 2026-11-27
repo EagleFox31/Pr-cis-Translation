@@ -41,7 +41,8 @@ async def main():
             submit.assert_called_once()
             normal.assert_not_called()
             args = submit.call_args.args[-1]
-            assert args[1] == data, "Original bytes must stay intact"
+            assert args[1].lire() == data, "Original bytes must stay intact"
+            assert not any(isinstance(a, (bytes, bytearray)) and len(a) > 1024 for a in args), "la file ne retient plus d'octets de fichier"
             assert "_ocrv3" in args[6], "OCR translations need a distinct cache key"
             document = (await db.execute(select(Document).where(Document.user_id == user.id))).scalar_one()
             original_path = document.original_path

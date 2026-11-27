@@ -279,8 +279,10 @@ export function useStreamingTranslation(deviceSignals = true) {
             // Pages offertes refusées par l'anti-abus : même issue qu'un manque
             // de crédits (achat), avec son propre message.
             const deviceLimit = err.reason === 'free_limit_device';
+            const minutes = Math.max(1, Math.ceil(Number(startRes.headers.get('Retry-After') || 60) / 60));
             const detail = err.reason === 'beta_inactive' ? t('beta.inactive_error')
               : deviceLimit ? t('story.free_limit_device')
+              : err.detail === 'service_sature' ? t('story.service_busy', { minutes })
               : err.detail === 'stockage_requis' ? t('library.storage_required')
               : betaError ? t('beta.translation_error') : err.detail || err.error || t('story.error_default');
             const is402 = startRes.status === 402;

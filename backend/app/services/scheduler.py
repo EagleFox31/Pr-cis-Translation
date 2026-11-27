@@ -34,7 +34,8 @@ from collections import deque
 import threading
 from typing import Any, Callable
 
-from app.config import (FILE_ATTENTE_DUREE_DEFAUT_S, FILE_ATTENTE_SEUIL_MIN,
+from app.config import (FILE_ATTENTE_DUREE_DEFAUT_S, FILE_ATTENTE_MAX,
+                        FILE_ATTENTE_MAX_PAR_COMPTE, FILE_ATTENTE_SEUIL_MIN,
                         MEMOIRE_SOCLE_MO, MEMOIRE_TRAVAIL_MO, OCR_SCAN_WORKERS,
                         TRANSLATION_WORKERS, logger)
 from app.services import memoire, ocr_file
@@ -93,6 +94,39 @@ def estimer_attente(ahead: int) -> int:
     en_cours = min(budget.occupees, places)
     tours = max(1, math.ceil((ahead + en_cours) / places))
     return int(tours * duree_type())
+
+
+def refus_admission(user_id: int) -> int | None:
+    """Secondes à attendre avant de réessayer si la file est trop pleine pour
+    accepter ce compte, sinon None.
+
+    Compte les travaux EN ATTENTE (pas encore démarrés, ni en pause ni annulés)
+    de toutes les files, y compris ceux qui attendent une place mémoire. Deux
+    plafonds : le total, et le nombre de travaux en attente du compte. Un
+    plafond à None est ignoré. Le contrôle est SOUPLE : il ne tient aucun verrou
+    jusqu'à la mise en file, donc deux demandes simultanées peuvent le franchir
+    ensemble."""
+    en_attente: list[str] = []
+    for f in _files:
+        with f._pq.mutex:
+            en_attente += [e[2] for e in f._pq.queue]
+    with budget.verrou:
+        en_attente += list(budget.attente)
+    attendants = []
+    for job_id in en_attente:
+        if not _actif(job_id):
+            continue
+        job = jobs.get(job_id) or {}
+        if not job.get("demarre"):
+            attendants.append(job)
+    total = len(attendants)
+    du_compte = sum(1 for job in attendants if job.get("user_id") == user_id)
+    trop_plein = ((FILE_ATTENTE_MAX is not None and total >= FILE_ATTENTE_MAX)
+                  or (FILE_ATTENTE_MAX_PAR_COMPTE is not None
+                      and du_compte >= FILE_ATTENTE_MAX_PAR_COMPTE))
+    if not trop_plein:
+        return None
+    return max(30, min(600, estimer_attente(total)))
 
 
 def etat_file(job_id: str | None) -> dict | None:

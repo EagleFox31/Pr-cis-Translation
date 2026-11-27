@@ -9,9 +9,13 @@ l'application, flux SSE compris, qui se fige.
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import os
 import queue
+import threading
+import secrets
+import time
 from typing import Literal
 
 from fastapi import (APIRouter, Depends, File, Form, Header, HTTPException,
@@ -37,7 +41,7 @@ from app.services.documents import (build_job_paths, cap_pages_for_plan,
                                     count_pages, pages_avec_texte, pages_faites,
                                     pages_selectionnees, reglages_de,
                                     translation_path_for)
-from app.services import depots, stockage, usage
+from app.services import depots, memoire, stockage, usage
 from app.services import anti_abus
 from app.services import beta
 from app.services import avis_document
@@ -46,8 +50,10 @@ from app.services.images_document import IMAGES_PROPOSABLES, lister as lister_im
 from app.services.ocr import OCR_VERSION
 from app.services.ocr_v2.detect import Tesseract
 from app.services.jobs import STATUTS_ARRET, STATUTS_REPRENABLES, jobs
-from app.services.office import convert_to_pdf_bytes, office_illisible
-from app.services.scheduler import scheduler, scheduler_scans
+from app.services.office import (ConversionAbandonnee, convert_to_pdf_bytes,
+                                 office_illisible, preparer_apercu_async,
+                                 tour_conversion)
+from app.services.scheduler import refus_admission, scheduler, scheduler_scans
 from app.services.translation_runner import (run_pdf_v2_job,
                                              run_pptx_progressive_job,
                                              run_translation_job,
@@ -65,6 +71,49 @@ def _selection_normale(pages, nb_pages: int):
     if not pages or set(pages) == set(range(1, nb_pages + 1)):
         return None
     return set(pages)
+
+
+class OriginalSurDisque:
+    """Renvoi vers l'original d'un job, déjà écrit sur disque.
+
+    La file d'attente garde les arguments du job tant qu'il attend : y mettre
+    les octets du fichier retenait jusqu'à 100 Mo par travail en attente. Elle
+    ne garde plus que ce renvoi ; les octets sont relus au démarrage du job
+    (`_relire_original`)."""
+    __slots__ = ("chemin",)
+
+    def __init__(self, chemin: str) -> None:
+        self.chemin = chemin
+
+    def lire(self) -> bytes:
+        with open(self.chemin, "rb") as f:
+            return f.read()
+
+    def __repr__(self) -> str:
+        return f"OriginalSurDisque({self.chemin!r})"
+
+
+def _relire_original(cible):
+    """Enveloppe la cible d'un job : au démarrage, remplace l'argument 1
+    (`OriginalSurDisque`) par les octets lus sur le disque, puis lance la vraie
+    cible.
+
+    Si la relecture échoue, l'exception remonte : le worker de l'ordonnanceur
+    la journalise et ferme le job en erreur (`jobs.error`), ce qui rembourse
+    exactement comme l'échec d'un runner. Rien n'est avalé."""
+    @functools.wraps(cible)
+    def lancee(*args):
+        original = args[1]
+        if isinstance(original, OriginalSurDisque):
+            try:
+                octets = original.lire()
+            except OSError as e:
+                logger.error("Job %s : original illisible (%s) : %s",
+                             args[0], original.chemin, e)
+                raise
+            args = (args[0], octets, *args[2:])
+        return cible(*args)
+    return lancee
 
 
 @router.options("/api/translate")
@@ -103,9 +152,14 @@ async def upload_options():
 _OFFICE_ILLISIBLE = ("Fichier incomplet ou corrompu : il n'a pas pu être ouvert. "
                      "Renvoyez le fichier d'origine depuis votre ordinateur.")
 
+# Taille du tampon d'écriture du dépôt : chaque tampon plein part sur le disque.
+_TAMPON_DEPOT = 1024 * 1024
+
 # Garde une référence aux conversions lancées au dépôt (sinon le ramasse-miettes
 # peut les couper en route).
 _conversions_depot: set = set()
+# Dernière conversion préparée à l'avance, par compte (voir `upload_endpoint`).
+_conversions_par_compte: dict = {}
 
 
 @router.post("/api/upload")
@@ -135,42 +189,86 @@ async def upload_endpoint(
         raise HTTPException(status_code=413, detail=trop_gros)
 
     # Réception en morceaux : l'envoi est coupé dès que la limite est dépassée,
-    # même si l'annonce de taille manquait ou mentait.
-    morceaux: list[bytes] = []
+    # même si l'annonce de taille manquait ou mentait. Le contenu est écrit sur
+    # le disque au fil de l'eau (par tampons d'environ 1 Mo, hors de la boucle) :
+    # un fichier de 100 Mo ne se retrouve jamais en mémoire, ni en double.
+    await run_in_threadpool(os.makedirs, depots.DOSSIER, exist_ok=True)
+    recu_tmp = os.path.join(depots.DOSSIER, f"_recu_{secrets.token_hex(8)}")
     recu = 0
-    async for morceau in request.stream():
-        recu += len(morceau)
-        if recu > MAX_FILE_SIZE:
-            raise HTTPException(status_code=413, detail=trop_gros)
-        morceaux.append(morceau)
-    if not recu:
-        raise HTTPException(status_code=400, detail="Fichier vide.")
-    data = b"".join(morceaux)
-    del morceaux
-    if office_illisible(data, ext):
-        raise HTTPException(status_code=400, detail=_OFFICE_ILLISIBLE)
+    sortie = None
+    try:
+        sortie = await run_in_threadpool(open, recu_tmp, "wb")
+        tampon = bytearray()
+        async for morceau in request.stream():
+            recu += len(morceau)
+            if recu > MAX_FILE_SIZE:
+                raise HTTPException(status_code=413, detail=trop_gros)
+            tampon += morceau
+            if len(tampon) >= _TAMPON_DEPOT:
+                await run_in_threadpool(sortie.write, bytes(tampon))
+                tampon.clear()
+        if tampon:
+            await run_in_threadpool(sortie.write, bytes(tampon))
+        del tampon
+        # Fermé ici, de façon synchrone : rien à vider de plus que le reste du
+        # tampon du fichier, et la fermeture doit aboutir même si la requête
+        # est annulée en route.
+        sortie.close()
+        sortie = None
+        if not recu:
+            raise HTTPException(status_code=400, detail="Fichier vide.")
+        if await run_in_threadpool(office_illisible, recu_tmp, ext):
+            raise HTTPException(status_code=400, detail=_OFFICE_ILLISIBLE)
 
-    def ecrire(chemin: str) -> int:
-        with open(chemin, "wb") as f:
-            f.write(data)
-        return len(data)
+        def deplacer(chemin: str) -> int:
+            os.replace(recu_tmp, chemin)
+            return recu
 
-    depot_id = await run_in_threadpool(depots.creer, current_user.id, nom, ecrire)
+        depot_id = await run_in_threadpool(depots.creer, current_user.id, nom, deplacer)
+    except BaseException:
+        # Envoi coupé, trop gros, illisible ou annulé : rien ne reste sur le disque.
+        if sortie is not None:
+            sortie.close()
+        try:
+            os.remove(recu_tmp)
+        except OSError:
+            pass
+        raise
 
     # L'aperçu de l'original se prépare pendant que l'utilisateur choisit sa
     # langue : la demande d'aperçu retrouvera la conversion en cache (même
-    # contenu, même verrou) au lieu de la lancer au clic.
+    # contenu, même verrou) au lieu de la lancer au clic. Le contenu est relu
+    # DANS le thread depuis le dépôt : la tâche ne retient aucun octet.
     if ext != "pdf":
+        chemin_depot = os.path.join(depots.DOSSIER, depot_id, "fichier")
+
+        # Un nouvel envoi du même compte remplace le précédent : la conversion
+        # encore en file de l'ancien fichier est abandonnée. Elle l'est aussi
+        # si le dépôt a disparu (expiré, supprimé) avant son tour.
+        remplace = threading.Event()
+        ancien = _conversions_par_compte.get(current_user.id)
+        _conversions_par_compte[current_user.id] = remplace
+        if ancien is not None:
+            ancien.set()
+
+        def abandon() -> bool:
+            return remplace.is_set() or not os.path.isfile(chemin_depot)
+
         async def convertir():
             try:
-                await asyncio.to_thread(convert_to_pdf_bytes, data, ext)
+                await preparer_apercu_async(chemin_depot, ext, abandon)
+            except ConversionAbandonnee as e:
+                logger.info(f"Aperçu préparé au dépôt : ignoré ({e}).")
             except Exception as e:
                 logger.warning(f"Aperçu préparé au dépôt : conversion échouée ({e}).")
+            finally:
+                if _conversions_par_compte.get(current_user.id) is remplace:
+                    del _conversions_par_compte[current_user.id]
         tache = asyncio.create_task(convertir())
         _conversions_depot.add(tache)
         tache.add_done_callback(_conversions_depot.discard)
 
-    return JSONResponse(content={"upload_id": depot_id, "taille": len(data)})
+    return JSONResponse(content={"upload_id": depot_id, "taille": recu})
 
 
 async def _fichier_recu(file: "UploadFile | None", upload_id: str,
@@ -218,7 +316,9 @@ async def preview_pdf_endpoint(
         raise HTTPException(status_code=400, detail="Fichier trop volumineux pour l'aperçu.")
 
     try:
-        pdf_bytes = await asyncio.to_thread(convert_to_pdf_bytes, file_bytes, ext)
+        async with tour_conversion(file_bytes, ext) as tour_pris:
+            pdf_bytes = await asyncio.to_thread(
+                convert_to_pdf_bytes, file_bytes, ext, tour_pris=tour_pris)
     except Exception as e:
         logger.error(f"Conversion aperçu PDF échouée : {e}")
         raise HTTPException(status_code=500, detail="La conversion du PDF a échoué. Vérifiez que le fichier est un PDF valide et non corrompu.")
@@ -376,6 +476,19 @@ async def translate_endpoint(
     resume_of = resume_of if isinstance(resume_of, str) else ""
     jusqu_limite = jusqu_limite if isinstance(jusqu_limite, str) else ""
 
+    # Admission bornée, AVANT de lire le fichier et avant tout débit : une file
+    # pleine répond « réessayez dans N secondes » sans rien coûter à personne.
+    # Contrôle SOUPLE : il ne réserve pas de place, donc deux demandes
+    # simultanées peuvent le franchir ensemble et dépasser légèrement la limite
+    # avant leur `submit` ; c'est accepté, la file reste bornée à peu de chose près.
+    if current_user.plan != "admin":
+        attente = refus_admission(current_user.id)
+        if attente is not None:
+            logger.info("Traduction refusée (file saturée) : compte %s, "
+                        "réessayer dans %s s", current_user.id, attente)
+            raise HTTPException(status_code=503, detail="service_sature",
+                                headers={"Retry-After": str(attente)})
+
     quality = qualite_autorisee(quality, precise, current_user)
 
     filename, file_bytes = await _fichier_recu(file, upload_id, current_user)
@@ -496,7 +609,7 @@ async def translate_endpoint(
     # Pages sans texte : lues par le moteur, une à une, pendant le travail. Toutes
     # restent visées et réservées ; la clôture rembourse celles qui ne se lisent
     # pas. Seule une panne du service se refuse dès l'envoi.
-    lisibles = pages_avec_texte(file_bytes, ext)
+    lisibles = await run_in_threadpool(pages_avec_texte, file_bytes, ext)
     scans: set[int] = set()
     if lisibles is not None:
         scans = (pages_set or set(range(1, nb_pages + 1))) - lisibles
@@ -579,7 +692,7 @@ async def translate_endpoint(
     reprise = None
     if resume_of and not debug_mode:
         reprise = await db.get(Document, resume_of, with_for_update=True)
-        file_hash = get_file_hash(file_bytes)
+        file_hash = await run_in_threadpool(get_file_hash, file_bytes)
         # Document archivé (sans stockage, plus de 30 jours) : refus explicite,
         # jamais une traduction neuve facturée en silence (étude Nouveautés §11).
         if (reprise is not None and reprise.user_id == locked.id
@@ -604,7 +717,8 @@ async def translate_endpoint(
                       + int(reglages_de(reprise).get("deja") or 0))
             if await beta.office_billed(db, reprise.id):
                 payees = total      # DOCX/XLSX bêta payé et écrit : tout est dû
-            faites_reprise = pages_faites(
+            faites_reprise = await run_in_threadpool(
+                pages_faites,
                 translation_path_for(_lang_dir, ext, pages_set, qsuffix),
                 ext, pages_set, total)
             deja_payees = min(payees, faites_reprise)
@@ -788,7 +902,7 @@ async def translate_endpoint(
     ptok = pages_token(pages_set)
     psuffix = f"_{ptok}" if ptok else ""
 
-    file_hash = get_file_hash(file_bytes)
+    file_hash = await run_in_threadpool(get_file_hash, file_bytes)
     safe_name = sanitize_filename(filename)
     job_dir, lang_dir = build_job_paths(file_hash, target_lang)
     os.makedirs(lang_dir, exist_ok=True)
@@ -829,7 +943,7 @@ async def translate_endpoint(
         # traduction persistante, qui sert aussi de cache de reprise.
         partial_path = os.path.join(lang_dir, f"partial{qsuffix}{psuffix}_{job_id[:8]}.pdf")
         target = run_pdf_v2_job
-        job_args = (job_id, file_bytes, original_path, output_path,
+        job_args = (job_id, OriginalSurDisque(original_path), original_path, output_path,
                     output_filename, partial_path, translation_path, target_lang,
                     pages_set, debug_mode,
                     images_actives, current_user.id, budget, plafond)
@@ -839,7 +953,7 @@ async def translate_endpoint(
         partial_path = os.path.join(lang_dir, f"partial{qsuffix}{psuffix}_{job_id[:8]}.pdf")
         is_admin = (current_user.plan == "admin")
         target = run_pptx_progressive_job
-        job_args = (job_id, file_bytes, original_path, output_path,
+        job_args = (job_id, OriginalSurDisque(original_path), original_path, output_path,
                     output_filename, partial_path, translation_path, target_lang,
                     pages_set, debug_mode, is_admin,
                     images_actives, current_user.id)
@@ -850,13 +964,13 @@ async def translate_endpoint(
         # revendiquer. C'est l'AFFICHAGE qui est progressif, pas la traduction.
         partial_path = os.path.join(lang_dir, f"partial{qsuffix}{psuffix}_{job_id[:8]}.pdf")
         target = run_xlsx_progressive_job
-        job_args = (job_id, file_bytes, original_path, output_path,
+        job_args = (job_id, OriginalSurDisque(original_path), original_path, output_path,
                     output_filename, partial_path, translation_path, target_lang,
                     model, max_tokens, debug_mode,
                     images_actives, current_user.id)
     else:
         target = run_translation_job
-        job_args = (job_id, file_bytes, filename, ext, target_lang, format_opts,
+        job_args = (job_id, OriginalSurDisque(original_path), filename, ext, target_lang, format_opts,
                     job_dir, lang_dir, original_path, extraction_path,
                     translation_path, output_path, output_filename,
                     model, max_tokens, pages_set, debug_mode,
@@ -915,7 +1029,10 @@ async def translate_endpoint(
     if pages_set:
         scans &= pages_set
     file_travail = scheduler_scans if scans else scheduler
-    file_travail.submit(job_id, get_plan_priority(current_user.plan), target, job_args)
+    # La file ne retient que le chemin de l'original (déjà sur disque, posé plus
+    # haut) : les octets sont relus quand le job démarre.
+    file_travail.submit(job_id, get_plan_priority(current_user.plan),
+                        _relire_original(target), job_args)
 
     logger.info(f"Job {job_id} queued for '{filename}' -> {target_lang} "
                 f"(priorité {get_plan_priority(current_user.plan)})")
@@ -973,11 +1090,15 @@ async def translation_events(job_id: str, token: str = ""):
 
     async def event_stream():
         q: queue.Queue = job["q"]
+        dernier_signe = time.monotonic()
         while True:
             try:
-                # Lecture non-bloquante avec délai pour laisser respirer l'event loop
+                # Lecture NON bloquante : un `get(timeout=...)` ferait attendre
+                # la boucle asyncio elle-même, donc tout le serveur, à chaque
+                # tour et pour chaque flux ouvert. La pause se fait par
+                # `asyncio.sleep`, qui rend la main aux autres requêtes.
                 try:
-                    msg = q.get(timeout=0.2)
+                    msg = q.get_nowait()
                 except queue.Empty:
                     # Le client se RECONNECTE après une coupure : si le flux
                     # coupé avait déjà consommé l'événement final, la file est
@@ -992,10 +1113,15 @@ async def translation_events(job_id: str, token: str = ""):
                                 "limite": bool(job.get("pause_limite"))})
                         yield f"data: {json.dumps(fin, ensure_ascii=False)}\n\n"
                         break
-                    yield ": keepalive\n\n"
-                    await asyncio.sleep(0.1)
+                    # Signe de vie au plus toutes les 15 s : assez pour que les
+                    # intermédiaires gardent la connexion ouverte.
+                    if time.monotonic() - dernier_signe >= 15:
+                        dernier_signe = time.monotonic()
+                        yield ": keepalive\n\n"
+                    await asyncio.sleep(0.2)
                     continue
 
+                dernier_signe = time.monotonic()
                 data = json.dumps(msg, ensure_ascii=False)
                 yield f"data: {data}\n\n"
 
@@ -1083,7 +1209,9 @@ async def translation_partial(job_id: str, x_api_key: str = Header(None),
             and resultat.lower().endswith(".docx") and os.path.exists(resultat)):
         from app.api.documents import _lire
         word = await run_in_threadpool(_lire, resultat)
-        data = await run_in_threadpool(convert_to_pdf_bytes, word, "docx")
+        async with tour_conversion(word, "docx") as tour_pris:
+            data = await run_in_threadpool(convert_to_pdf_bytes, word, "docx",
+                                           tour_pris=tour_pris)
         pages_pretes = None
     elif not path or not os.path.exists(path):
         raise HTTPException(status_code=202, detail="Aucune page prête pour l'instant.")
@@ -1114,7 +1242,9 @@ async def translation_partial(job_id: str, x_api_key: str = Header(None),
     else:
         filigrane, cibles = pages_filigranees(current_user, doc, job.get("pages"))
     if filigrane:
-        data = await run_in_threadpool(rasterize_for_trial, data, cibles)
+        # Place prise avant le thread : l'attente n'en occupe aucun.
+        async with memoire.rasterisation.place_async():
+            data = await run_in_threadpool(rasterize_for_trial, data, cibles)
 
     headers = {"Cache-Control": "no-store"}
     if pages_pretes is not None:

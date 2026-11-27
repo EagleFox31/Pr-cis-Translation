@@ -20,7 +20,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import TRANSLATIONS_DIR, logger
-from app.services import avis_document, beta, extension, images_document, ocr_pages, render_cache, stockage, translation_runner, usage
+from app.services import avis_document, beta, extension, images_document, memoire, ocr_pages, render_cache, stockage, translation_runner, usage
 from app.services.beta_meter import BetaCost
 from app.models.plans import get_plan_priority
 from app.services.scheduler import etat_file, scheduler_scans
@@ -30,7 +30,7 @@ from app.services.documents import (chemin_traduction_du_document, pages_libres_
                                     pages_selectionnees, reglages_de,
                                     traduction_partielle_du_document)
 from app.services.jobs import STATUTS_ARRET, STATUTS_REPRENABLES, jobs
-from app.services.office import convert_to_pdf_bytes
+from app.services.office import convert_to_pdf_bytes, tour_conversion
 from app.services.documents import FORMATS_LIBRES
 from app.services.translation_runner import render_translation_bytes
 from app.core.database import get_db
@@ -528,14 +528,17 @@ async def download_document(
             # ne sont pas la traduction que le client a payée.
             return _garder_pages(data, livrables) if ext == "pdf" else data
         if ext == "pdf":
-            cached = render_cache.cache_valid(trad)
-            if cached:
-                with open(cached, "rb") as f:
-                    return f.read()
-            marque, avant = render_cache.marque_polices(), render_cache.mtime_de(trad)
-            data = _render_or_404(doc, ext, trad=trad)
-            render_cache.store_render(data, trad, marque, avant)
-            return data
+            # Même verrou par document que l'aperçu : un deuxième clic (ou un
+            # aperçu) pendant le rendu attend et reprend le résultat en cache.
+            with render_cache.build_lock(trad):
+                cached = render_cache.cache_valid(trad)
+                if cached:
+                    with open(cached, "rb") as f:
+                        return f.read()
+                marque, avant = render_cache.marque_polices(), render_cache.mtime_de(trad)
+                data = _render_or_404(doc, ext, trad=trad)
+                render_cache.store_render(data, trad, marque, avant)
+                return data
         # Format natif non-PDF : jamais le cache d'aperçu.
         return _render_or_404(doc, ext, trad=trad)
 
@@ -545,7 +548,22 @@ async def download_document(
         livrables = set(livrables) - retirer
         if not livrables:
             raise HTTPException(status_code=402, detail="Aucune page payée à livrer.")
-    data = await run_in_threadpool(_build)
+    # Rendu déjà en cache : une simple lecture, sans place à attendre. Sinon la
+    # place du compartiment « rendus » se prend AVANT le thread.
+    # La lecture ne passe PAS par `_build` : si le cache disparaît entre le test
+    # et la lecture (traduction complétée, purge), on retombe sur le chemin
+    # normal, où `_build` ne s'exécute jamais sans sa place.
+    data = None
+    if ext == "pdf" and livrables is None:
+        cache = render_cache.cache_valid(trad)
+        if cache:
+            try:
+                data = await run_in_threadpool(_lire, cache)
+            except OSError:
+                data = None
+    if data is None:
+        async with memoire.rendus.place_async():
+            data = await run_in_threadpool(_build)
     if retirer and livrables is None and ext == "docx":
         data = await run_in_threadpool(_sans_pages_retirees, data, trad, retirer)
         ext = "pdf"
@@ -649,7 +667,9 @@ async def original_document(
 
     if as_ == "pdf" and ext != "pdf":
         try:
-            data = await run_in_threadpool(convert_to_pdf_bytes, data, ext)
+            async with tour_conversion(data, ext) as tour_pris:
+                data = await run_in_threadpool(convert_to_pdf_bytes, data, ext,
+                                               tour_pris=tour_pris)
         except Exception:
             raise HTTPException(
                 status_code=500,
@@ -765,7 +785,8 @@ async def preview_document(
         if filigrane:
             # Même règle que /translate/partial : un plan d'essai ne reçoit
             # que des pixels, et seules les pages traduites sont à protéger.
-            data = await run_in_threadpool(rasterize_for_trial, data, cibles)
+            async with memoire.rasterisation.place_async():
+                data = await run_in_threadpool(rasterize_for_trial, data, cibles)
         entetes = _entetes_pages(job, doc.id) if rendu == "partial" else {}
         return Response(content=data, media_type="application/pdf",
                         headers={"Cache-Control": "no-store",
@@ -829,9 +850,11 @@ async def preview_document(
         return _rendu_pdf_complet(doc, ext, trad)
 
     if fenetre is None:
-        data = await run_in_threadpool(_build_complet)
+        async with memoire.rendus.place_async():
+            data = await run_in_threadpool(_build_complet)
         if not clear:
-            data = await run_in_threadpool(rasterize_for_trial, data, cibles)
+            async with memoire.rasterisation.place_async():
+                data = await run_in_threadpool(rasterize_for_trial, data, cibles)
         return Response(content=data, media_type="application/pdf",
                         headers={"Cache-Control": "no-store",
                                  "X-Render": "full"})
@@ -848,16 +871,17 @@ async def preview_document(
         fenetre &= livrables        # page non payée : celle de l'original
 
     def _build_page() -> bytes:
-        data = _render_or_404(doc, ext, only_pages=fenetre, trad=trad)
-        if not clear:
-            # ext == "pdf" garanti ici. Pages libres seules : inutile de
-            # rastériser les copies de l'original hors de la fenêtre.
-            vise = None if cibles is None else cibles & fenetre
-            if vise is None or vise:
-                data = rasterize_for_trial(data, vise)
-        return data
+        return _render_or_404(doc, ext, only_pages=fenetre, trad=trad)
 
-    data = await run_in_threadpool(_build_page)
+    async with memoire.rendus.place_async():
+        data = await run_in_threadpool(_build_page)
+    if not clear:
+        # ext == "pdf" garanti ici. Pages libres seules : inutile de
+        # rastériser les copies de l'original hors de la fenêtre.
+        vise = None if cibles is None else cibles & fenetre
+        if vise is None or vise:
+            async with memoire.rasterisation.place_async():
+                data = await run_in_threadpool(rasterize_for_trial, data, vise)
     return Response(content=data, media_type="application/pdf",
                     headers={"Cache-Control": "no-store",
                              "X-Render": "page"})

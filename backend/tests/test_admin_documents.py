@@ -150,7 +150,7 @@ async def main() -> None:
         return b"%PDF-1.4 rendu complet"
 
     adm._rendu_pdf_complet = faux_rendu
-    adm.convert_to_pdf_bytes = lambda data, ext: b"%PDF-1.4 converti depuis " + ext.encode()
+    adm.convert_to_pdf_bytes = lambda data, ext, **k: b"%PDF-1.4 converti depuis " + ext.encode()
 
     racine_job = os.path.join(STORAGE_BASE, f"_test_admindoc_{uuid.uuid4().hex[:8]}")
     os.makedirs(os.path.join(racine_job, "en"), exist_ok=True)

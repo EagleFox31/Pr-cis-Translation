@@ -22,6 +22,10 @@ from app.config import TRANSLATIONS_DIR, logger
 DOSSIER = os.path.join(TRANSLATIONS_DIR, "_depots")
 CONSERVATION_S = 24 * 3600
 PURGE_TOUS_S = 3600
+# Envois en cours d'écriture (`_recu_*`) : jamais touchés tant qu'ils sont
+# récents ; un reste d'envoi coupé est effacé au bout d'une heure.
+RECU_CONSERVATION_S = 3600
+PREFIXE_RECU = "_recu_"
 _ID = re.compile(r"^[a-f0-9]{32}$")
 _derniere_purge = 0.0
 
@@ -67,7 +71,8 @@ def lire(depot_id: str, user_id: int) -> tuple[str, bytes] | None:
 
 def purger(maintenant: float | None = None) -> int:
     """Efface les dépôts de plus de 24 heures (et les restes d'un envoi coupé)."""
-    limite = (maintenant or time.time()) - CONSERVATION_S
+    maintenant = maintenant or time.time()
+    limite = maintenant - CONSERVATION_S
     n = 0
     try:
         noms = os.listdir(DOSSIER)
@@ -75,6 +80,14 @@ def purger(maintenant: float | None = None) -> int:
         return 0
     for nom in noms:
         dossier = os.path.join(DOSSIER, nom)
+        if nom.startswith(PREFIXE_RECU):
+            # Fichier d'un envoi : récent, il est peut-être encore en cours.
+            try:
+                if os.path.getmtime(dossier) < maintenant - RECU_CONSERVATION_S:
+                    os.remove(dossier)
+            except OSError:
+                pass
+            continue
         try:
             if os.path.getmtime(dossier) < limite:
                 shutil.rmtree(dossier)
