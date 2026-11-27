@@ -276,7 +276,11 @@ export default function Home() {
       stream
         .start(file, targetLang, pages, debug, precise, onAccepted, coverOnly, beta, resumeOf, images, nbPages)
         .then((result) => {
-          setTranslatedBlob(result.blob);
+          // Aperçu : hors PDF, le flux garde l'aperçu PDF complet du serveur
+          // (`partialBlob`) ; y substituer le fichier final forçait une
+          // reconversion entière. Le téléchargement lit `stream.result`.
+          const finalPdf = result.filename.toLowerCase().endsWith('.pdf');
+          setTranslatedBlob(finalPdf || !result.apercu ? result.blob : null);
           setTranslatedIsPdf(false);   // le RÉSULTAT est au format d'origine
           setTranslatedFilename(result.filename);
           const ext = result.filename.split('.').pop()?.toLowerCase() ?? 'pdf';

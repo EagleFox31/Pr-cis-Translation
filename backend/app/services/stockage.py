@@ -107,7 +107,9 @@ def balayer_magasin(references: set[str], version_moteur: str,
             for f in sorted(fichiers, key=lambda n: not _TRADUCTION.match(n)):
                 chemin = os.path.join(dossier, f)
                 cle = os.path.normcase(os.path.realpath(chemin))
-                if _SORTIE_JOB.match(f):
+                if (_SORTIE_JOB.match(f) or (
+                        os.path.basename(dossier).endswith(".pages")
+                        and _SORTIE_JOB.match(os.path.basename(dossier)[:-6]))):
                     _effacer(chemin, compte, "sorties_job")
                 elif m := _TABLE_IMAGES.match(f):
                     if not os.path.isfile(os.path.join(dossier, m["trad"])):

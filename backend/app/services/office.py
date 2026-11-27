@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import zipfile
 from contextlib import contextmanager
@@ -70,9 +71,8 @@ def convert_to_pdf_bytes(file_bytes: bytes, ext: str,
     if ext == "pdf":
         return file_bytes
 
-    from engines.office import convert_to_pdf
     if not use_cache:
-        return convert_to_pdf(file_bytes, ext)
+        return _convertir(file_bytes, ext)
 
     file_hash = get_file_hash(file_bytes)
     os.makedirs(PREVIEW_CACHE_DIR, exist_ok=True)
@@ -89,7 +89,7 @@ def convert_to_pdf_bytes(file_bytes: bytes, ext: str,
         data = _lire_cache(cache_path)
         if data is not None:
             return data
-        data = convert_to_pdf(file_bytes, ext)
+        data = _convertir(file_bytes, ext)
         tmp = f"{cache_path}.{threading.get_ident()}.tmp"
         with open(tmp, "wb") as f:
             f.write(data)
@@ -97,6 +97,66 @@ def convert_to_pdf_bytes(file_bytes: bytes, ext: str,
     from app.services.stockage import limiter_apercus
     limiter_apercus()
     return data
+
+
+# Diapositives converties ensemble au plus. Le deck ENTIER d'un seul tenant a
+# coûté 1 494 Mo à LibreOffice sur 75 diapositives (docs/etude-apercu-par-page.md),
+# assez pour tuer le serveur à 1 Go ; une diapositive seule : ~300 Mo.
+DIAPOS_PAR_CONVERSION = 1
+
+
+def _convertir(file_bytes: bytes, ext: str) -> bytes:
+    from engines.office import convert_to_pdf
+    if ext != "pptx" or _nb_diapos(file_bytes) <= DIAPOS_PAR_CONVERSION:
+        return convert_to_pdf(file_bytes, ext)
+    return _pptx_par_diapos(file_bytes, convert_to_pdf)
+
+
+def _nb_diapos(file_bytes: bytes) -> int:
+    """Diapositives présentes dans l'archive, sans la décompresser (l'aperçu
+    progressif convertit des decks d'une seule diapositive, un par page)."""
+    try:
+        with zipfile.ZipFile(BytesIO(file_bytes)) as archive:
+            return sum(1 for n in archive.namelist()
+                       if re.fullmatch(r"ppt/slides/slide\d+\.xml", n))
+    except (zipfile.BadZipFile, ValueError, OSError, EOFError):
+        return 0
+
+
+def _pptx_par_diapos(file_bytes: bytes, convert_to_pdf) -> bytes:
+    """Un PPTX converti `DIAPOS_PAR_CONVERSION` diapositives à la fois, puis
+    réassemblé : même PDF que le deck entier, sans son pic de mémoire.
+
+    Un lot rendu sans page (diapositive masquée, que LibreOffice n'exporte pas
+    non plus dans le deck entier) est simplement absent du résultat."""
+    import tempfile
+    import fitz
+    import engines
+    eng = engines.new_engine("pptx")
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
+        source = os.path.join(td, "source.pptx")
+        with open(source, "wb") as f:
+            f.write(file_bytes)
+        try:
+            eng._extract_zip(source)
+            total = eng.slide_count()
+            lot_path = os.path.join(td, "lot.pptx")
+            with fitz.open() as sortie:
+                for debut in range(1, total + 1, DIAPOS_PAR_CONVERSION):
+                    nums = set(range(debut, min(total, debut + DIAPOS_PAR_CONVERSION - 1) + 1))
+                    eng.build_partial_pptx(lot_path, max(nums), only_slides=nums)
+                    with open(lot_path, "rb") as f:
+                        rendu = convert_to_pdf(f.read(), "pptx")
+                    with fitz.open(stream=rendu, filetype="pdf") as lot:
+                        if lot.page_count > len(nums):
+                            raise ValueError(f"{lot.page_count} page(s) rendue(s) "
+                                             f"pour {len(nums)} diapositive(s)")
+                        sortie.insert_pdf(lot)
+                if not sortie.page_count:
+                    raise ValueError("Aucune diapositive rendue.")
+                return sortie.tobytes(garbage=3, deflate=True)
+        finally:
+            eng._cleanup_temp()
 
 
 def _lire_cache(cache_path: str) -> bytes | None:

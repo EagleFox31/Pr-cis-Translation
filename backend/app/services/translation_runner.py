@@ -40,8 +40,10 @@ from app.services import avis_document, images_document, ocr, ocr_file, ocr_page
 from engines import runtags
 from app.services.jobs import ArretDemande, _dans_une_boucle_jetable, jobs
 from app.services.office import convert_to_pdf_bytes
-from app.services.progressive_preview import (ProgressivePreview,
-                                              ecrire_atomiquement)
+from app.services.progressive_preview import (ApercuParPage,
+                                              ProgressivePreview,
+                                              ecrire_atomiquement,
+                                              taille_diapositive)
 from engines.translation_ai import TranslatorAI
 from engines.pdf import stream as pdf_v2_stream
 
@@ -899,14 +901,10 @@ def run_pptx_progressive_job(
                         job_id, len(deja_traduites))
 
         # ── Aperçu PROGRESSIF : le PDF se remplit page par page ───────────
-        # Le flux est celui du moteur PDF, et il tient en deux temps :
-        #
-        #   1. SOCLE — le document d'ORIGINE, converti une fois en PDF. Il est
-        #      affichable immédiatement : l'utilisateur voit tout le document,
-        #      en langue source, dès la première seconde.
-        #   2. GREFFE — chaque diapositive traduite est convertie SEULE, et sa
-        #      page remplace la page correspondante du socle. Le document se
-        #      traduit sous les yeux, page après page.
+        # Chaque diapositive traduite est convertie SEULE et rangée sur disque ;
+        # le partiel est recollé depuis ces pages, les autres restant « en
+        # attente ». L'ancien SOCLE (deck d'origine converti en entier) est
+        # retiré : 1 494 Mo mesurés sur 75 diapositives.
         #
         # POURQUOI C'EST POSSIBLE MAINTENANT, ET PAS AVANT
         # -------------------------------------------------
@@ -941,25 +939,21 @@ def run_pptx_progressive_job(
         # vol serait incohérent. L'admin échange l'aperçu progressif contre la
         # vitesse (il verra le partiel final, comme avant).
 
-        _apercu = ProgressivePreview(
+        # PLUS DE SOCLE (docs/etude-apercu-par-page.md, lot 1) : convertir le
+        # deck entier a coûté 1 494 Mo à LibreOffice sur 75 diapositives et
+        # tuait le serveur. Chaque diapositive est rendue SEULE, rangée sur
+        # disque (`<partiel>.pages/{n}.pdf`) ; celles pas encore rendues sont
+        # montrées « en attente » dans le partiel.
+        marque_rendu = render_cache.marque_polices()
+        _apercu = ApercuParPage(
             extraire=_extraire_diapos,
             convertir=lambda octets: convert_to_pdf_bytes(octets, "pptx",
                                                           use_cache=False),
+            dossier=partial_path + ".pages",
+            total=total_slides,
+            taille=taille_diapositive(original_path),
             extension="pptx",
         )
-
-        def _preparer_socle():
-            """Convertit le document d'ORIGINE et l'écrit comme partiel initial.
-
-            Mis en cache par CONTENU : retraduire le même document dans une
-            autre langue ne le reconvertit pas. C'est ce qui rend l'affichage
-            initial quasi instantané dès le deuxième passage.
-            """
-            with open(original_path, "rb") as f:
-                brut = f.read()
-            pdf = convert_to_pdf_bytes(brut, "pptx", use_cache=True)
-            ecrire_atomiquement(partial_path, _apercu.poser_socle(pdf))
-            jobs.set(job_id, partial_pages=_apercu.liste_pages)
 
         def _afficher_slide(slide_num: int):
             return _afficher_slides([slide_num])
@@ -973,17 +967,12 @@ def run_pptx_progressive_job(
 
             Best-effort : un échec de rendu n'interrompt JAMAIS la traduction. La
             diapositive reste correcte dans le document final ; seul son aperçu
-            progressif est manqué, et le socle continue de la montrer.
+            progressif est manqué, et la page reste « en attente ».
 
             Renvoie False dans ce cas : le client ne doit PAS présenter la page
-            du socle (en langue source) comme traduite.
+            comme traduite.
             """
             try:
-                # Le socle a pu manquer au premier essai (LibreOffice occupé,
-                # disque plein). Sans lui, toute greffe échoue : on retente.
-                if not _apercu.pret:
-                    _preparer_socle()
-
                 ecrire_atomiquement(partial_path, _apercu.greffer(nums))
                 # APRÈS l'écriture : lue avant le fichier par /partial, la
                 # liste peut retarder sur lui, jamais l'annoncer en avance.
@@ -1015,14 +1004,17 @@ def run_pptx_progressive_job(
             else:
                 slide_data, _info = pptx_eng.extract_slide(slide_num, filters)
             if not slide_data:
+                # Sans texte traduisible, la diapositive est montrée telle
+                # quelle : plus de socle pour la porter, elle est rendue seule
+                # AVANT d'être annoncée, pour que le partiel la contienne.
+                with _display_lock:
+                    _afficher_slide(slide_num)
                 with done_lock:
                     done += 1
                     cur_done = done
                 jobs.emit(job_id, "page", {"page": slide_num, "status": "copied",
                              "done": cur_done, "total": total})
                 jobs.sync_progress(job_id, cur_done, total)
-                # Rien à greffer : sans texte traduisible, la diapositive est
-                # DÉJÀ visible telle quelle dans le socle (l'original).
                 return
 
             jobs.emit(job_id, "page", {"page": slide_num, "status": "translating",
@@ -1131,19 +1123,22 @@ def run_pptx_progressive_job(
                          "apercu": apercu_ok})
             jobs.sync_progress(job_id, cur_done, total)
 
-        # ── SOCLE d'abord : l'original, visible AVANT toute traduction ────
+        # ── Partiel initial : les pages déjà rendues (relance), les autres
+        # « en attente ». Aucun appel à LibreOffice ici.
         try:
-            _preparer_socle()
-            jobs.emit(job_id, "partial", {"ready": True, "pages": 0})
+            _apercu.reprendre(slides_to_process)
+            ecrire_atomiquement(partial_path, _apercu.assembler())
+            jobs.set(job_id, partial_pages=_apercu.liste_pages)
+            jobs.emit(job_id, "partial",
+                      {"ready": True, "pages": _apercu.pages_traduites})
         except Exception as e:
-            logger.warning("Socle d'aperçu non produit : %s", e)
+            logger.warning("Aperçu initial non produit : %s", e)
 
         # ── CYCLE COMPLET PAR PAGE, en parallèle ──────────────────────────
         # `_WORKERS` threads, chacun menant UNE diapositive de bout en bout
         # (extraction → traduction → injection → conversion → affichage) avant de
         # prendre la suivante. Les traductions se recouvrent ; les affichages
-        # sont sérialisés par `_display_lock` (cf. `_process_one_slide`). Le
-        # socle est déjà prêt, donc chaque greffe a sa base.
+        # sont sérialisés par `_display_lock` (cf. `_process_one_slide`).
         from concurrent.futures import (FIRST_COMPLETED, ThreadPoolExecutor,
                                         wait)
         abandon = threading.Event()
@@ -1187,13 +1182,19 @@ def run_pptx_progressive_job(
                     for el in _elements_de(slide_data)})
                 reprises.append(sn)
             if reprises:
-                apercu_ok = _afficher_slides(reprises)
+                # Déjà rendues lors d'un essai précédent : pas reconverties.
+                # Les autres sont rendues UNE PAR UNE et montrées aussitôt :
+                # d'un seul bloc, 72 diapositives reprises laissaient l'aperçu
+                # vide une dizaine de minutes.
+                deja_rendues = set(_apercu.liste_pages)
                 for sn in reprises:
+                    apercu_ok = (True if sn in deja_rendues
+                                 else _afficher_slide(sn))
                     done += 1
                     jobs.emit(job_id, "page", {"page": sn, "status": "done",
                                  "done": done, "total": total,
                                  "apercu": apercu_ok})
-                jobs.sync_progress(job_id, done, total)
+                    jobs.sync_progress(job_id, done, total)
                 a_traiter = [sn for sn in a_traiter if sn not in reprises]
         # Arrêt immédiat : la boucle surveille le drapeau pendant l'attente ;
         # à l'arrêt, les diapositives en vol sont abandonnées (`abandon`) et
@@ -1272,6 +1273,17 @@ def run_pptx_progressive_job(
                                 if sn in slides_traduites]}
         with open(translation_path, "w", encoding="utf-8") as f:
             json.dump(full_json, f, ensure_ascii=False)
+        # Toutes les diapositives ont été rendues une à une pendant le job :
+        # leur assemblage EST le rendu final. Le garder évite de reconvertir
+        # le deck à l'ouverture (~10 s par diapositive). Deck incomplet
+        # (sélection, diapositive masquée, rendu manqué) : rien n'est gardé,
+        # le rendu se fera à la demande.
+        if set(_apercu.liste_pages) == set(range(1, total_slides + 1)):
+            try:
+                render_cache.store_render(_apercu.assembler(), translation_path,
+                                          marque_rendu)
+            except Exception as e:
+                logger.warning("Rendu du job PPTX non conservé : %s", e)
         for fini in (reprise_path, reprise_path + ".fiche"):
             try:
                 os.remove(fini)

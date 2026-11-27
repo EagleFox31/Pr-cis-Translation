@@ -101,6 +101,7 @@ def _is_numeric(val: str) -> bool:
 # toujours les mêmes porteurs, dans le même ordre.
 
 _A = NAMESPACES["a"]
+_MEDIAS_COMPRESSES = (".png", ".jpg", ".jpeg", ".gif", ".mp4", ".m4a", ".mp3")
 _SYMBOLES = "-✀-➿■-◿←-⇿•"
 _RE_SYMBOLES_SEULS = re.compile(rf"^[\s{_SYMBOLES}]*$")
 _RE_PREFIXE_SYMBOLE = re.compile(rf"^\s*[{_SYMBOLES}](?:[\s{_SYMBOLES}])*")
@@ -1378,7 +1379,12 @@ class PPTXTranslatorEngine:
                     continue
                 part_path = temp_path / rel
                 if part_path.exists():
-                    zf.write(part_path, rel)
+                    # Extrait partiel : les médias déjà compressés sont copiés
+                    # tels quels. Les recompresser coûtait ~3 s par extrait
+                    # (17 Mo de PNG/JPEG) pour un gain nul.
+                    stocker = exclus and rel.lower().endswith(_MEDIAS_COMPRESSES)
+                    zf.write(part_path, rel,
+                             compress_type=zipfile.ZIP_STORED if stocker else None)
         os.replace(tmp_out, output_path)
 
     @staticmethod

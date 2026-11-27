@@ -31,7 +31,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # workers de traduction, l'OCR et les threads d'onnxruntime, la mémoire rendue
 # par Python reste fragmentée dans ces arènes et le processus dépasse sa limite
 # au repos. Deux arènes suffisent à ce service.
-ENV MALLOC_ARENA_MAX=2
+# Seuils fixes à 4 Mo : les grands tableaux (image décodée, carte de l'OCR)
+# passent par mmap et sont rendus dès leur libération. Avec le seuil dynamique
+# par défaut, ils restaient dans le tas : mesuré sur un PPTX de 132 images,
+# pic 762 → 510 Mo et mémoire gardée 482 → 321 Mo, pour ~0,1 s par image.
+ENV MALLOC_ARENA_MAX=2 \
+    MALLOC_MMAP_THRESHOLD_=4194304 \
+    MALLOC_TRIM_THRESHOLD_=4194304
 
 # ── Dépendances système ──────────────────────────────────────────────────────
 # LibreOffice sert UNIQUEMENT à convertir les documents non-PDF en PDF pour
